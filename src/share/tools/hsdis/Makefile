@@ -79,6 +79,7 @@ CFLAGS		+= -fPIC
 OS		= linux
 LIB_EXT		= .so
 CC 		= gcc
+CONFIGURE_ARGS= --target=aarch64-none-linux-gnu
 endif
 CFLAGS		+= -O
 DLDFLAGS	+= -shared
