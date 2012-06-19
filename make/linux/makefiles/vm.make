@@ -310,6 +310,8 @@ $(LD_SCRIPT): $(LIBJVM_MAPFILE)
 LD_SCRIPT_FLAG = -Wl,-T,$(LD_SCRIPT)
 endif
 
+STRIP_POLICY=no_strip
+
 # With more recent Redhat releases (or the cutting edge version Fedora), if
 # SELinux is configured to be enabled, the runtime linker will fail to apply
 # the text relocation to libjvm.so considering that it is built as a non-PIC

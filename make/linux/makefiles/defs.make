@@ -140,6 +140,8 @@ else
   endif
 endif
 
+STRIP_POLICY=no_strip
+
 ifeq ($(JDK6_OR_EARLIER),0)
   # Full Debug Symbols is supported on JDK7 or newer.
   # The Full Debug Symbols (FDS) default for BUILD_FLAVOR == product
