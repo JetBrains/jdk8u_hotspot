@@ -122,7 +122,9 @@ LFLAGS += $(EXTRA_CFLAGS)
 # the same could be done by separate execstack command
 LFLAGS += -Xlinker -z -Xlinker noexecstack
 
-LIBS += -lm -ldl -lpthread
+ARMSIM_DIR = $(shell cd ../../../../../../../simulator/ && pwd)
+
+LIBS += -lm -ldl -lpthread -L $(ARMSIM_DIR) -larmsim -Wl,-rpath,$(ARMSIM_DIR)
 
 # By default, link the *.o into the library, not the executable.
 LINK_INTO$(LINK_INTO) = LIBJVM

@@ -44,6 +44,9 @@
 #include "runtime/timer.hpp"
 #include "runtime/vframeArray.hpp"
 #include "utilities/debug.hpp"
+#include <sys/types.h>
+
+#include "../../../../../../simulator/simulator.hpp"
 
 #define __ _masm->
 
@@ -52,6 +55,29 @@
 const int method_offset = frame::interpreter_frame_method_offset * wordSize;
 const int bci_offset    = frame::interpreter_frame_bcx_offset    * wordSize;
 const int locals_offset = frame::interpreter_frame_locals_offset * wordSize;
+
+//-----------------------------------------------------------------------------
+
+AArch64Simulator sim;
+
+address TemplateInterpreterGenerator::generate_AARM64_loop() {
+  const int r0 = 0;
+  const int LR = 30;
+  address entry = __ pc();
+
+  __ _mov_imm(r0, 100);
+  address loop = __ pc();
+  __ _sub_imm(r0, r0, 1);
+  __ _cbz(r0, loop);
+  __ _br(LR);
+
+  Disassembler::decode(entry, __ pc());
+  char stack[4096];
+
+  sim.init((u_int64_t)entry, (u_int64_t)stack + sizeof stack,
+	   (u_int64_t)stack);
+  sim.run();
+}
 
 //-----------------------------------------------------------------------------
 

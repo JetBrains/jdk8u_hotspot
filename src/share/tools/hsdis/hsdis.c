@@ -73,7 +73,7 @@ struct hsdis_app_data {
   void*             event_stream   = (app_data)->event_stream
 
 #define DECL_PRINTF_CALLBACK(app_data) \
-  printf_callback_t  printf_callback = (app_data)->printf_callback; \
+  printf_callback_t  printf_callback = (app_data)->printf_callback;	\
   void*              printf_stream   = (app_data)->printf_stream
 
 
@@ -406,6 +406,7 @@ static const bfd_arch_info_type* find_arch_info(const char* arch_name) {
 
 static const char* native_arch_name() {
   const char* res = NULL;
+#if 0
 #ifdef LIBARCH_i386
     res = "i386";
 #endif
@@ -418,7 +419,10 @@ static const char* native_arch_name() {
 #ifdef LIBARCH_sparcv9
     res = "sparc:v9b";
 #endif
-  if (res == NULL)
+#else
+    res = "aarch64";
+#endif  
+    if (res == NULL)
     res = "architecture not set in Makefile!";
   return res;
 }

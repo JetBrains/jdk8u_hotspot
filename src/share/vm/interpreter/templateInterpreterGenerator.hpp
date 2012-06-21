@@ -37,6 +37,8 @@ class TemplateInterpreterGenerator: public AbstractInterpreterGenerator {
   address _unimplemented_bytecode;
   address _illegal_bytecode_sequence;
 
+  address generate_AARM64_loop();
+
   // shared code sequences
   // Converter for native abi result to tosca result
   address generate_result_handler_for(BasicType type);

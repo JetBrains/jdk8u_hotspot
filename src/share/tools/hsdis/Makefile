@@ -56,6 +56,7 @@ else
 ifeq		($(OS),Linux)
 ifneq           ($(MINGW),)
 LIB_EXT		= .dll
+CPPFLAGS += -g	
 CPPFLAGS += -I$(TARGET_DIR)/include
 LDFLAGS += -L$(TARGET_DIR)/lib
 OS=windows
@@ -81,7 +82,8 @@ LIB_EXT		= .so
 CC 		= gcc
 CONFIGURE_ARGS= --target=aarch64-none-linux-gnu
 endif
-CFLAGS		+= -O
+CFLAGS		+= -g
+CFLAGS		+= -O0
 DLDFLAGS	+= -shared
 LDFLAGS         += -ldl
 OUTFLAGS	+= -o $@
@@ -119,7 +121,7 @@ else
 BINUTILSDIR	= $(shell cd $(BINUTILS);pwd)
 endif
 
-CPPFLAGS	+= -I$(BINUTILSDIR)/include -I$(BINUTILS)/bfd -I$(TARGET_DIR)/bfd
+CPPFLAGS	+= -I$(BINUTILSDIR)/include -I$(BINUTILS)/bfd -I$(BINUTILSDIR)/bfd -I$(TARGET_DIR)/bfd
 CPPFLAGS	+= -DLIBARCH_$(LIBARCH) -DLIBARCH=\"$(LIBARCH)\" -DLIB_EXT=\"$(LIB_EXT)\"
 
 TARGET_DIR	= build/$(OS)-$(JDKARCH)
