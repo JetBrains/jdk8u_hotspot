@@ -1624,43 +1624,6 @@ private:
   void xorpd(XMMRegister dst, Address src);
   void xorps(XMMRegister dst, Address src);
 
-public:
-
-// AARCH 64 Assembler
-
-  void _add_sub_immediate(int sf, int op, int Rd, int Rn, int imm,
-			 int shift = 0, int S = 0) {
-    emit_long(0x11000000 | sf << 31 | op << 30 | S << 29
-	      | imm << 10 | Rn << 5 | Rd);
-  }
-
-  void _add_imm(int Rd, int Rn, int imm, int shift = 0, int S = 0) {
-    _add_sub_immediate(0, 0, Rd, Rn, imm);
-  }
-
-  void _sub_imm(int Rd, int Rn, int imm, int shift = 0, int S = 0) {
-    _add_sub_immediate(1, 1, Rd, Rn, imm);
-  }
-
-  void _mov_imm(int Rd, int imm16, int shift = 0) {
-    emit_long(0xd2800000 | shift << 21 | imm16 << 5 | Rd);
-  }
-
-  void _cmp_and_branch(int sf, int op, int Rt, address dest) {
-    long offset = dest - pc();
-    offset >>= 2;
-    unsigned imm19 = offset << (32-19);
-    imm19 >>= 32-19;
-    emit_long(0xb4000000 | op << 24 | imm19 << 5 | Rt);
-  }
-
-  void _cbz(int Rt, address dest) {
-    _cmp_and_branch(0, 0, Rt, dest);
-  }
-
-  void _br(int Rn) {
-    emit_long(0xd61f0000 | Rn << 5);
-  }
 };
 
 
