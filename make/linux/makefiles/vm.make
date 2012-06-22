@@ -154,8 +154,8 @@ SOURCE_PATHS=\
       \( -name DUMMY $(foreach dir,$(SPECIAL_PATHS),-o -name $(dir)) \))
 SOURCE_PATHS+=$(HS_COMMON_SRC)/os/$(Platform_os_family)/vm
 SOURCE_PATHS+=$(HS_COMMON_SRC)/os/posix/vm
-SOURCE_PATHS+=$(HS_COMMON_SRC)/cpu/aarm64/vm
-SOURCE_PATHS+=$(HS_COMMON_SRC)/os_cpu/linux_aarm64/vm
+SOURCE_PATHS+=$(HS_COMMON_SRC)/cpu/aarch64/vm
+SOURCE_PATHS+=$(HS_COMMON_SRC)/os_cpu/linux_aarch64/vm
 
 ifndef JAVASE_EMBEDDED 
 ifneq (${ARCH},arm)
