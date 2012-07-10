@@ -117,7 +117,11 @@ endif
 # AARCH64
 
 # AARCH64 is currently signalled by SRCARCH == aarch64
-# however it relies upon builing with ARCH = amd64
+# however it relies upon builing with ARCH = x86_64
+# the next line defaults x86_64 builds to aarch64
+ifeq ($(ARCH), x86_64)
+  SRCARCH = aarch64
+endif
 
 ifeq ($(SRCARCH), aarch64)
   ARCH_DATA_MODEL  = 64
