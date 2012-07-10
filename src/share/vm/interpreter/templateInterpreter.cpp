@@ -341,7 +341,6 @@ void TemplateInterpreterGenerator::generate_all() {
   }
 
   { CodeletMark cm(_masm, "throw exception entrypoints");
-    generate_AARM64_loop();
     Interpreter::_throw_ArrayIndexOutOfBoundsException_entry = generate_ArrayIndexOutOfBounds_handler("java/lang/ArrayIndexOutOfBoundsException");
     Interpreter::_throw_ArrayStoreException_entry            = generate_klass_exception_handler("java/lang/ArrayStoreException"                 );
     Interpreter::_throw_ArithmeticException_entry            = generate_exception_handler("java/lang/ArithmeticException"           , "/ by zero");

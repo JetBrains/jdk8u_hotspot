@@ -210,10 +210,10 @@ flags.make: $(BUILDTREE_MAKE) ../shared_dirs.lst
 	echo; \
 	echo "Src_Dirs_V = \\"; \
 	sed 's/$$/ \\/;s|$(GAMMADIR)|$$(GAMMADIR)|' ../shared_dirs.lst; \
-	echo "$(call gamma-path,altsrc,cpu/aarch64/vm) \\"; \
-	echo "$(call gamma-path,commonsrc,cpu/aarch64/vm) \\"; \
-	echo "$(call gamma-path,altsrc,os_cpu/$(OS_FAMILY)_aarch64/vm) \\"; \
-	echo "$(call gamma-path,commonsrc,os_cpu/$(OS_FAMILY)_aarch64/vm) \\"; \
+	echo "$(call gamma-path,altsrc,cpu/$(SRCARCH)/vm) \\"; \
+	echo "$(call gamma-path,commonsrc,cpu/$(SRCARCH)/vm) \\"; \
+	echo "$(call gamma-path,altsrc,os_cpu/$(OS_FAMILY)_$(SRCARCH)/vm) \\"; \
+	echo "$(call gamma-path,commonsrc,os_cpu/$(OS_FAMILY)_$(SRCARCH)/vm) \\"; \
 	echo "$(call gamma-path,altsrc,os/$(OS_FAMILY)/vm) \\"; \
 	echo "$(call gamma-path,commonsrc,os/$(OS_FAMILY)/vm) \\"; \
 	echo "$(call gamma-path,altsrc,os/posix/vm) \\"; \
@@ -226,10 +226,10 @@ flags.make: $(BUILDTREE_MAKE) ../shared_dirs.lst
 	echo "$(call gamma-path,commonsrc,share/vm) \\"; \
 	echo "$(call gamma-path,altsrc,share/vm/precompiled) \\"; \
 	echo "$(call gamma-path,commonsrc,share/vm/precompiled) \\"; \
-	echo "$(call gamma-path,altsrc,cpu/aarch64/vm) \\"; \
-	echo "$(call gamma-path,commonsrc,cpu/aarch64/vm) \\"; \
-	echo "$(call gamma-path,altsrc,os_cpu/$(OS_FAMILY)_aarch64/vm) \\"; \
-	echo "$(call gamma-path,commonsrc,os_cpu/$(OS_FAMILY)_aarch64/vm) \\"; \
+	echo "$(call gamma-path,altsrc,cpu/$(SRCARCH)/vm) \\"; \
+	echo "$(call gamma-path,commonsrc,cpu/$(SRCARCH)/vm) \\"; \
+	echo "$(call gamma-path,altsrc,os_cpu/$(OS_FAMILY)_$(SRCARCH)/vm) \\"; \
+	echo "$(call gamma-path,commonsrc,os_cpu/$(OS_FAMILY)_$(SRCARCH)/vm) \\"; \
 	echo "$(call gamma-path,altsrc,os/$(OS_FAMILY)/vm) \\"; \
 	echo "$(call gamma-path,commonsrc,os/$(OS_FAMILY)/vm) \\"; \
 	echo "$(call gamma-path,altsrc,os/posix/vm) \\"; \
@@ -396,7 +396,6 @@ WRONG_DATA_MODE_MSG = \
 
 CROSS_COMPILING_MSG = \
 	echo "Cross compiling for ARCH $(CROSS_COMPILE_ARCH), skipping gamma run."
-
 test_gamma:  $(BUILDTREE_MAKE) $(GAMMADIR)/make/test/Queens.java
 	@echo Creating $@ ...
 	$(QUIETLY) ( \

@@ -40,6 +40,9 @@
 #ifdef TARGET_ARCH_x86
 # include "assembler_x86.inline.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "assembler_aarch64.inline.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "assembler_sparc.inline.hpp"
 #endif
