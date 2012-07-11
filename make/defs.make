@@ -245,14 +245,15 @@ ifneq ($(OSNAME),windows)
   #   LIBARCH   - directory name in JDK/JRE
 
   # Use uname output for SRCARCH, but deal with platform differences. If ARCH
-  # is not explicitly listed below, it is treated as x86. 
+  # is not explicitly listed below, it is treated as x86.
+  # !!! also -- treat amd64 and x86_64 as aarch64
   SRCARCH     = $(ARCH/$(filter sparc sparc64 ia64 amd64 x86_64 arm ppc zero aarch64,$(ARCH)))
   ARCH/       = x86
   ARCH/sparc  = sparc
   ARCH/sparc64= sparc
   ARCH/ia64   = ia64
-  ARCH/amd64  = x86
-  ARCH/x86_64 = x86
+  ARCH/amd64  = aarch64
+  ARCH/x86_64 = aarch64
   ARCH/ppc64  = ppc
   ARCH/ppc    = ppc
   ARCH/arm    = arm
