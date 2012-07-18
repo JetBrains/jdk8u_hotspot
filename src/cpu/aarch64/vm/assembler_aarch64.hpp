@@ -145,7 +145,6 @@ class Address_aarch64 VALUE_OBJ_CLASS_SPEC {
   Register _index;
   int _offset;
   enum mode _mode;
-  address _adr;
   int _scale;
 
  public:
@@ -1074,7 +1073,7 @@ public:
   INSN(fnmadds, 0b000, 0b00, 0, 0);
   INSN(fnmsubs, 0b000, 0b00, 0, 1);
 
-  INSN(fmadd, 0b000, 0b01, 0, 0);
+  INSN(fmaddd, 0b000, 0b01, 0, 0);
   INSN(fmsubd, 0b000, 0b01, 0, 1);
   INSN(fnmadd, 0b000, 0b01, 0, 0);
   INSN(fnmsub, 0b000, 0b01, 0, 1);
@@ -1098,7 +1097,7 @@ public:
     float_int_convert(op31, type, rmode, opcode, Rd, (Register)Vn);	\
   }
 
-  INSN(fcvtszw, 0b000, 0b00, 0b11, 0b000);
+  INSN(fcvtzsw, 0b000, 0b00, 0b11, 0b000);
   INSN(fcvtzs, 0b000, 0b01, 0b11, 0b000);
   INSN(fcvtzdw, 0b100, 0b00, 0b11, 0b000);
   INSN(fcvtszd, 0b100, 0b01, 0b11, 0b000);
@@ -1106,7 +1105,7 @@ public:
   INSN(fmovs, 0b000, 0b00, 0b00, 0b110);
   INSN(fmovd, 0b100, 0b01, 0b00, 0b110);
 
-  INSN(fmovhid, 0b100, 0b10, 0b01, 0b110);
+  // INSN(fmovhid, 0b100, 0b10, 0b01, 0b110);
 
 #undef INSN
 
@@ -1118,7 +1117,7 @@ public:
   INSN(fmovs, 0b000, 0b00, 0b00, 0b111);
   INSN(fmovd, 0b100, 0b01, 0b00, 0b111);
 
-  INSN(fmovhid, 0b100, 0b10, 0b01, 0b111);
+  // INSN(fmovhid, 0b100, 0b10, 0b01, 0b111);
 
 #undef INSN
 
@@ -1147,13 +1146,13 @@ public:
 
   INSN(fcmps, 0b000, 0b00, 0b00, 0b00000);
   INSN1(fcmps, 0b000, 0b00, 0b00, 0b01000);
-  INSN(fcmpes, 0b000, 0b00, 0b00, 0b10000);
-  INSN1(fcmpes, 0b000, 0b00, 0b00, 0b11000);
+  // INSN(fcmpes, 0b000, 0b00, 0b00, 0b10000);
+  // INSN1(fcmpes, 0b000, 0b00, 0b00, 0b11000);
 
   INSN(fcmpd, 0b000,   0b01, 0b00, 0b00000);
   INSN1(fcmpd, 0b000,  0b01, 0b00, 0b01000);
-  INSN(fcmped, 0b000,  0b01, 0b00, 0b10000);
-  INSN1(fcmped, 0b000, 0b01, 0b00, 0b11000);
+  // INSN(fcmped, 0b000,  0b01, 0b00, 0b10000);
+  // INSN1(fcmped, 0b000, 0b01, 0b00, 0b11000);
 
 #undef INSN
 #undef INSN1
