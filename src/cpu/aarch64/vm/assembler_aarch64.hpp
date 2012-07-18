@@ -198,13 +198,13 @@ class Address VALUE_OBJ_CLASS_SPEC {
     case pre:
       i->f(0b00, 25, 24);
       i->f(0, 21), i->f(0b11, 11, 10);
-      i->f(_offset, 20, 12);
+      i->sf(_offset, 20, 12);
       break;
 
     case post:
       i->f(0b00, 25, 24);
       i->f(0, 21), i->f(0b01, 11, 10);
-      i->f(_offset, 20, 12);
+      i->sf(_offset, 20, 12);
       break;
 
     default:
@@ -275,7 +275,7 @@ public:
 #undef INSN
   // Add/subtract (immediate)
 #define INSN(NAME, decode)						\
-  void NAME(Register Rd, Register Rn, unsigned imm, unsigned shift = 0) { \
+  void NAME(Register Rd, Register Rn, unsigned long imm, unsigned shift = 0) { \
     starti;								\
     f(decode, 31, 29), f(0b10001, 28, 24), f(shift, 23, 22), f(imm, 21, 10); \
     rf(Rd, 0), rf(Rn, 5);						\
@@ -315,8 +315,10 @@ public:
   // Move wide (immediate)
 #define INSN(NAME, opcode)						\
   void NAME(Register Rd, unsigned imm, unsigned shift = 0) {		\
+    assert_cond((shift/16)*16 == shift);				\
     starti;								\
-    f(opcode, 31, 29), f(0b100101, 28, 23), f(shift, 22, 21), f(imm, 20, 5); \
+    f(opcode, 31, 29), f(0b100101, 28, 23), f(shift/16, 22, 21),	\
+      f(imm, 20, 5);							\
     rf(Rd, 0);								\
   }
 
@@ -622,7 +624,7 @@ public:
 #undef INSN
 
 #define INSN(NAME, opc, V)						\
-  void NAME(int prfop, address dest) {					\
+  void NAME(address dest, int prfop = 0) {				\
     long offset = (dest - pc()) >> 2;					\
     starti;								\
     f(opc, 31, 30), f(0b011, 29, 27), f(V, 26), f(0b00, 25, 24),	\
@@ -710,6 +712,13 @@ public:
   INSN(ldrsh, 0b01, 0b11);
   INSN(ldrshw, 0b01, 0b10);
   INSN(ldrsw, 0b10, 0b10);
+
+#undef INSN
+
+#define INSN(NAME, size, op)			\
+  void NAME(Address adr) {			\
+    ld_st2((Register)0, adr, size, op);		\
+  }
 
   INSN(prfm, 0b11, 0b10); // FIXME: PRFM should not be used with
 			  // writeback modes, but the assembler
@@ -1079,7 +1088,7 @@ public:
 
   INSN(fmaddd, 0b000, 0b01, 0, 0);
   INSN(fmsubd, 0b000, 0b01, 0, 1);
-  INSN(fnmadd, 0b000, 0b01, 0, 0);
+  INSN(fnmaddd, 0b000, 0b01, 0, 0);
   INSN(fnmsub, 0b000, 0b01, 0, 1);
 
 #undef INSN
@@ -1102,7 +1111,7 @@ public:
   }
 
   INSN(fcvtzsw, 0b000, 0b00, 0b11, 0b000);
-  INSN(fcvtzs, 0b000, 0b01, 0b11, 0b000);
+  INSN(fcvtzsd, 0b000, 0b01, 0b11, 0b000);
   INSN(fcvtzdw, 0b100, 0b00, 0b11, 0b000);
   INSN(fcvtszd, 0b100, 0b01, 0b11, 0b000);
 
@@ -1138,13 +1147,14 @@ public:
   }
 
 
-#define INSN(NAME, op31, type, op, op2)	\
+#define INSN(NAME, op31, type, op, op2)			\
   void NAME(FloatRegister Vn, FloatRegister Vm) {	\
-    float_compare(op31, type, op, op2, Vn, Vm);	\
+    float_compare(op31, type, op, op2, Vn, Vm);		\
   }
 
 #define INSN1(NAME, op31, type, op, op2)	\
-  void NAME(FloatRegister Vn) {	\
+  void NAME(FloatRegister Vn, double d) {	\
+    assert_cond(d == 0.0);			\
     float_compare(op31, type, op, op2, Vn);	\
   }
 
