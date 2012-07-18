@@ -33,6 +33,10 @@
 # include "assembler_x86.inline.hpp"
 # include "nativeInst_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "assembler_aarch64.inline.hpp"
+# include "nativeInst_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "assembler_sparc.inline.hpp"
 # include "nativeInst_sparc.hpp"

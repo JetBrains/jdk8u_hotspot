@@ -108,9 +108,13 @@ all_product:   universal_product
 all_fastdebug: universal_fastdebug
 all_debug:     universal_debug
 else
+ifeq ($(SRCARCH),aarch64)
+all_debug:     jvmg1 docs export_debug
+else
 all_product:   $(COMMON_VM_PRODUCT_TARGETS)
 all_fastdebug: $(COMMON_VM_FASTDEBUG_TARGETS)
 all_debug:     $(COMMON_VM_DEBUG_TARGETS)
+endif
 endif
 endif
 
@@ -188,7 +192,14 @@ else
 	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
 		      $(MAKE_ARGS) $(VM_TARGET)
   else
+    ifeq ($(SRCARCH),aarch64)
+	$(CD) $(OUTPUTDIR); \
+	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
+		      $(MAKE_ARGS) $(VM_TARGET)
+    else
+
 	@$(ECHO) "No compiler1 ($(VM_TARGET)) for ARCH_DATA_MODEL=$(ARCH_DATA_MODEL)"
+    endif
   endif
 endif
 
@@ -308,6 +319,10 @@ ifeq ($(JVM_VARIANT_ZERO), true)
     MISC_DIR=$(ZERO_DIR)
     GEN_DIR=$(ZERO_BASE_DIR)/generated
 endif
+ifeq ($(SRCARCH), aarch64)
+    MISC_DIR=$(C1_DIR)
+    GEN_DIR=$(C1_BASE_DIR)/generated
+endif
 
 # Bin files (windows)
 ifeq ($(OSNAME),windows)
@@ -409,6 +424,20 @@ ifneq ($(OSNAME),windows)
         $(EXPORT_JRE_LIB_ARCH_DIR)/%.$(LIBRARY_SUFFIX): $(ZERO_DIR)/%.$(LIBRARY_SUFFIX)
 		$(install-file)
         $(EXPORT_SERVER_DIR)/%.$(LIBRARY_SUFFIX):       $(ZERO_DIR)/%.$(LIBRARY_SUFFIX)
+		$(install-file)
+    endif
+    ifeq ($(SRCARCH), aarch64)
+        $(EXPORT_JRE_LIB_ARCH_DIR)/%.$(LIBRARY_SUFFIX): $(C1_DIR)/%.$(LIBRARY_SUFFIX)
+		$(install-file)
+        $(EXPORT_SERVER_DIR)/%.$(LIBRARY_SUFFIX):       $(C1_DIR)/%.$(LIBRARY_SUFFIX)
+		$(install-file)
+        $(EXPORT_JRE_LIB_ARCH_DIR)/%.debuginfo: 		$(C1_DIR)/%.debuginfo
+		$(install-file)
+        $(EXPORT_SERVER_DIR)/%.debuginfo:       		$(C1_DIR)/%.debuginfo
+		$(install-file)
+        $(EXPORT_JRE_LIB_ARCH_DIR)/%.diz: 			$(C1_DIR)/%.diz
+		$(install-file)
+        $(EXPORT_SERVER_DIR)/%.diz:       			$(C1_DIR)/%.diz
 		$(install-file)
     endif
 endif

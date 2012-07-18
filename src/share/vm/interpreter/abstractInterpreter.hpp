@@ -35,6 +35,9 @@
 #ifdef TARGET_ARCH_MODEL_x86_64
 # include "interp_masm_x86_64.hpp"
 #endif
+#ifdef TARGET_ARCH_MODEL_aarch64
+# include "interp_masm_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_MODEL_sparc
 # include "interp_masm_sparc.hpp"
 #endif

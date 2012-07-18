@@ -114,6 +114,17 @@ ifeq ($(ARCH), ppc)
   HS_ARCH          = ppc
 endif
 
+# aarch64
+# force aarch64 build on x86_64
+#ifeq ($(ARCH), aarch64)
+ifeq ($(ARCH), x86_64)
+    ARCH_DATA_MODEL = 64
+    MAKE_ARGS       += LP64=1
+    PLATFORM        = linux-aarch64
+    VM_PLATFORM     = linux_aarch64
+    HS_ARCH         = x86
+endif
+
 # On 32 bit linux we build server and client, on 64 bit just server.
 ifeq ($(JVM_VARIANTS),)
   ifeq ($(ARCH_DATA_MODEL), 32)

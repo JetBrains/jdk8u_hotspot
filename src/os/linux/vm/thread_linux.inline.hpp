@@ -34,6 +34,11 @@
 # include "orderAccess_linux_x86.inline.hpp"
 # include "prefetch_linux_x86.inline.hpp"
 #endif
+#ifdef TARGET_OS_ARCH_linux_aarch64
+# include "atomic_linux_aarch64.inline.hpp"
+# include "orderAccess_linux_aarch64.inline.hpp"
+# include "prefetch_linux_aarch64.inline.hpp"
+#endif
 #ifdef TARGET_OS_ARCH_linux_sparc
 # include "atomic_linux_sparc.inline.hpp"
 # include "orderAccess_linux_sparc.inline.hpp"

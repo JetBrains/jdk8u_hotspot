@@ -29,6 +29,9 @@
 #ifdef TARGET_ARCH_x86
 # include "vm_version_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "vm_version_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "vm_version_sparc.hpp"
 #endif
@@ -180,12 +183,16 @@ const char* Abstract_VM_Version::jre_release_version() {
 #ifdef ZERO
 #define CPU      ZERO_LIBARCH
 #else
+#ifdef TARGET_ARCH_aarch64
+#define CPU       "aarch64"
+#else
 #define CPU      IA32_ONLY("x86")                \
                  IA64_ONLY("ia64")               \
                  AMD64_ONLY("amd64")             \
                  ARM_ONLY("arm")                 \
                  PPC_ONLY("ppc")                 \
                  SPARC_ONLY("sparc")
+#endif // TARGET_ARCH_aarch64
 #endif // ZERO
 
 const char *Abstract_VM_Version::vm_platform_string() {

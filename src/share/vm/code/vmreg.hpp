@@ -30,6 +30,9 @@
 #ifdef TARGET_ARCH_x86
 # include "register_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "register_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "register_sparc.hpp"
 #endif
@@ -50,6 +53,9 @@
 #endif
 #ifdef TARGET_ARCH_MODEL_x86_64
 # include "adfiles/adGlobals_x86_64.hpp"
+#endif
+#ifdef TARGET_ARCH_MODEL_aarch64
+# include "adfiles/adGlobals_aarch64.hpp"
 #endif
 #ifdef TARGET_ARCH_MODEL_sparc
 # include "adfiles/adGlobals_sparc.hpp"
@@ -169,6 +175,9 @@ public:
 
 #ifdef TARGET_ARCH_x86
 # include "vmreg_x86.hpp"
+#endif
+#ifdef TARGET_ARCH_aarch64
+# include "vmreg_aarch64.hpp"
 #endif
 #ifdef TARGET_ARCH_sparc
 # include "vmreg_sparc.hpp"
