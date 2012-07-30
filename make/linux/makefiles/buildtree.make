@@ -470,7 +470,7 @@ test_gamma:  $(BUILDTREE_MAKE) $(GAMMADIR)/make/test/Queens.java
 	echo ""; \
 	echo "# Use the gamma launcher and JAVA_HOME to run the test"; \
 	echo ""; \
-	echo "./\$${GAMMA_PROG} $(TESTFLAGS) Queens < /dev/null"; \
+	echo "#./\$${GAMMA_PROG} $(TESTFLAGS) Queens < /dev/null"; \
 	) > $@
 	$(QUIETLY) chmod +x $@
 
