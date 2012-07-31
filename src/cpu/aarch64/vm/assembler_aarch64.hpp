@@ -106,40 +106,40 @@ REGISTER_DECLARATION(FloatRegister, j_farg7, v7);
 
 // r8 is used for indirect result location return
 // we use it and r9 as scratch registers
-REGISTER_DECLARATION(Register, rscratch1, r8);
-REGISTER_DECLARATION(Register, rscratch2, r9);
+REGISTER_DECLARATION(Register, r_scratch1, r8);
+REGISTER_DECLARATION(Register, r_scratch2, r9);
 
 // other volatile registers
 
 // constant pool cache
-REGISTER_DECLARATION(Register, r10_cpool,    r10);
+REGISTER_DECLARATION(Register, r_cpool,    r10);
 // monitors allocated on stack
-REGISTER_DECLARATION(Register, r11_monitors, r11);
+REGISTER_DECLARATION(Register, r_monitors, r11);
 // locals on stack
-REGISTER_DECLARATION(Register, r12_locals,   r12);
+REGISTER_DECLARATION(Register, r_locals,   r12);
 // current method
-REGISTER_DECLARATION(Register, r13_method,   r13);
+REGISTER_DECLARATION(Register, r_method,   r13);
 // bytecode pointer
-REGISTER_DECLARATION(Register, r14_bcp,      r14);
+REGISTER_DECLARATION(Register, r_bcp,      r14);
 // Java expression stackpointer
-REGISTER_DECLARATION(Register, r15_esp,      r15);
+REGISTER_DECLARATION(Register, r_esp,      r15);
 
 // non-volatile (callee-save) registers are r16-29
 // of which the following are dedicated gloabl state
 
 // link register
-REGISTER_DECLARATION(Register, r30_lr,       r30);
+REGISTER_DECLARATION(Register, r_lr,       r30);
 // frame pointer
-REGISTER_DECLARATION(Register, r29_fp,       r29);
+REGISTER_DECLARATION(Register, r_fp,       r29);
 // current thread
-REGISTER_DECLARATION(Register, r28_thread,   r28);
+REGISTER_DECLARATION(Register, r_thread,   r28);
 // base of heap
-REGISTER_DECLARATION(Register, r27_heapbase, r27);
+REGISTER_DECLARATION(Register, r_heapbase, r27);
 
 // TODO : x86 uses rbp to save SP in method handle code
 // we may need to do the same with fp
 // JSR 292 fixed register usages:
-//REGISTER_DECLARATION(Register, r29_mh_SP_save, r29);
+//REGISTER_DECLARATION(Register, r_mh_SP_save, r29);
 
 #define assert_cond(ARG1) assert(ARG1, #ARG1)
 
@@ -1354,25 +1354,12 @@ public:
 
 // extra stuff needed to compile
 // not sure which of these methods are really necessary
-class AddressLiteral VALUE_OBJ_CLASS_SPEC {
-  friend class ArrayAddress;;
- protected:
-  // creation
-  AddressLiteral();
-  public:
-  AddressLiteral addr() { Unimplemented(); }
-};
-
-class ArrayAddress;
 class BiasedLockingCounters;
 
 class MacroAssembler: public Assembler {
   friend class LIR_Assembler;
 
  protected:
-
-  Address as_Address(AddressLiteral adr);
-  Address as_Address(ArrayAddress adr);
 
   // Support for VM calls
   //
@@ -1475,11 +1462,6 @@ class MacroAssembler: public Assembler {
   void incrementq(Register reg, int value = 1);
   void incrementq(Address dst, int value = 1);
 
-
-  // Support optimal SSE move instructions.
-
-  void incrementl(AddressLiteral dst);
-  void incrementl(ArrayAddress dst);
 
   // Alignment
   void align(int modulus);
@@ -1899,11 +1881,6 @@ class MacroAssembler: public Assembler {
 
   Condition negate_condition(Condition cond);
 
-  // Instructions that use AddressLiteral operands. These instruction can handle 32bit/64bit
-  // operands. In general the names are modified to avoid hiding the instruction in Assembler
-  // so that we don't need to implement all the varieties in the Assembler with trivial wrappers
-  // here in MacroAssembler. The major exception to this rule is call
-
   // Arithmetics
 
 
@@ -1918,14 +1895,8 @@ class MacroAssembler: public Assembler {
   void andptr(Register dst, int32_t src);
   void andptr(Register src1, Register src2) { Unimplemented(); }
 
-  void cmp8(AddressLiteral src1, int imm);
-
   // renamed to drag out the casting of address to int32_t/intptr_t
   void cmp32(Register src1, int32_t imm);
-
-  void cmp32(AddressLiteral src1, int32_t imm);
-  // compare reg - mem, or reg - &mem
-  void cmp32(Register src1, AddressLiteral src2);
 
   void cmp32(Register src1, Address src2);
 
@@ -1934,11 +1905,6 @@ class MacroAssembler: public Assembler {
   void cmpoop(Register dst, jobject obj);
 #endif // _LP64
 
-  // NOTE src2 must be the lval. This is NOT an mem-mem compare
-  void cmpptr(Address src1, AddressLiteral src2);
-
-  void cmpptr(Register src1, AddressLiteral src2);
-
   void cmpptr(Register src1, Register src2) { Unimplemented(); }
   void cmpptr(Register src1, Address src2) { Unimplemented(); }
   // void cmpptr(Address src1, Register src2) { Unimplemented(); }
@@ -1946,13 +1912,7 @@ class MacroAssembler: public Assembler {
   void cmpptr(Register src1, int32_t src2) { Unimplemented(); }
   void cmpptr(Address src1, int32_t src2) { Unimplemented(); }
 
-  // cmp64 to avoild hiding cmpq
-  void cmp64(Register src1, AddressLiteral src);
-
   void cmpxchgptr(Register reg, Address adr);
-
-  void locked_cmpxchgptr(Register reg, AddressLiteral adr);
-
 
   void imulptr(Register dst, Register src) { Unimplemented(); }
 
@@ -1989,21 +1949,9 @@ class MacroAssembler: public Assembler {
 
 
 
-  // Helper functions for statistics gathering.
-  // Conditionally (atomically, on MPs) increments passed counter address, preserving condition codes.
-  void cond_inc32(Condition cond, AddressLiteral counter_addr);
-  // Unconditional atomic increment.
-  void atomic_incl(AddressLiteral counter_addr);
-
-  void lea(Register dst, AddressLiteral adr);
-  void lea(Address dst, AddressLiteral adr);
   void lea(Register dst, Address adr) { Unimplemented(); }
 
   void leal32(Register dst, Address src) { Unimplemented(); }
-
-  // Import other testl() methods from the parent class or else
-  // they will be hidden by the following overriding declaration.
-  void testl(Register dst, AddressLiteral src);
 
   void orptr(Register dst, Address src) { Unimplemented(); }
   void orptr(Register dst, Register src) { Unimplemented(); }
@@ -2020,47 +1968,30 @@ class MacroAssembler: public Assembler {
   void call(Label& L, relocInfo::relocType rtype);
   void call(Register entry);
 
-  // NOTE: this call tranfers to the effective address of entry NOT
-  // the address contained by entry. This is because this is more natural
-  // for jumps/calls.
-  void call(AddressLiteral entry);
-
   // Jumps
 
   // NOTE: these jumps tranfer to the effective address of dst NOT
   // the address contained by dst. This is because this is more natural
   // for jumps/calls.
-  void jump(AddressLiteral dst);
-  void jump_cc(Condition cc, AddressLiteral dst);
-
-  // 32bit can do a case table jump in one instruction but we no longer allow the base
-  // to be installed in the Address class. This jump will tranfers to the address
-  // contained in the location described by entry (not the address of entry)
-  void jump(ArrayAddress entry);
+  void jump(Address dst);
+  void jump_cc(Condition cc, Address dst);
 
   // Floating
 
   void fadd_s(Address src)        { Unimplemented(); }
-  void fadd_s(AddressLiteral src) { Unimplemented(); }
 
   void fldcw(Address src) { Unimplemented(); }
-  void fldcw(AddressLiteral src);
 
   void fld_s(int index)   { Unimplemented(); }
   void fld_s(Address src) { Unimplemented(); }
-  void fld_s(AddressLiteral src);
 
   void fld_d(Address src) { Unimplemented(); }
-  void fld_d(AddressLiteral src);
 
   void fld_x(Address src) { Unimplemented(); }
-  void fld_x(AddressLiteral src);
 
   void fmul_s(Address src)        { Unimplemented(); }
-  void fmul_s(AddressLiteral src) { Unimplemented(); }
 
   void ldmxcsr(Address src) { Unimplemented(); }
-  void ldmxcsr(AddressLiteral src);
 
   // compute pow(x,y) and exp(x) with x86 instructions. Don't cover
   // all corner cases and may result in NaN and require fallback to a
@@ -2088,13 +2019,7 @@ public:
   void movoop(Register dst, jobject obj);
   void movoop(Address dst, jobject obj);
 
-  void movptr(ArrayAddress dst, Register src);
-  // can this do an lea?
-  void movptr(Register dst, ArrayAddress src);
-
   void movptr(Register dst, Address src);
-
-  void movptr(Register dst, AddressLiteral src);
 
   void movptr(Register dst, intptr_t src);
   void movptr(Register dst, Register src);
@@ -2116,15 +2041,6 @@ public:
   void movptr(Register dst, int32_t imm32);
 #endif // _LP64
 
-  // to avoid hiding movl
-  void mov32(AddressLiteral dst, Register src);
-  void mov32(Register dst, AddressLiteral src);
-
-  // to avoid hiding movb
-  void movbyte(ArrayAddress dst, int src);
-
-  // Can push value or effective address
-  void pushptr(AddressLiteral src);
 
   void pushptr(Address src) { Unimplemented(); }
   void popptr(Address src) { Unimplemented(); }
