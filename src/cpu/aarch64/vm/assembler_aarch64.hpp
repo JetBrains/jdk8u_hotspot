@@ -308,20 +308,47 @@ class Address VALUE_OBJ_CLASS_SPEC {
 
   enum ScaleFactor { times_4, times_8 };
 
+  // Shift and extend for base reg + reg offset addressing
+  class extend {
+    int _option, _shift;
+  public:
+    extend() { }
+    extend(int s, int o) : _shift(s), _option(o) { }
+    int option() { return _option; }
+    int shift() { return _shift; }
+  };
+  class uxtw : public extend {
+  public:
+    uxtw(int shift = -1): extend(shift, 0b010) { }
+  };
+  class lsl : public extend {
+  public:
+    lsl(int shift = -1): extend(shift, 0b011) { }
+  };
+  class sxtw : public extend {
+  public:
+    sxtw(int shift = -1): extend(shift, 0b110) { }
+  };
+  class sxtx : public extend {
+  public:
+    sxtx(int shift = -1): extend(shift, 0b111) { }
+  };
+
  private:
   Register _base;
   Register _index;
   int _offset;
   enum mode _mode;
-  int _scale;
+  extend _ext;
 
  public:
   Address(Register r)
     : _mode(base_plus_offset), _base(r), _offset(0) { }
   Address(Register r, int o)
     : _mode(base_plus_offset), _base(r), _offset(o) { }
-  Address(Register r, Register r1, int scale = 0)
-    : _mode(base_plus_offset_reg), _base(r), _index(r1), _scale(scale) { }
+  Address(Register r, Register r1, extend ext = lsl())
+    : _mode(base_plus_offset_reg), _base(r), _index(r1),
+       _ext(ext) { }
   Address(Pre p)
     : _mode(pre), _base(p.reg()), _offset(p.offset()) { }
   Address(Post p)
@@ -350,13 +377,20 @@ class Address VALUE_OBJ_CLASS_SPEC {
       break;
 
     case base_plus_offset_reg:
-      assert_cond(_scale == 0);
-      i->f(0b00, 25, 24);
-      i->f(1, 21);
-      i->rf(_index, 16);
-      i->f(0b011, 15, 13); // Offset is always an X register
-      i->f(0, 12); // Shift is 0
-      i->f(0b10, 11, 10);
+      {
+	i->f(0b00, 25, 24);
+	i->f(1, 21);
+	i->rf(_index, 16);
+	i->f(_ext.option(), 15, 13);
+	// FIXME: We don't check that the shift amount is valid.  Do we need to?
+	// It should be 0 for a byte, 1 for a halfword, etc.
+	unsigned size = i->get(31, 30);
+	if (size == 0) // It's a byte
+	  i->f(_ext.shift() >= 0, 12);
+	else
+	  i->f(_ext.shift() > 0, 12);
+	i->f(0b10, 11, 10);
+      }
       break;
 
     case pre:
