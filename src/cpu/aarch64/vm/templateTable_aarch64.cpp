@@ -47,7 +47,9 @@ void TemplateTable::pd_initialize() {
 
 // Address computation: local variables
 
-static inline Address iAddress(int n) { Unimplemented(); return (Address)0; }
+static inline Address iaddress(Register r) {
+  return Address(rlocals, r, Address::lsl(3));
+}
 
 static inline Address lAddress(int n) { Unimplemented(); return (Address)0; }
 
@@ -95,7 +97,10 @@ static void do_oop_store(InterpreterMacroAssembler* _masm,
                          BarrierSet::Name barrier,
                          bool precise) { Unimplemented(); }
 
-Address TemplateTable::at_bcp(int offset) { Unimplemented(); return (Address)0; }
+Address TemplateTable::at_bcp(int offset) {
+  assert(_desc->uses_bcp(), "inconsistent uses_bcp information");
+  return Address(rbcp, offset);
+}
 
 void TemplateTable::patch_bytecode(Bytecodes::Code bc, Register bc_reg,
                                    Register temp_reg, bool load_bc_into_bc_reg/*=true*/,
@@ -153,9 +158,17 @@ void TemplateTable::dload() { Unimplemented(); }
 
 void TemplateTable::aload() { Unimplemented(); }
 
-void TemplateTable::locals_index_wide(Register reg) { Unimplemented(); }
+void TemplateTable::locals_index_wide(Register reg) {
+  __ ldrh(reg, at_bcp(2));
+  __ rev16w(reg, reg);
+  __ neg(reg, reg);
+}
 
-void TemplateTable::wide_iload() { Unimplemented(); }
+void TemplateTable::wide_iload() {
+  transition(vtos, itos);
+  locals_index_wide(r1);
+  __ ldr(r0, iaddress(r1));
+}
 
 void TemplateTable::wide_lload() { Unimplemented(); }
 
