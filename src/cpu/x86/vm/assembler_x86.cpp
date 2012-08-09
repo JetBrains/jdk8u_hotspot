@@ -120,23 +120,23 @@ Address::Address(int disp, address loc, relocInfo::relocType rtype) {
 }
 #else // LP64
 
-Address Address::make_array(ArrayAddress adr) {
-  AddressLiteral base = adr.base();
-  Address index = adr.index();
-  assert(index._disp == 0, "must not have disp"); // maybe it can?
-  Address array(index._base, index._index, index._scale, (intptr_t) base.target());
-  array._rspec = base._rspec;
-  return array;
-}
+// Address Address::make_array(ArrayAddress adr) {
+//   AddressLiteral base = adr.base();
+//   Address index = adr.index();
+//   assert(index._disp == 0, "must not have disp"); // maybe it can?
+//   Address array(index._base, index._index, index._scale, (intptr_t) base.target());
+//   array._rspec = base._rspec;
+//   return array;
+// }
 
-// exceedingly dangerous constructor
-Address::Address(address loc, RelocationHolder spec) {
-  _base  = noreg;
-  _index = noreg;
-  _scale = no_scale;
-  _disp  = (intptr_t) loc;
-  _rspec = spec;
-}
+// // exceedingly dangerous constructor
+// Address::Address(address loc, RelocationHolder spec) {
+//   _base  = noreg;
+//   _index = noreg;
+//   _scale = no_scale;
+//   _disp  = (intptr_t) loc;
+//   _rspec = spec;
+// }
 
 #endif // _LP64
 
@@ -4899,564 +4899,564 @@ static Assembler::Condition reverse[] = {
 
 #ifndef _LP64
 
-// 32bit versions
+// // 32bit versions
 
-Address MacroAssembler::as_Address(AddressLiteral adr) {
-  return Address(adr.target(), adr.rspec());
-}
+// Address MacroAssembler::as_Address(AddressLiteral adr) {
+//   return Address(adr.target(), adr.rspec());
+// }
 
-Address MacroAssembler::as_Address(ArrayAddress adr) {
-  return Address::make_array(adr);
-}
+// Address MacroAssembler::as_Address(ArrayAddress adr) {
+//   return Address::make_array(adr);
+// }
 
-int MacroAssembler::biased_locking_enter(Register lock_reg,
-                                         Register obj_reg,
-                                         Register swap_reg,
-                                         Register tmp_reg,
-                                         bool swap_reg_contains_mark,
-                                         Label& done,
-                                         Label* slow_case,
-                                         BiasedLockingCounters* counters) {
-  assert(UseBiasedLocking, "why call this otherwise?");
-  assert(swap_reg == rax, "swap_reg must be rax, for cmpxchg");
-  assert_different_registers(lock_reg, obj_reg, swap_reg);
+// int MacroAssembler::biased_locking_enter(Register lock_reg,
+//                                          Register obj_reg,
+//                                          Register swap_reg,
+//                                          Register tmp_reg,
+//                                          bool swap_reg_contains_mark,
+//                                          Label& done,
+//                                          Label* slow_case,
+//                                          BiasedLockingCounters* counters) {
+//   assert(UseBiasedLocking, "why call this otherwise?");
+//   assert(swap_reg == rax, "swap_reg must be rax, for cmpxchg");
+//   assert_different_registers(lock_reg, obj_reg, swap_reg);
 
-  if (PrintBiasedLockingStatistics && counters == NULL)
-    counters = BiasedLocking::counters();
+//   if (PrintBiasedLockingStatistics && counters == NULL)
+//     counters = BiasedLocking::counters();
 
-  bool need_tmp_reg = false;
-  if (tmp_reg == noreg) {
-    need_tmp_reg = true;
-    tmp_reg = lock_reg;
-  } else {
-    assert_different_registers(lock_reg, obj_reg, swap_reg, tmp_reg);
-  }
-  assert(markOopDesc::age_shift == markOopDesc::lock_bits + markOopDesc::biased_lock_bits, "biased locking makes assumptions about bit layout");
-  Address mark_addr      (obj_reg, oopDesc::mark_offset_in_bytes());
-  Address klass_addr     (obj_reg, oopDesc::klass_offset_in_bytes());
-  Address saved_mark_addr(lock_reg, 0);
+//   bool need_tmp_reg = false;
+//   if (tmp_reg == noreg) {
+//     need_tmp_reg = true;
+//     tmp_reg = lock_reg;
+//   } else {
+//     assert_different_registers(lock_reg, obj_reg, swap_reg, tmp_reg);
+//   }
+//   assert(markOopDesc::age_shift == markOopDesc::lock_bits + markOopDesc::biased_lock_bits, "biased locking makes assumptions about bit layout");
+//   Address mark_addr      (obj_reg, oopDesc::mark_offset_in_bytes());
+//   Address klass_addr     (obj_reg, oopDesc::klass_offset_in_bytes());
+//   Address saved_mark_addr(lock_reg, 0);
 
-  // Biased locking
-  // See whether the lock is currently biased toward our thread and
-  // whether the epoch is still valid
-  // Note that the runtime guarantees sufficient alignment of JavaThread
-  // pointers to allow age to be placed into low bits
-  // First check to see whether biasing is even enabled for this object
-  Label cas_label;
-  int null_check_offset = -1;
-  if (!swap_reg_contains_mark) {
-    null_check_offset = offset();
-    movl(swap_reg, mark_addr);
-  }
-  if (need_tmp_reg) {
-    push(tmp_reg);
-  }
-  movl(tmp_reg, swap_reg);
-  andl(tmp_reg, markOopDesc::biased_lock_mask_in_place);
-  cmpl(tmp_reg, markOopDesc::biased_lock_pattern);
-  if (need_tmp_reg) {
-    pop(tmp_reg);
-  }
-  jcc(Assembler::notEqual, cas_label);
-  // The bias pattern is present in the object's header. Need to check
-  // whether the bias owner and the epoch are both still current.
-  // Note that because there is no current thread register on x86 we
-  // need to store off the mark word we read out of the object to
-  // avoid reloading it and needing to recheck invariants below. This
-  // store is unfortunate but it makes the overall code shorter and
-  // simpler.
-  movl(saved_mark_addr, swap_reg);
-  if (need_tmp_reg) {
-    push(tmp_reg);
-  }
-  get_thread(tmp_reg);
-  xorl(swap_reg, tmp_reg);
-  if (swap_reg_contains_mark) {
-    null_check_offset = offset();
-  }
-  movl(tmp_reg, klass_addr);
-  xorl(swap_reg, Address(tmp_reg, Klass::prototype_header_offset()));
-  andl(swap_reg, ~((int) markOopDesc::age_mask_in_place));
-  if (need_tmp_reg) {
-    pop(tmp_reg);
-  }
-  if (counters != NULL) {
-    cond_inc32(Assembler::zero,
-               ExternalAddress((address)counters->biased_lock_entry_count_addr()));
-  }
-  jcc(Assembler::equal, done);
+//   // Biased locking
+//   // See whether the lock is currently biased toward our thread and
+//   // whether the epoch is still valid
+//   // Note that the runtime guarantees sufficient alignment of JavaThread
+//   // pointers to allow age to be placed into low bits
+//   // First check to see whether biasing is even enabled for this object
+//   Label cas_label;
+//   int null_check_offset = -1;
+//   if (!swap_reg_contains_mark) {
+//     null_check_offset = offset();
+//     movl(swap_reg, mark_addr);
+//   }
+//   if (need_tmp_reg) {
+//     push(tmp_reg);
+//   }
+//   movl(tmp_reg, swap_reg);
+//   andl(tmp_reg, markOopDesc::biased_lock_mask_in_place);
+//   cmpl(tmp_reg, markOopDesc::biased_lock_pattern);
+//   if (need_tmp_reg) {
+//     pop(tmp_reg);
+//   }
+//   jcc(Assembler::notEqual, cas_label);
+//   // The bias pattern is present in the object's header. Need to check
+//   // whether the bias owner and the epoch are both still current.
+//   // Note that because there is no current thread register on x86 we
+//   // need to store off the mark word we read out of the object to
+//   // avoid reloading it and needing to recheck invariants below. This
+//   // store is unfortunate but it makes the overall code shorter and
+//   // simpler.
+//   movl(saved_mark_addr, swap_reg);
+//   if (need_tmp_reg) {
+//     push(tmp_reg);
+//   }
+//   get_thread(tmp_reg);
+//   xorl(swap_reg, tmp_reg);
+//   if (swap_reg_contains_mark) {
+//     null_check_offset = offset();
+//   }
+//   movl(tmp_reg, klass_addr);
+//   xorl(swap_reg, Address(tmp_reg, Klass::prototype_header_offset()));
+//   andl(swap_reg, ~((int) markOopDesc::age_mask_in_place));
+//   if (need_tmp_reg) {
+//     pop(tmp_reg);
+//   }
+//   if (counters != NULL) {
+//     cond_inc32(Assembler::zero,
+//                ExternalAddress((address)counters->biased_lock_entry_count_addr()));
+//   }
+//   jcc(Assembler::equal, done);
 
-  Label try_revoke_bias;
-  Label try_rebias;
+//   Label try_revoke_bias;
+//   Label try_rebias;
 
-  // At this point we know that the header has the bias pattern and
-  // that we are not the bias owner in the current epoch. We need to
-  // figure out more details about the state of the header in order to
-  // know what operations can be legally performed on the object's
-  // header.
+//   // At this point we know that the header has the bias pattern and
+//   // that we are not the bias owner in the current epoch. We need to
+//   // figure out more details about the state of the header in order to
+//   // know what operations can be legally performed on the object's
+//   // header.
 
-  // If the low three bits in the xor result aren't clear, that means
-  // the prototype header is no longer biased and we have to revoke
-  // the bias on this object.
-  testl(swap_reg, markOopDesc::biased_lock_mask_in_place);
-  jcc(Assembler::notZero, try_revoke_bias);
+//   // If the low three bits in the xor result aren't clear, that means
+//   // the prototype header is no longer biased and we have to revoke
+//   // the bias on this object.
+//   testl(swap_reg, markOopDesc::biased_lock_mask_in_place);
+//   jcc(Assembler::notZero, try_revoke_bias);
 
-  // Biasing is still enabled for this data type. See whether the
-  // epoch of the current bias is still valid, meaning that the epoch
-  // bits of the mark word are equal to the epoch bits of the
-  // prototype header. (Note that the prototype header's epoch bits
-  // only change at a safepoint.) If not, attempt to rebias the object
-  // toward the current thread. Note that we must be absolutely sure
-  // that the current epoch is invalid in order to do this because
-  // otherwise the manipulations it performs on the mark word are
-  // illegal.
-  testl(swap_reg, markOopDesc::epoch_mask_in_place);
-  jcc(Assembler::notZero, try_rebias);
+//   // Biasing is still enabled for this data type. See whether the
+//   // epoch of the current bias is still valid, meaning that the epoch
+//   // bits of the mark word are equal to the epoch bits of the
+//   // prototype header. (Note that the prototype header's epoch bits
+//   // only change at a safepoint.) If not, attempt to rebias the object
+//   // toward the current thread. Note that we must be absolutely sure
+//   // that the current epoch is invalid in order to do this because
+//   // otherwise the manipulations it performs on the mark word are
+//   // illegal.
+//   testl(swap_reg, markOopDesc::epoch_mask_in_place);
+//   jcc(Assembler::notZero, try_rebias);
 
-  // The epoch of the current bias is still valid but we know nothing
-  // about the owner; it might be set or it might be clear. Try to
-  // acquire the bias of the object using an atomic operation. If this
-  // fails we will go in to the runtime to revoke the object's bias.
-  // Note that we first construct the presumed unbiased header so we
-  // don't accidentally blow away another thread's valid bias.
-  movl(swap_reg, saved_mark_addr);
-  andl(swap_reg,
-       markOopDesc::biased_lock_mask_in_place | markOopDesc::age_mask_in_place | markOopDesc::epoch_mask_in_place);
-  if (need_tmp_reg) {
-    push(tmp_reg);
-  }
-  get_thread(tmp_reg);
-  orl(tmp_reg, swap_reg);
-  if (os::is_MP()) {
-    lock();
-  }
-  cmpxchgptr(tmp_reg, Address(obj_reg, 0));
-  if (need_tmp_reg) {
-    pop(tmp_reg);
-  }
-  // If the biasing toward our thread failed, this means that
-  // another thread succeeded in biasing it toward itself and we
-  // need to revoke that bias. The revocation will occur in the
-  // interpreter runtime in the slow case.
-  if (counters != NULL) {
-    cond_inc32(Assembler::zero,
-               ExternalAddress((address)counters->anonymously_biased_lock_entry_count_addr()));
-  }
-  if (slow_case != NULL) {
-    jcc(Assembler::notZero, *slow_case);
-  }
-  jmp(done);
+//   // The epoch of the current bias is still valid but we know nothing
+//   // about the owner; it might be set or it might be clear. Try to
+//   // acquire the bias of the object using an atomic operation. If this
+//   // fails we will go in to the runtime to revoke the object's bias.
+//   // Note that we first construct the presumed unbiased header so we
+//   // don't accidentally blow away another thread's valid bias.
+//   movl(swap_reg, saved_mark_addr);
+//   andl(swap_reg,
+//        markOopDesc::biased_lock_mask_in_place | markOopDesc::age_mask_in_place | markOopDesc::epoch_mask_in_place);
+//   if (need_tmp_reg) {
+//     push(tmp_reg);
+//   }
+//   get_thread(tmp_reg);
+//   orl(tmp_reg, swap_reg);
+//   if (os::is_MP()) {
+//     lock();
+//   }
+//   cmpxchgptr(tmp_reg, Address(obj_reg, 0));
+//   if (need_tmp_reg) {
+//     pop(tmp_reg);
+//   }
+//   // If the biasing toward our thread failed, this means that
+//   // another thread succeeded in biasing it toward itself and we
+//   // need to revoke that bias. The revocation will occur in the
+//   // interpreter runtime in the slow case.
+//   if (counters != NULL) {
+//     cond_inc32(Assembler::zero,
+//                ExternalAddress((address)counters->anonymously_biased_lock_entry_count_addr()));
+//   }
+//   if (slow_case != NULL) {
+//     jcc(Assembler::notZero, *slow_case);
+//   }
+//   jmp(done);
 
-  bind(try_rebias);
-  // At this point we know the epoch has expired, meaning that the
-  // current "bias owner", if any, is actually invalid. Under these
-  // circumstances _only_, we are allowed to use the current header's
-  // value as the comparison value when doing the cas to acquire the
-  // bias in the current epoch. In other words, we allow transfer of
-  // the bias from one thread to another directly in this situation.
-  //
-  // FIXME: due to a lack of registers we currently blow away the age
-  // bits in this situation. Should attempt to preserve them.
-  if (need_tmp_reg) {
-    push(tmp_reg);
-  }
-  get_thread(tmp_reg);
-  movl(swap_reg, klass_addr);
-  orl(tmp_reg, Address(swap_reg, Klass::prototype_header_offset()));
-  movl(swap_reg, saved_mark_addr);
-  if (os::is_MP()) {
-    lock();
-  }
-  cmpxchgptr(tmp_reg, Address(obj_reg, 0));
-  if (need_tmp_reg) {
-    pop(tmp_reg);
-  }
-  // If the biasing toward our thread failed, then another thread
-  // succeeded in biasing it toward itself and we need to revoke that
-  // bias. The revocation will occur in the runtime in the slow case.
-  if (counters != NULL) {
-    cond_inc32(Assembler::zero,
-               ExternalAddress((address)counters->rebiased_lock_entry_count_addr()));
-  }
-  if (slow_case != NULL) {
-    jcc(Assembler::notZero, *slow_case);
-  }
-  jmp(done);
+//   bind(try_rebias);
+//   // At this point we know the epoch has expired, meaning that the
+//   // current "bias owner", if any, is actually invalid. Under these
+//   // circumstances _only_, we are allowed to use the current header's
+//   // value as the comparison value when doing the cas to acquire the
+//   // bias in the current epoch. In other words, we allow transfer of
+//   // the bias from one thread to another directly in this situation.
+//   //
+//   // FIXME: due to a lack of registers we currently blow away the age
+//   // bits in this situation. Should attempt to preserve them.
+//   if (need_tmp_reg) {
+//     push(tmp_reg);
+//   }
+//   get_thread(tmp_reg);
+//   movl(swap_reg, klass_addr);
+//   orl(tmp_reg, Address(swap_reg, Klass::prototype_header_offset()));
+//   movl(swap_reg, saved_mark_addr);
+//   if (os::is_MP()) {
+//     lock();
+//   }
+//   cmpxchgptr(tmp_reg, Address(obj_reg, 0));
+//   if (need_tmp_reg) {
+//     pop(tmp_reg);
+//   }
+//   // If the biasing toward our thread failed, then another thread
+//   // succeeded in biasing it toward itself and we need to revoke that
+//   // bias. The revocation will occur in the runtime in the slow case.
+//   if (counters != NULL) {
+//     cond_inc32(Assembler::zero,
+//                ExternalAddress((address)counters->rebiased_lock_entry_count_addr()));
+//   }
+//   if (slow_case != NULL) {
+//     jcc(Assembler::notZero, *slow_case);
+//   }
+//   jmp(done);
 
-  bind(try_revoke_bias);
-  // The prototype mark in the klass doesn't have the bias bit set any
-  // more, indicating that objects of this data type are not supposed
-  // to be biased any more. We are going to try to reset the mark of
-  // this object to the prototype value and fall through to the
-  // CAS-based locking scheme. Note that if our CAS fails, it means
-  // that another thread raced us for the privilege of revoking the
-  // bias of this particular object, so it's okay to continue in the
-  // normal locking code.
-  //
-  // FIXME: due to a lack of registers we currently blow away the age
-  // bits in this situation. Should attempt to preserve them.
-  movl(swap_reg, saved_mark_addr);
-  if (need_tmp_reg) {
-    push(tmp_reg);
-  }
-  movl(tmp_reg, klass_addr);
-  movl(tmp_reg, Address(tmp_reg, Klass::prototype_header_offset()));
-  if (os::is_MP()) {
-    lock();
-  }
-  cmpxchgptr(tmp_reg, Address(obj_reg, 0));
-  if (need_tmp_reg) {
-    pop(tmp_reg);
-  }
-  // Fall through to the normal CAS-based lock, because no matter what
-  // the result of the above CAS, some thread must have succeeded in
-  // removing the bias bit from the object's header.
-  if (counters != NULL) {
-    cond_inc32(Assembler::zero,
-               ExternalAddress((address)counters->revoked_lock_entry_count_addr()));
-  }
+//   bind(try_revoke_bias);
+//   // The prototype mark in the klass doesn't have the bias bit set any
+//   // more, indicating that objects of this data type are not supposed
+//   // to be biased any more. We are going to try to reset the mark of
+//   // this object to the prototype value and fall through to the
+//   // CAS-based locking scheme. Note that if our CAS fails, it means
+//   // that another thread raced us for the privilege of revoking the
+//   // bias of this particular object, so it's okay to continue in the
+//   // normal locking code.
+//   //
+//   // FIXME: due to a lack of registers we currently blow away the age
+//   // bits in this situation. Should attempt to preserve them.
+//   movl(swap_reg, saved_mark_addr);
+//   if (need_tmp_reg) {
+//     push(tmp_reg);
+//   }
+//   movl(tmp_reg, klass_addr);
+//   movl(tmp_reg, Address(tmp_reg, Klass::prototype_header_offset()));
+//   if (os::is_MP()) {
+//     lock();
+//   }
+//   cmpxchgptr(tmp_reg, Address(obj_reg, 0));
+//   if (need_tmp_reg) {
+//     pop(tmp_reg);
+//   }
+//   // Fall through to the normal CAS-based lock, because no matter what
+//   // the result of the above CAS, some thread must have succeeded in
+//   // removing the bias bit from the object's header.
+//   if (counters != NULL) {
+//     cond_inc32(Assembler::zero,
+//                ExternalAddress((address)counters->revoked_lock_entry_count_addr()));
+//   }
 
-  bind(cas_label);
+//   bind(cas_label);
 
-  return null_check_offset;
-}
-void MacroAssembler::call_VM_leaf_base(address entry_point,
-                                       int number_of_arguments) {
-  call(RuntimeAddress(entry_point));
-  increment(rsp, number_of_arguments * wordSize);
-}
+//   return null_check_offset;
+// }
+// void MacroAssembler::call_VM_leaf_base(address entry_point,
+//                                        int number_of_arguments) {
+//   call(RuntimeAddress(entry_point));
+//   increment(rsp, number_of_arguments * wordSize);
+// }
 
-void MacroAssembler::cmpoop(Address src1, jobject obj) {
-  cmp_literal32(src1, (int32_t)obj, oop_Relocation::spec_for_immediate());
-}
+// void MacroAssembler::cmpoop(Address src1, jobject obj) {
+//   cmp_literal32(src1, (int32_t)obj, oop_Relocation::spec_for_immediate());
+// }
 
-void MacroAssembler::cmpoop(Register src1, jobject obj) {
-  cmp_literal32(src1, (int32_t)obj, oop_Relocation::spec_for_immediate());
-}
+// void MacroAssembler::cmpoop(Register src1, jobject obj) {
+//   cmp_literal32(src1, (int32_t)obj, oop_Relocation::spec_for_immediate());
+// }
 
-void MacroAssembler::extend_sign(Register hi, Register lo) {
-  // According to Intel Doc. AP-526, "Integer Divide", p.18.
-  if (VM_Version::is_P6() && hi == rdx && lo == rax) {
-    cdql();
-  } else {
-    movl(hi, lo);
-    sarl(hi, 31);
-  }
-}
+// void MacroAssembler::extend_sign(Register hi, Register lo) {
+//   // According to Intel Doc. AP-526, "Integer Divide", p.18.
+//   if (VM_Version::is_P6() && hi == rdx && lo == rax) {
+//     cdql();
+//   } else {
+//     movl(hi, lo);
+//     sarl(hi, 31);
+//   }
+// }
 
-void MacroAssembler::jC2(Register tmp, Label& L) {
-  // set parity bit if FPU flag C2 is set (via rax)
-  save_rax(tmp);
-  fwait(); fnstsw_ax();
-  sahf();
-  restore_rax(tmp);
-  // branch
-  jcc(Assembler::parity, L);
-}
+// void MacroAssembler::jC2(Register tmp, Label& L) {
+//   // set parity bit if FPU flag C2 is set (via rax)
+//   save_rax(tmp);
+//   fwait(); fnstsw_ax();
+//   sahf();
+//   restore_rax(tmp);
+//   // branch
+//   jcc(Assembler::parity, L);
+// }
 
-void MacroAssembler::jnC2(Register tmp, Label& L) {
-  // set parity bit if FPU flag C2 is set (via rax)
-  save_rax(tmp);
-  fwait(); fnstsw_ax();
-  sahf();
-  restore_rax(tmp);
-  // branch
-  jcc(Assembler::noParity, L);
-}
+// void MacroAssembler::jnC2(Register tmp, Label& L) {
+//   // set parity bit if FPU flag C2 is set (via rax)
+//   save_rax(tmp);
+//   fwait(); fnstsw_ax();
+//   sahf();
+//   restore_rax(tmp);
+//   // branch
+//   jcc(Assembler::noParity, L);
+// }
 
-// 32bit can do a case table jump in one instruction but we no longer allow the base
-// to be installed in the Address class
-void MacroAssembler::jump(ArrayAddress entry) {
-  jmp(as_Address(entry));
-}
+// // 32bit can do a case table jump in one instruction but we no longer allow the base
+// // to be installed in the Address class
+// void MacroAssembler::jump(ArrayAddress entry) {
+//   jmp(as_Address(entry));
+// }
 
-// Note: y_lo will be destroyed
-void MacroAssembler::lcmp2int(Register x_hi, Register x_lo, Register y_hi, Register y_lo) {
-  // Long compare for Java (semantics as described in JVM spec.)
-  Label high, low, done;
+// // Note: y_lo will be destroyed
+// void MacroAssembler::lcmp2int(Register x_hi, Register x_lo, Register y_hi, Register y_lo) {
+//   // Long compare for Java (semantics as described in JVM spec.)
+//   Label high, low, done;
 
-  cmpl(x_hi, y_hi);
-  jcc(Assembler::less, low);
-  jcc(Assembler::greater, high);
-  // x_hi is the return register
-  xorl(x_hi, x_hi);
-  cmpl(x_lo, y_lo);
-  jcc(Assembler::below, low);
-  jcc(Assembler::equal, done);
+//   cmpl(x_hi, y_hi);
+//   jcc(Assembler::less, low);
+//   jcc(Assembler::greater, high);
+//   // x_hi is the return register
+//   xorl(x_hi, x_hi);
+//   cmpl(x_lo, y_lo);
+//   jcc(Assembler::below, low);
+//   jcc(Assembler::equal, done);
 
-  bind(high);
-  xorl(x_hi, x_hi);
-  increment(x_hi);
-  jmp(done);
+//   bind(high);
+//   xorl(x_hi, x_hi);
+//   increment(x_hi);
+//   jmp(done);
 
-  bind(low);
-  xorl(x_hi, x_hi);
-  decrementl(x_hi);
+//   bind(low);
+//   xorl(x_hi, x_hi);
+//   decrementl(x_hi);
 
-  bind(done);
-}
+//   bind(done);
+// }
 
-void MacroAssembler::lea(Register dst, AddressLiteral src) {
-    mov_literal32(dst, (int32_t)src.target(), src.rspec());
-}
+// void MacroAssembler::lea(Register dst, AddressLiteral src) {
+//     mov_literal32(dst, (int32_t)src.target(), src.rspec());
+// }
 
-void MacroAssembler::lea(Address dst, AddressLiteral adr) {
-  // leal(dst, as_Address(adr));
-  // see note in movl as to why we must use a move
-  mov_literal32(dst, (int32_t) adr.target(), adr.rspec());
-}
+// void MacroAssembler::lea(Address dst, AddressLiteral adr) {
+//   // leal(dst, as_Address(adr));
+//   // see note in movl as to why we must use a move
+//   mov_literal32(dst, (int32_t) adr.target(), adr.rspec());
+// }
 
-void MacroAssembler::leave() {
-  mov(rsp, rbp);
-  pop(rbp);
-}
+// void MacroAssembler::leave() {
+//   mov(rsp, rbp);
+//   pop(rbp);
+// }
 
-void MacroAssembler::lmul(int x_rsp_offset, int y_rsp_offset) {
-  // Multiplication of two Java long values stored on the stack
-  // as illustrated below. Result is in rdx:rax.
-  //
-  // rsp ---> [  ??  ] \               \
-  //            ....    | y_rsp_offset  |
-  //          [ y_lo ] /  (in bytes)    | x_rsp_offset
-  //          [ y_hi ]                  | (in bytes)
-  //            ....                    |
-  //          [ x_lo ]                 /
-  //          [ x_hi ]
-  //            ....
-  //
-  // Basic idea: lo(result) = lo(x_lo * y_lo)
-  //             hi(result) = hi(x_lo * y_lo) + lo(x_hi * y_lo) + lo(x_lo * y_hi)
-  Address x_hi(rsp, x_rsp_offset + wordSize); Address x_lo(rsp, x_rsp_offset);
-  Address y_hi(rsp, y_rsp_offset + wordSize); Address y_lo(rsp, y_rsp_offset);
-  Label quick;
-  // load x_hi, y_hi and check if quick
-  // multiplication is possible
-  movl(rbx, x_hi);
-  movl(rcx, y_hi);
-  movl(rax, rbx);
-  orl(rbx, rcx);                                 // rbx, = 0 <=> x_hi = 0 and y_hi = 0
-  jcc(Assembler::zero, quick);                   // if rbx, = 0 do quick multiply
-  // do full multiplication
-  // 1st step
-  mull(y_lo);                                    // x_hi * y_lo
-  movl(rbx, rax);                                // save lo(x_hi * y_lo) in rbx,
-  // 2nd step
-  movl(rax, x_lo);
-  mull(rcx);                                     // x_lo * y_hi
-  addl(rbx, rax);                                // add lo(x_lo * y_hi) to rbx,
-  // 3rd step
-  bind(quick);                                   // note: rbx, = 0 if quick multiply!
-  movl(rax, x_lo);
-  mull(y_lo);                                    // x_lo * y_lo
-  addl(rdx, rbx);                                // correct hi(x_lo * y_lo)
-}
+// void MacroAssembler::lmul(int x_rsp_offset, int y_rsp_offset) {
+//   // Multiplication of two Java long values stored on the stack
+//   // as illustrated below. Result is in rdx:rax.
+//   //
+//   // rsp ---> [  ??  ] \               \
+//   //            ....    | y_rsp_offset  |
+//   //          [ y_lo ] /  (in bytes)    | x_rsp_offset
+//   //          [ y_hi ]                  | (in bytes)
+//   //            ....                    |
+//   //          [ x_lo ]                 /
+//   //          [ x_hi ]
+//   //            ....
+//   //
+//   // Basic idea: lo(result) = lo(x_lo * y_lo)
+//   //             hi(result) = hi(x_lo * y_lo) + lo(x_hi * y_lo) + lo(x_lo * y_hi)
+//   Address x_hi(rsp, x_rsp_offset + wordSize); Address x_lo(rsp, x_rsp_offset);
+//   Address y_hi(rsp, y_rsp_offset + wordSize); Address y_lo(rsp, y_rsp_offset);
+//   Label quick;
+//   // load x_hi, y_hi and check if quick
+//   // multiplication is possible
+//   movl(rbx, x_hi);
+//   movl(rcx, y_hi);
+//   movl(rax, rbx);
+//   orl(rbx, rcx);                                 // rbx, = 0 <=> x_hi = 0 and y_hi = 0
+//   jcc(Assembler::zero, quick);                   // if rbx, = 0 do quick multiply
+//   // do full multiplication
+//   // 1st step
+//   mull(y_lo);                                    // x_hi * y_lo
+//   movl(rbx, rax);                                // save lo(x_hi * y_lo) in rbx,
+//   // 2nd step
+//   movl(rax, x_lo);
+//   mull(rcx);                                     // x_lo * y_hi
+//   addl(rbx, rax);                                // add lo(x_lo * y_hi) to rbx,
+//   // 3rd step
+//   bind(quick);                                   // note: rbx, = 0 if quick multiply!
+//   movl(rax, x_lo);
+//   mull(y_lo);                                    // x_lo * y_lo
+//   addl(rdx, rbx);                                // correct hi(x_lo * y_lo)
+// }
 
-void MacroAssembler::lneg(Register hi, Register lo) {
-  negl(lo);
-  adcl(hi, 0);
-  negl(hi);
-}
+// void MacroAssembler::lneg(Register hi, Register lo) {
+//   negl(lo);
+//   adcl(hi, 0);
+//   negl(hi);
+// }
 
-void MacroAssembler::lshl(Register hi, Register lo) {
-  // Java shift left long support (semantics as described in JVM spec., p.305)
-  // (basic idea for shift counts s >= n: x << s == (x << n) << (s - n))
-  // shift value is in rcx !
-  assert(hi != rcx, "must not use rcx");
-  assert(lo != rcx, "must not use rcx");
-  const Register s = rcx;                        // shift count
-  const int      n = BitsPerWord;
-  Label L;
-  andl(s, 0x3f);                                 // s := s & 0x3f (s < 0x40)
-  cmpl(s, n);                                    // if (s < n)
-  jcc(Assembler::less, L);                       // else (s >= n)
-  movl(hi, lo);                                  // x := x << n
-  xorl(lo, lo);
-  // Note: subl(s, n) is not needed since the Intel shift instructions work rcx mod n!
-  bind(L);                                       // s (mod n) < n
-  shldl(hi, lo);                                 // x := x << s
-  shll(lo);
-}
-
-
-void MacroAssembler::lshr(Register hi, Register lo, bool sign_extension) {
-  // Java shift right long support (semantics as described in JVM spec., p.306 & p.310)
-  // (basic idea for shift counts s >= n: x >> s == (x >> n) >> (s - n))
-  assert(hi != rcx, "must not use rcx");
-  assert(lo != rcx, "must not use rcx");
-  const Register s = rcx;                        // shift count
-  const int      n = BitsPerWord;
-  Label L;
-  andl(s, 0x3f);                                 // s := s & 0x3f (s < 0x40)
-  cmpl(s, n);                                    // if (s < n)
-  jcc(Assembler::less, L);                       // else (s >= n)
-  movl(lo, hi);                                  // x := x >> n
-  if (sign_extension) sarl(hi, 31);
-  else                xorl(hi, hi);
-  // Note: subl(s, n) is not needed since the Intel shift instructions work rcx mod n!
-  bind(L);                                       // s (mod n) < n
-  shrdl(lo, hi);                                 // x := x >> s
-  if (sign_extension) sarl(hi);
-  else                shrl(hi);
-}
-
-void MacroAssembler::movoop(Register dst, jobject obj) {
-  mov_literal32(dst, (int32_t)obj, oop_Relocation::spec_for_immediate());
-}
-
-void MacroAssembler::movoop(Address dst, jobject obj) {
-  mov_literal32(dst, (int32_t)obj, oop_Relocation::spec_for_immediate());
-}
-
-void MacroAssembler::movptr(Register dst, AddressLiteral src) {
-  if (src.is_lval()) {
-    mov_literal32(dst, (intptr_t)src.target(), src.rspec());
-  } else {
-    movl(dst, as_Address(src));
-  }
-}
-
-void MacroAssembler::movptr(ArrayAddress dst, Register src) {
-  movl(as_Address(dst), src);
-}
-
-void MacroAssembler::movptr(Register dst, ArrayAddress src) {
-  movl(dst, as_Address(src));
-}
-
-// src should NEVER be a real pointer. Use AddressLiteral for true pointers
-void MacroAssembler::movptr(Address dst, intptr_t src) {
-  movl(dst, src);
-}
+// void MacroAssembler::lshl(Register hi, Register lo) {
+//   // Java shift left long support (semantics as described in JVM spec., p.305)
+//   // (basic idea for shift counts s >= n: x << s == (x << n) << (s - n))
+//   // shift value is in rcx !
+//   assert(hi != rcx, "must not use rcx");
+//   assert(lo != rcx, "must not use rcx");
+//   const Register s = rcx;                        // shift count
+//   const int      n = BitsPerWord;
+//   Label L;
+//   andl(s, 0x3f);                                 // s := s & 0x3f (s < 0x40)
+//   cmpl(s, n);                                    // if (s < n)
+//   jcc(Assembler::less, L);                       // else (s >= n)
+//   movl(hi, lo);                                  // x := x << n
+//   xorl(lo, lo);
+//   // Note: subl(s, n) is not needed since the Intel shift instructions work rcx mod n!
+//   bind(L);                                       // s (mod n) < n
+//   shldl(hi, lo);                                 // x := x << s
+//   shll(lo);
+// }
 
 
-void MacroAssembler::pop_callee_saved_registers() {
-  pop(rcx);
-  pop(rdx);
-  pop(rdi);
-  pop(rsi);
-}
+// void MacroAssembler::lshr(Register hi, Register lo, bool sign_extension) {
+//   // Java shift right long support (semantics as described in JVM spec., p.306 & p.310)
+//   // (basic idea for shift counts s >= n: x >> s == (x >> n) >> (s - n))
+//   assert(hi != rcx, "must not use rcx");
+//   assert(lo != rcx, "must not use rcx");
+//   const Register s = rcx;                        // shift count
+//   const int      n = BitsPerWord;
+//   Label L;
+//   andl(s, 0x3f);                                 // s := s & 0x3f (s < 0x40)
+//   cmpl(s, n);                                    // if (s < n)
+//   jcc(Assembler::less, L);                       // else (s >= n)
+//   movl(lo, hi);                                  // x := x >> n
+//   if (sign_extension) sarl(hi, 31);
+//   else                xorl(hi, hi);
+//   // Note: subl(s, n) is not needed since the Intel shift instructions work rcx mod n!
+//   bind(L);                                       // s (mod n) < n
+//   shrdl(lo, hi);                                 // x := x >> s
+//   if (sign_extension) sarl(hi);
+//   else                shrl(hi);
+// }
 
-void MacroAssembler::pop_fTOS() {
-  fld_d(Address(rsp, 0));
-  addl(rsp, 2 * wordSize);
-}
+// void MacroAssembler::movoop(Register dst, jobject obj) {
+//   mov_literal32(dst, (int32_t)obj, oop_Relocation::spec_for_immediate());
+// }
 
-void MacroAssembler::push_callee_saved_registers() {
-  push(rsi);
-  push(rdi);
-  push(rdx);
-  push(rcx);
-}
+// void MacroAssembler::movoop(Address dst, jobject obj) {
+//   mov_literal32(dst, (int32_t)obj, oop_Relocation::spec_for_immediate());
+// }
 
-void MacroAssembler::push_fTOS() {
-  subl(rsp, 2 * wordSize);
-  fstp_d(Address(rsp, 0));
-}
+// void MacroAssembler::movptr(Register dst, AddressLiteral src) {
+//   if (src.is_lval()) {
+//     mov_literal32(dst, (intptr_t)src.target(), src.rspec());
+//   } else {
+//     movl(dst, as_Address(src));
+//   }
+// }
+
+// void MacroAssembler::movptr(ArrayAddress dst, Register src) {
+//   movl(as_Address(dst), src);
+// }
+
+// void MacroAssembler::movptr(Register dst, ArrayAddress src) {
+//   movl(dst, as_Address(src));
+// }
+
+// // src should NEVER be a real pointer. Use AddressLiteral for true pointers
+// void MacroAssembler::movptr(Address dst, intptr_t src) {
+//   movl(dst, src);
+// }
 
 
-void MacroAssembler::pushoop(jobject obj) {
-  push_literal32((int32_t)obj, oop_Relocation::spec_for_immediate());
-}
+// void MacroAssembler::pop_callee_saved_registers() {
+//   pop(rcx);
+//   pop(rdx);
+//   pop(rdi);
+//   pop(rsi);
+// }
+
+// void MacroAssembler::pop_fTOS() {
+//   fld_d(Address(rsp, 0));
+//   addl(rsp, 2 * wordSize);
+// }
+
+// void MacroAssembler::push_callee_saved_registers() {
+//   push(rsi);
+//   push(rdi);
+//   push(rdx);
+//   push(rcx);
+// }
+
+// void MacroAssembler::push_fTOS() {
+//   subl(rsp, 2 * wordSize);
+//   fstp_d(Address(rsp, 0));
+// }
 
 
-void MacroAssembler::pushptr(AddressLiteral src) {
-  if (src.is_lval()) {
-    push_literal32((int32_t)src.target(), src.rspec());
-  } else {
-    pushl(as_Address(src));
-  }
-}
+// void MacroAssembler::pushoop(jobject obj) {
+//   push_literal32((int32_t)obj, oop_Relocation::spec_for_immediate());
+// }
 
-void MacroAssembler::set_word_if_not_zero(Register dst) {
-  xorl(dst, dst);
-  set_byte_if_not_zero(dst);
-}
 
-static void pass_arg0(MacroAssembler* masm, Register arg) {
-  masm->push(arg);
-}
+// void MacroAssembler::pushptr(AddressLiteral src) {
+//   if (src.is_lval()) {
+//     push_literal32((int32_t)src.target(), src.rspec());
+//   } else {
+//     pushl(as_Address(src));
+//   }
+// }
 
-static void pass_arg1(MacroAssembler* masm, Register arg) {
-  masm->push(arg);
-}
+// void MacroAssembler::set_word_if_not_zero(Register dst) {
+//   xorl(dst, dst);
+//   set_byte_if_not_zero(dst);
+// }
 
-static void pass_arg2(MacroAssembler* masm, Register arg) {
-  masm->push(arg);
-}
+// static void pass_arg0(MacroAssembler* masm, Register arg) {
+//   masm->push(arg);
+// }
 
-static void pass_arg3(MacroAssembler* masm, Register arg) {
-  masm->push(arg);
-}
+// static void pass_arg1(MacroAssembler* masm, Register arg) {
+//   masm->push(arg);
+// }
 
-#ifndef PRODUCT
-extern "C" void findpc(intptr_t x);
-#endif
+// static void pass_arg2(MacroAssembler* masm, Register arg) {
+//   masm->push(arg);
+// }
 
-void MacroAssembler::debug32(int rdi, int rsi, int rbp, int rsp, int rbx, int rdx, int rcx, int rax, int eip, char* msg) {
-  // In order to get locks to work, we need to fake a in_VM state
-  JavaThread* thread = JavaThread::current();
-  JavaThreadState saved_state = thread->thread_state();
-  thread->set_thread_state(_thread_in_vm);
-  if (ShowMessageBoxOnError) {
-    JavaThread* thread = JavaThread::current();
-    JavaThreadState saved_state = thread->thread_state();
-    thread->set_thread_state(_thread_in_vm);
-    if (CountBytecodes || TraceBytecodes || StopInterpreterAt) {
-      ttyLocker ttyl;
-      BytecodeCounter::print();
-    }
-    // To see where a verify_oop failed, get $ebx+40/X for this frame.
-    // This is the value of eip which points to where verify_oop will return.
-    if (os::message_box(msg, "Execution stopped, print registers?")) {
-      ttyLocker ttyl;
-      tty->print_cr("eip = 0x%08x", eip);
-#ifndef PRODUCT
-      if ((WizardMode || Verbose) && PrintMiscellaneous) {
-        tty->cr();
-        findpc(eip);
-        tty->cr();
-      }
-#endif
-      tty->print_cr("rax = 0x%08x", rax);
-      tty->print_cr("rbx = 0x%08x", rbx);
-      tty->print_cr("rcx = 0x%08x", rcx);
-      tty->print_cr("rdx = 0x%08x", rdx);
-      tty->print_cr("rdi = 0x%08x", rdi);
-      tty->print_cr("rsi = 0x%08x", rsi);
-      tty->print_cr("rbp = 0x%08x", rbp);
-      tty->print_cr("rsp = 0x%08x", rsp);
-      BREAKPOINT;
-      assert(false, "start up GDB");
-    }
-  } else {
-    ttyLocker ttyl;
-    ::tty->print_cr("=============== DEBUG MESSAGE: %s ================\n", msg);
-    assert(false, err_msg("DEBUG MESSAGE: %s", msg));
-  }
-  ThreadStateTransition::transition(thread, _thread_in_vm, saved_state);
-}
+// static void pass_arg3(MacroAssembler* masm, Register arg) {
+//   masm->push(arg);
+// }
 
-void MacroAssembler::stop(const char* msg) {
-  ExternalAddress message((address)msg);
-  // push address of message
-  pushptr(message.addr());
-  { Label L; call(L, relocInfo::none); bind(L); }     // push eip
-  pusha();                                           // push registers
-  call(RuntimeAddress(CAST_FROM_FN_PTR(address, MacroAssembler::debug32)));
-  hlt();
-}
+// #ifndef PRODUCT
+// extern "C" void findpc(intptr_t x);
+// #endif
 
-void MacroAssembler::warn(const char* msg) {
-  push_CPU_state();
+// void MacroAssembler::debug32(int rdi, int rsi, int rbp, int rsp, int rbx, int rdx, int rcx, int rax, int eip, char* msg) {
+//   // In order to get locks to work, we need to fake a in_VM state
+//   JavaThread* thread = JavaThread::current();
+//   JavaThreadState saved_state = thread->thread_state();
+//   thread->set_thread_state(_thread_in_vm);
+//   if (ShowMessageBoxOnError) {
+//     JavaThread* thread = JavaThread::current();
+//     JavaThreadState saved_state = thread->thread_state();
+//     thread->set_thread_state(_thread_in_vm);
+//     if (CountBytecodes || TraceBytecodes || StopInterpreterAt) {
+//       ttyLocker ttyl;
+//       BytecodeCounter::print();
+//     }
+//     // To see where a verify_oop failed, get $ebx+40/X for this frame.
+//     // This is the value of eip which points to where verify_oop will return.
+//     if (os::message_box(msg, "Execution stopped, print registers?")) {
+//       ttyLocker ttyl;
+//       tty->print_cr("eip = 0x%08x", eip);
+// #ifndef PRODUCT
+//       if ((WizardMode || Verbose) && PrintMiscellaneous) {
+//         tty->cr();
+//         findpc(eip);
+//         tty->cr();
+//       }
+// #endif
+//       tty->print_cr("rax = 0x%08x", rax);
+//       tty->print_cr("rbx = 0x%08x", rbx);
+//       tty->print_cr("rcx = 0x%08x", rcx);
+//       tty->print_cr("rdx = 0x%08x", rdx);
+//       tty->print_cr("rdi = 0x%08x", rdi);
+//       tty->print_cr("rsi = 0x%08x", rsi);
+//       tty->print_cr("rbp = 0x%08x", rbp);
+//       tty->print_cr("rsp = 0x%08x", rsp);
+//       BREAKPOINT;
+//       assert(false, "start up GDB");
+//     }
+//   } else {
+//     ttyLocker ttyl;
+//     ::tty->print_cr("=============== DEBUG MESSAGE: %s ================\n", msg);
+//     assert(false, err_msg("DEBUG MESSAGE: %s", msg));
+//   }
+//   ThreadStateTransition::transition(thread, _thread_in_vm, saved_state);
+// }
 
-  ExternalAddress message((address) msg);
-  // push address of message
-  pushptr(message.addr());
+// void MacroAssembler::stop(const char* msg) {
+//   ExternalAddress message((address)msg);
+//   // push address of message
+//   pushptr(message.addr());
+//   { Label L; call(L, relocInfo::none); bind(L); }     // push eip
+//   pusha();                                           // push registers
+//   call(RuntimeAddress(CAST_FROM_FN_PTR(address, MacroAssembler::debug32)));
+//   hlt();
+// }
 
-  call(RuntimeAddress(CAST_FROM_FN_PTR(address, warning)));
-  addl(rsp, wordSize);       // discard argument
-  pop_CPU_state();
-}
+// void MacroAssembler::warn(const char* msg) {
+//   push_CPU_state();
+
+//   ExternalAddress message((address) msg);
+//   // push address of message
+//   pushptr(message.addr());
+
+//   call(RuntimeAddress(CAST_FROM_FN_PTR(address, warning)));
+//   addl(rsp, wordSize);       // discard argument
+//   pop_CPU_state();
+// }
 
 #else // _LP64
 
