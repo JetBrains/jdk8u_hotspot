@@ -138,11 +138,12 @@ void SharedRuntime::generate_ricochet_blob() {
   // make sure all code is generated
   masm->flush();
 
+  // FIXME
   // failed to generate?
-  if (bounce_offset < 0 || exception_offset < 0 || frame_size_in_words < 0) {
-    assert(false, "bad ricochet blob");
-    return;
-  }
+  // if (bounce_offset < 0 || exception_offset < 0 || frame_size_in_words < 0) {
+  //   assert(false, "bad ricochet blob");
+  //   return;
+  // }
 
   _ricochet_blob = RicochetBlob::create(&buffer, bounce_offset, exception_offset, frame_size_in_words);
 }

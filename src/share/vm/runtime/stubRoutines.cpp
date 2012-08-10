@@ -202,7 +202,7 @@ void StubRoutines::initialize2() {
     StubGenerator_generate(&buffer, true);
   }
 
-#ifdef ASSERT
+#ifdef ASSERTdisabled
 
 #define TEST_ARRAYCOPY(type)                                                    \
   test_arraycopy_func(          type##_arraycopy(),          sizeof(type));     \
