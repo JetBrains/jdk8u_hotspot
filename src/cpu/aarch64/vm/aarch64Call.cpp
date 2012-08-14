@@ -47,8 +47,11 @@ extern "C" void setup_arm_sim(void *sp, u_int64_t calltype)
   // TODO : need to deal with cases where there are more args than registers
   for (int i = 0; i < argCount; i++) {
     GReg reg = (GReg)i;
+    if (i == 6)
+      cursor += 2;
     sim.getCPUState().xreg(reg, 0) = *cursor++;
   }
+  sim.getCPUState().xreg((GReg)31, 0) = (u_int64_t)sp;
   sim.run();
   if (doReturn) {
     // this overwrites the saved rax
