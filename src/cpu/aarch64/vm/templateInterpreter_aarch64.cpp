@@ -237,8 +237,8 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
   __ enter();          // save old & set new rfp
   __ push(rscratch1);        // set sender sp
   __ push(zr); // leave last_sp as null
-  __ str(rscratch1, Address(rmethod, methodOopDesc::const_offset()));      // get constMethodOop
-  __ add(rbcp, rmethod, in_bytes(constMethodOopDesc::codes_offset())); // get codebase
+  __ ldr(rscratch1, Address(rmethod, methodOopDesc::const_offset()));      // get constMethodOop
+  __ add(rbcp, rscratch1, in_bytes(constMethodOopDesc::codes_offset())); // get codebase
   __ push(rmethod);        // save methodOop
   if (ProfileInterpreter) {
     // Label method_data_continue;
@@ -248,12 +248,13 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
     // __ addptr(rdx, in_bytes(methodDataOopDesc::data_offset()));
     // __ bind(method_data_continue);
     // __ push(rdx);      // set the mdp (method data pointer)
+    __ push(zr);
   } else {
     __ push(zr);
   }
 
-  __ str(rcpool, Address(rmethod, methodOopDesc::constants_offset()));
-  __ str(rcpool, Address(rmethod, constantPoolOopDesc::cache_offset_in_bytes()));
+  __ ldr(rcpool, Address(rmethod, methodOopDesc::constants_offset()));
+  __ ldr(rcpool, Address(rcpool, constantPoolOopDesc::cache_offset_in_bytes()));
   __ push(rcpool); // set constant pool cache
   __ push(rlocals); // set locals pointer
   if (native_call) {
@@ -261,9 +262,18 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
   } else {
     __ push(rbcp); // set bcp
   }
-  __ mov(resp, sp); // set expression stack bottom
-  __ push(resp); // reserve word for pointer to expression stack bottom
+  __ push(zr); // reserve word for pointer to expression stack bottom
   __ mov(resp, sp);
+  __ str(resp, Address(sp));
+
+  const Address size_of_parameters(rmethod, methodOopDesc::size_of_parameters_offset());
+  const Address size_of_locals    (rmethod, methodOopDesc::size_of_locals_offset());
+  const Address max_stack         (rmethod, methodOopDesc::max_stack_offset());
+
+  // FIXME: Move the HW stack out of the way.  I'm not totally sure about any of this.
+  __ ldrh(rscratch1, max_stack);
+  __ sub(rscratch1, sp, rscratch1);
+  __ andr(sp, rscratch1, -16);
 }
 
 // End of helpers
@@ -752,9 +762,12 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
                                    InvocationCounter::counter_offset());
   const Address access_flags(r1, methodOopDesc::access_flags_offset());
 
+  __ enter();
+
   // get parameter size (always needed)
   __ load_unsigned_short(r2, size_of_parameters);
 
+  __ mov(rscratch1, j_rarg1); // Sender SP
   // r1: methodOop
   // r2: size of parameters
   // rscratch1: sender_sp (could differ from sp+wordSize if we were called via c2i )
@@ -807,7 +820,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
     __ stop("tried to execute native method as non-native");
     __ bind(L);
   }
-  {
+ {
     Label L;
     __ tst(r0, JVM_ACC_ABSTRACT);
     __ br(Assembler::EQ, L);

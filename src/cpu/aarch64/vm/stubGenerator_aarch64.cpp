@@ -287,7 +287,7 @@ class StubGenerator: public StubCodeGenerator {
     __ mov(j_rarg0, c_rarg3);
     __ mov(j_rarg1, sp);
     BLOCK_COMMENT("call Java function");
-    __ call (c_rarg4);
+    __ call(c_rarg4);
 
     // save current address for use by exception handling code
   

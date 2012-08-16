@@ -157,15 +157,15 @@ void InterpreterMacroAssembler::pop_l(Register r) {
 }
 
 void InterpreterMacroAssembler::push_ptr(Register r) {
-  str(r, pre(resp, wordSize));
+  str(r, pre(resp, -wordSize));
  }
 
 void InterpreterMacroAssembler::push_i(Register r) {
-  str(r, pre(resp, wordSize));
+  str(r, pre(resp, -wordSize));
 }
 
 void InterpreterMacroAssembler::push_l(Register r) {
-  str(r, pre(resp, 2* wordSize));
+  str(r, pre(resp, 2 * -wordSize));
 }
 
 void InterpreterMacroAssembler::pop_f(FloatRegister r) {
@@ -177,11 +177,11 @@ void InterpreterMacroAssembler::pop_d(FloatRegister r) {
 }
 
 void InterpreterMacroAssembler::push_f(FloatRegister r) {
-  strs(r, pre(resp, wordSize));
+  strs(r, pre(resp, -wordSize));
 }
 
 void InterpreterMacroAssembler::push_d(FloatRegister r) {
-  strd(r, pre(resp, 2* wordSize));
+  strd(r, pre(resp, 2* -wordSize));
 }
 
 void InterpreterMacroAssembler::pop(TosState state) {

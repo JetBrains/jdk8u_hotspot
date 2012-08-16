@@ -1087,27 +1087,14 @@ public:
 #undef INSN
 
   // Add/subtract (shifted regsiter)
-#define INSN(NAME, size, op)					\
-  void NAME(Register Rd, Register Rn, Register Rm,		\
-	    enum shift_kind kind = LSL, unsigned shift = 0) {	\
-    starti;							\
-    f(0, 21);							\
-    assert_cond(kind != ROR);					\
-    zrf(Rd, 0), srf(Rn, 5), rf(Rm, 16);				\
-    op_shifted_reg(0b01011, kind, shift, size, op);		\
-  }
-
-#undef INSN
-
-  // Add/subtract (shifted regsiter)
-#define INSN(NAME, size, op)					\
-  void NAME(Register Rd, Register Rn, Register Rm,		\
-	    enum shift_kind kind = LSL, unsigned shift = 0) {	\
-    starti;							\
-    f(0, 21);							\
-    assert_cond(kind != ROR);					\
-    zrf(Rd, 0), zrf(Rn, 5), rf(Rm, 16);				\
-    op_shifted_reg(0b01011, kind, shift, size, op);		\
+#define INSN(NAME, size, op)				\
+  void NAME(Register Rd, Register Rn, Register Rm,	\
+	    enum shift_kind kind, unsigned shift = 0) {	\
+    starti;						\
+    f(0, 21);						\
+    assert_cond(kind != ROR);				\
+    zrf(Rd, 0), zrf(Rn, 5), rf(Rm, 16);			\
+    op_shifted_reg(0b01011, kind, shift, size, op);	\
   }
 
   INSN(add, 1, 0b000);
@@ -1125,9 +1112,9 @@ public:
   // Add/subtract (extended register)
 #define INSN(NAME, op)							\
   void NAME(Register Rd, Register Rn, Register Rm,			\
-           ext::operation option, int amount) {				\
+           ext::operation option, int amount = 0) {			\
     starti;								\
-    zrf(Rm, 16), srf(Rn, 5), srf(Rd, 0);					\
+    zrf(Rm, 16), srf(Rn, 5), zrf(Rd, 0);				\
     add_sub_extended_reg(op, 0b01011, Rd, Rn, Rm, 0b00, option, amount); \
   }
 
@@ -1147,9 +1134,9 @@ public:
 
 #define INSN(NAME, op)							\
   void NAME(Register Rd, Register Rn, Register Rm,			\
-           ext::operation option, int amount) {				\
+           ext::operation option, int amount = 0) {			\
     starti;								\
-    zrf(Rm, 16), srf(Rn, 5), zrf(Rd, 0);					\
+    zrf(Rm, 16), srf(Rn, 5), zrf(Rd, 0);				\
     add_sub_extended_reg(op, 0b01011, Rd, Rn, Rm, 0b00, option, amount); \
   }
 
@@ -1157,6 +1144,27 @@ public:
   INSN(subsw, 0b011);
   INSN(adds, 0b101);
   INSN(subs, 0b111);
+
+#undef INSN
+
+  // Aliases for short forms of add and sub
+#define INSN(NAME)					\
+  void NAME(Register Rd, Register Rn, Register Rm) {	\
+    if (Rd == sp || Rn == sp)				\
+      NAME(Rd, Rn, Rm, ext::uxtx);			\
+    else						\
+      NAME(Rd, Rn, Rm, LSL);				\
+  }
+
+  INSN(addw);
+  INSN(subw);
+  INSN(add);
+  INSN(sub);
+
+  INSN(addsw);
+  INSN(subsw);
+  INSN(adds);
+  INSN(subs);
 
 #undef INSN
 
@@ -1822,8 +1830,11 @@ class MacroAssembler: public Assembler {
   inline void cmpw(Register Rn, Register Rm, enum shift_kind kind = LSL, unsigned shift = 0) {
     subsw(zr, Rn, Rm, kind, shift);
   }
-  inline void cmp(Register Rn, Register Rm, enum shift_kind kind = LSL, unsigned shift = 0) {
+  inline void cmp(Register Rn, Register Rm, enum shift_kind kind, unsigned shift) {
     subs(zr, Rn, Rm, kind, shift);
+  }
+  inline void cmp(Register Rn, Register Rm) {
+    subs(zr, Rn, Rm);
   }
 
   inline void negw(Register Rd, Register Rn, enum shift_kind kind = LSL, unsigned shift = 0) {
