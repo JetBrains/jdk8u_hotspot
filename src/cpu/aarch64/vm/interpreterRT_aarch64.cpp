@@ -230,7 +230,7 @@ void InterpreterRuntime::SignatureHandlerGenerator::generate(uint64_t fingerprin
 
   // return result handler
   __ mov(r0, Interpreter::result_handler(method()->result_type()));
-  __ ret(0);
+  __ ret(lr);
 
   __ flush();
 }

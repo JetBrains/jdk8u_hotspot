@@ -947,12 +947,13 @@ void TemplateTable::load_invoke_cp_cache_entry(int byte_no,
                                                bool is_invokevfinal, /*unused*/
                                                bool is_invokedynamic) {
   // setup registers
-  const Register index = r3;
+  const Register index = r4;
   const Register cache = r2;
   assert_different_registers(method, flags);
   assert_different_registers(method, cache, index);
   assert_different_registers(itable_index, flags);
   assert_different_registers(itable_index, cache, index);
+  assert_different_registers(flags, index);
   // determine constant pool cache field offsets
   const int method_offset = in_bytes(
     constantPoolCacheOopDesc::base_offset() +
@@ -971,15 +972,15 @@ void TemplateTable::load_invoke_cp_cache_entry(int byte_no,
     resolve_cache_and_index(byte_no, method, cache, index, sizeof(u4));
   } else {
     resolve_cache_and_index(byte_no, noreg, cache, index, sizeof(u2));
-    __ ldr(method, Address(cache, index, Address::lsl(3)));
-    __ add(method, method, method_offset);
+    __ add(rscratch1, cache, method_offset);
+    __ ldr(method, Address(rscratch1, index, Address::lsl(3)));
   }
   if (itable_index != noreg) {
-    __ ldr(itable_index, Address(cache, index, Address::lsl(3)));
-    __ add(itable_index, itable_index, index_offset);
+    __ add(rscratch1, cache, index_offset);
+    __ ldr(itable_index, Address(rscratch1, index, Address::lsl(3)));
   }
-  __ ldr(flags, Address(cache, index, Address::lsl(3)));
-  __ add(flags,flags,  flags_offset);
+  __ add(flags, cache, flags_offset);
+  __ ldr(flags, Address(flags, index, Address::lsl(3)));
 }
 
 
@@ -1155,9 +1156,9 @@ void TemplateTable::invokestatic(int byte_no)
 {
   transition(vtos, vtos);
   assert(byte_no == f1_byte, "use this argument");
-  prepare_invoke(r1, noreg, byte_no);
+  prepare_invoke(rmethod, noreg, byte_no);
   // do the call
-  __ verify_oop(r1);
+  __ verify_oop(rmethod);
   __ profile_call(r0);
   __ jump_from_interpreted(rmethod, r0);
 }

@@ -1494,12 +1494,15 @@ void MacroAssembler::set_last_Java_frame(Register last_java_sp,
     str(last_java_fp, Address(rthread, JavaThread::last_Java_fp_offset()));
   }
 
-  // last_java_pc is optional
   if (last_java_pc != NULL) {
-    add(rscratch1, rthread,
-	in_bytes(JavaThread::frame_anchor_offset() + JavaFrameAnchor::last_Java_pc_offset()));
-    str(rbcp, rscratch1);
+    mov(rscratch1, last_java_pc);
+  } else {
+    Label here;
+    adr(rscratch1, here);
+    bind(here);
   }
+  str(rscratch1, Address(rthread,
+			 JavaThread::frame_anchor_offset() + JavaFrameAnchor::last_Java_pc_offset()));
 
   str(last_java_sp, Address(rthread, JavaThread::last_Java_sp_offset()));
 }
@@ -1545,7 +1548,7 @@ void MacroAssembler::call_VM_base(Register oop_result,
 
   // determine last_java_sp register
   if (!last_java_sp->is_valid()) {
-    last_java_sp = sp;
+    last_java_sp = resp;
   }
 
   // debugging support
@@ -1567,7 +1570,6 @@ void MacroAssembler::call_VM_base(Register oop_result,
   // set last Java frame before call
   assert(last_java_sp != rfp, "can't use rfp");
 
-    // Only interpreter should have to set fp
   set_last_Java_frame(last_java_sp, rfp, NULL);
 
   // do the call, remove parameters
@@ -1599,7 +1601,7 @@ void MacroAssembler::call_VM_base(Register oop_result,
 }
 
 void MacroAssembler::call_VM_helper(Register oop_result, address entry_point, int number_of_arguments, bool check_exceptions) {
-  call_VM_base(oop_result, noreg, r0, entry_point, number_of_arguments, check_exceptions);
+  call_VM_base(oop_result, noreg, noreg, entry_point, number_of_arguments, check_exceptions);
 }
 
 // Implementation of call_VM versions

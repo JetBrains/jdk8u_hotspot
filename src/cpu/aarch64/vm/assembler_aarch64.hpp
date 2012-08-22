@@ -109,32 +109,29 @@ REGISTER_DECLARATION(FloatRegister, j_farg7, v7);
 REGISTER_DECLARATION(Register, rscratch1, r8);
 REGISTER_DECLARATION(Register, rscratch2, r9);
 
-// other volatile registers
-
-// constant pool cache
-REGISTER_DECLARATION(Register, rcpool,    r10);
-// monitors allocated on stack
-REGISTER_DECLARATION(Register, rmonitors, r11);
-// locals on stack
-REGISTER_DECLARATION(Register, rlocals,   r12);
-// current method
-REGISTER_DECLARATION(Register, rmethod,   r13);
-// bytecode pointer
-REGISTER_DECLARATION(Register, rbcp,      r14);
-// Java expression stackpointer
-REGISTER_DECLARATION(Register, resp,      r15);
-
 // non-volatile (callee-save) registers are r16-29
 // of which the following are dedicated gloabl state
 
 // link register
-REGISTER_DECLARATION(Register, lr,       r30);
+REGISTER_DECLARATION(Register, lr,        r30);
 // frame pointer
 REGISTER_DECLARATION(Register, rfp,       r29);
 // current thread
 REGISTER_DECLARATION(Register, rthread,   r28);
 // base of heap
 REGISTER_DECLARATION(Register, rheapbase, r27);
+// constant pool cache
+REGISTER_DECLARATION(Register, rcpool,    r26);
+// monitors allocated on stack
+REGISTER_DECLARATION(Register, rmonitors, r25);
+// locals on stack
+REGISTER_DECLARATION(Register, rlocals,   r24);
+// current method
+REGISTER_DECLARATION(Register, rmethod,   r23);
+// bytecode pointer
+REGISTER_DECLARATION(Register, rbcp,      r22);
+// Java expression stackpointer
+REGISTER_DECLARATION(Register, resp,      r21);
 
 // TODO : x86 uses rbp to save SP in method handle code
 // we may need to do the same with fp
@@ -1820,36 +1817,63 @@ class MacroAssembler: public Assembler {
     bfm(Rd, Rn, 0, 31);
   }
 
-  inline void cmnw(Register Rn, Register Rm, enum shift_kind kind = LSL, unsigned shift = 0) {
-    addsw(zr, Rn, Rm, kind, shift);
+  inline void cmnw(Register Rn, Register Rm) {
+    addsw(zr, Rn, Rm);
   }
-  inline void cmn(Register Rn, Register Rm, enum shift_kind kind = LSL, unsigned shift = 0) {
-    adds(zr, Rn, Rm, kind, shift);
+  inline void cmn(Register Rn, Register Rm) {
+    adds(zr, Rn, Rm);
   }
 
-  inline void cmpw(Register Rn, Register Rm, enum shift_kind kind = LSL, unsigned shift = 0) {
-    subsw(zr, Rn, Rm, kind, shift);
-  }
-  inline void cmp(Register Rn, Register Rm, enum shift_kind kind, unsigned shift) {
-    subs(zr, Rn, Rm, kind, shift);
+  inline void cmpw(Register Rn, Register Rm) {
+    subsw(zr, Rn, Rm);
   }
   inline void cmp(Register Rn, Register Rm) {
     subs(zr, Rn, Rm);
   }
 
-  inline void negw(Register Rd, Register Rn, enum shift_kind kind = LSL, unsigned shift = 0) {
+  inline void negw(Register Rd, Register Rn) {
+    subw(Rd, zr, Rn);
+  }
+
+  inline void neg(Register Rd, Register Rn) {
+    sub(Rd, zr, Rn);
+  }
+
+  inline void negsw(Register Rd, Register Rn) {
+    subsw(Rd, zr, Rn);
+  }
+
+  inline void negs(Register Rd, Register Rn) {
+    subs(Rd, zr, Rn);
+  }
+
+  inline void cmnw(Register Rn, Register Rm, enum shift_kind kind, unsigned shift = 0) {
+    addsw(zr, Rn, Rm, kind, shift);
+  }
+  inline void cmn(Register Rn, Register Rm, enum shift_kind kind, unsigned shift = 0) {
+    adds(zr, Rn, Rm, kind, shift);
+  }
+
+  inline void cmpw(Register Rn, Register Rm, enum shift_kind kind, unsigned shift = 0) {
+    subsw(zr, Rn, Rm, kind, shift);
+  }
+  inline void cmp(Register Rn, Register Rm, enum shift_kind kind, unsigned shift = 0) {
+    subs(zr, Rn, Rm, kind, shift);
+  }
+
+  inline void negw(Register Rd, Register Rn, enum shift_kind kind, unsigned shift = 0) {
     subw(Rd, zr, Rn, kind, shift);
   }
 
-  inline void neg(Register Rd, Register Rn, enum shift_kind kind = LSL, unsigned shift = 0) {
+  inline void neg(Register Rd, Register Rn, enum shift_kind kind, unsigned shift = 0) {
     sub(Rd, zr, Rn, kind, shift);
   }
 
-  inline void negsw(Register Rd, Register Rn, enum shift_kind kind = LSL, unsigned shift = 0) {
+  inline void negsw(Register Rd, Register Rn, enum shift_kind kind, unsigned shift = 0) {
     subsw(Rd, zr, Rn, kind, shift);
   }
 
-  inline void negs(Register Rd, Register Rn, enum shift_kind kind = LSL, unsigned shift = 0) {
+  inline void negs(Register Rd, Register Rn, enum shift_kind kind, unsigned shift = 0) {
     subs(Rd, zr, Rn, kind, shift);
   }
 

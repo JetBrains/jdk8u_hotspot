@@ -89,7 +89,7 @@ void InterpreterMacroAssembler::get_cache_index_at_bcp(Register index,
                                                        size_t index_size) {
   assert(bcp_offset > 0, "bcp is still pointing to start of bytecode");
   if (index_size == sizeof(u2)) {
-    load_unsigned_short(index, Address(r13, bcp_offset));
+    load_unsigned_short(index, Address(rbcp, bcp_offset));
   } else if (index_size == sizeof(u4)) {
     Unimplemented();
     assert(EnableInvokeDynamic, "giant index used only for JSR 292");
