@@ -263,17 +263,8 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
     __ push(rbcp); // set bcp
   }
   __ push(zr); // reserve word for pointer to expression stack bottom
-  __ mov(resp, sp);
-  __ str(resp, Address(sp));
-
-  const Address size_of_parameters(rmethod, methodOopDesc::size_of_parameters_offset());
-  const Address size_of_locals    (rmethod, methodOopDesc::size_of_locals_offset());
-  const Address max_stack         (rmethod, methodOopDesc::max_stack_offset());
-
-  // FIXME: Move the HW stack out of the way.  I'm not totally sure about any of this.
-  __ ldrh(rscratch1, max_stack);
-  __ sub(rscratch1, sp, rscratch1);
-  __ andr(sp, rscratch1, -16);
+  __ mov(r0, sp);
+  __ str(r0, Address(sp));
 }
 
 // End of helpers
@@ -417,7 +408,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
     const Address monitor_block_top(rfp,
                  frame::interpreter_frame_monitor_block_top_offset * wordSize);
     __ ldr(rscratch1, monitor_block_top);
-    __ cmp(rscratch1, resp);
+    __ cmp(sp, rscratch1);
     __ br(Assembler::EQ, L);
     __ stop("broken stack frame setup in interpreter");
     __ bind(L);
@@ -466,7 +457,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // However, large signatures cannot be cached and are generated
   // each time here.  The slow-path generator can do a GC on return,
   // so we must reload it after the call.
-  __ call(t);
+  __ blr(t);
   __ get_method(rmethod);        // slow path can do a GC, reload RBX
 
 
@@ -888,7 +879,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
      const Address monitor_block_top (rfp,
                  frame::interpreter_frame_monitor_block_top_offset * wordSize);
     __ ldr(rscratch1, monitor_block_top);
-    __ cmp(rscratch1, resp);
+    __ cmp(sp, rscratch1);
     __ br(Assembler::EQ, L);
     __ stop("broken stack frame setup in interpreter");
     __ bind(L);

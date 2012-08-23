@@ -286,10 +286,10 @@ class StubGenerator: public StubCodeGenerator {
     //      r10: sender sp
     __ mov(r10, sp);
     BLOCK_COMMENT("call Java function");
-    __ call(c_rarg4);
+    __ blr(c_rarg4);
 
     // save current address for use by exception handling code
-  
+
     return_address = __ pc();
 
     // store result depending on type (everything that is not
