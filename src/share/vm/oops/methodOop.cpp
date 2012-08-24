@@ -216,7 +216,12 @@ address methodOopDesc::bcp_from(int bci) const {
 
 int methodOopDesc::object_size(bool is_native) {
   // If native, then include pointers for native_function and signature_handler
+#ifdef TARGET_ARCH_aarch64
+  // aarch64 requires extra word for call format
+  int extra_bytes = (is_native) ? 3*sizeof(address*) : 0;
+#else
   int extra_bytes = (is_native) ? 2*sizeof(address*) : 0;
+#endif // TARGET_ARCH_aarch64
   int extra_words = align_size_up(extra_bytes, BytesPerWord) / BytesPerWord;
   return align_object_size(header_size() + extra_words);
 }
@@ -607,6 +612,16 @@ void methodOopDesc::set_signature_handler(address handler) {
   *signature_handler = handler;
 }
 
+#ifdef TARGET_ARCH_aarch64
+void methodOopDesc::set_call_format(unsigned int call_format) {
+  unsigned int* call_format_p =  (unsigned int *)call_format_addr();
+  *call_format_p = call_format;
+}
+
+unsigned int methodOopDesc::call_format() {
+  return *(unsigned int *)call_format_addr();
+}
+#endif
 
 bool methodOopDesc::is_not_compilable(int comp_level) const {
   if (is_method_handle_invoke()) {

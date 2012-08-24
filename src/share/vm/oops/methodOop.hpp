@@ -99,7 +99,6 @@
 // | signature_handler     (present only if native)       |
 // |------------------------------------------------------|
 
-
 class CheckedExceptionElement;
 class LocalVariableTableElement;
 class AdapterHandlerEntry;
@@ -415,6 +414,12 @@ class methodOopDesc : public oopDesc {
   address signature_handler() const              { return *(signature_handler_addr()); }
   void set_signature_handler(address handler);
 
+#ifdef TARGET_ARCH_aarch64
+  address *call_format_addr() const        { return native_function_addr() + 2; }
+  static ByteSize call_format_offset()    { return in_ByteSize(sizeof(methodOopDesc) + 2 * wordSize);      }
+  void set_call_format(unsigned int call_format);
+  int unsigned call_format();
+#endif
   // Interpreter oopmap support
   void mask_for(int bci, InterpreterOopMap* mask);
 
