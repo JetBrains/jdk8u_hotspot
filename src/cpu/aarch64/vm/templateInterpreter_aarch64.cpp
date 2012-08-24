@@ -462,10 +462,12 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
 
 
   // result handler is in r0
+  // call format is in rscratch1
   // set result handler
   __ str(r0, Address(rfp,
 		     (frame::interpreter_frame_result_handler_offset) * wordSize));
-
+  // save call format
+  __ mov(r18, rscratch1);
   // pass mirror handle if static call
   {
     Label L;
@@ -527,8 +529,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   __ strw(rscratch1, Address(rthread, JavaThread::thread_state_offset()));
 
   // Call the native method.
-  // FIXME: We're going to have to do something else here...
-  __ brx86(r10, 6, 0, 1);
+  __ brx86(r10, r18);
   // result potentially in r0 or v0
 
   // NOTE: The order of these pushes is known to frame::interpreter_frame_result
