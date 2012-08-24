@@ -74,7 +74,7 @@ void entry(CodeBuffer *cb) {
   //   printf("\n");
   // }
 
-  Assembler _masm(cb);
+  MacroAssembler _masm(cb);
   address entry = __ pc();
 
   // Smoke test for assembler
@@ -1153,7 +1153,15 @@ Disassembly of section .text:
     Disassembler::decode(a, __ pc());
     printf("\n");
   }
+
+  // Test LEA
+  __ lea(r0, Address(sp, 120));
+  __ lea(r0, Address(sp, -120));
+  __ lea(r1, Address(sp, r1, Address::lsl(3)));
+  __ lea(r1, Address(sp, r2, Address::sxtw(3)));
 }
+
+#undef __
 
 extern "C" {
   void das(uint64_t start, int len) {
@@ -1170,6 +1178,28 @@ extern "C" {
 }
 
 #define gas_assert(ARG1) assert(ARG1, #ARG1)
+
+void Address::lea(Assembler *as, Register r) const {
+#define __ as->
+  switch(_mode) {
+  case base_plus_offset:
+    {
+      if (_offset > 0)
+	__ add(r, _base, _offset);
+      else
+	__ sub(r, _base, -_offset);
+      break;
+    }
+  case base_plus_offset_reg:
+    {
+      __ add(r, _base, _index, _ext.op(), _ext.shift());
+      break;
+    }
+  default:
+    ShouldNotReachHere();
+  }
+#undef __
+}
 
 // ------------- Stolen from binutils begin -------------------------------------
 
@@ -1546,7 +1576,7 @@ void MacroAssembler::call_VM_base(Register oop_result,
 				  address  entry_point,
 				  int      number_of_arguments,
 				  bool     check_exceptions) {
-  // determine java_thread register
+   // determine java_thread register
   if (!java_thread->is_valid()) {
     java_thread = rthread;
   }
@@ -1766,7 +1796,20 @@ void MacroAssembler::call_VM_leaf(address entry_point, Register arg_0,
   call_VM_leaf_base(entry_point, 3);
 }
 
-void MacroAssembler::null_check(Register reg, int offset) { Unimplemented(); }
+void MacroAssembler::null_check(Register reg, int offset) {
+  if (needs_explicit_null_check(offset)) {
+    // provoke OS NULL exception if reg = NULL by
+    // accessing M[reg] w/o changing any (non-CC) registers
+    // NOTE: cmpl is plenty here to provoke a segv
+    ldr(zr, Address(reg, 0));
+    // Note: should probably use testl(rax, Address(reg, 0));
+    //       may be shorter code (however, this version of
+    //       testl needs to be implemented first)
+  } else {
+    // nothing to do, (later) access of M[reg + offset]
+    // will provoke OS NULL exception if reg = NULL
+  }
+}
 
 // MacroAssembler protected routines needed to implement
 // public methods
