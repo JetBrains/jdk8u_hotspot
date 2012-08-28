@@ -230,6 +230,29 @@ void InterpreterRuntime::SignatureHandlerGenerator::generate(uint64_t fingerprin
 
   // return result handler
   __ mov(r0, Interpreter::result_handler(method()->result_type()));
+
+  // set the call format
+  // n.b. allow extra 1 for the JNI_Env in c_rarg0
+  unsigned int call_format = ((_num_int_args + 1) << 6) | (_num_fp_args << 2);
+
+  switch (method()->result_type()) {
+  case T_VOID:
+    call_format |= MacroAssembler::ret_type_void;
+    break;
+  case T_FLOAT:
+    call_format |= MacroAssembler::ret_type_float;
+    break;
+  case T_DOUBLE:
+    call_format |= MacroAssembler::ret_type_double;
+    break;
+  default:
+    call_format |= MacroAssembler::ret_type_integral;
+    break;
+  }
+
+  // set method call format
+  method()->set_call_format(call_format);
+
   __ ret(lr);
 
   __ flush();
@@ -332,6 +355,29 @@ class SlowSignatureHandler
     _num_int_args = (method->is_static() ? 1 : 0);
     _num_fp_args = 0;
   }
+  
+  // n.b. allow extra 1 for the JNI_Env in c_rarg0
+  unsigned int get_call_format()
+  {
+    unsigned int call_format = ((_num_int_args + 1) << 6) | (_num_fp_args << 2);
+
+    switch (method()->result_type()) {
+    case T_VOID:
+      call_format |= MacroAssembler::ret_type_void;
+      break;
+    case T_FLOAT:
+      call_format |= MacroAssembler::ret_type_float;
+      break;
+    case T_DOUBLE:
+      call_format |= MacroAssembler::ret_type_double;
+      break;
+    default:
+      call_format |= MacroAssembler::ret_type_integral;
+      break;
+    }
+
+    return call_format;
+  }
 };
 
 
@@ -344,7 +390,11 @@ IRT_ENTRY(address,
   assert(m->is_native(), "sanity check");
 
   // handle arguments
-  SlowSignatureHandler(m, (address)from, to + 1).iterate(UCONST64(-1));
+  SlowSignatureHandler ssh(m, (address)from, to + 1);
+  ssh.iterate(UCONST64(-1));
+
+  // set the call format
+  method->set_call_format(ssh.get_call_format());
 
   // return result handler
   return Interpreter::result_handler(m->result_type());

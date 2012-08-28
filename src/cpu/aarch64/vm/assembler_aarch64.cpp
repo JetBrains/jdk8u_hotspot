@@ -1896,6 +1896,7 @@ void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
 	if (imm_h[i] != 0L) {
 	  movz(dst, (u_int32_t)imm_h[i], (i << 4));
 	  i++;
+	  break;
 	}
       }
       for (;i < 3; i++) {
@@ -1909,6 +1910,7 @@ void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
 	if (imm_h[i] != 0xffffL) {
 	  movn(dst, (u_int32_t)imm_h[i], (i << 4));
 	  i++;
+	  break;
 	}
       }
       for (;i < 3; i++) {
