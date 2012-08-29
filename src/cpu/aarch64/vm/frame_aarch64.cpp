@@ -705,3 +705,23 @@ extern "C" void pf(unsigned long fp) {
   ResourceMark rm;
   printf("%s\n", m->name_and_sig_as_C_string());
 }
+
+// support for printing out where we are in a Java method
+// needs to be passed current fp and bcp register values
+// prints method name, bc index and bytecode name
+extern "C" void pm(unsigned long fp, unsigned long bcx) {
+  DESCRIBE_FP_OFFSET(interpreter_frame_method);
+  unsigned long *p = (unsigned long *)fp;
+  methodOop m = (methodOop)p[frame::interpreter_frame_method_offset];
+  int bci = 0;
+  const char *name;
+  if (m->validate_bci_from_bcx(bcx) < 0) {
+    bci = 0;
+    name = "???";
+  } else {
+    bci = m->bci_from((address)bcx);
+    name = Bytecodes::name(m->java_code_at(bci));
+  }
+  ResourceMark rm;
+  printf("%s : %d ==> %s\n", m->name_and_sig_as_C_string(), bci, name);
+}
