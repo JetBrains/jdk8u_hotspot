@@ -1773,7 +1773,7 @@ class MacroAssembler: public Assembler {
   // Load Effective Address
   void lea(Register r, const Address &a) { a.lea(this, r); }
 
-  void call_Unimplemented() {
+  virtual void call_Unimplemented() {
     haltsim();
   }
 
