@@ -1047,11 +1047,10 @@ void TemplateTable::load_invoke_cp_cache_entry(int byte_no,
                                                bool is_invokedynamic) {
   // setup registers
   const Register index = r4;
-  const Register cache = r2;
   assert_different_registers(method, flags);
-  assert_different_registers(method, cache, index);
+  assert_different_registers(method, index);
   assert_different_registers(itable_index, flags);
-  assert_different_registers(itable_index, cache, index);
+  assert_different_registers(itable_index, index);
   assert_different_registers(flags, index);
   // determine constant pool cache field offsets
   const int method_offset = in_bytes(
@@ -1068,18 +1067,18 @@ void TemplateTable::load_invoke_cp_cache_entry(int byte_no,
   if (byte_no == f1_oop) {
     // Resolved f1_oop goes directly into 'method' register.
     assert(is_invokedynamic, "");
-    resolve_cache_and_index(byte_no, method, cache, index, sizeof(u4));
+    resolve_cache_and_index(byte_no, method, rcpool, index, sizeof(u4));
   } else {
-    resolve_cache_and_index(byte_no, noreg, cache, index, sizeof(u2));
-    __ add(rscratch1, cache, method_offset);
+    resolve_cache_and_index(byte_no, noreg, rcpool, index, sizeof(u2));
+    __ add(rscratch1, rcpool, method_offset);
     __ ldr(method, Address(rscratch1, index, Address::lsl(3)));
   }
   if (itable_index != noreg) {
-    __ add(rscratch1, cache, index_offset);
+    __ add(rscratch1, rcpool, index_offset);
     __ ldr(itable_index, Address(rscratch1, index, Address::lsl(3)));
   }
-  __ add(flags, cache, flags_offset);
-  __ ldrw(flags, Address(flags, index, Address::lsl(3)));
+  __ add(flags, rcpool, flags_offset);
+  __ ldr(flags, Address(flags, index, Address::lsl(3)));
 }
 
 
@@ -1350,7 +1349,7 @@ void TemplateTable::prepare_invoke(Register method, Register index, int byte_no)
   if (load_receiver) {
     assert(!is_invokedynamic, "");
     __ andr(recv, flags, 0xFF);
-    __ add(rscratch1, sp, recv, Assembler::LSL, 3);
+    __ add(rscratch1, sp, recv, ext::uxtx, 3);
     __ sub(rscratch1, rscratch1, Interpreter::expr_offset_in_bytes(1));
     __ ldr(recv, Address(rscratch1));
     __ verify_oop(recv);
@@ -1361,12 +1360,8 @@ void TemplateTable::prepare_invoke(Register method, Register index, int byte_no)
     __ null_check(recv);
   }
 
-  if (save_flags) {
-    __ mov(rscratch2, flags);
-  }
-
   // compute return type
-  __ lsr(flags, flags, ConstantPoolCacheEntry::tosBits);
+  __ ubfx(rscratch2, flags, ConstantPoolCacheEntry::tosBits, 4);
   // Make sure we don't need to mask flags for tosBits after the above shift
   ConstantPoolCacheEntry::verify_tosBits();
   // load return address
@@ -1377,14 +1372,12 @@ void TemplateTable::prepare_invoke(Register method, Register index, int byte_no)
     else
       table_addr = (address)Interpreter::return_3_addrs_by_index_table();
     __ mov(rscratch1, table_addr);
-    __ ldr(lr, Address(rscratch1, flags, Address::lsl(3)));
+    __ ldr(lr, Address(rscratch1, rscratch2, Address::lsl(3)));
   }
 
-  // Restore flag field from the constant pool cache, and restore esi
-  // for later null checks.  r13 is the bytecode pointer
+  // flags is a whole xword: mask it off
   if (save_flags) {
-    __ mov(flags, rscratch2);
-    __ restore_bcp();  // FIXME: Probably not needed!
+    __ andr(flags, flags, 0xffffffffu);
   }
 }
 
@@ -1399,15 +1392,28 @@ void TemplateTable::invokevirtual_helper(Register index,
 
 void TemplateTable::invokevirtual(int byte_no)
 {
-  __ call_Unimplemented();
-}
+  transition(vtos, vtos);
+  assert(byte_no == f2_byte, "use this argument");
+  prepare_invoke(rmethod, noreg, byte_no);
 
+  // rbx: index
+  // rcx: receiver
+  // rdx: flags
+
+  __ call_Unimplemented();
+  // invokevirtual_helper(rbx, rcx, rdx);
+}
 
 void TemplateTable::invokespecial(int byte_no)
 {
-  __ call_Unimplemented();
+  transition(vtos, vtos);
+  assert(byte_no == f1_byte, "use this argument");
+  prepare_invoke(rmethod, noreg, byte_no);
+  // do the call
+  __ verify_oop(rmethod);
+  __ profile_call(r0);
+  __ jump_from_interpreted(rmethod, r0);
 }
-
 
 void TemplateTable::invokestatic(int byte_no)
 {
