@@ -228,9 +228,6 @@ void InterpreterRuntime::SignatureHandlerGenerator::generate(uint64_t fingerprin
   // generate code to handle arguments
   iterate(fingerprint);
 
-  // return result handler
-  __ mov(r0, Interpreter::result_handler(method()->result_type()));
-
   // set the call format
   // n.b. allow extra 1 for the JNI_Env in c_rarg0
   unsigned int call_format = ((_num_int_args + 1) << 6) | (_num_fp_args << 2);
@@ -250,8 +247,12 @@ void InterpreterRuntime::SignatureHandlerGenerator::generate(uint64_t fingerprin
     break;
   }
 
-  // set method call format
-  method()->set_call_format(call_format);
+  // store the call format in the method
+  __ movw(r0, call_format);
+  __ str(r0, Address(rmethod, methodOopDesc::call_format_offset()));
+
+  // return result handler
+  __ mov(r0, Interpreter::result_handler(method()->result_type()));
 
   __ ret(lr);
 
