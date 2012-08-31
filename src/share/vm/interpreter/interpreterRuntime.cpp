@@ -566,7 +566,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_get_put(JavaThread* thread, Bytecode
     // Don't allow fast path for setting CallSite.target and sub-classes.
     put_code = (Bytecodes::Code) 0;
   }
-
+  ConstantPoolCacheEntry *e(cache_entry(thread));
   cache_entry(thread)->set_field(
     get_code,
     put_code,
