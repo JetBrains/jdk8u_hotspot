@@ -1563,6 +1563,8 @@ void MacroAssembler::set_last_Java_frame(Register last_java_sp,
     str(last_java_fp, Address(rthread, JavaThread::last_Java_fp_offset()));
   }
 
+  push(rscratch1); // Don't clobber rscratch1
+
   if (last_java_pc != NULL) {
     mov(rscratch1, last_java_pc);
   } else {
@@ -1575,10 +1577,12 @@ void MacroAssembler::set_last_Java_frame(Register last_java_sp,
 			 + JavaFrameAnchor::last_Java_pc_offset()));
 
   if (last_java_sp == sp) {
-    mov(rscratch1, sp);
+    add(rscratch1, sp, wordSize);  // Adjusted because we've pushed rscratch1
     last_java_sp = rscratch1;
   }
   str(last_java_sp, Address(rthread, JavaThread::last_Java_sp_offset()));
+
+  pop(rscratch1);
 }
 
 // added to make this compile
