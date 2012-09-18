@@ -1275,7 +1275,7 @@ class CommandLineFlags {
   notproduct(bool, PrintCompactFieldsSavings, false,                        \
           "Print how many words were saved with CompactFields")             \
                                                                             \
-  product(bool, UseBiasedLocking, true,                                     \
+  product_pd(bool, UseBiasedLocking,                                        \
           "Enable biased locking in JVM")                                   \
                                                                             \
   product(intx, BiasedLockingStartupDelay, 4000,                            \
