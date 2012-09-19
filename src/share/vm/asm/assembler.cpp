@@ -48,6 +48,8 @@
 #endif
 
 
+unsigned long asm_bp;
+
 // Implementation of AbstractAssembler
 //
 // The AbstractAssembler is generating code into a CodeBuffer. To make code generation faster,
