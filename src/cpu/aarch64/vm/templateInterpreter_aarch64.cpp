@@ -365,13 +365,12 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // rmethod: methodOop
   // r2: size of parameters
   // rscratch1: sender sp
-  __ mov(r0, lr);                                       // get return address
 
   // for natives the size of locals is zero
 
   // compute beginning of parameters (rlocals)
   __ add(rlocals, sp, r2, ext::uxtx, 3);
-  __ add(rlocals, rlocals, wordSize);
+  __ add(rlocals, rlocals, -wordSize);
 
   // add 2 zero-initialized slots for native calls
   // initialize result_handler slot
@@ -665,7 +664,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
     __ cbz(r0, store_result);
     __ ldr(r0, Address(r0, 0));
     __ bind(store_result);
-    __ ldr(r0, Address(rfp, frame::interpreter_frame_oop_temp_offset*wordSize));
+    __ str(r0, Address(rfp, frame::interpreter_frame_oop_temp_offset*wordSize));
     // keep stack depth as expected by pushing oop which will eventually be discarde
     __ push(ltos);
     __ bind(no_oop);
