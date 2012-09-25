@@ -52,7 +52,7 @@ static inline Address iaddress(int n) {
 }
 
 static inline Address laddress(int n) {
-  return iaddress(n + 1);
+  return iaddress(n);
 }
 
 static inline Address faddress(int n) {
@@ -122,7 +122,16 @@ static inline Address at_tos_p5() {
 
 // Condition conversion
 static Assembler::Condition j_not(TemplateTable::Condition cc) {
-  return Assembler::Condition(cc ^ 1);
+  switch (cc) {
+  case TemplateTable::equal        : return Assembler::NE;
+  case TemplateTable::not_equal    : return Assembler::EQ;
+  case TemplateTable::less         : return Assembler::GE;
+  case TemplateTable::less_equal   : return Assembler::GT;
+  case TemplateTable::greater      : return Assembler::LE;
+  case TemplateTable::greater_equal: return Assembler::LT;
+  }
+  ShouldNotReachHere();
+  return Assembler::EQ;
 }
 
 
