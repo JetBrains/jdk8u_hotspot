@@ -259,15 +259,66 @@ void InterpreterGenerator::generate_stack_overflow_check(void) {  }
 // Allocate monitor and lock method (asm interpreter)
 //
 // Args:
-//      rbx: methodOop
-//      r14: locals
+//      rmethod: methodOop
+//      rlocals: locals
 //
 // Kills:
-//      rax
+//      r0
 //      c_rarg0, c_rarg1, c_rarg2, c_rarg3, ...(param regs)
 //      rscratch1, rscratch2 (scratch regs)
 void InterpreterGenerator::lock_method(void) {
-  __ call_Unimplemented();
+  // synchronize method
+  const Address access_flags(rmethod, methodOopDesc::access_flags_offset());
+  const Address monitor_block_top(
+        rfp,
+        frame::interpreter_frame_monitor_block_top_offset * wordSize);
+  const int entry_size = frame::interpreter_frame_monitor_size() * wordSize;
+
+#ifdef ASSERT
+  {
+    Label L;
+    __ ldrw(r0, access_flags);
+    __ tst(r0, JVM_ACC_SYNCHRONIZED);
+    __ br(Assembler::NE, L);
+    __ stop("method doesn't need synchronization");
+    __ bind(L);
+  }
+#endif // ASSERT
+
+  // get synchronization object
+  {
+    const int mirror_offset = in_bytes(Klass::java_mirror_offset());
+    Label done;
+    __ ldrw(r0, access_flags);
+    __ tst(r0, JVM_ACC_STATIC);
+    // get receiver (assume this is frequent case)
+    __ ldr(r0, Address(rlocals, Interpreter::local_offset_in_bytes(0)));
+    __ br(Assembler::EQ, done);
+    __ ldr(r0, Address(rmethod, methodOopDesc::constants_offset()));
+    __ ldr(r0, Address(r0,
+                           constantPoolOopDesc::pool_holder_offset_in_bytes()));
+    __ ldr(r0, Address(r0, mirror_offset));
+
+#ifdef ASSERT
+    {
+      Label L;
+      __ cbnz(r0, L);
+      __ stop("synchronization object is NULL");
+      __ bind(L);
+    }
+#endif // ASSERT
+
+    __ bind(done);
+  }
+
+  // add space for monitor & lock
+  __ sub(sp, sp, entry_size); // add space for a monitor entry
+  __ mov(rscratch1, sp);
+  __ str(rscratch1, monitor_block_top);  // set new monitor block top
+  // store object
+  __ str(r0, Address(sp, BasicObjectLock::obj_offset_in_bytes()));
+  __ mov(c_rarg1, sp); // object address
+  __ lock_object(c_rarg1);
 }
 
 // Generate a fixed interpreter frame. This is identical setup for
@@ -365,13 +416,12 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // rmethod: methodOop
   // r2: size of parameters
   // rscratch1: sender sp
-  __ mov(r0, lr);                                       // get return address
 
   // for natives the size of locals is zero
 
   // compute beginning of parameters (rlocals)
   __ add(rlocals, sp, r2, ext::uxtx, 3);
-  __ add(rlocals, rlocals, wordSize);
+  __ add(rlocals, rlocals, -wordSize);
 
   // add 2 zero-initialized slots for native calls
   // initialize result_handler slot
@@ -577,7 +627,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   __ mov(rscratch1, _thread_in_native);
   __ strw(rscratch1, Address(rthread, JavaThread::thread_state_offset()));
 
-  // load call format in r18
+  // load call format
   __ ldrw(rscratch1, Address(rmethod, methodOopDesc::call_format_offset()));
 
   // Call the native method.
@@ -665,7 +715,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
     __ cbz(r0, store_result);
     __ ldr(r0, Address(r0, 0));
     __ bind(store_result);
-    __ ldr(r0, Address(rfp, frame::interpreter_frame_oop_temp_offset*wordSize));
+    __ str(r0, Address(rfp, frame::interpreter_frame_oop_temp_offset*wordSize));
     // keep stack depth as expected by pushing oop which will eventually be discarde
     __ push(ltos);
     __ bind(no_oop);
