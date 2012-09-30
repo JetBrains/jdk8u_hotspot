@@ -48,7 +48,7 @@
 #endif
 
 
-unsigned long asm_bp = 0x00007fffee099138;
+unsigned long asm_bp = 0x00007fffee09805c;
 
 // Implementation of AbstractAssembler
 //
