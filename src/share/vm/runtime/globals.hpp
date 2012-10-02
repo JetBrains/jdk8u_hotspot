@@ -2631,6 +2631,9 @@ class CommandLineFlags {
   diagnostic(bool, DebugInlinedCalls, true,                                 \
          "If false, restricts profiled locations to the root method only")  \
                                                                             \
+  product(bool, NotifySimulator, true,                                      \
+         "tell the AArch64 sim where we are in method code")                \
+                                                                            \
   product(bool, PrintVMOptions, false,                                      \
          "Print flags that appeared on the command line")                   \
                                                                             \
