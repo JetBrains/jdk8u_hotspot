@@ -2634,6 +2634,9 @@ class CommandLineFlags {
   product(bool, NotifySimulator, true,                                      \
          "tell the AArch64 sim where we are in method code")                \
                                                                             \
+  product(bool, UseSimulatorCache, false,                                   \
+         "tell the AArch64 sim where we are in method code")                \
+                                                                            \
   product(bool, PrintVMOptions, false,                                      \
          "Print flags that appeared on the command line")                   \
                                                                             \
