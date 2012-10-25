@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -64,7 +64,7 @@ class JvmtiBreakpoints;
 // to update its pointer to the address cache.
 //
 
-class GrowableElement : public CHeapObj {
+class GrowableElement : public CHeapObj<mtInternal> {
 public:
   virtual address getCacheValue()          =0;
   virtual bool equals(GrowableElement* e)  =0;
@@ -130,7 +130,7 @@ public:
 // Note   : typesafe wrapper for GrowableCache of JvmtiBreakpoint
 //
 
-class JvmtiBreakpointCache : public CHeapObj {
+class JvmtiBreakpointCache : public CHeapObj<mtInternal> {
 
 private:
   GrowableCache _cache;
@@ -164,17 +164,18 @@ public:
 // A JvmtiBreakpoint describes a location (class, method, bci) to break at.
 //
 
-typedef void (methodOopDesc::*method_action)(int _bci);
+typedef void (Method::*method_action)(int _bci);
 
 class JvmtiBreakpoint : public GrowableElement {
 private:
-  methodOop             _method;
+  Method*               _method;
   int                   _bci;
   Bytecodes::Code       _orig_bytecode;
+  oop                   _class_loader;
 
 public:
   JvmtiBreakpoint();
-  JvmtiBreakpoint(methodOop m_method, jlocation location);
+  JvmtiBreakpoint(Method* m_method, jlocation location);
   bool equals(JvmtiBreakpoint& bp);
   bool lessThan(JvmtiBreakpoint &bp);
   void copy(JvmtiBreakpoint& bp);
@@ -185,13 +186,16 @@ public:
   void clear();
   void print();
 
-  methodOop method() { return _method; }
+  Method* method() { return _method; }
 
   // GrowableElement implementation
   address getCacheValue()         { return getBcp(); }
   bool lessThan(GrowableElement* e) { Unimplemented(); return false; }
   bool equals(GrowableElement* e) { return equals((JvmtiBreakpoint&) *e); }
-  void oops_do(OopClosure* f)     { f->do_oop((oop *) &_method); }
+  void oops_do(OopClosure* f)     {
+    // Mark the method loader as live
+    f->do_oop(&_class_loader);
+  }
   GrowableElement *clone()        {
     JvmtiBreakpoint *bp = new JvmtiBreakpoint();
     bp->copy(*this);
@@ -258,7 +262,7 @@ public:
 // CHeap allocated to emphasize its similarity to JvmtiFramePops.
 //
 
-class JvmtiBreakpoints : public CHeapObj {
+class JvmtiBreakpoints : public CHeapObj<mtInternal> {
 private:
 
   JvmtiBreakpointCache _bps;
@@ -283,7 +287,7 @@ public:
 
   int  set(JvmtiBreakpoint& bp);
   int  clear(JvmtiBreakpoint& bp);
-  void clearall_in_class_at_safepoint(klassOop klass);
+  void clearall_in_class_at_safepoint(Klass* klass);
   void clearall();
   void gc_epilogue();
 };
@@ -496,7 +500,7 @@ class JvmtiDeferredEvent VALUE_OBJ_CLASS_SPEC {
 class JvmtiDeferredEventQueue : AllStatic {
   friend class JvmtiDeferredEvent;
  private:
-  class QueueNode : public CHeapObj {
+  class QueueNode : public CHeapObj<mtInternal> {
    private:
     JvmtiDeferredEvent _event;
     QueueNode* _next;

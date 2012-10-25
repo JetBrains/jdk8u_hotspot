@@ -238,12 +238,12 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
   LIR_Opr getThreadPointer();
 
   void do_RegisterFinalizer(Intrinsic* x);
+  void do_isInstance(Intrinsic* x);
   void do_getClass(Intrinsic* x);
   void do_currentThread(Intrinsic* x);
   void do_MathIntrinsic(Intrinsic* x);
   void do_ArrayCopy(Intrinsic* x);
   void do_CompareAndSwap(Intrinsic* x, ValueType* type);
-  void do_AttemptUpdate(Intrinsic* x);
   void do_NIOCheckIndex(Intrinsic* x);
   void do_FPIntrinsics(Intrinsic* x);
   void do_Reference_get(Intrinsic* x);
@@ -306,7 +306,7 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
 
   void store_stack_parameter (LIR_Opr opr, ByteSize offset_from_sp_in_bytes);
 
-  void jobject2reg_with_patching(LIR_Opr r, ciObject* obj, CodeEmitInfo* info);
+  void klass2reg_with_patching(LIR_Opr r, ciMetadata* obj, CodeEmitInfo* info);
 
   // this loads the length and compares against the index
   void array_range_check          (LIR_Opr array, LIR_Opr index, CodeEmitInfo* null_check_info, CodeEmitInfo* range_check_info);
@@ -500,6 +500,7 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
   virtual void do_IfOp           (IfOp*            x);
   virtual void do_Convert        (Convert*         x);
   virtual void do_NullCheck      (NullCheck*       x);
+  virtual void do_TypeCast       (TypeCast*        x);
   virtual void do_Invoke         (Invoke*          x);
   virtual void do_NewInstance    (NewInstance*     x);
   virtual void do_NewTypeArray   (NewTypeArray*    x);

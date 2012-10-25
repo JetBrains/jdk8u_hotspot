@@ -34,7 +34,7 @@
 #include "memory/allocation.inline.hpp"
 #include "memory/oopFactory.hpp"
 #include "memory/resourceArea.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiThreadState.hpp"
 #include "runtime/biasedLocking.hpp"
@@ -107,7 +107,7 @@ Deoptimization::UnrollBlock::UnrollBlock(int  size_of_deoptimized_frame,
   _number_of_frames          = number_of_frames;
   _frame_sizes               = frame_sizes;
   _frame_pcs                 = frame_pcs;
-  _register_block            = NEW_C_HEAP_ARRAY(intptr_t, RegisterMap::reg_count * 2);
+  _register_block            = NEW_C_HEAP_ARRAY(intptr_t, RegisterMap::reg_count * 2, mtCompiler);
   _return_type               = return_type;
   _initial_info              = 0;
   // PD (x86 only)
@@ -120,9 +120,9 @@ Deoptimization::UnrollBlock::UnrollBlock(int  size_of_deoptimized_frame,
 
 
 Deoptimization::UnrollBlock::~UnrollBlock() {
-  FREE_C_HEAP_ARRAY(intptr_t, _frame_sizes);
-  FREE_C_HEAP_ARRAY(intptr_t, _frame_pcs);
-  FREE_C_HEAP_ARRAY(intptr_t, _register_block);
+  FREE_C_HEAP_ARRAY(intptr_t, _frame_sizes, mtCompiler);
+  FREE_C_HEAP_ARRAY(intptr_t, _frame_pcs, mtCompiler);
+  FREE_C_HEAP_ARRAY(intptr_t, _register_block, mtCompiler);
 }
 
 
@@ -364,9 +364,9 @@ Deoptimization::UnrollBlock* Deoptimization::fetch_unroll_info_helper(JavaThread
 
   // Compute the vframes' sizes.  Note that frame_sizes[] entries are ordered from outermost to innermost
   // virtual activation, which is the reverse of the elements in the vframes array.
-  intptr_t* frame_sizes = NEW_C_HEAP_ARRAY(intptr_t, number_of_frames);
+  intptr_t* frame_sizes = NEW_C_HEAP_ARRAY(intptr_t, number_of_frames, mtCompiler);
   // +1 because we always have an interpreter return address for the final slot.
-  address* frame_pcs = NEW_C_HEAP_ARRAY(address, number_of_frames + 1);
+  address* frame_pcs = NEW_C_HEAP_ARRAY(address, number_of_frames + 1, mtCompiler);
   int popframe_extra_args = 0;
   // Create an interpreter return address for the stub to use as its return
   // address so the skeletal frames are perfectly walkable
@@ -394,7 +394,7 @@ Deoptimization::UnrollBlock* Deoptimization::fetch_unroll_info_helper(JavaThread
   if (deopt_sender.is_interpreted_frame()) {
     methodHandle method = deopt_sender.interpreter_frame_method();
     Bytecode_invoke cur = Bytecode_invoke_check(method, deopt_sender.interpreter_frame_bci());
-    if (cur.is_method_handle_invoke()) {
+    if (cur.is_invokedynamic() || cur.is_invokehandle()) {
       // Method handle invokes may involve fairly arbitrary chains of
       // calls so it's impossible to know how much actual space the
       // caller has for locals.
@@ -754,11 +754,11 @@ bool Deoptimization::realloc_objects(JavaThread* thread, frame* fr, GrowableArra
     assert(objects->at(i)->is_object(), "invalid debug information");
     ObjectValue* sv = (ObjectValue*) objects->at(i);
 
-    KlassHandle k(((ConstantOopReadValue*) sv->klass())->value()());
+    KlassHandle k(java_lang_Class::as_Klass(sv->klass()->as_ConstantOopReadValue()->value()()));
     oop obj = NULL;
 
     if (k->oop_is_instance()) {
-      instanceKlass* ik = instanceKlass::cast(k());
+      InstanceKlass* ik = InstanceKlass::cast(k());
       obj = ik->allocate_instance(CHECK_(false));
     } else if (k->oop_is_typeArray()) {
       typeArrayKlass* ak = typeArrayKlass::cast(k());
@@ -788,7 +788,7 @@ class FieldReassigner: public FieldClosure {
   frame* _fr;
   RegisterMap* _reg_map;
   ObjectValue* _sv;
-  instanceKlass* _ik;
+  InstanceKlass* _ik;
   oop _obj;
 
   int _i;
@@ -920,12 +920,12 @@ void Deoptimization::reassign_object_array_elements(frame* fr, RegisterMap* reg_
 void Deoptimization::reassign_fields(frame* fr, RegisterMap* reg_map, GrowableArray<ScopeValue*>* objects) {
   for (int i = 0; i < objects->length(); i++) {
     ObjectValue* sv = (ObjectValue*) objects->at(i);
-    KlassHandle k(((ConstantOopReadValue*) sv->klass())->value()());
+    KlassHandle k(java_lang_Class::as_Klass(sv->klass()->as_ConstantOopReadValue()->value()()));
     Handle obj = sv->value();
     assert(obj.not_null(), "reallocation was missed");
 
     if (k->oop_is_instance()) {
-      instanceKlass* ik = instanceKlass::cast(k());
+      InstanceKlass* ik = InstanceKlass::cast(k());
       FieldReassigner reassign(fr, reg_map, sv, obj());
       ik->do_nonstatic_fields(&reassign);
     } else if (k->oop_is_typeArray()) {
@@ -971,11 +971,11 @@ void Deoptimization::print_objects(GrowableArray<ScopeValue*>* objects) {
 
   for (int i = 0; i < objects->length(); i++) {
     ObjectValue* sv = (ObjectValue*) objects->at(i);
-    KlassHandle k(((ConstantOopReadValue*) sv->klass())->value()());
+    KlassHandle k(java_lang_Class::as_Klass(sv->klass()->as_ConstantOopReadValue()->value()()));
     Handle obj = sv->value();
 
     tty->print("     object <" INTPTR_FORMAT "> of type ", sv->value()());
-    k->as_klassOop()->print_value();
+    k->print_value();
     tty->print(" allocated (%d bytes)", obj->size() * HeapWordSize);
     tty->cr();
 
@@ -1188,13 +1188,13 @@ JRT_END
 void Deoptimization::load_class_by_index(constantPoolHandle constant_pool, int index, TRAPS) {
   // in case of an unresolved klass entry, load the class.
   if (constant_pool->tag_at(index).is_unresolved_klass()) {
-    klassOop tk = constant_pool->klass_at(index, CHECK);
+    Klass* tk = constant_pool->klass_at(index, CHECK);
     return;
   }
 
   if (!constant_pool->tag_at(index).is_symbol()) return;
 
-  Handle class_loader (THREAD, instanceKlass::cast(constant_pool->pool_holder())->class_loader());
+  Handle class_loader (THREAD, InstanceKlass::cast(constant_pool->pool_holder())->class_loader());
   Symbol*  symbol  = constant_pool->symbol_at(index);
 
   // class name?
@@ -1274,8 +1274,8 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* thread, jint tra
     // Ensure that we can record deopt. history:
     bool create_if_missing = ProfileTraps;
 
-    methodDataHandle trap_mdo
-      (THREAD, get_method_data(thread, trap_method, create_if_missing));
+    MethodData* trap_mdo =
+      get_method_data(thread, trap_method, create_if_missing);
 
     // Print a bunch of diagnostics, if requested.
     if (TraceDeoptimization || LogCompilation) {
@@ -1303,7 +1303,7 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* thread, jint tra
         if (xtty != NULL)
           xtty->name(class_name);
       }
-      if (xtty != NULL && trap_mdo.not_null()) {
+      if (xtty != NULL && trap_mdo != NULL) {
         // Dump the relevant MDO state.
         // This is the deopt count for the current reason, any previous
         // reasons or recompiles seen at this point.
@@ -1386,7 +1386,7 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* thread, jint tra
     //   PerMethodRecompilationCutoff, the method is abandoned.
     //   This should only happen if the method is very large and has
     //   many "lukewarm" deoptimizations.  The code which enforces this
-    //   limit is elsewhere (class nmethod, class methodOopDesc).
+    //   limit is elsewhere (class nmethod, class Method).
     //
     // Note that the per-BCI 'is_recompiled' bit gives the compiler one chance
     // to recompile at each bytecode independently of the per-BCI cutoff.
@@ -1455,15 +1455,15 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* thread, jint tra
     // Setting +ProfileTraps fixes the following, on all platforms:
     // 4852688: ProfileInterpreter is off by default for ia64.  The result is
     // infinite heroic-opt-uncommon-trap/deopt/recompile cycles, since the
-    // recompile relies on a methodDataOop to record heroic opt failures.
+    // recompile relies on a MethodData* to record heroic opt failures.
 
     // Whether the interpreter is producing MDO data or not, we also need
     // to use the MDO to detect hot deoptimization points and control
     // aggressive optimization.
     bool inc_recompile_count = false;
     ProfileData* pdata = NULL;
-    if (ProfileTraps && update_trap_state && trap_mdo.not_null()) {
-      assert(trap_mdo() == get_method_data(thread, trap_method, false), "sanity");
+    if (ProfileTraps && update_trap_state && trap_mdo != NULL) {
+      assert(trap_mdo == get_method_data(thread, trap_method, false), "sanity");
       uint this_trap_count = 0;
       bool maybe_prior_trap = false;
       bool maybe_prior_recompile = false;
@@ -1579,15 +1579,15 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* thread, jint tra
 }
 JRT_END
 
-methodDataOop
+MethodData*
 Deoptimization::get_method_data(JavaThread* thread, methodHandle m,
                                 bool create_if_missing) {
   Thread* THREAD = thread;
-  methodDataOop mdo = m()->method_data();
+  MethodData* mdo = m()->method_data();
   if (mdo == NULL && create_if_missing && !HAS_PENDING_EXCEPTION) {
     // Build an MDO.  Ignore errors like OutOfMemory;
     // that simply means we won't have an MDO to update.
-    methodOopDesc::build_interpreter_method_data(m, THREAD);
+    Method::build_interpreter_method_data(m, THREAD);
     if (HAS_PENDING_EXCEPTION) {
       assert((PENDING_EXCEPTION->is_a(SystemDictionary::OutOfMemoryError_klass())), "we expect only an OOM error here");
       CLEAR_PENDING_EXCEPTION;
@@ -1598,7 +1598,7 @@ Deoptimization::get_method_data(JavaThread* thread, methodHandle m,
 }
 
 ProfileData*
-Deoptimization::query_update_method_data(methodDataHandle trap_mdo,
+Deoptimization::query_update_method_data(MethodData* trap_mdo,
                                          int trap_bci,
                                          Deoptimization::DeoptReason reason,
                                          //outputs:
@@ -1658,7 +1658,7 @@ Deoptimization::query_update_method_data(methodDataHandle trap_mdo,
 }
 
 void
-Deoptimization::update_method_data_from_interpreter(methodDataHandle trap_mdo, int trap_bci, int reason) {
+Deoptimization::update_method_data_from_interpreter(MethodData* trap_mdo, int trap_bci, int reason) {
   ResourceMark rm;
   // Ignored outputs:
   uint ignore_this_trap_count;
@@ -1946,7 +1946,7 @@ void Deoptimization::print_statistics() {
 }
 
 void
-Deoptimization::update_method_data_from_interpreter(methodDataHandle trap_mdo, int trap_bci, int reason) {
+Deoptimization::update_method_data_from_interpreter(MethodData* trap_mdo, int trap_bci, int reason) {
   // no udpate
 }
 

@@ -28,8 +28,8 @@
 #include "interpreter/interpreterRuntime.hpp"
 #include "oops/arrayOop.hpp"
 #include "oops/markOop.hpp"
-#include "oops/methodDataOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/methodData.hpp"
+#include "oops/method.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiRedefineClassesTrace.hpp"
 #include "prims/jvmtiThreadState.hpp"
@@ -94,8 +94,7 @@ void InterpreterMacroAssembler::get_cache_index_at_bcp(Register index,
     Unimplemented();
     assert(EnableInvokeDynamic, "giant index used only for JSR 292");
   } else if (index_size == sizeof(u1)) {
-    assert(EnableInvokeDynamic, "tiny index used only for JSR 292");
-    Unimplemented();
+    load_unsigned_byte(index, Address(rbcp, bcp_offset));
   } else {
     ShouldNotReachHere();
   }
@@ -111,7 +110,11 @@ void InterpreterMacroAssembler::get_cache_and_index_at_bcp(Register cache,
   assert(sizeof(ConstantPoolCacheEntry) == 4 * wordSize, "adjust code below");
   // convert from field index to ConstantPoolCacheEntry index
   lsl(index, index, 2);
-  add(cache, rcpool, index, Assembler::LSL, 3);
+  // aarch64 already has the cache in rcpool so there is no need to
+  // install it in cache. instead we pre-add the indexed offset to
+  // rcpool and return it in cache. all lients of this method need to
+  // be modified accordingly.
+  lea(cache, Address(rcpool, index, Address::lsl(3)));
 }
 
 
@@ -124,8 +127,9 @@ void InterpreterMacroAssembler::get_cache_and_index_and_bytecode_at_bcp(Register
   get_cache_and_index_at_bcp(cache, index, bcp_offset, index_size);
   // We use a 32-bit load here since the layout of 64-bit words on
   // little-endian machines allow us that.
+  // n.b. unlike x86 cache alreeady includes the index offset
   ldrw(bytecode, Address(cache,
-			 constantPoolCacheOopDesc::base_offset()
+			 ConstantPoolCache::base_offset()
 			 + ConstantPoolCacheEntry::indices_offset()));
   const int shift_count = (1 + byte_no) * BitsPerByte;
   ubfx(bytecode, bytecode, shift_count, BitsPerByte);
@@ -135,6 +139,25 @@ void InterpreterMacroAssembler::get_cache_entry_pointer_at_bcp(Register cache,
                                                                Register tmp,
                                                                int bcp_offset,
                                                                size_t index_size) { Unimplemented(); }
+
+// Load object from cpool->resolved_references(index)
+void InterpreterMacroAssembler::load_resolved_reference_at_index(
+                                           Register result, Register index) {
+  assert_different_registers(result, index);
+  // convert from field index to resolved_references() index and from
+  // word index to byte offset. Since this is a java object, it can be compressed
+  Register tmp = index;  // reuse
+  lslw(tmp, tmp, LogBytesPerHeapOop);
+
+  get_constant_pool(result);
+  // load pointer for resolved_references[] objArray
+  ldr(result, Address(result, ConstantPool::resolved_references_offset_in_bytes()));
+  // JNIHandles::resolve(obj);
+  ldr(result, Address(result, 0));
+  // Add in the index
+  add(result, result, tmp);
+  load_heap_oop(result, Address(result, arrayOopDesc::base_offset_in_bytes(T_OBJECT)));
+}
 
 // Generate a subtype check: branch to ok_is_subtype if sub_klass is a
 // subtype of super_klass.
@@ -266,12 +289,12 @@ void InterpreterMacroAssembler::jump_from_interpreted(Register method, Register 
     // Is a cmpl faster?
     ldr(rscratch1, Address(rthread, JavaThread::interp_only_mode_offset()));
     cbz(rscratch1, run_compiled_code);
-    ldr(rscratch1, Address(method, methodOopDesc::interpreter_entry_offset()));
+    ldr(rscratch1, Address(method, Method::interpreter_entry_offset()));
     br(rscratch1);
     bind(run_compiled_code);
   }
 
-  ldr(rscratch1, Address(method, methodOopDesc::from_interpreted_offset()));
+  ldr(rscratch1, Address(method, Method::from_interpreted_offset()));
   br(rscratch1);
 }
 
@@ -345,7 +368,7 @@ void InterpreterMacroAssembler::remove_activation(
 
  // get method access flags
   ldr(r1, Address(rfp, frame::interpreter_frame_method_offset * wordSize));
-  ldr(r2, Address(r1, methodOopDesc::access_flags_offset()));
+  ldr(r2, Address(r1, Method::access_flags_offset()));
   tst(r2, JVM_ACC_SYNCHRONIZED);
   br(Assembler::EQ, unlocked);
 

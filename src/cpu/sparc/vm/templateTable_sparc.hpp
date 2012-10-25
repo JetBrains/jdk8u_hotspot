@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,16 @@
 #ifndef CPU_SPARC_VM_TEMPLATETABLE_SPARC_HPP
 #define CPU_SPARC_VM_TEMPLATETABLE_SPARC_HPP
 
+  static void prepare_invoke(int byte_no,
+                             Register method,         // linked method (or i-klass)
+                             Register ra,             // return address
+                             Register index = noreg,  // itable index, MethodType, etc.
+                             Register recv  = noreg,  // if caller wants to see it
+                             Register flags = noreg   // if caller wants to test it
+                             );
   // helper function
   static void invokevfinal_helper(Register Rcache, Register Rret);
-  static void invokeinterface_object_method(Register RklassOop, Register Rcall,
+  static void invokeinterface_object_method(Register RKlass, Register Rcall,
                                             Register Rret,
                                             Register Rflags);
   static void generate_vtable_call(Register Rrecv, Register Rindex, Register Rret);

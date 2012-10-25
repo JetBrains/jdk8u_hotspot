@@ -1403,6 +1403,7 @@ Address::Address(address target, relocInfo::relocType rtype) : _mode(literal){
   _target = target;
   switch (rtype) {
   case relocInfo::oop_type:
+  case relocInfo::metadata_type:
     // Oops are a special case. Normally they would be their own section
     // but in cases like icBuffer they are literals in the code stream that
     // we don't have a section for. We use none so that we get a literal address
@@ -1710,9 +1711,7 @@ void MacroAssembler::call_VM_base(Register oop_result,
 
   // get oop result if there is one and reset the value in the thread
   if (oop_result->is_valid()) {
-    ldr(oop_result, Address(java_thread, JavaThread::vm_result_offset()));
-    str(zr, Address(java_thread, JavaThread::vm_result_offset()));
-    verify_oop(oop_result, "broken oop in call_VM_base");
+    get_vm_result(oop_result, java_thread);
   }
 }
 
@@ -1811,6 +1810,17 @@ void MacroAssembler::call_VM(Register oop_result,
 }
 
 
+void MacroAssembler::get_vm_result(Register oop_result, Register java_thread) {
+  ldr(oop_result, Address(java_thread, JavaThread::vm_result_offset()));
+  str(zr, Address(java_thread, JavaThread::vm_result_offset()));
+  verify_oop(oop_result, "broken oop in call_VM_base");
+}
+
+void MacroAssembler::get_vm_result_2(Register metadata_result, Register java_thread) {
+  ldr(metadata_result, Address(java_thread, JavaThread::vm_result_2_offset()));
+  str(zr, Address(java_thread, JavaThread::vm_result_2_offset()));
+}
+
 void MacroAssembler::check_and_handle_earlyret(Register java_thread) {Unimplemented(); }
 
 void MacroAssembler::align(int modulus) {
@@ -1839,13 +1849,13 @@ void MacroAssembler::lookup_interface_method(Register recv_klass,
          "caller must use same register for non-constant itable index as for method");
 
   // Compute start of first itableOffsetEntry (which is at the end of the vtable)
-  int vtable_base = instanceKlass::vtable_start_offset() * wordSize;
+  int vtable_base = InstanceKlass::vtable_start_offset() * wordSize;
   int itentry_off = itableMethodEntry::method_offset_in_bytes();
   int scan_step   = itableOffsetEntry::size() * wordSize;
   int vte_size    = vtableEntry::size() * wordSize;
   assert(vte_size == wordSize, "else adjust times_vte_scale");
 
-  ldrw(scan_temp, Address(recv_klass, instanceKlass::vtable_length_offset() * wordSize));
+  ldrw(scan_temp, Address(recv_klass, InstanceKlass::vtable_length_offset() * wordSize));
 
   // %%% Could store the aligned, prescaled offset in the klassoop.
   // lea(scan_temp, Address(recv_klass, scan_temp, times_vte_scale, vtable_base));
@@ -1898,6 +1908,18 @@ void MacroAssembler::lookup_interface_method(Register recv_klass,
   // Got a hit.
   ldr(scan_temp, Address(scan_temp, itableOffsetEntry::offset_offset_in_bytes()));
   ldr(method_result, Address(recv_klass, scan_temp));
+}
+
+// virtual method calling
+// n.b. x86 allows RegisterOrConstant for vtable_index
+void MacroAssembler::lookup_virtual_method(Register recv_klass,
+                                           Register vtable_index,
+                                           Register method_result) {
+  const int base = InstanceKlass::vtable_start_offset() * wordSize;
+  assert(vtableEntry::size() * wordSize == 8,
+         "adjust the scaling in the code below");
+  lea(method_result, Address(recv_klass, vtable_index, Address::lsl(3)));
+  ldr(method_result, Address(method_result, base + vtableEntry::method_offset_in_bytes()));
 }
 
 void MacroAssembler::check_klass_subtype(Register sub_klass,
@@ -2090,9 +2112,9 @@ void MacroAssembler::check_klass_subtype_slow_path(Register sub_klass,
   // We will consult the secondary-super array.
   ldr(r5, secondary_supers_addr);
   // Load the array length.  (Positive movl does right thing on LP64.)
-  ldr(r2, Address(r5, arrayOopDesc::length_offset_in_bytes()));
+  ldr(r2, Address(r5, Array<Klass*>::length_offset_in_bytes()));
   // Skip to start of data.
-  add(r5, r5, arrayOopDesc::base_offset_in_bytes(T_OBJECT));
+  add(r5, r5, Array<Klass*>::base_offset_in_bytes());
 
   // Scan R2 words at [R5] for an occurrence of R0.
   // Set NZ/Z based on last compare.

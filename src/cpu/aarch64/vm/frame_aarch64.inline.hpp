@@ -221,14 +221,14 @@ inline intptr_t* frame::interpreter_frame_mdx_addr() const {
 
 // Constant pool cache
 
-inline constantPoolCacheOop* frame::interpreter_frame_cache_addr() const {
-  return (constantPoolCacheOop*)addr_at(interpreter_frame_cache_offset);
+inline ConstantPoolCache** frame::interpreter_frame_cache_addr() const {
+  return (ConstantPoolCache**)addr_at(interpreter_frame_cache_offset);
 }
 
 // Method
 
-inline methodOop* frame::interpreter_frame_method_addr() const {
-  return (methodOop*)addr_at(interpreter_frame_method_offset);
+inline Method** frame::interpreter_frame_method_addr() const {
+  return (Method**)addr_at(interpreter_frame_method_offset);
 }
 
 // top of expression stack

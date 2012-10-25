@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2007, 2008, 2009, 2010, 2011 Red Hat, Inc.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -31,8 +31,8 @@
 #include "interpreter/interpreterRuntime.hpp"
 #include "interpreter/templateTable.hpp"
 #include "oops/arrayOop.hpp"
-#include "oops/methodDataOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/methodData.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiThreadState.hpp"
@@ -68,14 +68,6 @@ address InterpreterGenerator::generate_math_entry(
 
 address InterpreterGenerator::generate_abstract_entry() {
   return generate_entry((address) ShouldNotCallThisEntry());
-}
-
-address InterpreterGenerator::generate_method_handle_entry() {
-#ifdef CC_INTERP
-  return generate_entry((address) CppInterpreter::method_handle_entry);
-#else
-  return generate_entry((address) ShouldNotCallThisEntry());
-#endif // CC_INTERP
 }
 
 bool AbstractInterpreter::can_be_compiled(methodHandle m) {

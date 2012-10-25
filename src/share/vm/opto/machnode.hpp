@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -106,7 +106,7 @@ public:
 #endif
 
   virtual intptr_t  constant() const;
-  virtual bool constant_is_oop() const;
+  virtual relocInfo::relocType constant_reloc() const;
   virtual jdouble constantD() const;
   virtual jfloat  constantF() const;
   virtual jlong   constantL() const;
@@ -120,7 +120,7 @@ public:
   // Parameters needed to support MEMORY_INTERFACE access to stackSlot
   virtual int  disp (PhaseRegAlloc *ra_, const Node *node, int idx) const;
   // Check for PC-Relative displacement
-  virtual bool disp_is_oop() const;
+  virtual relocInfo::relocType disp_reloc() const;
   virtual int  constant_disp() const;   // usu. 0, may return Type::OffsetBot
   virtual int  base_position()  const;  // base edge position, or -1
   virtual int  index_position() const;  // index edge position, or -1
@@ -249,7 +249,7 @@ public:
 
   // Bottom_type call; value comes from operand0
   virtual const class Type *bottom_type() const { return _opnds[0]->type(); }
-  virtual uint ideal_reg() const { const Type *t = _opnds[0]->type(); return t == TypeInt::CC ? Op_RegFlags : Matcher::base2reg[t->base()]; }
+  virtual uint ideal_reg() const { const Type *t = _opnds[0]->type(); return t == TypeInt::CC ? Op_RegFlags : t->ideal_reg(); }
 
   // If this is a memory op, return the base pointer and fixed offset.
   // If there are no such, return NULL.  If there are multiple addresses
@@ -321,6 +321,7 @@ public:
 class MachTypeNode : public MachNode {
   virtual uint size_of() const { return sizeof(*this); } // Size is bigger
 public:
+  MachTypeNode( ) {}
   const Type *_bottom_type;
 
   virtual const class Type *bottom_type() const { return _bottom_type; }
@@ -372,12 +373,12 @@ public:
 
 //------------------------------MachConstantNode-------------------------------
 // Machine node that holds a constant which is stored in the constant table.
-class MachConstantNode : public MachNode {
+class MachConstantNode : public MachTypeNode {
 protected:
   Compile::Constant _constant;  // This node's constant.
 
 public:
-  MachConstantNode() : MachNode() {
+  MachConstantNode() : MachTypeNode() {
     init_class_id(Class_MachConstant);
   }
 
@@ -499,7 +500,7 @@ public:
   virtual const RegMask &out_RegMask() const { return *_out; }
   virtual const RegMask &in_RegMask(uint) const { return *_in; }
   virtual const class Type *bottom_type() const { return _type; }
-  virtual uint ideal_reg() const { return Matcher::base2reg[_type->base()]; }
+  virtual uint ideal_reg() const { return _type->ideal_reg(); }
   virtual uint oper_input_base() const { return 1; }
   uint implementation( CodeBuffer *cbuf, PhaseRegAlloc *ra_, bool do_size, outputStream* st ) const;
 

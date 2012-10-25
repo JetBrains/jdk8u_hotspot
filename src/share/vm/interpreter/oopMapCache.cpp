@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -194,21 +194,6 @@ void InterpreterOopMap::initialize() {
   for (int i = 0; i < N; i++) _bit_mask[i] = 0;
 }
 
-
-void InterpreterOopMap::oop_iterate(OopClosure *blk) {
-  if (method() != NULL) {
-    blk->do_oop((oop*) &_method);
-  }
-}
-
-void InterpreterOopMap::oop_iterate(OopClosure *blk, MemRegion mr) {
-  if (method() != NULL && mr.contains(&_method)) {
-    blk->do_oop((oop*) &_method);
-  }
-}
-
-
-
 void InterpreterOopMap::iterate_oop(OffsetClosure* oop_closure) {
   int n = number_of_entries();
   int word_index = 0;
@@ -226,13 +211,6 @@ void InterpreterOopMap::iterate_oop(OffsetClosure* oop_closure) {
   }
 }
 
-void InterpreterOopMap::verify() {
-  // If we are doing mark sweep _method may not have a valid header
-  // $$$ This used to happen only for m/s collections; we might want to
-  // think of an appropriate generalization of this distinction.
-  guarantee(Universe::heap()->is_gc_active() || _method->is_oop_or_null(),
-            "invalid oop in oopMapCache");
-}
 
 #ifdef ENABLE_ZAP_DEAD_LOCALS
 
@@ -348,7 +326,7 @@ void OopMapCacheEntry::allocate_bit_mask() {
   if (mask_size() > small_mask_limit) {
     assert(_bit_mask[0] == 0, "bit mask should be new or just flushed");
     _bit_mask[0] = (intptr_t)
-      NEW_C_HEAP_ARRAY(uintptr_t, mask_word_size());
+      NEW_C_HEAP_ARRAY(uintptr_t, mask_word_size(), mtClass);
   }
 }
 
@@ -356,7 +334,7 @@ void OopMapCacheEntry::deallocate_bit_mask() {
   if (mask_size() > small_mask_limit && _bit_mask[0] != 0) {
     assert(!Thread::current()->resource_area()->contains((void*)_bit_mask[0]),
       "This bit mask should not be in the resource area");
-    FREE_C_HEAP_ARRAY(uintptr_t, _bit_mask[0]);
+    FREE_C_HEAP_ARRAY(uintptr_t, _bit_mask[0], mtClass);
     debug_only(_bit_mask[0] = 0;)
   }
 }
@@ -387,9 +365,6 @@ void OopMapCacheEntry::fill(methodHandle method, int bci) {
     OopMapForCacheEntry gen(method, bci, this);
     gen.compute_map(CATCH);
   }
-  #ifdef ASSERT
-    verify();
-  #endif
 }
 
 
@@ -464,7 +439,6 @@ long OopMapCache::memory_usage() {
 void InterpreterOopMap::resource_copy(OopMapCacheEntry* from) {
   assert(_resource_allocate_bit_mask,
     "Should not resource allocate the _bit_mask");
-  assert(from->method()->is_oop(), "MethodOop is bad");
 
   set_method(from->method());
   set_bci(from->bci());
@@ -506,7 +480,7 @@ inline unsigned int OopMapCache::hash_value_for(methodHandle method, int bci) {
 OopMapCache::OopMapCache() :
   _mut(Mutex::leaf, "An OopMapCache lock", true)
 {
-  _array  = NEW_C_HEAP_ARRAY(OopMapCacheEntry, _size);
+  _array  = NEW_C_HEAP_ARRAY(OopMapCacheEntry, _size, mtClass);
   // Cannot call flush for initialization, since flush
   // will check if memory should be deallocated
   for(int i = 0; i < _size; i++) _array[i].initialize();
@@ -520,7 +494,7 @@ OopMapCache::~OopMapCache() {
   flush();
   // Deallocate array
   NOT_PRODUCT(_total_memory_usage -= sizeof(OopMapCache) + (sizeof(OopMapCacheEntry) * _size);)
-  FREE_C_HEAP_ARRAY(OopMapCacheEntry, _array);
+  FREE_C_HEAP_ARRAY(OopMapCacheEntry, _array, mtClass);
 }
 
 OopMapCacheEntry* OopMapCache::entry_at(int i) const {
@@ -542,18 +516,6 @@ void OopMapCache::flush_obsolete_entries() {
 
       _array[i].flush();
     }
-}
-
-void OopMapCache::oop_iterate(OopClosure *blk) {
-  for (int i = 0; i < _size; i++) _array[i].oop_iterate(blk);
-}
-
-void OopMapCache::oop_iterate(OopClosure *blk, MemRegion mr) {
-    for (int i = 0; i < _size; i++) _array[i].oop_iterate(blk, mr);
-}
-
-void OopMapCache::verify() {
-  for (int i = 0; i < _size; i++) _array[i].verify();
 }
 
 void OopMapCache::lookup(methodHandle method,
@@ -586,10 +548,10 @@ void OopMapCache::lookup(methodHandle method,
   // Compute entry and return it
 
   if (method->should_not_be_cached()) {
-    // It is either not safe or not a good idea to cache this methodOop
+    // It is either not safe or not a good idea to cache this Method*
     // at this time. We give the caller of lookup() a copy of the
     // interesting info via parameter entry_for, but we don't add it to
-    // the cache. See the gory details in methodOop.cpp.
+    // the cache. See the gory details in Method*.cpp.
     compute_one_oop_map(method, bci, entry_for);
     return;
   }
@@ -639,9 +601,9 @@ void OopMapCache::lookup(methodHandle method,
 
 void OopMapCache::compute_one_oop_map(methodHandle method, int bci, InterpreterOopMap* entry) {
   // Due to the invariants above it's tricky to allocate a temporary OopMapCacheEntry on the stack
-  OopMapCacheEntry* tmp = NEW_C_HEAP_ARRAY(OopMapCacheEntry, 1);
+  OopMapCacheEntry* tmp = NEW_C_HEAP_ARRAY(OopMapCacheEntry, 1, mtClass);
   tmp->initialize();
   tmp->fill(method, bci);
   entry->resource_copy(tmp);
-  FREE_C_HEAP_ARRAY(OopMapCacheEntry, tmp);
+  FREE_C_HEAP_ARRAY(OopMapCacheEntry, tmp, mtInternal);
 }

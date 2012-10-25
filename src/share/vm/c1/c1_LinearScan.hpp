@@ -128,7 +128,8 @@ class LinearScan : public CompilationResourceObj {
     any_reg = -1,
     nof_cpu_regs = pd_nof_cpu_regs_linearscan,
     nof_fpu_regs = pd_nof_fpu_regs_linearscan,
-    nof_regs = nof_cpu_regs + nof_fpu_regs
+    nof_xmm_regs = pd_nof_xmm_regs_linearscan,
+    nof_regs = nof_cpu_regs + nof_fpu_regs + nof_xmm_regs
   };
 
  private:

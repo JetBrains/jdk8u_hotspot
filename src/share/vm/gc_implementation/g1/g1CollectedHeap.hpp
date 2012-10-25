@@ -33,7 +33,7 @@
 #include "gc_implementation/g1/heapRegionSeq.hpp"
 #include "gc_implementation/g1/heapRegionSets.hpp"
 #include "gc_implementation/shared/hSpaceCounters.hpp"
-#include "gc_implementation/parNew/parGCAllocBuffer.hpp"
+#include "gc_implementation/shared/parGCAllocBuffer.hpp"
 #include "memory/barrierSet.hpp"
 #include "memory/memRegion.hpp"
 #include "memory/sharedHeap.hpp"
@@ -45,9 +45,9 @@
 
 class HeapRegion;
 class HRRSCleanupTask;
-class PermanentGenerationSpec;
 class GenerationSpec;
 class OopsInHeapRegionClosure;
+class G1KlassScanClosure;
 class G1ScanHeapEvacClosure;
 class ObjectClosure;
 class SpaceClosure;
@@ -62,8 +62,8 @@ class ConcurrentMarkThread;
 class ConcurrentG1Refine;
 class GenerationCounters;
 
-typedef OverflowTaskQueue<StarTask>         RefToScanQueue;
-typedef GenericTaskQueueSet<RefToScanQueue> RefToScanQueueSet;
+typedef OverflowTaskQueue<StarTask, mtGC>         RefToScanQueue;
+typedef GenericTaskQueueSet<RefToScanQueue, mtGC> RefToScanQueueSet;
 
 typedef int RegionIdx_t;   // needs to hold [ 0..max_regions() )
 typedef int CardIdx_t;     // needs to hold [ 0..CardsPerRegion )
@@ -74,7 +74,7 @@ enum GCAllocPurpose {
   GCAllocPurposeCount
 };
 
-class YoungList : public CHeapObj {
+class YoungList : public CHeapObj<mtGC> {
 private:
   G1CollectedHeap* _g1h;
 
@@ -190,7 +190,6 @@ class RefineCardTableEntryClosure;
 
 class G1CollectedHeap : public SharedHeap {
   friend class VM_G1CollectForAllocation;
-  friend class VM_GenCollectForPermanentAllocation;
   friend class VM_G1CollectFull;
   friend class VM_G1IncCollectionPause;
   friend class VMStructs;
@@ -225,7 +224,7 @@ private:
 
   static size_t _humongous_object_threshold_in_words;
 
-  // Storage for the G1 heap (excludes the permanent generation).
+  // Storage for the G1 heap.
   VirtualSpace _g1_storage;
   MemRegion    _g1_reserved;
 
@@ -278,9 +277,32 @@ private:
   // survivor objects.
   SurvivorGCAllocRegion _survivor_gc_alloc_region;
 
+  // PLAB sizing policy for survivors.
+  PLABStats _survivor_plab_stats;
+
   // Alloc region used to satisfy allocation requests by the GC for
   // old objects.
   OldGCAllocRegion _old_gc_alloc_region;
+
+  // PLAB sizing policy for tenured objects.
+  PLABStats _old_plab_stats;
+
+  PLABStats* stats_for_purpose(GCAllocPurpose purpose) {
+    PLABStats* stats = NULL;
+
+    switch (purpose) {
+    case GCAllocForSurvived:
+      stats = &_survivor_plab_stats;
+      break;
+    case GCAllocForTenured:
+      stats = &_old_plab_stats;
+      break;
+    default:
+      assert(false, "unrecognized GCAllocPurpose");
+    }
+
+    return stats;
+  }
 
   // The last old region we allocated to during the last GC.
   // Typically, it is not full so we should re-use it during the next GC.
@@ -314,7 +336,7 @@ private:
   G1MonitoringSupport* _g1mm;
 
   // Determines PLAB size for a particular allocation purpose.
-  static size_t desired_plab_sz(GCAllocPurpose purpose);
+  size_t desired_plab_sz(GCAllocPurpose purpose);
 
   // Outside of GC pauses, the number of bytes used in all regions other
   // than the current allocation region.
@@ -359,10 +381,13 @@ private:
   // (c) cause == _g1_humongous_allocation
   bool should_do_concurrent_full_gc(GCCause::Cause cause);
 
-  // Keeps track of how many "full collections" (i.e., Full GCs or
-  // concurrent cycles) we have completed. The number of them we have
-  // started is maintained in _total_full_collections in CollectedHeap.
-  volatile unsigned int _full_collections_completed;
+  // Keeps track of how many "old marking cycles" (i.e., Full GCs or
+  // concurrent cycles) we have started.
+  volatile unsigned int _old_marking_cycles_started;
+
+  // Keeps track of how many "old marking cycles" (i.e., Full GCs or
+  // concurrent cycles) we have completed.
+  volatile unsigned int _old_marking_cycles_completed;
 
   // This is a non-product method that is helpful for testing. It is
   // called at the end of a GC and artificially expands the heap by
@@ -371,6 +396,20 @@ private:
   // cleanup code more (as all the regions that will be allocated by
   // this method will be found dead by the marking cycle).
   void allocate_dummy_regions() PRODUCT_RETURN;
+
+  // Clear RSets after a compaction. It also resets the GC time stamps.
+  void clear_rsets_post_compaction();
+
+  // If the HR printer is active, dump the state of the regions in the
+  // heap after a compaction.
+  void print_hrs_post_compaction();
+
+  double verify(bool guard, const char* msg);
+  void verify_before_gc();
+  void verify_after_gc();
+
+  void log_gc_header();
+  void log_gc_footer(double pause_time_sec);
 
   // These are macros so that, if the assert fires, we get the correct
   // line number, file, etc.
@@ -593,7 +632,7 @@ protected:
 
   // Callback from VM_G1CollectFull operation.
   // Perform a full collection.
-  void do_full_collection(bool clear_all_soft_refs);
+  virtual void do_full_collection(bool clear_all_soft_refs);
 
   // Resize the heap if necessary after a full collection.  If this is
   // after a collect-for allocation, "word_size" is the allocation size,
@@ -673,8 +712,12 @@ public:
            (size_t) _in_cset_fast_test_length * sizeof(bool));
   }
 
+  // This is called at the start of either a concurrent cycle or a Full
+  // GC to update the number of old marking cycles started.
+  void increment_old_marking_cycles_started();
+
   // This is called at the end of either a concurrent cycle or a Full
-  // GC to update the number of full collections completed. Those two
+  // GC to update the number of old marking cycles completed. Those two
   // can happen in a nested fashion, i.e., we start a concurrent
   // cycle, a Full GC happens half-way through it which ends first,
   // and then the cycle notices that a Full GC happened and ends
@@ -683,14 +726,14 @@ public:
   // false, the caller is the inner caller in the nesting (i.e., the
   // Full GC). If concurrent is true, the caller is the outer caller
   // in this nesting (i.e., the concurrent cycle). Further nesting is
-  // not currently supported. The end of the this call also notifies
+  // not currently supported. The end of this call also notifies
   // the FullGCCount_lock in case a Java thread is waiting for a full
   // GC to happen (e.g., it called System.gc() with
   // +ExplicitGCInvokesConcurrent).
-  void increment_full_collections_completed(bool concurrent);
+  void increment_old_marking_cycles_completed(bool concurrent);
 
-  unsigned int full_collections_completed() {
-    return _full_collections_completed;
+  unsigned int old_marking_cycles_completed() {
+    return _old_marking_cycles_completed;
   }
 
   G1HRPrinter* hr_printer() { return &_hr_printer; }
@@ -764,17 +807,17 @@ protected:
 
   // Applies "scan_non_heap_roots" to roots outside the heap,
   // "scan_rs" to roots inside the heap (having done "set_region" to
-  // indicate the region in which the root resides), and does "scan_perm"
-  // (setting the generation to the perm generation.)  If "scan_rs" is
+  // indicate the region in which the root resides),
+  // and does "scan_metadata" If "scan_rs" is
   // NULL, then this step is skipped.  The "worker_i"
   // param is for use with parallel roots processing, and should be
   // the "i" of the calling parallel worker thread's work(i) function.
   // In the sequential case this param will be ignored.
-  void g1_process_strong_roots(bool collecting_perm_gen,
+  void g1_process_strong_roots(bool is_scavenging,
                                ScanningOption so,
                                OopClosure* scan_non_heap_roots,
                                OopsInHeapRegionClosure* scan_rs,
-                               OopsInGenClosure* scan_perm,
+                               G1KlassScanClosure* scan_klasses,
                                int worker_i);
 
   // Apply "blk" to all the weak roots of the system.  These include
@@ -873,6 +916,39 @@ protected:
   // An attempt to evacuate "obj" has failed; take necessary steps.
   oop handle_evacuation_failure_par(OopsInHeapRegionClosure* cl, oop obj);
   void handle_evacuation_failure_common(oop obj, markOop m);
+
+#ifndef PRODUCT
+  // Support for forcing evacuation failures. Analogous to
+  // PromotionFailureALot for the other collectors.
+
+  // Records whether G1EvacuationFailureALot should be in effect
+  // for the current GC
+  bool _evacuation_failure_alot_for_current_gc;
+
+  // Used to record the GC number for interval checking when
+  // determining whether G1EvaucationFailureALot is in effect
+  // for the current GC.
+  size_t _evacuation_failure_alot_gc_number;
+
+  // Count of the number of evacuations between failures.
+  volatile size_t _evacuation_failure_alot_count;
+
+  // Set whether G1EvacuationFailureALot should be in effect
+  // for the current GC (based upon the type of GC and which
+  // command line flags are set);
+  inline bool evacuation_failure_alot_for_gc_type(bool gcs_are_young,
+                                                  bool during_initial_mark,
+                                                  bool during_marking);
+
+  inline void set_evacuation_failure_alot_for_current_gc();
+
+  // Return true if it's time to cause an evacuation failure.
+  inline bool evacuation_should_fail();
+
+  // Reset the G1EvacuationFailureALot counters.  Should be called at
+  // the end of an evacuation pause in which an evacuation failure ocurred.
+  inline void reset_evacuation_should_fail();
+#endif // !PRODUCT
 
   // ("Weak") Reference processing support.
   //
@@ -997,7 +1073,7 @@ public:
   G1CollectedHeap(G1CollectorPolicy* policy);
 
   // Initialize the G1CollectedHeap to have the initial and
-  // maximum sizes, permanent generation, and remembered and barrier sets
+  // maximum sizes and remembered and barrier sets
   // specified by the policy object.
   jint initialize();
 
@@ -1025,6 +1101,8 @@ public:
 
   // The current policy object for the collector.
   G1CollectorPolicy* g1_policy() const { return _g1_policy; }
+
+  virtual CollectorPolicy* collector_policy() const { return (CollectorPolicy*) g1_policy(); }
 
   // Adaptive size policy.  No such thing for g1.
   virtual AdaptiveSizePolicy* size_policy() { return NULL; }
@@ -1054,10 +1132,17 @@ public:
     clear_cset_start_regions();
   }
 
+  void check_gc_time_stamps() PRODUCT_RETURN;
+
   void increment_gc_time_stamp() {
     ++_gc_time_stamp;
     OrderAccess::fence();
   }
+
+  // Reset the given region's GC timestamp. If it's starts humongous,
+  // also reset the GC timestamp of its corresponding
+  // continues humongous regions too.
+  void reset_gc_time_stamps(HeapRegion* hr);
 
   void iterate_dirty_card_closure(CardTableEntryClosure* cl,
                                   DirtyCardQueue* into_cset_dcq,
@@ -1197,12 +1282,6 @@ public:
   // The same as above but assume that the caller holds the Heap_lock.
   void collect_locked(GCCause::Cause cause);
 
-  // This interface assumes that it's being called by the
-  // vm thread. It collects the heap assuming that the
-  // heap lock is already held and that we are executing in
-  // the context of the vm thread.
-  virtual void collect_as_vm_thread(GCCause::Cause cause);
-
   // True iff a evacuation has failed in the most-recent collection.
   bool evacuation_failed() { return _evacuation_failed; }
 
@@ -1236,7 +1315,7 @@ public:
   inline bool obj_in_cs(oop obj);
 
   // Return "TRUE" iff the given object address is in the reserved
-  // region of g1 (excluding the permanent generation).
+  // region of g1.
   bool is_in_g1_reserved(const void* p) const {
     return _g1_reserved.contains(p);
   }
@@ -1263,25 +1342,17 @@ public:
 
   // Iterate over all the ref-containing fields of all objects, calling
   // "cl.do_oop" on each.
-  virtual void oop_iterate(OopClosure* cl) {
-    oop_iterate(cl, true);
-  }
-  void oop_iterate(OopClosure* cl, bool do_perm);
+  virtual void oop_iterate(ExtendedOopClosure* cl);
 
   // Same as above, restricted to a memory region.
-  virtual void oop_iterate(MemRegion mr, OopClosure* cl) {
-    oop_iterate(mr, cl, true);
-  }
-  void oop_iterate(MemRegion mr, OopClosure* cl, bool do_perm);
+  void oop_iterate(MemRegion mr, ExtendedOopClosure* cl);
 
   // Iterate over all objects, calling "cl.do_object" on each.
-  virtual void object_iterate(ObjectClosure* cl) {
-    object_iterate(cl, true);
-  }
+  virtual void object_iterate(ObjectClosure* cl);
+
   virtual void safe_object_iterate(ObjectClosure* cl) {
-    object_iterate(cl, true);
+    object_iterate(cl);
   }
-  void object_iterate(ObjectClosure* cl, bool do_perm);
 
   // Iterate over all objects allocated since the last collection, calling
   // "cl.do_object" on each.  The heap must have been initialized properly
@@ -1294,11 +1365,6 @@ public:
   // Iterate over heap regions, in address order, terminating the
   // iteration early if the "doHeapRegion" method returns "true".
   void heap_region_iterate(HeapRegionClosure* blk) const;
-
-  // Iterate over heap regions starting with r (or the first region if "r"
-  // is NULL), in address order, terminating early if the "doHeapRegion"
-  // method returns "true".
-  void heap_region_iterate_from(HeapRegion* r, HeapRegionClosure* blk) const;
 
   // Return the region with the given index. It assumes the index is valid.
   HeapRegion* region_at(uint index) const { return _hrs.at(index); }
@@ -1343,6 +1409,11 @@ public:
   // Given the id of a worker, obtain or calculate a suitable
   // starting region for iterating over the current collection set.
   HeapRegion* start_cset_region_for_worker(int worker_i);
+
+  // This is a convenience method that is used by the
+  // HeapRegionIterator classes to calculate the starting region for
+  // each worker so that they do not all start from the same region.
+  HeapRegion* start_region_for_worker(uint worker_i, uint no_of_par_workers);
 
   // Iterate over the regions (if any) in the current collection set.
   void collection_set_iterate(HeapRegionClosure* blk);
@@ -1441,15 +1512,6 @@ public:
   // information for young gen objects.
   virtual bool can_elide_initializing_store_barrier(oop new_obj) {
     return is_in_young(new_obj);
-  }
-
-  // Can a compiler elide a store barrier when it writes
-  // a permanent oop into the heap?  Applies when the compiler
-  // is storing x to the heap, where x->is_perm() is true.
-  virtual bool can_elide_permanent_oop_store_barriers() const {
-    // At least until perm gen collection is also G1-ified, at
-    // which point this should return false.
-    return true;
   }
 
   // Returns "true" iff the given word_size is "very large".
@@ -1551,24 +1613,6 @@ public:
   bool isMarkedPrev(oop obj) const;
   bool isMarkedNext(oop obj) const;
 
-  // vo == UsePrevMarking -> use "prev" marking information,
-  // vo == UseNextMarking -> use "next" marking information,
-  // vo == UseMarkWord    -> use mark word from object header
-  bool is_obj_dead_cond(const oop obj,
-                        const HeapRegion* hr,
-                        const VerifyOption vo) const {
-
-    switch (vo) {
-      case VerifyOption_G1UsePrevMarking:
-        return is_obj_dead(obj, hr);
-      case VerifyOption_G1UseNextMarking:
-        return is_obj_ill(obj, hr);
-      default:
-        assert(vo == VerifyOption_G1UseMarkWord, "must be");
-        return !obj->is_gc_marked();
-    }
-  }
-
   // Determine if an object is dead, given the object and also
   // the region to which the object belongs. An object is dead
   // iff a) it was not allocated since the last mark and b) it
@@ -1579,15 +1623,6 @@ public:
       !hr->obj_allocated_since_prev_marking(obj) &&
       !isMarkedPrev(obj);
   }
-
-  // This is used when copying an object to survivor space.
-  // If the object is marked live, then we mark the copy live.
-  // If the object is allocated since the start of this mark
-  // cycle, then we mark the copy live.
-  // If the object has been around since the previous mark
-  // phase, and hasn't been marked yet during this phase,
-  // then we don't mark it, we just wait for the
-  // current marking cycle to get to it.
 
   // This function returns true when an object has been
   // around since the previous marking and hasn't yet
@@ -1603,32 +1638,12 @@ public:
   // This will find the region to which the object belongs and
   // then call the region version of the same function.
 
-  // Added if it is in permanent gen it isn't dead.
   // Added if it is NULL it isn't dead.
-
-  // vo == UsePrevMarking -> use "prev" marking information,
-  // vo == UseNextMarking -> use "next" marking information,
-  // vo == UseMarkWord    -> use mark word from object header
-  bool is_obj_dead_cond(const oop obj,
-                        const VerifyOption vo) const {
-
-    switch (vo) {
-      case VerifyOption_G1UsePrevMarking:
-        return is_obj_dead(obj);
-      case VerifyOption_G1UseNextMarking:
-        return is_obj_ill(obj);
-      default:
-        assert(vo == VerifyOption_G1UseMarkWord, "must be");
-        return !obj->is_gc_marked();
-    }
-  }
 
   bool is_obj_dead(const oop obj) const {
     const HeapRegion* hr = heap_region_containing(obj);
     if (hr == NULL) {
-      if (Universe::heap()->is_in_permanent(obj))
-        return false;
-      else if (obj == NULL) return false;
+      if (obj == NULL) return false;
       else return true;
     }
     else return is_obj_dead(obj, hr);
@@ -1637,13 +1652,47 @@ public:
   bool is_obj_ill(const oop obj) const {
     const HeapRegion* hr = heap_region_containing(obj);
     if (hr == NULL) {
-      if (Universe::heap()->is_in_permanent(obj))
-        return false;
-      else if (obj == NULL) return false;
+      if (obj == NULL) return false;
       else return true;
     }
     else return is_obj_ill(obj, hr);
   }
+
+  // The methods below are here for convenience and dispatch the
+  // appropriate method depending on value of the given VerifyOption
+  // parameter. The options for that parameter are:
+  //
+  // vo == UsePrevMarking -> use "prev" marking information,
+  // vo == UseNextMarking -> use "next" marking information,
+  // vo == UseMarkWord    -> use mark word from object header
+
+  bool is_obj_dead_cond(const oop obj,
+                        const HeapRegion* hr,
+                        const VerifyOption vo) const {
+    switch (vo) {
+    case VerifyOption_G1UsePrevMarking: return is_obj_dead(obj, hr);
+    case VerifyOption_G1UseNextMarking: return is_obj_ill(obj, hr);
+    case VerifyOption_G1UseMarkWord:    return !obj->is_gc_marked();
+    default:                            ShouldNotReachHere();
+    }
+    return false; // keep some compilers happy
+  }
+
+  bool is_obj_dead_cond(const oop obj,
+                        const VerifyOption vo) const {
+    switch (vo) {
+    case VerifyOption_G1UsePrevMarking: return is_obj_dead(obj);
+    case VerifyOption_G1UseNextMarking: return is_obj_ill(obj);
+    case VerifyOption_G1UseMarkWord:    return !obj->is_gc_marked();
+    default:                            ShouldNotReachHere();
+    }
+    return false; // keep some compilers happy
+  }
+
+  bool allocated_since_marking(oop obj, HeapRegion* hr, VerifyOption vo);
+  HeapWord* top_at_mark_start(HeapRegion* hr, VerifyOption vo);
+  bool is_marked(oop obj, VerifyOption vo);
+  const char* top_at_mark_start_str(VerifyOption vo);
 
   // The following is just to alert the verification code
   // that a full collection has occurred and that the
@@ -1670,7 +1719,6 @@ public:
   void stop_conc_gc_threads();
 
   size_t pending_card_num();
-  size_t max_pending_card_num();
   size_t cards_scanned();
 
 protected:
@@ -1765,7 +1813,7 @@ public:
   G1ParScanThreadState(G1CollectedHeap* g1h, uint queue_num);
 
   ~G1ParScanThreadState() {
-    FREE_C_HEAP_ARRAY(size_t, _surviving_young_words_base);
+    FREE_C_HEAP_ARRAY(size_t, _surviving_young_words_base, mtGC);
   }
 
   RefToScanQueue*   refs()            { return _refs;             }
@@ -1798,19 +1846,17 @@ public:
   }
 
   HeapWord* allocate_slow(GCAllocPurpose purpose, size_t word_sz) {
-
     HeapWord* obj = NULL;
     size_t gclab_word_size = _g1h->desired_plab_sz(purpose);
     if (word_sz * 100 < gclab_word_size * ParallelGCBufferWastePct) {
       G1ParGCAllocBuffer* alloc_buf = alloc_buffer(purpose);
-      assert(gclab_word_size == alloc_buf->word_sz(),
-             "dynamic resizing is not supported");
       add_to_alloc_buffer_waste(alloc_buf->words_remaining());
-      alloc_buf->retire(false, false);
+      alloc_buf->retire(false /* end_of_gc */, false /* retain */);
 
       HeapWord* buf = _g1h->par_allocate_during_gc(purpose, gclab_word_size);
       if (buf == NULL) return NULL; // Let caller handle allocation failure.
       // Otherwise.
+      alloc_buf->set_word_size(gclab_word_size);
       alloc_buf->set_buf(buf);
 
       obj = alloc_buf->allocate(word_sz);
@@ -1895,7 +1941,9 @@ public:
     for (int ap = 0; ap < GCAllocPurposeCount; ++ap) {
       size_t waste = _alloc_buffers[ap]->words_remaining();
       add_to_alloc_buffer_waste(waste);
-      _alloc_buffers[ap]->retire(true, false);
+      _alloc_buffers[ap]->flush_stats_and_retire(_g1h->stats_for_purpose((GCAllocPurpose)ap),
+                                                 true /* end_of_gc */,
+                                                 false /* retain */);
     }
   }
 

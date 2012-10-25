@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -102,7 +102,10 @@ class AbstractInterpreter: AllStatic {
     empty,                                                      // empty method (code: _return)
     accessor,                                                   // accessor method (code: _aload_0, _getfield, _(a|i)return)
     abstract,                                                   // abstract method (throws an AbstractMethodException)
-    method_handle,                                              // java.lang.invoke.MethodHandles::invoke
+    method_handle_invoke_FIRST,                                 // java.lang.invoke.MethodHandles::invokeExact, etc.
+    method_handle_invoke_LAST                                   = (method_handle_invoke_FIRST
+                                                                   + (vmIntrinsics::LAST_MH_SIG_POLY
+                                                                      - vmIntrinsics::FIRST_MH_SIG_POLY)),
     java_lang_math_sin,                                         // implementation of java.lang.Math.sin   (x)
     java_lang_math_cos,                                         // implementation of java.lang.Math.cos   (x)
     java_lang_math_tan,                                         // implementation of java.lang.Math.tan   (x)
@@ -116,6 +119,14 @@ class AbstractInterpreter: AllStatic {
     number_of_method_entries,
     invalid = -1
   };
+
+  // Conversion from the part of the above enum to vmIntrinsics::_invokeExact, etc.
+  static vmIntrinsics::ID method_handle_intrinsic(MethodKind kind) {
+    if (kind >= method_handle_invoke_FIRST && kind <= method_handle_invoke_LAST)
+      return (vmIntrinsics::ID)( vmIntrinsics::FIRST_MH_SIG_POLY + (kind - method_handle_invoke_FIRST) );
+    else
+      return vmIntrinsics::_none;
+  }
 
   enum SomeConstants {
     number_of_result_handlers = 10                              // number of result handlers for native calls
@@ -151,6 +162,9 @@ class AbstractInterpreter: AllStatic {
   static address    entry_for_kind(MethodKind k)                { assert(0 <= k && k < number_of_method_entries, "illegal kind"); return _entry_table[k]; }
   static address    entry_for_method(methodHandle m)            { return entry_for_kind(method_kind(m)); }
 
+  // used for bootstrapping method handles:
+  static void       set_entry_for_kind(MethodKind k, address e);
+
   static void       print_method_kind(MethodKind kind)          PRODUCT_RETURN;
 
   static bool       can_be_compiled(methodHandle m);
@@ -165,21 +179,21 @@ class AbstractInterpreter: AllStatic {
 
   // Activation size in words for a method that is just being called.
   // Parameters haven't been pushed so count them too.
-  static int        size_top_interpreter_activation(methodOop method);
+  static int        size_top_interpreter_activation(Method* method);
 
   // Deoptimization support
   // Compute the entry address for continuation after
-  static address deopt_continue_after_entry(methodOop method,
+  static address deopt_continue_after_entry(Method* method,
                                             address bcp,
                                             int callee_parameters,
                                             bool is_top_frame);
   // Compute the entry address for reexecution
-  static address deopt_reexecute_entry(methodOop method, address bcp);
+  static address deopt_reexecute_entry(Method* method, address bcp);
   // Deoptimization should reexecute this bytecode
   static bool    bytecode_should_reexecute(Bytecodes::Code code);
 
   // share implementation of size_activation and layout_activation:
-  static int        size_activation(methodOop method,
+  static int        size_activation(Method* method,
                                     int temps,
                                     int popframe_args,
                                     int monitors,
@@ -199,7 +213,7 @@ class AbstractInterpreter: AllStatic {
                              is_top_frame);
   }
 
-  static int       layout_activation(methodOop method,
+  static int       layout_activation(Method* method,
                                      int temps,
                                      int popframe_args,
                                      int monitors,

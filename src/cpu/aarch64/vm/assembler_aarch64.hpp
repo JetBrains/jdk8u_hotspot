@@ -2226,6 +2226,9 @@ public:
                Register arg_1, Register arg_2, Register arg_3,
                bool check_exceptions = true);
 
+  void get_vm_result  (Register oop_result, Register thread);
+  void get_vm_result_2(Register metadata_result, Register thread);
+
   // These always tightly bind to MacroAssembler::call_VM_base
   // bypassing the virtual implementation
   void super_call_VM(Register oop_result, Register last_java_sp, address entry_point, int number_of_arguments = 0, bool check_exceptions = true);
@@ -2461,6 +2464,12 @@ public:
                                Register method_result,
                                Register scan_temp,
                                Label& no_such_interface);
+
+  // virtual method calling
+  // n.b. x86 allows RegisterOrConstant for vtable_index
+  void lookup_virtual_method(Register recv_klass,
+                             Register vtable_index,
+                             Register method_result);
 
   // Test sub_klass against super_klass, with fast and slow paths.
 

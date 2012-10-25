@@ -25,6 +25,7 @@
 #ifndef SHARE_VM_UTILITIES_HASHTABLE_HPP
 #define SHARE_VM_UTILITIES_HASHTABLE_HPP
 
+#include "classfile/classLoaderData.hpp"
 #include "memory/allocation.hpp"
 #include "oops/oop.hpp"
 #include "oops/symbol.hpp"
@@ -40,7 +41,7 @@
 
 
 
-class BasicHashtableEntry : public CHeapObj {
+template <MEMFLAGS F> class BasicHashtableEntry : public CHeapObj<F> {
   friend class VMStructs;
 private:
   unsigned int         _hash;           // 32-bit hash for item
@@ -52,7 +53,7 @@ private:
   // shared entries will not change.  New entries will always be
   // unshared and since pointers are align, bit 0 will always remain 0
   // with no extra effort.
-  BasicHashtableEntry* _next;
+  BasicHashtableEntry<F>* _next;
 
   // Windows IA64 compiler requires subclasses to be able to access these
 protected:
@@ -69,19 +70,19 @@ public:
   void set_hash(unsigned int hash)      { _hash = hash; }
   unsigned int* hash_addr()             { return &_hash; }
 
-  static BasicHashtableEntry* make_ptr(BasicHashtableEntry* p) {
+  static BasicHashtableEntry<F>* make_ptr(BasicHashtableEntry<F>* p) {
     return (BasicHashtableEntry*)((intptr_t)p & -2);
   }
 
-  BasicHashtableEntry* next() const {
+  BasicHashtableEntry<F>* next() const {
     return make_ptr(_next);
   }
 
-  void set_next(BasicHashtableEntry* next) {
+  void set_next(BasicHashtableEntry<F>* next) {
     _next = next;
   }
 
-  BasicHashtableEntry** next_addr() {
+  BasicHashtableEntry<F>** next_addr() {
     return &_next;
   }
 
@@ -90,13 +91,13 @@ public:
   }
 
   void set_shared() {
-    _next = (BasicHashtableEntry*)((intptr_t)_next | 1);
+    _next = (BasicHashtableEntry<F>*)((intptr_t)_next | 1);
   }
 };
 
 
 
-template <class T> class HashtableEntry : public BasicHashtableEntry {
+template <class T, MEMFLAGS F> class HashtableEntry : public BasicHashtableEntry<F> {
   friend class VMStructs;
 private:
   T               _literal;          // ref to item in table.
@@ -108,20 +109,20 @@ public:
   void set_literal(T s)               { _literal = s; }
 
   HashtableEntry* next() const {
-    return (HashtableEntry*)BasicHashtableEntry::next();
+    return (HashtableEntry*)BasicHashtableEntry<F>::next();
   }
   HashtableEntry** next_addr() {
-    return (HashtableEntry**)BasicHashtableEntry::next_addr();
+    return (HashtableEntry**)BasicHashtableEntry<F>::next_addr();
   }
 };
 
 
 
-class HashtableBucket : public CHeapObj {
+template <MEMFLAGS F> class HashtableBucket : public CHeapObj<F> {
   friend class VMStructs;
 private:
   // Instance variable
-  BasicHashtableEntry*       _entry;
+  BasicHashtableEntry<F>*       _entry;
 
 public:
   // Accessing
@@ -129,21 +130,21 @@ public:
 
   // The following methods use order access methods to avoid race
   // conditions in multiprocessor systems.
-  BasicHashtableEntry* get_entry() const;
-  void set_entry(BasicHashtableEntry* l);
+  BasicHashtableEntry<F>* get_entry() const;
+  void set_entry(BasicHashtableEntry<F>* l);
 
   // The following method is not MT-safe and must be done under lock.
-  BasicHashtableEntry** entry_addr()  { return &_entry; }
+  BasicHashtableEntry<F>** entry_addr()  { return &_entry; }
 };
 
 
-class BasicHashtable : public CHeapObj {
+template <MEMFLAGS F> class BasicHashtable : public CHeapObj<F> {
   friend class VMStructs;
 
 public:
   BasicHashtable(int table_size, int entry_size);
   BasicHashtable(int table_size, int entry_size,
-                 HashtableBucket* buckets, int number_of_entries);
+                 HashtableBucket<F>* buckets, int number_of_entries);
 
   // Sharing support.
   void copy_buckets(char** top, char* end);
@@ -159,13 +160,11 @@ public:
   // Reverse the order of elements in each of the buckets.
   void reverse();
 
-  static unsigned int hash_symbol(const char* s, int len);
-
 private:
   // Instance variables
   int               _table_size;
-  HashtableBucket*  _buckets;
-  BasicHashtableEntry* _free_list;
+  HashtableBucket<F>*     _buckets;
+  BasicHashtableEntry<F>* _free_list;
   char*             _first_free_entry;
   char*             _end_block;
   int               _entry_size;
@@ -179,27 +178,55 @@ protected:
   void verify_lookup_length(double load);
 #endif
 
+  enum {
+    rehash_count = 100,
+    rehash_multiple = 60
+  };
+
   void initialize(int table_size, int entry_size, int number_of_entries);
 
   // Accessor
   int entry_size() const { return _entry_size; }
 
   // The following method is MT-safe and may be used with caution.
-  BasicHashtableEntry* bucket(int i);
+  BasicHashtableEntry<F>* bucket(int i);
 
   // The following method is not MT-safe and must be done under lock.
-  BasicHashtableEntry** bucket_addr(int i) { return _buckets[i].entry_addr(); }
+  BasicHashtableEntry<F>** bucket_addr(int i) { return _buckets[i].entry_addr(); }
 
   // Table entry management
-  BasicHashtableEntry* new_entry(unsigned int hashValue);
+  BasicHashtableEntry<F>* new_entry(unsigned int hashValue);
+
+  // Check that the table is unbalanced
+  bool check_rehash_table(int count);
+
+  // Used when moving the entry to another table
+  // Clean up links, but do not add to free_list
+  void unlink_entry(BasicHashtableEntry<F>* entry) {
+    entry->set_next(NULL);
+    --_number_of_entries;
+  }
+
+  // Move over freelist and free block for allocation
+  void copy_freelist(BasicHashtable* src) {
+    _free_list = src->_free_list;
+    src->_free_list = NULL;
+    _first_free_entry = src->_first_free_entry;
+    src->_first_free_entry = NULL;
+    _end_block = src->_end_block;
+    src->_end_block = NULL;
+  }
+
+  // Free the buckets in this hashtable
+  void free_buckets();
 
 public:
   int table_size() { return _table_size; }
-  void set_entry(int index, BasicHashtableEntry* entry);
+  void set_entry(int index, BasicHashtableEntry<F>* entry);
 
-  void add_entry(int index, BasicHashtableEntry* entry);
+  void add_entry(int index, BasicHashtableEntry<F>* entry);
 
-  void free_entry(BasicHashtableEntry* entry);
+  void free_entry(BasicHashtableEntry<F>* entry);
 
   int number_of_entries() { return _number_of_entries; }
 
@@ -207,16 +234,16 @@ public:
 };
 
 
-template <class T> class Hashtable : public BasicHashtable {
+template <class T, MEMFLAGS F> class Hashtable : public BasicHashtable<F> {
   friend class VMStructs;
 
 public:
   Hashtable(int table_size, int entry_size)
-    : BasicHashtable(table_size, entry_size) { }
+    : BasicHashtable<F>(table_size, entry_size) { }
 
   Hashtable(int table_size, int entry_size,
-                   HashtableBucket* buckets, int number_of_entries)
-    : BasicHashtable(table_size, entry_size, buckets, number_of_entries) { }
+                   HashtableBucket<F>* buckets, int number_of_entries)
+    : BasicHashtable<F>(table_size, entry_size, buckets, number_of_entries) { }
 
   // Debugging
   void print()               PRODUCT_RETURN;
@@ -234,49 +261,56 @@ protected:
   }
 
   int index_for(Symbol* name) {
-    return hash_to_index(compute_hash(name));
+    return this->hash_to_index(compute_hash(name));
   }
 
   // Table entry management
-  HashtableEntry<T>* new_entry(unsigned int hashValue, T obj);
+  HashtableEntry<T, F>* new_entry(unsigned int hashValue, T obj);
 
   // The following method is MT-safe and may be used with caution.
-  HashtableEntry<T>* bucket(int i) {
-    return (HashtableEntry<T>*)BasicHashtable::bucket(i);
+  HashtableEntry<T, F>* bucket(int i) {
+    return (HashtableEntry<T, F>*)BasicHashtable<F>::bucket(i);
   }
 
   // The following method is not MT-safe and must be done under lock.
-  HashtableEntry<T>** bucket_addr(int i) {
-    return (HashtableEntry<T>**)BasicHashtable::bucket_addr(i);
+  HashtableEntry<T, F>** bucket_addr(int i) {
+    return (HashtableEntry<T, F>**)BasicHashtable<F>::bucket_addr(i);
   }
+
+  // Function to move these elements into the new table.
+  void move_to(Hashtable<T, F>* new_table);
+  static bool use_alternate_hashcode()  { return _seed != 0; }
+  static jint seed()                    { return _seed; }
+
+ private:
+  static jint _seed;
 };
 
 
 //  Verions of hashtable where two handles are used to compute the index.
 
-template <class T> class TwoOopHashtable : public Hashtable<T> {
+template <class T, MEMFLAGS F> class TwoOopHashtable : public Hashtable<T, F> {
   friend class VMStructs;
 protected:
   TwoOopHashtable(int table_size, int entry_size)
-    : Hashtable<T>(table_size, entry_size) {}
+    : Hashtable<T, F>(table_size, entry_size) {}
 
-  TwoOopHashtable(int table_size, int entry_size, HashtableBucket* t,
+  TwoOopHashtable(int table_size, int entry_size, HashtableBucket<F>* t,
                   int number_of_entries)
-    : Hashtable<T>(table_size, entry_size, t, number_of_entries) {}
+    : Hashtable<T, F>(table_size, entry_size, t, number_of_entries) {}
 
 public:
-  unsigned int compute_hash(Symbol* name, Handle loader) {
-    // Be careful with identity_hash(), it can safepoint and if this
-    // were one expression, the compiler could choose to unhandle each
-    // oop before calling identity_hash() for either of them.  If the first
-    // causes a GC, the next would fail.
+  unsigned int compute_hash(Symbol* name, ClassLoaderData* loader_data) {
     unsigned int name_hash = name->identity_hash();
-    unsigned int loader_hash = loader.is_null() ? 0 : loader->identity_hash();
+    // loader is null with CDS
+    assert(loader_data != NULL || UseSharedSpaces || DumpSharedSpaces,
+           "only allowed with shared spaces");
+    unsigned int loader_hash = loader_data == NULL ? 0 : loader_data->identity_hash();
     return name_hash ^ loader_hash;
   }
 
-  int index_for(Symbol* name, Handle loader) {
-    return this->hash_to_index(compute_hash(name, loader));
+  int index_for(Symbol* name, ClassLoaderData* loader_data) {
+    return this->hash_to_index(compute_hash(name, loader_data));
   }
 };
 

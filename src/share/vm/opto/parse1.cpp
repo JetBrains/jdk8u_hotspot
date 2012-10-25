@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 #include "precompiled.hpp"
 #include "compiler/compileLog.hpp"
 #include "interpreter/linkResolver.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "opto/addnode.hpp"
 #include "opto/idealGraphPrinter.hpp"
 #include "opto/locknode.hpp"
@@ -398,7 +398,7 @@ Parse::Parse(JVMState* caller, ciMethod* parse_method, float expected_uses)
   if (PrintCompilation || PrintOpto) {
     // Make sure I have an inline tree, so I can print messages about it.
     JVMState* ilt_caller = is_osr_parse() ? caller->caller() : caller;
-    InlineTree::find_subtree_from_root(C->ilt(), ilt_caller, parse_method, true);
+    InlineTree::find_subtree_from_root(C->ilt(), ilt_caller, parse_method);
   }
   _max_switch_depth = 0;
   _est_switch_depth = 0;
@@ -492,7 +492,7 @@ Parse::Parse(JVMState* caller, ciMethod* parse_method, float expected_uses)
       if (PrintOpto && (Verbose || WizardMode)) {
         tty->print_cr("OSR @%d type flow bailout: %s", _entry_bci, _flow->failure_reason());
         if (Verbose) {
-          method()->print_oop();
+          method()->print();
           method()->print_codes();
           _flow->print();
         }
@@ -1398,8 +1398,8 @@ void Parse::do_one_block() {
 #ifdef ASSERT
     int pre_bc_sp = sp();
     int inputs, depth;
-    bool have_se = !stopped() && compute_stack_effects(inputs, depth);
-    assert(!have_se || pre_bc_sp >= inputs, "have enough stack to execute this BC");
+    bool have_se = !stopped() && compute_stack_effects(inputs, depth, /*for_parse*/ true);
+    assert(!have_se || pre_bc_sp >= inputs, err_msg_res("have enough stack to execute this BC: pre_bc_sp=%d, inputs=%d", pre_bc_sp, inputs));
 #endif //ASSERT
 
     do_one_bytecode();

@@ -31,8 +31,8 @@
 #include "oops/typeArrayOop.hpp"
 #include "runtime/handles.inline.hpp"
 #include "utilities/accessFlags.hpp"
+#include "classfile/symbolTable.hpp"
 
-class TempNewSymbol;
 class FieldAllocationCount;
 
 
@@ -50,11 +50,83 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   KlassHandle _host_klass;
   GrowableArray<Handle>* _cp_patches; // overrides for CP entries
 
+  // precomputed flags
   bool _has_finalizer;
   bool _has_empty_finalizer;
   bool _has_vanilla_constructor;
+  int _max_bootstrap_specifier_index;  // detects BSS values
 
-  int _max_bootstrap_specifier_index;
+  // class attributes parsed before the instance klass is created:
+  bool       _synthetic_flag;
+  Symbol*    _sourcefile;
+  Symbol*    _generic_signature;
+  char*      _sde_buffer;
+  int        _sde_length;
+  Array<u2>* _inner_classes;
+  AnnotationArray* _annotations;
+
+  void set_class_synthetic_flag(bool x)           { _synthetic_flag = x; }
+  void set_class_sourcefile(Symbol* x)            { _sourcefile = x; }
+  void set_class_generic_signature(Symbol* x)     { _generic_signature = x; }
+  void set_class_sde_buffer(char* x, int len)     { _sde_buffer = x; _sde_length = len; }
+  void set_class_inner_classes(Array<u2>* x)      { _inner_classes = x; }
+  void set_class_annotations(AnnotationArray* x)  { _annotations = x; }
+  void init_parsed_class_attributes() {
+    _synthetic_flag = false;
+    _sourcefile = NULL;
+    _generic_signature = NULL;
+    _sde_buffer = NULL;
+    _sde_length = 0;
+    // initialize the other flags too:
+    _has_finalizer = _has_empty_finalizer = _has_vanilla_constructor = false;
+    _max_bootstrap_specifier_index = -1;
+  }
+  void apply_parsed_class_attributes(instanceKlassHandle k);  // update k
+
+  class AnnotationCollector {
+  public:
+    enum Location { _in_field, _in_method, _in_class };
+    enum ID {
+      _unknown = 0,
+      _method_ForceInline,
+      _method_DontInline,
+      _method_LambdaForm_Compiled,
+      _method_LambdaForm_Hidden,
+      _annotation_LIMIT
+    };
+    const Location _location;
+    int _annotations_present;
+    AnnotationCollector(Location location)
+    : _location(location), _annotations_present(0)
+    {
+      assert((int)_annotation_LIMIT <= (int)sizeof(_annotations_present) * BitsPerByte, "");
+    }
+    // If this annotation name has an ID, report it (or _none).
+    ID annotation_index(Symbol* name);
+    // Set the annotation name:
+    void set_annotation(ID id) {
+      assert((int)id >= 0 && (int)id < (int)_annotation_LIMIT, "oob");
+      _annotations_present |= nth_bit((int)id);
+    }
+    // Report if the annotation is present.
+    bool has_any_annotations() { return _annotations_present != 0; }
+    bool has_annotation(ID id) { return (nth_bit((int)id) & _annotations_present) != 0; }
+  };
+  class FieldAnnotationCollector: public AnnotationCollector {
+  public:
+    FieldAnnotationCollector() : AnnotationCollector(_in_field) { }
+    void apply_to(FieldInfo* f);
+  };
+  class MethodAnnotationCollector: public AnnotationCollector {
+  public:
+    MethodAnnotationCollector() : AnnotationCollector(_in_method) { }
+    void apply_to(methodHandle m);
+  };
+  class ClassAnnotationCollector: public AnnotationCollector {
+  public:
+    ClassAnnotationCollector() : AnnotationCollector(_in_class) { }
+    void apply_to(instanceKlassHandle k);
+  };
 
   enum { fixed_buffer_size = 128 };
   u_char linenumbertable_buffer[fixed_buffer_size];
@@ -68,53 +140,64 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   void set_stream(ClassFileStream* st)             { _stream = st; }
 
   // Constant pool parsing
-  void parse_constant_pool_entries(Handle class_loader,
+  void parse_constant_pool_entries(ClassLoaderData* loader_data,
                                    constantPoolHandle cp, int length, TRAPS);
 
-  constantPoolHandle parse_constant_pool(Handle class_loader, TRAPS);
+  constantPoolHandle parse_constant_pool(ClassLoaderData* loader_data, TRAPS);
 
   // Interface parsing
-  objArrayHandle parse_interfaces(constantPoolHandle cp,
+  Array<Klass*>* parse_interfaces(constantPoolHandle cp,
                                   int length,
-                                  Handle class_loader,
+                                    ClassLoaderData* loader_data,
                                   Handle protection_domain,
                                   Symbol* class_name,
                                   TRAPS);
+  void record_defined_class_dependencies(instanceKlassHandle defined_klass, TRAPS);
 
   // Field parsing
-  void parse_field_attributes(constantPoolHandle cp, u2 attributes_count,
+  void parse_field_attributes(ClassLoaderData* loader_data,
+                              constantPoolHandle cp, u2 attributes_count,
                               bool is_static, u2 signature_index,
                               u2* constantvalue_index_addr,
                               bool* is_synthetic_addr,
                               u2* generic_signature_index_addr,
-                              typeArrayHandle* field_annotations, TRAPS);
-  typeArrayHandle parse_fields(Symbol* class_name,
+                              AnnotationArray** field_annotations,
+                              FieldAnnotationCollector* parsed_annotations,
+                              TRAPS);
+  Array<u2>* parse_fields(ClassLoaderData* loader_data,
+                          Symbol* class_name,
                                constantPoolHandle cp, bool is_interface,
                                FieldAllocationCount *fac,
-                               objArrayHandle* fields_annotations,
+                          Array<AnnotationArray*>** fields_annotations,
                                u2* java_fields_count_ptr, TRAPS);
 
   // Method parsing
-  methodHandle parse_method(constantPoolHandle cp, bool is_interface,
+  methodHandle parse_method(ClassLoaderData* loader_data,
+                            constantPoolHandle cp,
+                            bool is_interface,
                             AccessFlags* promoted_flags,
-                            typeArrayHandle* method_annotations,
-                            typeArrayHandle* method_parameter_annotations,
-                            typeArrayHandle* method_default_annotations,
+                            AnnotationArray** method_annotations,
+                            AnnotationArray** method_parameter_annotations,
+                            AnnotationArray** method_default_annotations,
                             TRAPS);
-  objArrayHandle parse_methods (constantPoolHandle cp, bool is_interface,
+  Array<Method*>* parse_methods(ClassLoaderData* loader_data,
+                                  constantPoolHandle cp,
+                                  bool is_interface,
                                 AccessFlags* promoted_flags,
                                 bool* has_final_method,
-                                objArrayOop* methods_annotations_oop,
-                                objArrayOop* methods_parameter_annotations_oop,
-                                objArrayOop* methods_default_annotations_oop,
+                                  Array<AnnotationArray*>** methods_annotations,
+                                  Array<AnnotationArray*>** methods_parameter_annotations,
+                                  Array<AnnotationArray*>** methods_default_annotations,
                                 TRAPS);
-  typeArrayHandle sort_methods (objArrayHandle methods,
-                                objArrayHandle methods_annotations,
-                                objArrayHandle methods_parameter_annotations,
-                                objArrayHandle methods_default_annotations,
+  Array<int>* sort_methods(ClassLoaderData* loader_data,
+                           Array<Method*>* methods,
+                           Array<AnnotationArray*>* methods_annotations,
+                           Array<AnnotationArray*>* methods_parameter_annotations,
+                           Array<AnnotationArray*>* methods_default_annotations,
                                 TRAPS);
-  typeArrayHandle parse_exception_table(u4 code_length, u4 exception_table_length,
-                                        constantPoolHandle cp, TRAPS);
+  u2* parse_exception_table(ClassLoaderData* loader_data,
+                            u4 code_length, u4 exception_table_length,
+                            constantPoolHandle cp, TRAPS);
   void parse_linenumber_table(
       u4 code_attribute_length, u4 code_length,
       CompressedLineNumberWriteStream** write_stream, TRAPS);
@@ -125,28 +208,39 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                                constantPoolHandle cp, TRAPS);
   void parse_type_array(u2 array_length, u4 code_length, u4* u1_index, u4* u2_index,
                         u1* u1_array, u2* u2_array, constantPoolHandle cp, TRAPS);
-  typeArrayOop parse_stackmap_table(u4 code_attribute_length, TRAPS);
+  Array<u1>* parse_stackmap_table(ClassLoaderData* loader_data, u4 code_attribute_length, TRAPS);
 
   // Classfile attribute parsing
-  void parse_classfile_sourcefile_attribute(constantPoolHandle cp, instanceKlassHandle k, TRAPS);
+  void parse_classfile_sourcefile_attribute(constantPoolHandle cp, TRAPS);
   void parse_classfile_source_debug_extension_attribute(constantPoolHandle cp,
-                                                instanceKlassHandle k, int length, TRAPS);
-  u2   parse_classfile_inner_classes_attribute(u1* inner_classes_attribute_start,
+                                                        int length, TRAPS);
+  u2   parse_classfile_inner_classes_attribute(ClassLoaderData* loader_data,
+                                               u1* inner_classes_attribute_start,
                                                bool parsed_enclosingmethod_attribute,
                                                u2 enclosing_method_class_index,
                                                u2 enclosing_method_method_index,
                                                constantPoolHandle cp,
-                                               instanceKlassHandle k, TRAPS);
-  void parse_classfile_attributes(constantPoolHandle cp, instanceKlassHandle k, TRAPS);
-  void parse_classfile_synthetic_attribute(constantPoolHandle cp, instanceKlassHandle k, TRAPS);
-  void parse_classfile_signature_attribute(constantPoolHandle cp, instanceKlassHandle k, TRAPS);
-  void parse_classfile_bootstrap_methods_attribute(constantPoolHandle cp, instanceKlassHandle k, u4 attribute_length, TRAPS);
+                                               TRAPS);
+  void parse_classfile_attributes(ClassLoaderData* loader_data,
+                                  constantPoolHandle cp,
+                                  ClassAnnotationCollector* parsed_annotations,
+                                  TRAPS);
+  void parse_classfile_synthetic_attribute(constantPoolHandle cp, TRAPS);
+  void parse_classfile_signature_attribute(constantPoolHandle cp, TRAPS);
+  void parse_classfile_bootstrap_methods_attribute(ClassLoaderData* loader_data, constantPoolHandle cp, u4 attribute_length, TRAPS);
 
   // Annotations handling
-  typeArrayHandle assemble_annotations(u1* runtime_visible_annotations,
+  AnnotationArray* assemble_annotations(ClassLoaderData* loader_data,
+                                        u1* runtime_visible_annotations,
                                        int runtime_visible_annotations_length,
                                        u1* runtime_invisible_annotations,
                                        int runtime_invisible_annotations_length, TRAPS);
+  int skip_annotation(u1* buffer, int limit, int index);
+  int skip_annotation_value(u1* buffer, int limit, int index);
+  void parse_annotations(u1* buffer, int limit, constantPoolHandle cp,
+                         /* Results (currently, only one result is supported): */
+                         AnnotationCollector* result,
+                         TRAPS);
 
   // Final setup
   unsigned int compute_oop_map_count(instanceKlassHandle super,
@@ -157,8 +251,9 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                      int* nonstatic_oop_offsets,
                      unsigned int* nonstatic_oop_counts);
   void set_precomputed_flags(instanceKlassHandle k);
-  objArrayHandle compute_transitive_interfaces(instanceKlassHandle super,
-                                               objArrayHandle local_ifs, TRAPS);
+  Array<Klass*>* compute_transitive_interfaces(ClassLoaderData* loader_data,
+                                                 instanceKlassHandle super,
+                                                 Array<Klass*>* local_ifs, TRAPS);
 
   // Format checker methods
   void classfile_parse_error(const char* msg, TRAPS);
@@ -245,7 +340,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   void patch_constant_pool(constantPoolHandle cp, int index, Handle patch, TRAPS);
 
   // Wrapper for constantTag.is_klass_[or_]reference.
-  // In older versions of the VM, klassOops cannot sneak into early phases of
+  // In older versions of the VM, Klass*s cannot sneak into early phases of
   // constant pool construction, but in later versions they can.
   // %%% Let's phase out the old is_klass_reference.
   bool is_klass_reference(constantPoolHandle cp, int index) {
@@ -258,7 +353,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   // Constructor
   ClassFileParser(ClassFileStream* st) { set_stream(st); }
 
-  // Parse .class file and return new klassOop. The klassOop is not hooked up
+  // Parse .class file and return new Klass*. The Klass* is not hooked up
   // to the system dictionary or any other structures, so a .class file can
   // be loaded several times if desired.
   // The system dictionary hookup is done by the caller.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -717,6 +717,22 @@ Node *MemNode::Ideal_common_DU_postCCP( PhaseCCP *ccp, Node* n, Node* adr ) {
         adr = adr->in(1);
         continue;
 
+      case Op_EncodeP:
+        // EncodeP node's control edge could be set by this method
+        // when EncodeP node depends on CastPP node.
+        //
+        // Use its control edge for memory op because EncodeP may go away
+        // later when it is folded with following or preceding DecodeN node.
+        if (adr->in(0) == NULL) {
+          // Keep looking for cast nodes.
+          adr = adr->in(1);
+          continue;
+        }
+        ccp->hash_delete(n);
+        n->set_req(MemNode::Control, adr->in(0));
+        ccp->hash_insert(n);
+        return n;
+
       case Op_CastPP:
         // If the CastPP is useless, just peek on through it.
         if( ccp->type(adr) == ccp->type(adr->in(1)) ) {
@@ -825,7 +841,7 @@ uint LoadNode::cmp( const Node &n ) const
 { return !Type::cmp( _type, ((LoadNode&)n)._type ); }
 const Type *LoadNode::bottom_type() const { return _type; }
 uint LoadNode::ideal_reg() const {
-  return Matcher::base2reg[_type->base()];
+  return _type->ideal_reg();
 }
 
 #ifndef PRODUCT
@@ -1527,6 +1543,7 @@ const Type *LoadNode::Value( PhaseTransform *phase ) const {
     // had an original form like p1:(AddP x x (LShiftL quux 3)), where the
     // expression (LShiftL quux 3) independently optimized to the constant 8.
     if ((t->isa_int() == NULL) && (t->isa_long() == NULL)
+        && (_type->isa_vect() == NULL)
         && Opcode() != Op_LoadKlass && Opcode() != Op_LoadNKlass) {
       // t might actually be lower than _type, if _type is a unique
       // concrete subclass of abstract class t.
@@ -1643,7 +1660,7 @@ const Type *LoadNode::Value( PhaseTransform *phase ) const {
         return TypeInt::make(klass->super_check_offset());
       }
       // Compute index into primary_supers array
-      juint depth = (tkls->offset() - in_bytes(Klass::primary_supers_offset())) / sizeof(klassOop);
+      juint depth = (tkls->offset() - in_bytes(Klass::primary_supers_offset())) / sizeof(Klass*);
       // Check for overflowing; use unsigned compare to handle the negative case.
       if( depth < ciKlass::primary_super_limit() ) {
         // The field is an element of Klass::_primary_supers.  Return its (constant) value.
@@ -1673,13 +1690,13 @@ const Type *LoadNode::Value( PhaseTransform *phase ) const {
     // shallow enough depth.  Even though the klass is not exact, entries less
     // than or equal to its super depth are correct.
     if (klass->is_loaded() ) {
-      ciType *inner = klass->klass();
+      ciType *inner = klass;
       while( inner->is_obj_array_klass() )
         inner = inner->as_obj_array_klass()->base_element_type();
       if( inner->is_instance_klass() &&
           !inner->as_instance_klass()->flags().is_interface() ) {
         // Compute index into primary_supers array
-        juint depth = (tkls->offset() - in_bytes(Klass::primary_supers_offset())) / sizeof(klassOop);
+        juint depth = (tkls->offset() - in_bytes(Klass::primary_supers_offset())) / sizeof(Klass*);
         // Check for overflowing; use unsigned compare to handle the negative case.
         if( depth < ciKlass::primary_super_limit() &&
             depth <= klass->super_depth() ) { // allow self-depth checks to handle self-check case
@@ -1874,10 +1891,11 @@ Node *LoadKlassNode::make( PhaseGVN& gvn, Node *mem, Node *adr, const TypePtr* a
   Compile* C = gvn.C;
   Node *ctl = NULL;
   // sanity check the alias category against the created node type
-  const TypeOopPtr *adr_type = adr->bottom_type()->isa_oopptr();
-  assert(adr_type != NULL, "expecting TypeOopPtr");
+  const TypePtr *adr_type = adr->bottom_type()->isa_ptr();
+  assert(adr_type != NULL, "expecting TypeKlassPtr");
 #ifdef _LP64
   if (adr_type->is_ptr_to_narrowoop()) {
+    assert(UseCompressedKlassPointers, "no compressed klasses");
     Node* load_klass = gvn.transform(new (C, 3) LoadNKlassNode(ctl, mem, adr, at, tk->make_narrowoop()));
     return new (C, 2) DecodeNNode(load_klass, load_klass->bottom_type()->make_ptr());
   }
@@ -2048,7 +2066,7 @@ Node* LoadNode::klass_identity_common(PhaseTransform *phase ) {
     }
   }
 
-  // Simplify k.java_mirror.as_klass to plain k, where k is a klassOop.
+  // Simplify k.java_mirror.as_klass to plain k, where k is a Klass*.
   // Simplify ak.component_mirror.array_klass to plain ak, ak an arrayKlass.
   // See inline_native_Class_query for occurrences of these patterns.
   // Java Example:  x.getClass().isAssignableFrom(y)
@@ -2057,7 +2075,7 @@ Node* LoadNode::klass_identity_common(PhaseTransform *phase ) {
   // This improves reflective code, often making the Class
   // mirror go completely dead.  (Current exception:  Class
   // mirrors may appear in debug info, but we could clean them out by
-  // introducing a new debug info operator for klassOop.java_mirror).
+  // introducing a new debug info operator for Klass*.java_mirror).
   if (toop->isa_instptr() && toop->klass() == phase->C->env()->Class_klass()
       && (offset == java_lang_Class::klass_offset_in_bytes() ||
           offset == java_lang_Class::array_klass_offset_in_bytes())) {
@@ -2206,11 +2224,12 @@ StoreNode* StoreNode::make( PhaseGVN& gvn, Node* ctl, Node* mem, Node* adr, cons
   case T_LONG:    return new (C, 4) StoreLNode(ctl, mem, adr, adr_type, val);
   case T_FLOAT:   return new (C, 4) StoreFNode(ctl, mem, adr, adr_type, val);
   case T_DOUBLE:  return new (C, 4) StoreDNode(ctl, mem, adr, adr_type, val);
+  case T_METADATA:
   case T_ADDRESS:
   case T_OBJECT:
 #ifdef _LP64
     if (adr->bottom_type()->is_ptr_to_narrowoop() ||
-        (UseCompressedOops && val->bottom_type()->isa_klassptr() &&
+        (UseCompressedKlassPointers && val->bottom_type()->isa_klassptr() &&
          adr->bottom_type()->isa_rawptr())) {
       val = gvn.transform(new (C, 2) EncodePNode(val, val->bottom_type()->make_narrowoop()));
       return new (C, 4) StoreNNode(ctl, mem, adr, adr_type, val);

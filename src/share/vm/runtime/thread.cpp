@@ -34,6 +34,7 @@
 #include "interpreter/oopMapCache.hpp"
 #include "jvmtifiles/jvmtiEnv.hpp"
 #include "memory/gcLocker.inline.hpp"
+#include "memory/metaspaceShared.hpp"
 #include "memory/oopFactory.hpp"
 #include "memory/universe.inline.hpp"
 #include "oops/instanceKlass.hpp"
@@ -73,6 +74,7 @@
 #include "runtime/vm_operations.hpp"
 #include "services/attachListener.hpp"
 #include "services/management.hpp"
+#include "services/memTracker.hpp"
 #include "services/threadService.hpp"
 #include "trace/traceEventTypes.hpp"
 #include "utilities/defaultStream.hpp"
@@ -159,6 +161,7 @@ HS_DTRACE_PROBE_DECL5(hotspot, thread__stop, char*, intptr_t,
 
 #endif // ndef DTRACE_ENABLED
 
+
 // Class hierarchy
 // - Thread
 //   - VMThread
@@ -168,13 +171,13 @@ HS_DTRACE_PROBE_DECL5(hotspot, thread__stop, char*, intptr_t,
 //     - CompilerThread
 
 // ======= Thread ========
-
 // Support for forcing alignment of thread objects for biased locking
-void* Thread::operator new(size_t size) {
+void* Thread::allocate(size_t size, bool throw_excpt, MEMFLAGS flags) {
   if (UseBiasedLocking) {
     const int alignment = markOopDesc::biased_lock_alignment;
     size_t aligned_size = size + (alignment - sizeof(intptr_t));
-    void* real_malloc_addr = CHeapObj::operator new(aligned_size);
+    void* real_malloc_addr = throw_excpt? AllocateHeap(aligned_size, flags, CURRENT_PC)
+                                          : os::malloc(aligned_size, flags, CURRENT_PC);
     void* aligned_addr     = (void*) align_size_up((intptr_t) real_malloc_addr, alignment);
     assert(((uintptr_t) aligned_addr + (uintptr_t) size) <=
            ((uintptr_t) real_malloc_addr + (uintptr_t) aligned_size),
@@ -187,16 +190,17 @@ void* Thread::operator new(size_t size) {
     ((Thread*) aligned_addr)->_real_malloc_address = real_malloc_addr;
     return aligned_addr;
   } else {
-    return CHeapObj::operator new(size);
+    return throw_excpt? AllocateHeap(size, flags, CURRENT_PC)
+                       : os::malloc(size, flags, CURRENT_PC);
   }
 }
 
 void Thread::operator delete(void* p) {
   if (UseBiasedLocking) {
     void* real_malloc_addr = ((Thread*) p)->_real_malloc_address;
-    CHeapObj::operator delete(real_malloc_addr);
+    FreeHeap(real_malloc_addr, mtThread);
   } else {
-    CHeapObj::operator delete(p);
+    FreeHeap(p, mtThread);
   }
 }
 
@@ -214,8 +218,9 @@ Thread::Thread() {
 
   // allocated data structures
   set_osthread(NULL);
-  set_resource_area(new ResourceArea());
-  set_handle_area(new HandleArea(NULL));
+  set_resource_area(new (mtThread)ResourceArea());
+  set_handle_area(new (mtThread) HandleArea(NULL));
+  set_metadata_handles(new (ResourceObj::C_HEAP, mtClass) GrowableArray<Metadata*>(300, true));
   set_active_handles(NULL);
   set_free_handle_block(NULL);
   set_last_handle_mark(NULL);
@@ -306,18 +311,31 @@ void Thread::initialize_thread_local_storage() {
 
   // set up any platform-specific state.
   os::initialize_thread();
-
 }
 
 void Thread::record_stack_base_and_size() {
   set_stack_base(os::current_stack_base());
   set_stack_size(os::current_stack_size());
+
+  // record thread's native stack, stack grows downward
+  address low_stack_addr = stack_base() - stack_size();
+  MemTracker::record_thread_stack(low_stack_addr, stack_size(), this,
+             CURRENT_PC);
 }
 
 
 Thread::~Thread() {
   // Reclaim the objectmonitors from the omFreeList of the moribund thread.
   ObjectSynchronizer::omFlush (this) ;
+
+  // stack_base can be NULL if the thread is never started or exited before
+  // record_stack_base_and_size called. Although, we would like to ensure
+  // that all started threads do call record_stack_base_and_size(), there is
+  // not proper way to enforce that.
+  if (_stack_base != NULL) {
+    address low_stack_addr = stack_base() - stack_size();
+    MemTracker::release_thread_stack(low_stack_addr, stack_size(), this);
+  }
 
   // deallocate data structures
   delete resource_area();
@@ -335,6 +353,7 @@ Thread::~Thread() {
   ParkEvent::Release (_MuxEvent)    ; _MuxEvent    = NULL ;
 
   delete handle_area();
+  delete metadata_handles();
 
   // osthread() can be NULL, if creation of thread failed.
   if (osthread() != NULL) os::free_thread(osthread());
@@ -806,6 +825,14 @@ void Thread::nmethods_do(CodeBlobClosure* cf) {
   // no nmethods in a generic thread...
 }
 
+void Thread::metadata_do(void f(Metadata*)) {
+  if (metadata_handles() != NULL) {
+    for (int i = 0; i< metadata_handles()->length(); i++) {
+      f(metadata_handles()->at(i));
+    }
+  }
+}
+
 void Thread::print_on(outputStream* st) const {
   // get_priority assumes osthread initialized
   if (osthread() != NULL) {
@@ -905,6 +932,8 @@ void Thread::check_for_valid_safepoint_state(bool potential_vm_operation) {
 bool Thread::is_in_stack(address adr) const {
   assert(Thread::current() == this, "is_in_stack can only be called from current thread");
   address end = os::current_stack_pointer();
+  // Allow non Java threads to call this without stack_base
+  if (_stack_base == NULL) return true;
   if (stack_base() >= adr && adr >= end) return true;
 
   return false;
@@ -926,14 +955,14 @@ bool Thread::set_as_starting_thread() {
 }
 
 static void initialize_class(Symbol* class_name, TRAPS) {
-  klassOop klass = SystemDictionary::resolve_or_fail(class_name, true, CHECK);
-  instanceKlass::cast(klass)->initialize(CHECK);
+  Klass* klass = SystemDictionary::resolve_or_fail(class_name, true, CHECK);
+  InstanceKlass::cast(klass)->initialize(CHECK);
 }
 
 
 // Creates the initial ThreadGroup
 static Handle create_initial_thread_group(TRAPS) {
-  klassOop k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_ThreadGroup(), true, CHECK_NH);
+  Klass* k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_ThreadGroup(), true, CHECK_NH);
   instanceKlassHandle klass (THREAD, k);
 
   Handle system_instance = klass->allocate_instance_handle(CHECK_NH);
@@ -966,7 +995,7 @@ static Handle create_initial_thread_group(TRAPS) {
 
 // Creates the initial Thread
 static oop create_initial_thread(Handle thread_group, JavaThread* thread, TRAPS) {
-  klassOop k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_Thread(), true, CHECK_NULL);
+  Klass* k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_Thread(), true, CHECK_NULL);
   instanceKlassHandle klass (THREAD, k);
   instanceHandle thread_oop = klass->allocate_instance_handle(CHECK_NULL);
 
@@ -988,7 +1017,7 @@ static oop create_initial_thread(Handle thread_group, JavaThread* thread, TRAPS)
 }
 
 static void call_initializeSystemClass(TRAPS) {
-  klassOop k =  SystemDictionary::resolve_or_fail(vmSymbols::java_lang_System(), true, CHECK);
+  Klass* k =  SystemDictionary::resolve_or_fail(vmSymbols::java_lang_System(), true, CHECK);
   instanceKlassHandle klass (THREAD, k);
 
   JavaValue result(T_VOID);
@@ -996,10 +1025,33 @@ static void call_initializeSystemClass(TRAPS) {
                                          vmSymbols::void_method_signature(), CHECK);
 }
 
+char java_runtime_name[128] = "";
+
+// extract the JRE name from sun.misc.Version.java_runtime_name
+static const char* get_java_runtime_name(TRAPS) {
+  Klass* k = SystemDictionary::find(vmSymbols::sun_misc_Version(),
+                                      Handle(), Handle(), CHECK_AND_CLEAR_NULL);
+  fieldDescriptor fd;
+  bool found = k != NULL &&
+               InstanceKlass::cast(k)->find_local_field(vmSymbols::java_runtime_name_name(),
+                                                        vmSymbols::string_signature(), &fd);
+  if (found) {
+    oop name_oop = k->java_mirror()->obj_field(fd.offset());
+    if (name_oop == NULL)
+      return NULL;
+    const char* name = java_lang_String::as_utf8_string(name_oop,
+                                                        java_runtime_name,
+                                                        sizeof(java_runtime_name));
+    return name;
+  } else {
+    return NULL;
+  }
+}
+
 // General purpose hook into Java code, run once when the VM is initialized.
 // The Java library method itself may be changed independently from the VM.
 static void call_postVMInitHook(TRAPS) {
-  klassOop k = SystemDictionary::PostVMInitHook_klass();
+  Klass* k = SystemDictionary::PostVMInitHook_klass();
   instanceKlassHandle klass (THREAD, k);
   if (klass.not_null()) {
     JavaValue result(T_VOID);
@@ -1015,7 +1067,7 @@ static void reset_vm_info_property(TRAPS) {
   const char *vm_info = VM_Version::vm_info_string();
 
   // java.lang.System class
-  klassOop k =  SystemDictionary::resolve_or_fail(vmSymbols::java_lang_System(), true, CHECK);
+  Klass* k =  SystemDictionary::resolve_or_fail(vmSymbols::java_lang_System(), true, CHECK);
   instanceKlassHandle klass (THREAD, k);
 
   // setProperty arguments
@@ -1040,7 +1092,7 @@ void JavaThread::allocate_threadObj(Handle thread_group, char* thread_name, bool
   assert(thread_group.not_null(), "thread group should be specified");
   assert(threadObj() == NULL, "should only create Java thread object once");
 
-  klassOop k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_Thread(), true, CHECK);
+  Klass* k = SystemDictionary::resolve_or_fail(vmSymbols::java_lang_Thread(), true, CHECK);
   instanceKlassHandle klass (THREAD, k);
   instanceHandle thread_oop = klass->allocate_instance_handle(CHECK);
 
@@ -1105,14 +1157,14 @@ NamedThread::NamedThread() : Thread() {
 
 NamedThread::~NamedThread() {
   if (_name != NULL) {
-    FREE_C_HEAP_ARRAY(char, _name);
+    FREE_C_HEAP_ARRAY(char, _name, mtThread);
     _name = NULL;
   }
 }
 
 void NamedThread::set_name(const char* format, ...) {
   guarantee(_name == NULL, "Only get to set name once.");
-  _name = NEW_C_HEAP_ARRAY(char, max_name_len);
+  _name = NEW_C_HEAP_ARRAY(char, max_name_len, mtThread);
   guarantee(_name != NULL, "alloc failure");
   va_list ap;
   va_start(ap, format);
@@ -1295,6 +1347,7 @@ void JavaThread::initialize() {
   set_monitor_chunks(NULL);
   set_next(NULL);
   set_thread_state(_thread_new);
+  set_recorder(NULL);
   _terminated = _not_terminated;
   _privileged_stack_top = NULL;
   _array_for_gc = NULL;
@@ -1370,6 +1423,7 @@ JavaThread::JavaThread(bool is_attaching_via_jni) :
     _jni_attach_state = _not_attaching_via_jni;
   }
   assert(_deferred_card_mark.is_empty(), "Default MemRegion ctor");
+  _safepoint_visible = false;
 }
 
 bool JavaThread::reguard_stack(address cur_sp) {
@@ -1432,7 +1486,7 @@ JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
   thr_type = entry_point == &compiler_thread_entry ? os::compiler_thread :
                                                      os::java_thread;
   os::create_thread(this, thr_type, stack_sz);
-
+  _safepoint_visible = false;
   // The _osthread may be NULL here because we ran out of memory (too many threads active).
   // We need to throw and OutOfMemoryError - however we cannot do this here because the caller
   // may hold a lock and all locks must be unlocked before throwing the exception (throwing
@@ -1449,6 +1503,11 @@ JavaThread::~JavaThread() {
   if (TraceThreadEvents) {
       tty->print_cr("terminate thread %p", this);
   }
+
+  // Info NMT that this JavaThread is exiting, its memory
+  // recorder should be collected
+  assert(!is_safepoint_visible(), "wrong state");
+  MemTracker::thread_exiting(this);
 
   // JSR166 -- return the parker to the free list
   Parker::Release(_parker);
@@ -1941,7 +2000,7 @@ void JavaThread::check_and_handle_async_exceptions(bool check_unsafe_error) {
           frame f = last_frame();
           tty->print(" (pc: " INTPTR_FORMAT " sp: " INTPTR_FORMAT " )", f.pc(), f.sp());
         }
-        tty->print_cr(" of type: %s", instanceKlass::cast(_pending_async_exception->klass())->external_name());
+        tty->print_cr(" of type: %s", InstanceKlass::cast(_pending_async_exception->klass())->external_name());
       }
       _pending_async_exception = NULL;
       clear_has_async_exception();
@@ -2062,10 +2121,10 @@ void JavaThread::send_thread_stop(oop java_throwable)  {
 
       if (TraceExceptions) {
        ResourceMark rm;
-       tty->print_cr("Pending Async. exception installed of type: %s", instanceKlass::cast(_pending_async_exception->klass())->external_name());
+       tty->print_cr("Pending Async. exception installed of type: %s", InstanceKlass::cast(_pending_async_exception->klass())->external_name());
       }
       // for AbortVMOnException flag
-      NOT_PRODUCT(Exceptions::debug_check_abort(instanceKlass::cast(_pending_async_exception->klass())->external_name()));
+      NOT_PRODUCT(Exceptions::debug_check_abort(InstanceKlass::cast(_pending_async_exception->klass())->external_name()));
     }
   }
 
@@ -2615,7 +2674,6 @@ void JavaThread::oops_do(OopClosure* f, CodeBlobClosure* cf) {
   // around using this function
   f->do_oop((oop*) &_threadObj);
   f->do_oop((oop*) &_vm_result);
-  f->do_oop((oop*) &_vm_result_2);
   f->do_oop((oop*) &_exception_oop);
   f->do_oop((oop*) &_pending_async_exception);
 
@@ -2634,6 +2692,22 @@ void JavaThread::nmethods_do(CodeBlobClosure* cf) {
     // Traverse the execution stack
     for(StackFrameStream fst(this); !fst.is_done(); fst.next()) {
       fst.current()->nmethods_do(cf);
+    }
+  }
+}
+
+void JavaThread::metadata_do(void f(Metadata*)) {
+  Thread::metadata_do(f);
+  if (has_last_Java_frame()) {
+    // Traverse the execution stack to call f() on the methods in the stack
+    for(StackFrameStream fst(this); !fst.is_done(); fst.next()) {
+      fst.current()->metadata_do(f);
+    }
+  } else if (is_Compiler_thread()) {
+    // need to walk ciMetadata in current compile tasks to keep alive.
+    CompilerThread* ct = (CompilerThread*)this;
+    if (ct->env() != NULL) {
+      ct->env()->metadata_do(f);
     }
   }
 }
@@ -2828,7 +2902,7 @@ void JavaThread::prepare(jobject jni_thread, ThreadPriority prio) {
 
   Handle thread_oop(Thread::current(),
                     JNIHandles::resolve_non_null(jni_thread));
-  assert(instanceKlass::cast(thread_oop->klass())->is_linked(),
+  assert(InstanceKlass::cast(thread_oop->klass())->is_linked(),
     "must be initialized");
   set_threadObj(thread_oop());
   java_lang_Thread::set_thread(thread_oop(), this);
@@ -2892,7 +2966,7 @@ void JavaThread::print_stack_on(outputStream* st) {
 void JavaThread::popframe_preserve_args(ByteSize size_in_bytes, void* start) {
   assert(_popframe_preserved_args == NULL, "should not wipe out old PopFrame preserved arguments");
   if (in_bytes(size_in_bytes) != 0) {
-    _popframe_preserved_args = NEW_C_HEAP_ARRAY(char, in_bytes(size_in_bytes));
+    _popframe_preserved_args = NEW_C_HEAP_ARRAY(char, in_bytes(size_in_bytes), mtThread);
     _popframe_preserved_args_size = in_bytes(size_in_bytes);
     Copy::conjoint_jbytes(start, _popframe_preserved_args, _popframe_preserved_args_size);
   }
@@ -2914,7 +2988,7 @@ WordSize JavaThread::popframe_preserved_args_size_in_words() {
 
 void JavaThread::popframe_free_preserved_args() {
   assert(_popframe_preserved_args != NULL, "should not free PopFrame preserved arguments twice");
-  FREE_C_HEAP_ARRAY(char, (char*) _popframe_preserved_args);
+  FREE_C_HEAP_ARRAY(char, (char*) _popframe_preserved_args, mtThread);
   _popframe_preserved_args = NULL;
   _popframe_preserved_args_size = 0;
 }
@@ -3029,7 +3103,7 @@ javaVFrame* JavaThread::last_java_vframe(RegisterMap *reg_map) {
 }
 
 
-klassOop JavaThread::security_get_caller_class(int depth) {
+Klass* JavaThread::security_get_caller_class(int depth) {
   vframeStream vfst(this);
   vfst.security_get_caller_frame(depth);
   if (!vfst.at_end()) {
@@ -3082,6 +3156,9 @@ int         Threads::_number_of_threads = 0;
 int         Threads::_number_of_non_daemon_threads = 0;
 int         Threads::_return_code = 0;
 size_t      JavaThread::_stack_size_at_create = 0;
+#ifdef ASSERT
+bool        Threads::_vm_complete = false;
+#endif
 
 // All JavaThreads
 #define ALL_JAVA_THREADS(X) for (JavaThread* X = _thread_list; X; X = X->next())
@@ -3163,6 +3240,14 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   jint os_init_2_result = os::init_2();
   if (os_init_2_result != JNI_OK) return os_init_2_result;
 
+  // intialize TLS
+  ThreadLocalStorage::init();
+
+  // Bootstrap native memory tracking, so it can start recording memory
+  // activities before worker thread is started. This is the first phase
+  // of bootstrapping, VM is currently running in single-thread mode.
+  MemTracker::bootstrap_single_thread();
+
   // Initialize output stream logging
   ostream_init_log();
 
@@ -3181,9 +3266,6 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   _thread_list = NULL;
   _number_of_threads = 0;
   _number_of_non_daemon_threads = 0;
-
-  // Initialize TLS
-  ThreadLocalStorage::init();
 
   // Initialize global data structures and create system classes in heap
   vm_init_globals();
@@ -3216,6 +3298,9 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // Initialize Java-Level synchronization subsystem
   ObjectMonitor::Initialize() ;
 
+  // Second phase of bootstrapping, VM is about entering multi-thread mode
+  MemTracker::bootstrap_multi_thread();
+
   // Initialize global modules
   jint status = init_globals();
   if (status != JNI_OK) {
@@ -3243,6 +3328,9 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
     Universe::verify();   // make sure we're starting with a clean slate
   }
 
+  // Fully start NMT
+  MemTracker::start();
+
   // Create the VMThread
   { TraceTime timer("Start VMThread", TraceStartupTime);
     VMThread::create();
@@ -3268,9 +3356,8 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // At this point, the Universe is initialized, but we have not executed
   // any byte code.  Now is a good time (the only time) to dump out the
   // internal state of the JVM for sharing.
-
   if (DumpSharedSpaces) {
-    Universe::heap()->preload_and_dump(CHECK_0);
+    MetaspaceShared::preload_and_dump(CHECK_0);
     ShouldNotReachHere();
   }
 
@@ -3299,10 +3386,10 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
         // Forcibly initialize java/util/HashMap and mutate the private
         // static final "frontCacheEnabled" field before we start creating instances
 #ifdef ASSERT
-        klassOop tmp_k = SystemDictionary::find(vmSymbols::java_util_HashMap(), Handle(), Handle(), CHECK_0);
+        Klass* tmp_k = SystemDictionary::find(vmSymbols::java_util_HashMap(), Handle(), Handle(), CHECK_0);
         assert(tmp_k == NULL, "java/util/HashMap should not be loaded yet");
 #endif
-        klassOop k_o = SystemDictionary::resolve_or_null(vmSymbols::java_util_HashMap(), Handle(), Handle(), CHECK_0);
+        Klass* k_o = SystemDictionary::resolve_or_null(vmSymbols::java_util_HashMap(), Handle(), Handle(), CHECK_0);
         KlassHandle k = KlassHandle(THREAD, k_o);
         guarantee(k.not_null(), "Must find java/util/HashMap");
         instanceKlassHandle ik = instanceKlassHandle(THREAD, k());
@@ -3317,7 +3404,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
       if (UseStringCache) {
         // Forcibly initialize java/lang/StringValue and mutate the private
         // static final "stringCacheEnabled" field before we start creating instances
-        klassOop k_o = SystemDictionary::resolve_or_null(vmSymbols::java_lang_StringValue(), Handle(), Handle(), CHECK_0);
+        Klass* k_o = SystemDictionary::resolve_or_null(vmSymbols::java_lang_StringValue(), Handle(), Handle(), CHECK_0);
         // Possible that StringValue isn't present: if so, silently don't break
         if (k_o != NULL) {
           KlassHandle k = KlassHandle(THREAD, k_o);
@@ -3352,6 +3439,9 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
       // The VM creates & returns objects of this class. Make sure it's initialized.
       initialize_class(vmSymbols::java_lang_Class(), CHECK_0);
       call_initializeSystemClass(CHECK_0);
+
+      // get the Java runtime name after java.lang.System is initialized
+      JDK_Version::set_runtime_name(get_java_runtime_name(THREAD));
     } else {
       warning("java.lang.System not initialized");
     }
@@ -3519,6 +3609,9 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   os::init_3();
 
   create_vm_timer.end();
+#ifdef ASSERT
+  _vm_complete = true;
+#endif
   return JNI_OK;
 }
 
@@ -3544,11 +3637,11 @@ static OnLoadEntry_t lookup_on_load(AgentLibrary* agent, const char *on_load_sym
       if (library == NULL) {
         const char *sub_msg = " in absolute path, with error: ";
         size_t len = strlen(msg) + strlen(name) + strlen(sub_msg) + strlen(ebuf) + 1;
-        char *buf = NEW_C_HEAP_ARRAY(char, len);
+        char *buf = NEW_C_HEAP_ARRAY(char, len, mtThread);
         jio_snprintf(buf, len, "%s%s%s%s", msg, name, sub_msg, ebuf);
         // If we can't find the agent, exit.
         vm_exit_during_initialization(buf, NULL);
-        FREE_C_HEAP_ARRAY(char, buf);
+        FREE_C_HEAP_ARRAY(char, buf, mtThread);
       }
     } else {
       // Try to load the agent from the standard dll directory
@@ -3562,7 +3655,7 @@ static OnLoadEntry_t lookup_on_load(AgentLibrary* agent, const char *on_load_sym
         const char *fmt   = "%s/bin/java %s -Dkernel.background.download=false"
                       " sun.jkernel.DownloadManager -download client_jvm";
         size_t length = strlen(props) + strlen(home) + strlen(fmt) + 1;
-        char *cmd = NEW_C_HEAP_ARRAY(char, length);
+        char *cmd = NEW_C_HEAP_ARRAY(char, length, mtThread);
         jio_snprintf(cmd, length, fmt, home, props);
         int status = os::fork_and_exec(cmd);
         FreeHeap(props);
@@ -3571,7 +3664,7 @@ static OnLoadEntry_t lookup_on_load(AgentLibrary* agent, const char *on_load_sym
           vm_exit_during_initialization("fork_and_exec failed: %s",
                                          strerror(errno));
         }
-        FREE_C_HEAP_ARRAY(char, cmd);
+        FREE_C_HEAP_ARRAY(char, cmd, mtThread);
         // when this comes back the instrument.dll should be where it belongs.
         library = os::dll_load(buffer, ebuf, sizeof ebuf);
       }
@@ -3583,11 +3676,11 @@ static OnLoadEntry_t lookup_on_load(AgentLibrary* agent, const char *on_load_sym
         if (library == NULL) {
           const char *sub_msg = " on the library path, with error: ";
           size_t len = strlen(msg) + strlen(name) + strlen(sub_msg) + strlen(ebuf) + 1;
-          char *buf = NEW_C_HEAP_ARRAY(char, len);
+          char *buf = NEW_C_HEAP_ARRAY(char, len, mtThread);
           jio_snprintf(buf, len, "%s%s%s%s", msg, name, sub_msg, ebuf);
           // If we can't find the agent, exit.
           vm_exit_during_initialization(buf, NULL);
-          FREE_C_HEAP_ARRAY(char, buf);
+          FREE_C_HEAP_ARRAY(char, buf, mtThread);
         }
       }
     }
@@ -3726,7 +3819,7 @@ void JavaThread::invoke_shutdown_hooks() {
   }
 
   EXCEPTION_MARK;
-  klassOop k =
+  Klass* k =
     SystemDictionary::resolve_or_null(vmSymbols::java_lang_Shutdown(),
                                       THREAD);
   if (k != NULL) {
@@ -3756,6 +3849,7 @@ void JavaThread::invoke_shutdown_hooks() {
 // and VM_Exit op at VM level.
 //
 // Shutdown sequence:
+//   + Shutdown native memory tracking if it is on
 //   + Wait until we are the last non-daemon thread to execute
 //     <-- every thing is still working at this moment -->
 //   + Call java.lang.Shutdown.shutdown(), which will invoke Java level
@@ -3784,6 +3878,9 @@ void JavaThread::invoke_shutdown_hooks() {
 bool Threads::destroy_vm() {
   JavaThread* thread = JavaThread::current();
 
+#ifdef ASSERT
+  _vm_complete = false;
+#endif
   // Wait until we are the last non-daemon thread to execute
   { MutexLocker nu(Threads_lock);
     while (Threads::number_of_non_daemon_threads() > 1 )
@@ -3800,6 +3897,10 @@ bool Threads::destroy_vm() {
       Threads_lock->wait(!Mutex::_no_safepoint_check_flag, 0,
                          Mutex::_as_suspend_equivalent_flag);
   }
+
+  // Shutdown NMT before exit. Otherwise,
+  // it will run into trouble when system destroys static variables.
+  MemTracker::shutdown(MemTracker::NMT_normal);
 
   // Hang forever on exit if we are reporting an error.
   if (ShowMessageBoxOnError && is_error_reported()) {
@@ -3907,6 +4008,8 @@ void Threads::add(JavaThread* p, bool force_daemon) {
     daemon = false;
   }
 
+  p->set_safepoint_visible(true);
+
   ThreadService::add_thread(p, daemon);
 
   // Possible GC point.
@@ -3952,6 +4055,10 @@ void Threads::remove(JavaThread* p) {
     // to do callbacks into the safepoint code. However, the safepoint code is not aware
     // of this thread since it is removed from the queue.
     p->set_terminated_value();
+
+    // Now, this thread is not visible to safepoint
+    p->set_safepoint_visible(false);
+
   } // unlock Threads_lock
 
   // Since Events::log uses a lock, we grab it outside the Threads_lock
@@ -4032,6 +4139,12 @@ void Threads::nmethods_do(CodeBlobClosure* cf) {
     p->nmethods_do(cf);
   }
   VMThread::vm_thread()->nmethods_do(cf);
+}
+
+void Threads::metadata_do(void f(Metadata*)) {
+  ALL_JAVA_THREADS(p) {
+    p->metadata_do(f);
+  }
 }
 
 void Threads::gc_epilogue() {

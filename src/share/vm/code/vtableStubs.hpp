@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -55,6 +55,8 @@ class VtableStub {
   int index() const                              { return _index; }
   static VMReg receiver_location()               { return _receiver_location; }
   void set_next(VtableStub* n)                   { _next = n; }
+
+ public:
   address code_begin() const                     { return (address)(this + 1); }
   address code_end() const                       { return code_begin() + pd_code_size_limit(_is_vtable_stub); }
   address entry_point() const                    { return code_begin(); }
@@ -65,6 +67,7 @@ class VtableStub {
   }
   bool contains(address pc) const                { return code_begin() <= pc && pc < code_end(); }
 
+ private:
   void set_exception_points(address npe_addr, address ame_addr) {
     _npe_offset = npe_addr - code_begin();
     _ame_offset = ame_addr - code_begin();
@@ -120,7 +123,7 @@ class VtableStubs : AllStatic {
   static inline uint hash              (bool is_vtable_stub, int vtable_index);
 
  public:
-  static address     create_stub(bool is_vtable_stub, int vtable_index, methodOop method); // return the entry point of a stub for this call
+  static address     create_stub(bool is_vtable_stub, int vtable_index, Method* method); // return the entry point of a stub for this call
   static bool        is_entry_point(address pc);                     // is pc a vtable stub entry point?
   static bool        contains(address pc);                           // is pc within any stub?
   static VtableStub* stub_containing(address pc);                    // stub containing pc or NULL

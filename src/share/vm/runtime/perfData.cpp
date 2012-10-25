@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -81,7 +81,7 @@ PerfData::PerfData(CounterNS ns, const char* name, Units u, Variability v)
 
   const char* prefix = PerfDataManager::ns_to_string(ns);
 
-  _name = NEW_C_HEAP_ARRAY(char, strlen(name) + strlen(prefix) + 2);
+  _name = NEW_C_HEAP_ARRAY(char, strlen(name) + strlen(prefix) + 2, mtInternal);
   assert(_name != NULL && strlen(name) != 0, "invalid name");
 
   if (ns == NULL_NS) {
@@ -111,10 +111,10 @@ PerfData::PerfData(CounterNS ns, const char* name, Units u, Variability v)
 
 PerfData::~PerfData() {
   if (_name != NULL) {
-    FREE_C_HEAP_ARRAY(char, _name);
+    FREE_C_HEAP_ARRAY(char, _name, mtInternal);
   }
   if (is_on_c_heap()) {
-    FREE_C_HEAP_ARRAY(PerfDataEntry, _pdep);
+    FREE_C_HEAP_ARRAY(PerfDataEntry, _pdep, mtInternal);
   }
 }
 
@@ -137,7 +137,7 @@ void PerfData::create_entry(BasicType dtype, size_t dsize, size_t vlen) {
   if (psmp == NULL) {
     // out of PerfMemory memory resources. allocate on the C heap
     // to avoid vm termination.
-    psmp = NEW_C_HEAP_ARRAY(char, size);
+    psmp = NEW_C_HEAP_ARRAY(char, size, mtInternal);
     _on_c_heap = true;
   }
 
@@ -213,7 +213,10 @@ PerfLongVariant::PerfLongVariant(CounterNS ns, const char* namep, Units u,
 
 void PerfLongVariant::sample() {
 
-  assert(_sample_helper != NULL || _sampled != NULL, "unexpected state");
+  // JJJ - This should not happen.  Maybe the first sample is taken
+  // while the _sample_helper is being null'ed out.
+  // assert(_sample_helper != NULL || _sampled != NULL, "unexpected state");
+  if (_sample_helper == NULL) return;
 
   if (_sample_helper != NULL) {
     *(jlong*)_valuep = _sample_helper->take_sample();
@@ -559,12 +562,12 @@ PerfLongCounter* PerfDataManager::create_long_counter(CounterNS ns,
 
 PerfDataList::PerfDataList(int length) {
 
-  _set = new(ResourceObj::C_HEAP) PerfDataArray(length, true);
+  _set = new(ResourceObj::C_HEAP, mtInternal) PerfDataArray(length, true);
 }
 
 PerfDataList::PerfDataList(PerfDataList* p) {
 
-  _set = new(ResourceObj::C_HEAP) PerfDataArray(p->length(), true);
+  _set = new(ResourceObj::C_HEAP, mtInternal) PerfDataArray(p->length(), true);
 
   _set->appendAll(p->get_impl());
 }

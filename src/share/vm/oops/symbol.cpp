@@ -24,10 +24,12 @@
 
 
 #include "precompiled.hpp"
-#include "oops/oop.inline.hpp"
+#include "classfile/altHashing.hpp"
+#include "classfile/classLoaderData.hpp"
 #include "oops/symbol.hpp"
 #include "runtime/os.hpp"
 #include "memory/allocation.inline.hpp"
+#include "memory/resourceArea.hpp"
 
 Symbol::Symbol(const u1* name, int length, int refcount) : _refcount(refcount), _length(length) {
   _identity_hash = os::random();
@@ -37,17 +39,28 @@ Symbol::Symbol(const u1* name, int length, int refcount) : _refcount(refcount), 
 }
 
 void* Symbol::operator new(size_t sz, int len, TRAPS) {
-  int alloc_size = object_size(len)*HeapWordSize;
-  address res = (address) AllocateHeap(alloc_size, "symbol");
-  DEBUG_ONLY(set_allocation_type(res, ResourceObj::C_HEAP);)
+  int alloc_size = size(len)*HeapWordSize;
+  address res = (address) AllocateHeap(alloc_size, mtSymbol);
   return res;
 }
 
 void* Symbol::operator new(size_t sz, int len, Arena* arena, TRAPS) {
-  int alloc_size = object_size(len)*HeapWordSize;
+  int alloc_size = size(len)*HeapWordSize;
   address res = (address)arena->Amalloc(alloc_size);
-  DEBUG_ONLY(set_allocation_type(res, ResourceObj::ARENA);)
   return res;
+}
+
+void* Symbol::operator new(size_t sz, int len, ClassLoaderData* loader_data, TRAPS) {
+  address res;
+  int alloc_size = size(len)*HeapWordSize;
+  res = (address) Metaspace::allocate(loader_data, size(len), true,
+                                      Metaspace::NonClassType, CHECK_NULL);
+  return res;
+}
+
+void Symbol::operator delete(void *p) {
+  assert(((Symbol*)p)->refcount() == 0, "should not call this");
+  FreeHeap(p);
 }
 
 // ------------------------------------------------------------------
@@ -96,7 +109,7 @@ int Symbol::index_of_at(int i, const char* str, int len) const {
   address scan = bytes + i;
   if (scan > limit)
     return -1;
-  for (;;) {
+  for (; scan <= limit; scan++) {
     scan = (address) memchr(scan, first_char, (limit + 1 - scan));
     if (scan == NULL)
       return -1;  // not found
@@ -104,6 +117,7 @@ int Symbol::index_of_at(int i, const char* str, int len) const {
     if (memcmp(scan, str, len) == 0)
       return (int)(scan - bytes);
   }
+  return -1;
 }
 
 
@@ -190,6 +204,12 @@ const char* Symbol::as_klass_external_name() const {
   return str;
 }
 
+// Alternate hashing for unbalanced symbol tables.
+unsigned int Symbol::new_hash(jint seed) {
+  ResourceMark rm;
+  // Use alternate hashing algorithm on this symbol.
+  return AltHashing::murmur3_32(seed, (const jbyte*)as_C_string(), utf8_length());
+}
 
 void Symbol::print_on(outputStream* st) const {
   if (this == NULL) {

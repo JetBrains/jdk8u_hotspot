@@ -31,8 +31,8 @@
 #include "interpreter/templateTable.hpp"
 #include "interpreter/bytecodeTracer.hpp"
 #include "oops/arrayOop.hpp"
-#include "oops/methodDataOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/methodData.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiThreadState.hpp"
@@ -48,7 +48,7 @@
 #include <sys/types.h>
 
 #ifndef PRODUCT
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #endif // !PRODUCT
 
 #include "../../../../../../simulator/simulator.hpp"
@@ -146,7 +146,7 @@ address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, 
   __ get_cache_and_index_at_bcp(r1, r2, 1, sizeof(u2));
   __ bind(L_got_cache);
   __ ldrb(r1, Address(r1,
-		     in_bytes(constantPoolCacheOopDesc::base_offset()) +
+		     in_bytes(ConstantPoolCache::base_offset()) +
 		     3 * wordSize));
   __ mov(rscratch1, sp);
   __ add(rscratch1, rscratch1, r1, Assembler::LSL, 3);
@@ -261,7 +261,7 @@ void InterpreterGenerator::generate_counter_overflow(Label* do_continue) {
 //
 // Args:
 //      rdx: number of additional locals this frame needs (what we must check)
-//      rbx: methodOop
+//      rbx: Method*
 //
 // Kills:
 //      rax
@@ -270,7 +270,7 @@ void InterpreterGenerator::generate_stack_overflow_check(void) {  }
 // Allocate monitor and lock method (asm interpreter)
 //
 // Args:
-//      rmethod: methodOop
+//      rmethod: Method*
 //      rlocals: locals
 //
 // Kills:
@@ -279,7 +279,7 @@ void InterpreterGenerator::generate_stack_overflow_check(void) {  }
 //      rscratch1, rscratch2 (scratch regs)
 void InterpreterGenerator::lock_method(void) {
   // synchronize method
-  const Address access_flags(rmethod, methodOopDesc::access_flags_offset());
+  const Address access_flags(rmethod, Method::access_flags_offset());
   const Address monitor_block_top(
         rfp,
         frame::interpreter_frame_monitor_block_top_offset * wordSize);
@@ -305,9 +305,10 @@ void InterpreterGenerator::lock_method(void) {
     // get receiver (assume this is frequent case)
     __ ldr(r0, Address(rlocals, Interpreter::local_offset_in_bytes(0)));
     __ br(Assembler::EQ, done);
-    __ ldr(r0, Address(rmethod, methodOopDesc::constants_offset()));
+    __ ldr(r0, Address(rmethod, Method::const_offset()));
+    __ ldr(r0, Address(r0, ConstMethod::constants_offset()));
     __ ldr(r0, Address(r0,
-                           constantPoolOopDesc::pool_holder_offset_in_bytes()));
+                           ConstantPool::pool_holder_offset_in_bytes()));
     __ ldr(r0, Address(r0, mirror_offset));
 
 #ifdef ASSERT
@@ -337,7 +338,7 @@ void InterpreterGenerator::lock_method(void) {
 //
 // Args:
 //      r0: return address
-//      rmethod: methodOop
+//      rmethod: Method*
 //      rlocals: pointer to locals
 //      r10: sender sp
 //      rcpool: cp cache
@@ -350,15 +351,15 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
   __ enter();          // save old & set new rfp
   __ push(r10);        // set sender sp
   __ push(zr); // leave last_sp as null
-  __ ldr(rscratch1, Address(rmethod, methodOopDesc::const_offset()));      // get constMethodOop
-  __ add(rbcp, rscratch1, in_bytes(constMethodOopDesc::codes_offset())); // get codebase
-  __ push(rmethod);        // save methodOop
+  __ ldr(rscratch1, Address(rmethod, Method::const_offset()));      // get ConstMethod
+  __ add(rbcp, rscratch1, in_bytes(ConstMethod::codes_offset())); // get codebase
+  __ push(rmethod);        // save Method*
   if (ProfileInterpreter) {
     // Label method_data_continue;
-    // __ movptr(rdx, Address(rbx, in_bytes(methodOopDesc::method_data_offset())));
+    // __ movptr(rdx, Address(rbx, in_bytes(Method::method_data_offset())));
     // __ testptr(rdx, rdx);
     // __ jcc(Assembler::zero, method_data_continue);
-    // __ addptr(rdx, in_bytes(methodDataOopDesc::data_offset()));
+    // __ addptr(rdx, in_bytes(MethodData::data_offset()));
     // __ bind(method_data_continue);
     // __ push(rdx);      // set the mdp (method data pointer)
     __ push(zr);
@@ -366,8 +367,9 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
     __ push(zr);
   }
 
-  __ ldr(rcpool, Address(rmethod, methodOopDesc::constants_offset()));
-  __ ldr(rcpool, Address(rcpool, constantPoolOopDesc::cache_offset_in_bytes()));
+  __ ldr(rcpool, Address(rmethod, Method::const_offset()));
+  __ ldr(rcpool, Address(rcpool, ConstMethod::constants_offset()));
+  __ ldr(rcpool, Address(rcpool, ConstantPool::cache_offset_in_bytes()));
   __ push(rcpool); // set constant pool cache
   __ push(rlocals); // set locals pointer
   if (native_call) {
@@ -405,17 +407,17 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // determine code generation flags
   bool inc_counter  = UseCompiler || CountCompiledCalls;
 
-  // r1: methodOop
+  // r1: Method*
   // rscratch1: sender sp
 
   address entry_point = __ pc();
 
-  const Address size_of_parameters(rmethod, methodOopDesc::
+  const Address size_of_parameters(rmethod, Method::
                                         size_of_parameters_offset());
-  const Address invocation_counter(rmethod, methodOopDesc::
+  const Address invocation_counter(rmethod, Method::
                                         invocation_counter_offset() +
                                         InvocationCounter::counter_offset());
-  const Address access_flags      (rmethod, methodOopDesc::access_flags_offset());
+  const Address access_flags      (rmethod, Method::access_flags_offset());
 
   // get parameter size (always needed)
   __ load_unsigned_short(r2, size_of_parameters);
@@ -424,7 +426,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // expression stack and the arguments are already on the stack and
   // we only add a handful of words to the stack
 
-  // rmethod: methodOop
+  // rmethod: Method*
   // r2: size of parameters
   // rscratch1: sender sp
 
@@ -537,7 +539,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   __ verify_oop(rmethod);
   __ load_unsigned_short(t,
                          Address(rmethod,
-                                 methodOopDesc::size_of_parameters_offset()));
+                                 Method::size_of_parameters_offset()));
   __ lsl(t, t, Interpreter::logStackElementSize);
 
   __ sub(rscratch1, sp, t, ext::uxtx, 0);
@@ -547,13 +549,13 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // get signature handler
   {
     Label L;
-    __ ldr(t, Address(rmethod, methodOopDesc::signature_handler_offset()));
+    __ ldr(t, Address(rmethod, Method::signature_handler_offset()));
     __ cbnz(t, L);
     __ call_VM(noreg,
                CAST_FROM_FN_PTR(address,
                                 InterpreterRuntime::prepare_native_call),
                rmethod);
-    __ ldr(t, Address(rmethod, methodOopDesc::signature_handler_offset()));
+    __ ldr(t, Address(rmethod, Method::signature_handler_offset()));
     __ bind(L);
   }
 
@@ -582,12 +584,13 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   {
     Label L;
     const int mirror_offset = in_bytes(Klass::java_mirror_offset());
-    __ ldrw(t, Address(rmethod, methodOopDesc::access_flags_offset()));
+    __ ldrw(t, Address(rmethod, Method::access_flags_offset()));
     __ tst(t, JVM_ACC_STATIC);
     __ br(Assembler::EQ, L);
     // get mirror
-    __ ldr(t, Address(rmethod, methodOopDesc::constants_offset()));
-    __ ldr(t, Address(t, constantPoolOopDesc::pool_holder_offset_in_bytes()));
+    __ ldr(t, Address(rmethod, Method::const_offset()));
+    __ ldr(t, Address(t, ConstMethod::constants_offset()));
+    __ ldr(t, Address(t, ConstantPool::pool_holder_offset_in_bytes()));
     __ ldr(t, Address(t, mirror_offset));
     // copy mirror into activation frame
     __ str(t, Address(rfp, frame::interpreter_frame_oop_temp_offset * wordSize));
@@ -599,7 +602,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // get native function entry point in r10
   {
     Label L;
-    __ ldr(r10, Address(rmethod, methodOopDesc::native_function_offset()));
+    __ ldr(r10, Address(rmethod, Method::native_function_offset()));
     address unsatisfied = (SharedRuntime::native_method_throw_unsatisfied_link_error_entry());
     __ mov(rscratch2, unsatisfied);
     __ ldr(rscratch2, rscratch2);
@@ -611,7 +614,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
                rmethod);
     __ get_method(rmethod);
     __ verify_oop(rmethod);
-    __ ldr(r10, Address(rmethod, methodOopDesc::native_function_offset()));
+    __ ldr(r10, Address(rmethod, Method::native_function_offset()));
     __ bind(L);
   }
 
@@ -639,7 +642,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   __ strw(rscratch1, Address(rthread, JavaThread::thread_state_offset()));
 
   // load call format
-  __ ldrw(rscratch1, Address(rmethod, methodOopDesc::call_format_offset()));
+  __ ldrw(rscratch1, Address(rmethod, Method::call_format_offset()));
 
   // Call the native method.
   __ brx86(r10, rscratch1);
@@ -764,8 +767,8 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
 
   // restore bcp to have legal interpreter frame, i.e., bci == 0 <=>
   // rbcp == code_base()
-  __ ldr(rbcp, Address(rmethod, methodOopDesc::const_offset()));   // get constMethodOop
-  __ add(rbcp, rbcp, in_bytes(constMethodOopDesc::codes_offset()));          // get codebase
+  __ ldr(rbcp, Address(rmethod, Method::const_offset()));   // get ConstMethod* 
+  __ add(rbcp, rbcp, in_bytes(ConstMethod::codes_offset()));          // get codebase
   // handle exceptions (exception handling will handle unlocking!)
   {
     Label L;
@@ -785,7 +788,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // do unlocking if necessary
   {
     Label L;
-    __ ldrw(t, Address(rmethod, methodOopDesc::access_flags_offset()));
+    __ ldrw(t, Address(rmethod, Method::access_flags_offset()));
     __ tst(t, JVM_ACC_SYNCHRONIZED);
     __ br(Assembler::EQ, L);
     // the code below should be shared with interpreter macro
@@ -861,18 +864,18 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
   address entry_point = __ pc();
 
   const Address size_of_parameters(rmethod,
-                                   methodOopDesc::size_of_parameters_offset());
-  const Address size_of_locals(rmethod, methodOopDesc::size_of_locals_offset());
+                                   Method::size_of_parameters_offset());
+  const Address size_of_locals(rmethod, Method::size_of_locals_offset());
   const Address invocation_counter(rmethod,
-                                   methodOopDesc::invocation_counter_offset() +
+                                   Method::invocation_counter_offset() +
                                    InvocationCounter::counter_offset());
-  const Address access_flags(rmethod, methodOopDesc::access_flags_offset());
+  const Address access_flags(rmethod, Method::access_flags_offset());
 
   // get parameter size (always needed)
   __ load_unsigned_short(r2, size_of_parameters);
 
   __ mov(rscratch1, j_rarg1); // Sender SP
-  // r1: methodOop
+  // r1: Method*
   // r2: size of parameters
   // rscratch1: sender_sp (could differ from sp+wordSize if we were called via c2i )
 
@@ -1046,7 +1049,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
 //
 // Arguments:
 //
-// rbx: methodOop
+// rbx: Method*
 //
 // Stack layout immediately at entry
 //
@@ -1071,7 +1074,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
 // [ expr. stack bottom ]
 // [ saved r13          ]
 // [ current r14        ]
-// [ methodOop          ]
+// [ Method*            ]
 // [ saved efp          ] <--- rfp
 // [ return address     ]
 // [ local variable m   ]
@@ -1095,7 +1098,6 @@ address AbstractInterpreterGenerator::generate_method_entry(
   case Interpreter::empty                  : entry_point = ((InterpreterGenerator*) this)->generate_empty_entry();       break;
   case Interpreter::accessor               : entry_point = ((InterpreterGenerator*) this)->generate_accessor_entry();    break;
   case Interpreter::abstract               : entry_point = ((InterpreterGenerator*) this)->generate_abstract_entry();    break;
-  case Interpreter::method_handle          : entry_point = ((InterpreterGenerator*) this)->generate_method_handle_entry();break;
 
   case Interpreter::java_lang_math_sin     : // fall thru
   case Interpreter::java_lang_math_cos     : // fall thru
@@ -1125,7 +1127,7 @@ address AbstractInterpreterGenerator::generate_method_entry(
 bool AbstractInterpreter::can_be_compiled(methodHandle m) { return false; }
 
 // How much stack a method activation needs in words.
-int AbstractInterpreter::size_top_interpreter_activation(methodOop method) {
+int AbstractInterpreter::size_top_interpreter_activation(Method* method) {
   const int entry_size = frame::interpreter_frame_monitor_size();
 
   // total overhead size: entry_size + (saved rfp thru expr stack
@@ -1135,13 +1137,13 @@ int AbstractInterpreter::size_top_interpreter_activation(methodOop method) {
     -(frame::interpreter_frame_initial_sp_offset) + entry_size;
 
   const int stub_code = frame::entry_frame_after_call_words;
-  const int extra_stack = methodOopDesc::extra_stack_entries();
+  const int extra_stack = Method::extra_stack_entries();
   const int method_stack = (method->max_locals() + method->max_stack() + extra_stack) *
                            Interpreter::stackElementWords;
   return (overhead_size + method_stack + stub_code);
 }
 
-int AbstractInterpreter::layout_activation(methodOop method,
+int AbstractInterpreter::layout_activation(Method* method,
                                            int tempcount,
                                            int popframe_extra_args,
                                            int moncount,
@@ -1240,7 +1242,7 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
     // Compute size of arguments for saving when returning to
     // deoptimized caller
     __ get_method(r0);
-    __ load_unsigned_short(r0, Address(r0, in_bytes(methodOopDesc::
+    __ load_unsigned_short(r0, Address(r0, in_bytes(Method::
 						    size_of_parameters_offset())));
     __ lsl(r0, r0, Interpreter::logStackElementSize);
     __ restore_locals(); // XXX do we need this?
@@ -1321,9 +1323,8 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
   // remove the activation (without doing throws on illegalMonitorExceptions)
   __ remove_activation(vtos, false, true, false);
   // restore exception
-  __ ldr(r0, Address(rthread, JavaThread::vm_result_offset()));
-  __ str(zr, Address(rthread, JavaThread::vm_result_offset()));
-  __ verify_oop(r0);
+  // restore exception
+  __ get_vm_result(r0, rthread);
 
   // In between activations - previous activation type unknown yet
   // compute continuation point - the continuation point expects the
@@ -1476,7 +1477,7 @@ extern "C" {
     }
 
     // verify the supplied method oop
-    // is the 'methodOop' in range
+    // is the 'method*' in range
     intptr_t checkVal = (intptr_t)methodVal;
     if (checkVal == 0) {
       return;
@@ -1484,23 +1485,14 @@ extern "C" {
     if ((checkVal & Universe::verify_oop_mask()) != Universe::verify_oop_bits()) {
       return;
     }
-    // is the 'klassOop' of the 'methodOop' in range
-    checkVal = (intptr_t)((methodOop)checkVal)->klass();
+    // is the klass of the 'methodOop' a sensible value
+    checkVal = (intptr_t)((Method*)checkVal)->method_holder();
+
     if (checkVal == 0) {
       return;
     }
-    if ((checkVal & Universe::verify_klass_mask()) != Universe::verify_klass_bits()) {
-      return;
-    }
-    // is the 'klassOop' of the 'klassOop' in range
-    checkVal = (intptr_t)((klassOop)checkVal)->klass();
-    if (checkVal == 0) {
-      return;
-    }
-    if ((checkVal & Universe::verify_klass_mask()) != Universe::verify_klass_bits()) {
-      return;
-    }
-    methodOop meth = (methodOop)methodVal;
+
+    Method* meth = (Method*)methodVal;
     address bcp = (address)bcpVal;
     if (method) {
      meth->name_and_sig_as_C_string(method, 400);

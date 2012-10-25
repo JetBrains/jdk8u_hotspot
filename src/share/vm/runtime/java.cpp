@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,12 +33,11 @@
 #include "memory/genCollectedHeap.hpp"
 #include "memory/oopFactory.hpp"
 #include "memory/universe.hpp"
-#include "oops/constantPoolOop.hpp"
+#include "oops/constantPool.hpp"
 #include "oops/generateOopMap.hpp"
 #include "oops/instanceKlass.hpp"
-#include "oops/instanceKlassKlass.hpp"
 #include "oops/instanceOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "oops/objArrayOop.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/symbol.hpp"
@@ -118,19 +117,23 @@ HS_DTRACE_PROBE_DECL(hotspot, vm__shutdown);
 
 // Statistics printing (method invocation histogram)
 
-GrowableArray<methodOop>* collected_invoked_methods;
+GrowableArray<Method*>* collected_invoked_methods;
 
-void collect_invoked_methods(methodOop m) {
+void collect_invoked_methods(Method* m) {
   if (m->invocation_count() + m->compiled_invocation_count() >= 1 ) {
     collected_invoked_methods->push(m);
   }
 }
 
 
-GrowableArray<methodOop>* collected_profiled_methods;
+GrowableArray<Method*>* collected_profiled_methods;
 
-void collect_profiled_methods(methodOop m) {
-  methodHandle mh(Thread::current(), m);
+void collect_profiled_methods(Method* m) {
+  Thread* thread = Thread::current();
+  // This HandleMark prevents a huge amount of handles from being added
+  // to the metadata_handles() array on the thread.
+  HandleMark hm(thread);
+  methodHandle mh(thread, m);
   if ((m->method_data() != NULL) &&
       (PrintMethodData || CompilerOracle::should_print(mh))) {
     collected_profiled_methods->push(m);
@@ -138,7 +141,7 @@ void collect_profiled_methods(methodOop m) {
 }
 
 
-int compare_methods(methodOop* a, methodOop* b) {
+int compare_methods(Method** a, Method** b) {
   // %%% there can be 32-bit overflow here
   return ((*b)->invocation_count() + (*b)->compiled_invocation_count())
        - ((*a)->invocation_count() + (*a)->compiled_invocation_count());
@@ -148,7 +151,7 @@ int compare_methods(methodOop* a, methodOop* b) {
 void print_method_invocation_histogram() {
   ResourceMark rm;
   HandleMark hm;
-  collected_invoked_methods = new GrowableArray<methodOop>(1024);
+  collected_invoked_methods = new GrowableArray<Method*>(1024);
   SystemDictionary::methods_do(collect_invoked_methods);
   collected_invoked_methods->sort(&compare_methods);
   //
@@ -159,7 +162,7 @@ void print_method_invocation_histogram() {
   unsigned total = 0, int_total = 0, comp_total = 0, static_total = 0, final_total = 0,
       synch_total = 0, nativ_total = 0, acces_total = 0;
   for (int index = 0; index < collected_invoked_methods->length(); index++) {
-    methodOop m = collected_invoked_methods->at(index);
+    Method* m = collected_invoked_methods->at(index);
     int c = m->invocation_count() + m->compiled_invocation_count();
     if (c >= MethodHistogramCutoff) m->print_invocation_count();
     int_total  += m->invocation_count();
@@ -188,14 +191,14 @@ void print_method_invocation_histogram() {
 void print_method_profiling_data() {
   ResourceMark rm;
   HandleMark hm;
-  collected_profiled_methods = new GrowableArray<methodOop>(1024);
+  collected_profiled_methods = new GrowableArray<Method*>(1024);
   SystemDictionary::methods_do(collect_profiled_methods);
   collected_profiled_methods->sort(&compare_methods);
 
   int count = collected_profiled_methods->length();
   if (count > 0) {
     for (int index = 0; index < count; index++) {
-      methodOop m = collected_profiled_methods->at(index);
+      Method* m = collected_profiled_methods->at(index);
       ttyLocker ttyl;
       tty->print_cr("------------------------------------------------------------------------");
       //m->print_name(tty);
@@ -387,7 +390,7 @@ extern "C" {
     typedef void (*__exit_proc)(void);
 }
 
-class ExitProc : public CHeapObj {
+class ExitProc : public CHeapObj<mtInternal> {
  private:
   __exit_proc _proc;
   // void (*_proc)(void);
@@ -488,6 +491,9 @@ void before_exit(JavaThread * thread) {
   if (PrintGCDetails) {
     Universe::print();
     AdaptiveSizePolicyOutput(0);
+    if (Verbose) {
+      ClassLoaderDataGraph::dump_on(gclog_or_tty);
+    }
   }
 
 
@@ -663,6 +669,7 @@ void vm_shutdown_during_initialization(const char* error, const char* message) {
 }
 
 JDK_Version JDK_Version::_current;
+const char* JDK_Version::_runtime_name;
 
 void JDK_Version::initialize() {
   jdk_version_info info;

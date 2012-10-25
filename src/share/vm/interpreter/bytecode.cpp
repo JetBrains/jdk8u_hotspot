@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,7 @@
 #include "precompiled.hpp"
 #include "interpreter/bytecode.hpp"
 #include "interpreter/linkResolver.hpp"
-#include "oops/constantPoolOop.hpp"
+#include "oops/constantPool.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/fieldType.hpp"
 #include "runtime/handles.inline.hpp"
@@ -120,19 +120,22 @@ int Bytecode_tableswitch::dest_offset_at(int i) const {
 
 void Bytecode_invoke::verify() const {
   assert(is_valid(), "check invoke");
-  assert(method()->constants()->cache() != NULL, "do not call this from verifier or rewriter");
+  assert(cpcache() != NULL, "do not call this from verifier or rewriter");
 }
 
 
-Symbol* Bytecode_member_ref::signature() const {
-  constantPoolOop constants = method()->constants();
-  return constants->signature_ref_at(index());
+Symbol* Bytecode_member_ref::klass() const {
+  return constants()->klass_ref_at_noresolve(index());
 }
 
 
 Symbol* Bytecode_member_ref::name() const {
-  constantPoolOop constants = method()->constants();
-  return constants->name_ref_at(index());
+  return constants()->name_ref_at(index());
+}
+
+
+Symbol* Bytecode_member_ref::signature() const {
+  return constants()->signature_ref_at(index());
 }
 
 
@@ -146,18 +149,19 @@ BasicType Bytecode_member_ref::result_type() const {
 methodHandle Bytecode_invoke::static_target(TRAPS) {
   methodHandle m;
   KlassHandle resolved_klass;
-  constantPoolHandle constants(THREAD, _method->constants());
+  constantPoolHandle constants(THREAD, this->constants());
 
-  if (java_code() == Bytecodes::_invokedynamic) {
-    LinkResolver::resolve_dynamic_method(m, resolved_klass, constants, index(), CHECK_(methodHandle()));
-  } else if (java_code() != Bytecodes::_invokeinterface) {
-    LinkResolver::resolve_method(m, resolved_klass, constants, index(), CHECK_(methodHandle()));
-  } else {
-    LinkResolver::resolve_interface_method(m, resolved_klass, constants, index(), CHECK_(methodHandle()));
-  }
+  Bytecodes::Code bc = invoke_code();
+  LinkResolver::resolve_method_statically(m, resolved_klass, bc, constants, index(), CHECK_(methodHandle()));
   return m;
 }
 
+Handle Bytecode_invoke::appendix(TRAPS) {
+  ConstantPoolCacheEntry* cpce = cpcache_entry();
+  if (cpce->has_appendix())
+    return Handle(THREAD, cpce->appendix_if_resolved(constants()));
+  return Handle();  // usual case
+}
 
 int Bytecode_member_ref::index() const {
   // Note:  Rewriter::rewrite changes the Java_u2 of an invokedynamic to a native_u4,
@@ -170,12 +174,12 @@ int Bytecode_member_ref::index() const {
 }
 
 int Bytecode_member_ref::pool_index() const {
+  return cpcache_entry()->constant_pool_index();
+}
+
+ConstantPoolCacheEntry* Bytecode_member_ref::cpcache_entry() const {
   int index = this->index();
-  DEBUG_ONLY({
-      if (!has_index_u4(code()))
-        index -= constantPoolOopDesc::CPCACHE_INDEX_TAG;
-    });
-  return _method->constants()->cache()->entry_at(index)->constant_pool_index();
+  return cpcache()->entry_at(ConstantPool::decode_cpcache_index(index, true));
 }
 
 // Implementation of Bytecode_field
@@ -199,7 +203,7 @@ int Bytecode_loadconstant::raw_index() const {
 int Bytecode_loadconstant::pool_index() const {
   int index = raw_index();
   if (has_cache_index()) {
-    return _method->constants()->cache()->entry_at(index)->constant_pool_index();
+    return _method->constants()->object_to_cp_index(index);
   }
   return index;
 }
@@ -213,7 +217,7 @@ BasicType Bytecode_loadconstant::result_type() const {
 oop Bytecode_loadconstant::resolve_constant(TRAPS) const {
   assert(_method.not_null(), "must supply method to resolve constant");
   int index = raw_index();
-  constantPoolOop constants = _method->constants();
+  ConstantPool* constants = _method->constants();
   if (has_cache_index()) {
     return constants->resolve_cached_constant_at(index, THREAD);
   } else {

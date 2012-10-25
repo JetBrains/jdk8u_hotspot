@@ -41,6 +41,7 @@
 #include "runtime/stubRoutines.hpp"
 #include "runtime/threadLocalStorage.hpp"
 #include "runtime/unhandledOops.hpp"
+#include "services/memRecorder.hpp"
 #include "trace/tracing.hpp"
 #include "utilities/exceptions.hpp"
 #include "utilities/top.hpp"
@@ -100,12 +101,16 @@ class Thread: public ThreadShadow {
   //oop       _pending_exception;                // pending exception for current thread
   // const char* _exception_file;                   // file information for exception (debugging only)
   // int         _exception_line;                   // line information for exception (debugging only)
-
+ protected:
   // Support for forcing alignment of thread objects for biased locking
   void*       _real_malloc_address;
  public:
-  void* operator new(size_t size);
+  void* operator new(size_t size) { return allocate(size, true); }
+  void* operator new(size_t size, std::nothrow_t& nothrow_constant) { return allocate(size, false); }
   void  operator delete(void* p);
+
+ protected:
+   static void* allocate(size_t size, bool throw_excpt, MEMFLAGS flags = mtThread);
  private:
 
   // ***************************************************************
@@ -412,6 +417,9 @@ class Thread: public ThreadShadow {
   HandleArea* handle_area() const                { return _handle_area; }
   void set_handle_area(HandleArea* area)         { _handle_area = area; }
 
+  GrowableArray<Metadata*>* metadata_handles() const          { return _metadata_handles; }
+  void set_metadata_handles(GrowableArray<Metadata*>* handles){ _metadata_handles = handles; }
+
   // Thread-Local Allocation Buffer (TLAB) support
   ThreadLocalAllocBuffer& tlab()                 { return _tlab; }
   void initialize_tlab() {
@@ -495,6 +503,9 @@ public:
   // Sweeper support
   void nmethods_do(CodeBlobClosure* cf);
 
+  // jvmtiRedefineClasses support
+  void metadata_do(void f(Metadata*));
+
   // Used by fast lock support
   virtual bool is_lock_owned(address adr) const;
 
@@ -515,6 +526,7 @@ public:
 
   // Thread local handle area for allocation of handles within the VM
   HandleArea* _handle_area;
+  GrowableArray<Metadata*>* _metadata_handles;
 
   // Support for stack overflow handling, get_thread, etc.
   address          _stack_base;
@@ -548,7 +560,6 @@ public:
   virtual void print_on_error(outputStream* st, char* buf, int buflen) const;
 
   // Debug-only code
-
 #ifdef ASSERT
  private:
   // Deadlock detection support for Mutex locks. List of locks own by thread.
@@ -786,18 +797,18 @@ class JavaThread: public Thread {
   GrowableArray<jvmtiDeferredLocalVariableSet*>* _deferred_locals_updates;
 
   // Handshake value for fixing 6243940. We need a place for the i2c
-  // adapter to store the callee methodOop. This value is NEVER live
+  // adapter to store the callee Method*. This value is NEVER live
   // across a gc point so it does NOT have to be gc'd
   // The handshake is open ended since we can't be certain that it will
   // be NULLed. This is because we rarely ever see the race and end up
   // in handle_wrong_method which is the backend of the handshake. See
   // code in i2c adapters and handle_wrong_method.
 
-  methodOop     _callee_target;
+  Method*       _callee_target;
 
-  // Oop results of VM runtime calls
-  oop           _vm_result;    // Used to pass back an oop result into Java code, GC-preserved
-  oop           _vm_result_2;  // Used to pass back an oop result into Java code, GC-preserved
+  // Used to pass back results to the interpreter or generated code running Java code.
+  oop           _vm_result;    // oop result is GC-preserved
+  Metadata*     _vm_result_2;  // non-oop result
 
   // See ReduceInitialCardMarks: this holds the precise space interval of
   // the most recent slow path allocation for which compiled code has
@@ -1027,9 +1038,15 @@ class JavaThread: public Thread {
   bool do_not_unlock_if_synchronized()             { return _do_not_unlock_if_synchronized; }
   void set_do_not_unlock_if_synchronized(bool val) { _do_not_unlock_if_synchronized = val; }
 
+  // native memory tracking
+  inline MemRecorder* get_recorder() const          { return (MemRecorder*)_recorder; }
+  inline void         set_recorder(MemRecorder* rc) { _recorder = (volatile MemRecorder*)rc; }
+
+ private:
+  // per-thread memory recorder
+  volatile MemRecorder* _recorder;
 
   // Suspend/resume support for JavaThread
-
  private:
   void set_ext_suspended()       { set_suspend_flag (_ext_suspended);  }
   void clear_ext_suspended()     { clear_suspend_flag(_ext_suspended); }
@@ -1208,15 +1225,15 @@ class JavaThread: public Thread {
   void set_deopt_nmethod(nmethod* nm)            { _deopt_nmethod = nm;   }
   nmethod* deopt_nmethod()                       { return _deopt_nmethod; }
 
-  methodOop  callee_target() const               { return _callee_target; }
-  void set_callee_target  (methodOop x)          { _callee_target   = x; }
+  Method*    callee_target() const               { return _callee_target; }
+  void set_callee_target  (Method* x)          { _callee_target   = x; }
 
   // Oop results of vm runtime calls
   oop  vm_result() const                         { return _vm_result; }
   void set_vm_result  (oop x)                    { _vm_result   = x; }
 
-  oop  vm_result_2() const                       { return _vm_result_2; }
-  void set_vm_result_2  (oop x)                  { _vm_result_2   = x; }
+  Metadata*    vm_result_2() const               { return _vm_result_2; }
+  void set_vm_result_2  (Metadata* x)          { _vm_result_2   = x; }
 
   MemRegion deferred_card_mark() const           { return _deferred_card_mark; }
   void set_deferred_card_mark(MemRegion mr)      { _deferred_card_mark = mr;   }
@@ -1379,6 +1396,9 @@ class JavaThread: public Thread {
   // Sweeper operations
   void nmethods_do(CodeBlobClosure* cf);
 
+  // RedefineClasses Support
+  void metadata_do(void f(Metadata*));
+
   // Memory management operations
   void gc_epilogue();
   void gc_prologue();
@@ -1409,7 +1429,7 @@ public:
 
   // Returns method at 'depth' java or native frames down the stack
   // Used for security checks
-  klassOop security_get_caller_class(int depth);
+  Klass* security_get_caller_class(int depth);
 
   // Print stack trace in external format
   void print_stack_on(outputStream* st);
@@ -1452,6 +1472,18 @@ public:
      _thread_profiler = tp;
      return result;
    }
+
+ // NMT (Native memory tracking) support.
+ // This flag helps NMT to determine if this JavaThread will be blocked
+ // at safepoint. If not, ThreadCritical is needed for writing memory records.
+ // JavaThread is only safepoint visible when it is in Threads' thread list,
+ // it is not visible until it is added to the list and becomes invisible
+ // once it is removed from the list.
+ public:
+  bool is_safepoint_visible() const { return _safepoint_visible; }
+  void set_safepoint_visible(bool visible) { _safepoint_visible = visible; }
+ private:
+  bool _safepoint_visible;
 
   // Static operations
  public:
@@ -1817,6 +1849,9 @@ class Threads: AllStatic {
   static int         _number_of_threads;
   static int         _number_of_non_daemon_threads;
   static int         _return_code;
+#ifdef ASSERT
+  static bool        _vm_complete;
+#endif
 
  public:
   // Thread management
@@ -1864,8 +1899,14 @@ class Threads: AllStatic {
   // Sweeper
   static void nmethods_do(CodeBlobClosure* cf);
 
+  // RedefineClasses support
+  static void metadata_do(void f(Metadata*));
+
   static void gc_epilogue();
   static void gc_prologue();
+#ifdef ASSERT
+  static bool is_vm_complete() { return _vm_complete; }
+#endif
 
   // Verification
   static void verify();

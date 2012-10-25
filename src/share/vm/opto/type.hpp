@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,12 +51,18 @@ class   TypeLong;
 class   TypeNarrowOop;
 class   TypeAry;
 class   TypeTuple;
+class   TypeVect;
+class     TypeVectS;
+class     TypeVectD;
+class     TypeVectX;
+class     TypeVectY;
 class   TypePtr;
 class     TypeRawPtr;
 class     TypeOopPtr;
 class       TypeInstPtr;
 class       TypeAryPtr;
 class       TypeKlassPtr;
+class     TypeMetadataPtr;
 
 //------------------------------Type-------------------------------------------
 // Basic Type object, represents a set of primitive Values.
@@ -78,14 +84,20 @@ public:
 
     Tuple,                      // Method signature or object layout
     Array,                      // Array types
+    VectorS,                    //  32bit Vector types
+    VectorD,                    //  64bit Vector types
+    VectorX,                    // 128bit Vector types
+    VectorY,                    // 256bit Vector types
 
     AnyPtr,                     // Any old raw, klass, inst, or array pointer
     RawPtr,                     // Raw (non-oop) pointers
     OopPtr,                     // Any and all Java heap entities
     InstPtr,                    // Instance pointers (non-array objects)
     AryPtr,                     // Array pointers
-    KlassPtr,                   // Klass pointers
     // (Ptr order matters:  See is_ptr, isa_ptr, is_oopptr, isa_oopptr.)
+
+    MetadataPtr,                // Generic metadata
+    KlassPtr,                   // Klass pointers
 
     Function,                   // Function signature
     Abio,                       // Abstract I/O
@@ -114,8 +126,18 @@ public:
   };
 
 private:
+  typedef struct {
+    const TYPES                dual_type;
+    const BasicType            basic_type;
+    const char*                msg;
+    const bool                 isa_oop;
+    const int                  ideal_reg;
+    const relocInfo::relocType reloc;
+  } TypeInfo;
+
   // Dictionary of types shared among compilations.
   static Dict* _shared_type_dict;
+  static TypeInfo _type_info[];
 
   static int uhash( const Type *const t );
   // Structural equality check.  Assumes that cmp() has already compared
@@ -222,6 +244,8 @@ public:
   const TypeF      *isa_float_constant() const;  // Returns NULL if not a FloatCon
   const TypeTuple  *is_tuple() const;            // Collection of fields, NOT a pointer
   const TypeAry    *is_ary() const;              // Array, NOT array pointer
+  const TypeVect   *is_vect() const;             // Vector
+  const TypeVect   *isa_vect() const;            // Returns NULL if not a Vector
   const TypePtr    *is_ptr() const;              // Asserts it is a ptr type
   const TypePtr    *isa_ptr() const;             // Returns NULL if not ptr type
   const TypeRawPtr *isa_rawptr() const;          // NOT Java oop
@@ -230,12 +254,16 @@ public:
   const TypeNarrowOop  *isa_narrowoop() const;   // Returns NULL if not oop ptr type
   const TypeOopPtr   *isa_oopptr() const;        // Returns NULL if not oop ptr type
   const TypeOopPtr   *is_oopptr() const;         // Java-style GC'd pointer
-  const TypeKlassPtr *isa_klassptr() const;      // Returns NULL if not KlassPtr
-  const TypeKlassPtr *is_klassptr() const;       // assert if not KlassPtr
   const TypeInstPtr  *isa_instptr() const;       // Returns NULL if not InstPtr
   const TypeInstPtr  *is_instptr() const;        // Instance
   const TypeAryPtr   *isa_aryptr() const;        // Returns NULL if not AryPtr
   const TypeAryPtr   *is_aryptr() const;         // Array oop
+
+  const TypeMetadataPtr   *isa_metadataptr() const;   // Returns NULL if not oop ptr type
+  const TypeMetadataPtr   *is_metadataptr() const;    // Java-style GC'd pointer
+  const TypeKlassPtr      *isa_klassptr() const;      // Returns NULL if not KlassPtr
+  const TypeKlassPtr      *is_klassptr() const;       // assert if not KlassPtr
+
   virtual bool      is_finite() const;           // Has a finite value
   virtual bool      is_nan()    const;           // Is not a number (NaN)
 
@@ -256,9 +284,6 @@ public:
   // Do you have memory, directly or through a tuple?
   bool has_memory( ) const;
 
-  // Are you a pointer type or not?
-  bool isa_oop_ptr() const;
-
   // TRUE if type is a singleton
   virtual bool singleton(void) const;
 
@@ -273,7 +298,6 @@ public:
   static const Type *mreg2type[];
 
   // Printing, statistics
-  static const char * const msg[lastype]; // Printable strings
 #ifndef PRODUCT
   void         dump_on(outputStream *st) const;
   void         dump() const {
@@ -281,7 +305,6 @@ public:
   }
   virtual void dump2( Dict &d, uint depth, outputStream *st ) const;
   static  void dump_stats();
-  static  void verify_lastype();          // Check that arrays match type enum
 #endif
   void typerr(const Type *t) const; // Mixing types error
 
@@ -325,7 +348,11 @@ public:
   static const Type *TOP;
 
   // Mapping from compiler type to VM BasicType
-  BasicType basic_type() const { return _basic_type[_base]; }
+  BasicType basic_type() const       { return _type_info[_base].basic_type; }
+  int ideal_reg() const              { return _type_info[_base].ideal_reg; }
+  const char* msg() const            { return _type_info[_base].msg; }
+  bool isa_oop_ptr() const           { return _type_info[_base].isa_oop; }
+  relocInfo::relocType reloc() const { return _type_info[_base].reloc; }
 
   // Mapping from CI type system to compiler type:
   static const Type* get_typeflow_type(ciType* type);
@@ -574,6 +601,69 @@ public:
 #endif
 };
 
+//------------------------------TypeVect---------------------------------------
+// Class of Vector Types
+class TypeVect : public Type {
+  const Type*   _elem;  // Vector's element type
+  const uint  _length;  // Elements in vector (power of 2)
+
+protected:
+  TypeVect(TYPES t, const Type* elem, uint length) : Type(t),
+    _elem(elem), _length(length) {}
+
+public:
+  const Type* element_type() const { return _elem; }
+  BasicType element_basic_type() const { return _elem->array_element_basic_type(); }
+  uint length() const { return _length; }
+  uint length_in_bytes() const {
+   return _length * type2aelembytes(element_basic_type());
+  }
+
+  virtual bool eq(const Type *t) const;
+  virtual int  hash() const;             // Type specific hashing
+  virtual bool singleton(void) const;    // TRUE if type is a singleton
+  virtual bool empty(void) const;        // TRUE if type is vacuous
+
+  static const TypeVect *make(const BasicType elem_bt, uint length) {
+    // Use bottom primitive type.
+    return make(get_const_basic_type(elem_bt), length);
+  }
+  // Used directly by Replicate nodes to construct singleton vector.
+  static const TypeVect *make(const Type* elem, uint length);
+
+  virtual const Type *xmeet( const Type *t) const;
+  virtual const Type *xdual() const;     // Compute dual right now.
+
+  static const TypeVect *VECTS;
+  static const TypeVect *VECTD;
+  static const TypeVect *VECTX;
+  static const TypeVect *VECTY;
+
+#ifndef PRODUCT
+  virtual void dump2(Dict &d, uint, outputStream *st) const; // Specialized per-Type dumping
+#endif
+};
+
+class TypeVectS : public TypeVect {
+  friend class TypeVect;
+  TypeVectS(const Type* elem, uint length) : TypeVect(VectorS, elem, length) {}
+};
+
+class TypeVectD : public TypeVect {
+  friend class TypeVect;
+  TypeVectD(const Type* elem, uint length) : TypeVect(VectorD, elem, length) {}
+};
+
+class TypeVectX : public TypeVect {
+  friend class TypeVect;
+  TypeVectX(const Type* elem, uint length) : TypeVect(VectorX, elem, length) {}
+};
+
+class TypeVectY : public TypeVect {
+  friend class TypeVect;
+  TypeVectY(const Type* elem, uint length) : TypeVect(VectorY, elem, length) {}
+};
+
 //------------------------------TypePtr----------------------------------------
 // Class of machine Pointer Types: raw data, instances or arrays.
 // If the _base enum is AnyPtr, then this refers to all of the above.
@@ -768,7 +858,7 @@ public:
 
 //------------------------------TypeInstPtr------------------------------------
 // Class of Java object pointers, pointing either to non-array Java instances
-// or to a klassOop (including array klasses).
+// or to a Klass* (including array klasses).
 class TypeInstPtr : public TypeOopPtr {
   TypeInstPtr( PTR ptr, ciKlass* k, bool xk, ciObject* o, int offset, int instance_id );
   virtual bool eq( const Type *t ) const;
@@ -785,7 +875,6 @@ class TypeInstPtr : public TypeOopPtr {
   static const TypeInstPtr *make(ciObject* o) {
     return make(TypePtr::Constant, o->klass(), true, o, 0);
   }
-
   // Make a pointer to a constant oop with offset.
   static const TypeInstPtr *make(ciObject* o, int offset) {
     return make(TypePtr::Constant, o->klass(), true, o, offset);
@@ -918,18 +1007,92 @@ public:
 #endif
 };
 
-//------------------------------TypeKlassPtr-----------------------------------
-// Class of Java Klass pointers
-class TypeKlassPtr : public TypeOopPtr {
-  TypeKlassPtr( PTR ptr, ciKlass* klass, int offset );
-
+//------------------------------TypeMetadataPtr-------------------------------------
+// Some kind of metadata, either Method*, MethodData* or CPCacheOop
+class TypeMetadataPtr : public TypePtr {
+protected:
+  TypeMetadataPtr(PTR ptr, ciMetadata* metadata, int offset);
+public:
   virtual bool eq( const Type *t ) const;
-  virtual int hash() const;             // Type specific hashing
+  virtual int  hash() const;             // Type specific hashing
+  virtual bool singleton(void) const;    // TRUE if type is a singleton
+
+private:
+  ciMetadata*   _metadata;
 
 public:
-  ciSymbol* name()  const { return _klass->name(); }
+  static const TypeMetadataPtr* make(PTR ptr, ciMetadata* m, int offset);
 
-  bool  is_loaded() const { return _klass->is_loaded(); }
+  static const TypeMetadataPtr* make(ciMethod* m);
+  static const TypeMetadataPtr* make(ciMethodData* m);
+
+  ciMetadata* metadata() const { return _metadata; }
+
+  virtual const Type *cast_to_ptr_type(PTR ptr) const;
+
+  virtual const TypePtr *add_offset( intptr_t offset ) const;
+
+  virtual const Type *xmeet( const Type *t ) const;
+  virtual const Type *xdual() const;    // Compute dual right now.
+
+  virtual intptr_t get_con() const;
+
+  // Do not allow interface-vs.-noninterface joins to collapse to top.
+  virtual const Type *filter( const Type *kills ) const;
+
+  // Convenience common pre-built types.
+  static const TypeMetadataPtr *BOTTOM;
+
+#ifndef PRODUCT
+  virtual void dump2( Dict &d, uint depth, outputStream *st ) const;
+#endif
+};
+
+//------------------------------TypeKlassPtr-----------------------------------
+// Class of Java Klass pointers
+class TypeKlassPtr : public TypePtr {
+  TypeKlassPtr( PTR ptr, ciKlass* klass, int offset );
+
+ public:
+  virtual bool eq( const Type *t ) const;
+  virtual int hash() const;             // Type specific hashing
+  virtual bool singleton(void) const;    // TRUE if type is a singleton
+ private:
+
+  static const TypeKlassPtr* make_from_klass_common(ciKlass* klass, bool klass_change, bool try_for_exact);
+
+  ciKlass* _klass;
+
+  // Does the type exclude subclasses of the klass?  (Inexact == polymorphic.)
+  bool          _klass_is_exact;
+
+public:
+  ciSymbol* name()  const { return klass()->name(); }
+
+  ciKlass* klass() const { return  _klass; }
+  bool klass_is_exact()    const { return _klass_is_exact; }
+
+  bool  is_loaded() const { return klass()->is_loaded(); }
+
+  // Creates a type given a klass. Correctly handles multi-dimensional arrays
+  // Respects UseUniqueSubclasses.
+  // If the klass is final, the resulting type will be exact.
+  static const TypeKlassPtr* make_from_klass(ciKlass* klass) {
+    return make_from_klass_common(klass, true, false);
+  }
+  // Same as before, but will produce an exact type, even if
+  // the klass is not final, as long as it has exactly one implementation.
+  static const TypeKlassPtr* make_from_klass_unique(ciKlass* klass) {
+    return make_from_klass_common(klass, true, true);
+  }
+  // Same as before, but does not respects UseUniqueSubclasses.
+  // Use this only for creating array element types.
+  static const TypeKlassPtr* make_from_klass_raw(ciKlass* klass) {
+    return make_from_klass_common(klass, false, false);
+  }
+
+  // Make a generic (unclassed) pointer to metadata.
+  static const TypeKlassPtr* make(PTR ptr, int offset);
 
   // ptr to klass 'k'
   static const TypeKlassPtr *make( ciKlass* k ) { return make( TypePtr::Constant, k, 0); }
@@ -948,6 +1111,8 @@ public:
   virtual const TypePtr *add_offset( intptr_t offset ) const;
   virtual const Type    *xmeet( const Type *t ) const;
   virtual const Type    *xdual() const;      // Compute dual right now.
+
+  virtual intptr_t get_con() const;
 
   // Convenience common pre-built types.
   static const TypeKlassPtr* OBJECT; // Not-null object klass or below
@@ -1043,7 +1208,6 @@ public:
 
 #ifndef PRODUCT
   virtual void dump2( Dict &d, uint depth, outputStream *st ) const; // Specialized per-Type dumping
-  void print_flattened() const; // Print a 'flattened' signature
 #endif
   // Convenience common pre-built types.
 };
@@ -1113,6 +1277,15 @@ inline const TypeAry *Type::is_ary() const {
   return (TypeAry*)this;
 }
 
+inline const TypeVect *Type::is_vect() const {
+  assert( _base >= VectorS && _base <= VectorY, "Not a Vector" );
+  return (TypeVect*)this;
+}
+
+inline const TypeVect *Type::isa_vect() const {
+  return (_base >= VectorS && _base <= VectorY) ? (TypeVect*)this : NULL;
+}
+
 inline const TypePtr *Type::is_ptr() const {
   // AnyPtr is the first Ptr and KlassPtr the last, with no non-ptrs between.
   assert(_base >= AnyPtr && _base <= KlassPtr, "Not a pointer");
@@ -1126,13 +1299,13 @@ inline const TypePtr *Type::isa_ptr() const {
 
 inline const TypeOopPtr *Type::is_oopptr() const {
   // OopPtr is the first and KlassPtr the last, with no non-oops between.
-  assert(_base >= OopPtr && _base <= KlassPtr, "Not a Java pointer" ) ;
+  assert(_base >= OopPtr && _base <= AryPtr, "Not a Java pointer" ) ;
   return (TypeOopPtr*)this;
 }
 
 inline const TypeOopPtr *Type::isa_oopptr() const {
   // OopPtr is the first and KlassPtr the last, with no non-oops between.
-  return (_base >= OopPtr && _base <= KlassPtr) ? (TypeOopPtr*)this : NULL;
+  return (_base >= OopPtr && _base <= AryPtr) ? (TypeOopPtr*)this : NULL;
 }
 
 inline const TypeRawPtr *Type::isa_rawptr() const {
@@ -1171,6 +1344,16 @@ inline const TypeNarrowOop *Type::is_narrowoop() const {
 inline const TypeNarrowOop *Type::isa_narrowoop() const {
   // OopPtr is the first and KlassPtr the last, with no non-oops between.
   return (_base == NarrowOop) ? (TypeNarrowOop*)this : NULL;
+}
+
+inline const TypeMetadataPtr *Type::is_metadataptr() const {
+  // MetadataPtr is the first and CPCachePtr the last
+  assert(_base == MetadataPtr, "Not a metadata pointer" ) ;
+  return (TypeMetadataPtr*)this;
+}
+
+inline const TypeMetadataPtr *Type::isa_metadataptr() const {
+  return (_base == MetadataPtr) ? (TypeMetadataPtr*)this : NULL;
 }
 
 inline const TypeKlassPtr *Type::isa_klassptr() const {

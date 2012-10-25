@@ -42,6 +42,7 @@
 #include "oops/oop.inline.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/java.hpp"
+#include "services/memTracker.hpp"
 
 // Concurrent marking bit map wrapper
 
@@ -52,6 +53,8 @@ CMBitMapRO::CMBitMapRO(ReservedSpace rs, int shifter) :
   _bmWordSize  = rs.size()/HeapWordSize;    // rs.size() is in bytes
   ReservedSpace brs(ReservedSpace::allocation_align_size_up(
                      (_bmWordSize >> (_shifter + LogBitsPerByte)) + 1));
+
+  MemTracker::record_virtual_memory_type((address)brs.base(), mtGC);
 
   guarantee(brs.is_reserved(), "couldn't allocate concurrent marking bit map");
   // For now we'll just commit all of the bit map up fromt.
@@ -107,7 +110,7 @@ int CMBitMapRO::heapWordDiffToOffsetDiff(size_t diff) const {
 #ifndef PRODUCT
 bool CMBitMapRO::covers(ReservedSpace rs) const {
   // assert(_bm.map() == _virtual_space.low(), "map inconsistency");
-  assert(((size_t)_bm.size() * (size_t)(1 << _shifter)) == _bmWordSize,
+  assert(((size_t)_bm.size() * ((size_t)1 << _shifter)) == _bmWordSize,
          "size inconsistency");
   return _bmStartWord == (HeapWord*)(rs.base()) &&
          _bmWordSize  == rs.size()>>LogHeapWordSize;
@@ -161,7 +164,7 @@ CMMarkStack::CMMarkStack(ConcurrentMark* cm) :
 {}
 
 void CMMarkStack::allocate(size_t size) {
-  _base = NEW_C_HEAP_ARRAY(oop, size);
+  _base = NEW_C_HEAP_ARRAY(oop, size, mtGC);
   if (_base == NULL) {
     vm_exit_during_initialization("Failed to allocate CM region mark stack");
   }
@@ -173,7 +176,7 @@ void CMMarkStack::allocate(size_t size) {
 
 CMMarkStack::~CMMarkStack() {
   if (_base != NULL) {
-    FREE_C_HEAP_ARRAY(oop, _base);
+    FREE_C_HEAP_ARRAY(oop, _base, mtGC);
   }
 }
 
@@ -312,9 +315,7 @@ void CMMarkStack::oops_do(OopClosure* f) {
 }
 
 bool ConcurrentMark::not_yet_marked(oop obj) const {
-  return (_g1h->is_obj_ill(obj)
-          || (_g1h->is_in_permanent(obj)
-              && !nextMarkBitMap()->isMarked((HeapWord*)obj)));
+  return _g1h->is_obj_ill(obj);
 }
 
 CMRootRegions::CMRootRegions() :
@@ -480,11 +481,11 @@ ConcurrentMark::ConcurrentMark(ReservedSpace rs, uint max_regions) :
 
   _root_regions.init(_g1h, this);
 
-  _tasks = NEW_C_HEAP_ARRAY(CMTask*, _max_task_num);
-  _accum_task_vtime = NEW_C_HEAP_ARRAY(double, _max_task_num);
+  _tasks = NEW_C_HEAP_ARRAY(CMTask*, _max_task_num, mtGC);
+  _accum_task_vtime = NEW_C_HEAP_ARRAY(double, _max_task_num, mtGC);
 
-  _count_card_bitmaps = NEW_C_HEAP_ARRAY(BitMap,  _max_task_num);
-  _count_marked_bytes = NEW_C_HEAP_ARRAY(size_t*, _max_task_num);
+  _count_card_bitmaps = NEW_C_HEAP_ARRAY(BitMap,  _max_task_num, mtGC);
+  _count_marked_bytes = NEW_C_HEAP_ARRAY(size_t*, _max_task_num, mtGC);
 
   BitMap::idx_t card_bm_size = _card_bm.size();
 
@@ -496,7 +497,7 @@ ConcurrentMark::ConcurrentMark(ReservedSpace rs, uint max_regions) :
     _task_queues->register_queue(i, task_queue);
 
     _count_card_bitmaps[i] = BitMap(card_bm_size, false);
-    _count_marked_bytes[i] = NEW_C_HEAP_ARRAY(size_t, (size_t) max_regions);
+    _count_marked_bytes[i] = NEW_C_HEAP_ARRAY(size_t, (size_t) max_regions, mtGC);
 
     _tasks[i] = new CMTask(i, this,
                            _count_marked_bytes[i],
@@ -1204,7 +1205,8 @@ protected:
     } else {
       assert(last_idx < _card_bm->size(), "sanity");
       // Note BitMap::par_at_put_range() is exclusive.
-      _card_bm->par_at_put_range(start_idx, last_idx+1, true);
+      BitMap::idx_t max_idx = MAX2(last_idx+1, _card_bm->size());
+      _card_bm->par_at_put_range(start_idx, max_idx, true);
     }
   }
 
@@ -1223,9 +1225,7 @@ protected:
     } else {
       // Starts humongous case: calculate how many regions are part of
       // this humongous region and then set the bit range.
-      G1CollectedHeap* g1h = G1CollectedHeap::heap();
-      HeapRegion *last_hr = g1h->heap_region_containing_raw(hr->end() - 1);
-      BitMap::idx_t end_index = (BitMap::idx_t) last_hr->hrs_index() + 1;
+      BitMap::idx_t end_index = (BitMap::idx_t) hr->last_hc_index();
       _region_bm->par_at_put_range(index, end_index, true);
     }
   }
@@ -1552,8 +1552,21 @@ class FinalCountDataUpdateClosure: public CMCountDataClosureBase {
 
     // Now set the bits for [ntams, top]
     BitMap::idx_t start_idx = _cm->card_bitmap_index_for(ntams);
-    BitMap::idx_t last_idx = _cm->card_bitmap_index_for(top);
+    // set_card_bitmap_range() expects the last_idx to be with
+    // the range of the bit map (see assertion in set_card_bitmap_range()),
+    // so limit it to that range with this application of MIN2.
+    BitMap::idx_t last_idx = MIN2(_cm->card_bitmap_index_for(top),
+                                  _card_bm->size()-1);
+    if (start_idx < _card_bm->size()) {
     set_card_bitmap_range(start_idx, last_idx);
+    } else {
+      // To reach here start_idx must be beyond the end of
+      // the bit map and last_idx must have been limited by
+      // the MIN2().
+      assert(start_idx == last_idx + 1,
+        err_msg("Not beyond end start_idx " SIZE_FORMAT " last_idx "
+                SIZE_FORMAT, start_idx, last_idx));
+    }
 
     // Set the bit for the region if it contains live data
     if (hr->next_marked_bytes() > 0) {
@@ -1642,26 +1655,27 @@ public:
   size_t freed_bytes() { return _freed_bytes; }
 
   bool doHeapRegion(HeapRegion *hr) {
+    if (hr->continuesHumongous()) {
+      return false;
+    }
     // We use a claim value of zero here because all regions
     // were claimed with value 1 in the FinalCount task.
-    hr->reset_gc_time_stamp();
-    if (!hr->continuesHumongous()) {
-      double start = os::elapsedTime();
-      _regions_claimed++;
-      hr->note_end_of_marking();
-      _max_live_bytes += hr->max_live_bytes();
-      _g1->free_region_if_empty(hr,
-                                &_freed_bytes,
-                                _local_cleanup_list,
-                                _old_proxy_set,
-                                _humongous_proxy_set,
-                                _hrrs_cleanup_task,
-                                true /* par */);
-      double region_time = (os::elapsedTime() - start);
-      _claimed_region_time += region_time;
-      if (region_time > _max_region_time) {
-        _max_region_time = region_time;
-      }
+    _g1->reset_gc_time_stamps(hr);
+    double start = os::elapsedTime();
+    _regions_claimed++;
+    hr->note_end_of_marking();
+    _max_live_bytes += hr->max_live_bytes();
+    _g1->free_region_if_empty(hr,
+                              &_freed_bytes,
+                              _local_cleanup_list,
+                              _old_proxy_set,
+                              _humongous_proxy_set,
+                              _hrrs_cleanup_task,
+                              true /* par */);
+    double region_time = (os::elapsedTime() - start);
+    _claimed_region_time += region_time;
+    if (region_time > _max_region_time) {
+      _max_region_time = region_time;
     }
     return false;
   }
@@ -1878,6 +1892,7 @@ void ConcurrentMark::cleanup() {
   } else {
     g1_par_note_end_task.work(0);
   }
+  g1h->check_gc_time_stamps();
 
   if (!cleanup_list_is_empty()) {
     // The cleanup list is not empty, so we'll have to process it
@@ -2008,7 +2023,7 @@ bool G1CMIsAliveClosure::do_object_b(oop obj) {
          (!_g1->is_in_g1_reserved(addr) || !_g1->is_obj_ill(obj));
 }
 
-class G1CMKeepAliveClosure: public OopClosure {
+class G1CMKeepAliveClosure: public ExtendedOopClosure {
   G1CollectedHeap* _g1;
   ConcurrentMark*  _cm;
  public:
@@ -2049,7 +2064,7 @@ class G1CMDrainMarkingStackClosure: public VoidClosure {
     _oopClosure(oopClosure) { }
 
   void do_void() {
-    _markStack->drain((OopClosure*)_oopClosure, _cm->nextMarkBitMap(), false);
+    _markStack->drain(_oopClosure, _cm->nextMarkBitMap(), false);
   }
 };
 
@@ -2446,24 +2461,8 @@ public:
     } else {
       HeapRegion* hr  = _g1h->heap_region_containing(obj);
       guarantee(hr != NULL, "invariant");
-      bool over_tams = false;
-      bool marked = false;
-
-      switch (_vo) {
-        case VerifyOption_G1UsePrevMarking:
-          over_tams = hr->obj_allocated_since_prev_marking(obj);
-          marked = _g1h->isMarkedPrev(obj);
-          break;
-        case VerifyOption_G1UseNextMarking:
-          over_tams = hr->obj_allocated_since_next_marking(obj);
-          marked = _g1h->isMarkedNext(obj);
-          break;
-        case VerifyOption_G1UseMarkWord:
-          marked = obj->is_gc_marked();
-          break;
-        default:
-          ShouldNotReachHere();
-      }
+      bool over_tams = _g1h->allocated_since_marking(obj, hr, _vo);
+      bool marked = _g1h->is_marked(obj, _vo);
 
       if (over_tams) {
         str = " >";
@@ -2499,63 +2498,32 @@ public:
     _out(out), _vo(vo), _all(all), _hr(hr) { }
 
   void do_object(oop o) {
-    bool over_tams = false;
-    bool marked = false;
-
-    switch (_vo) {
-      case VerifyOption_G1UsePrevMarking:
-        over_tams = _hr->obj_allocated_since_prev_marking(o);
-        marked = _g1h->isMarkedPrev(o);
-        break;
-      case VerifyOption_G1UseNextMarking:
-        over_tams = _hr->obj_allocated_since_next_marking(o);
-        marked = _g1h->isMarkedNext(o);
-        break;
-      case VerifyOption_G1UseMarkWord:
-        marked = o->is_gc_marked();
-        break;
-      default:
-        ShouldNotReachHere();
-    }
+    bool over_tams = _g1h->allocated_since_marking(o, _hr, _vo);
+    bool marked = _g1h->is_marked(o, _vo);
     bool print_it = _all || over_tams || marked;
 
     if (print_it) {
       _out->print_cr(" "PTR_FORMAT"%s",
                      o, (over_tams) ? " >" : (marked) ? " M" : "");
       PrintReachableOopClosure oopCl(_out, _vo, _all);
-      o->oop_iterate(&oopCl);
+      o->oop_iterate_no_header(&oopCl);
     }
   }
 };
 
 class PrintReachableRegionClosure : public HeapRegionClosure {
 private:
-  outputStream* _out;
-  VerifyOption  _vo;
-  bool          _all;
+  G1CollectedHeap* _g1h;
+  outputStream*    _out;
+  VerifyOption     _vo;
+  bool             _all;
 
 public:
   bool doHeapRegion(HeapRegion* hr) {
     HeapWord* b = hr->bottom();
     HeapWord* e = hr->end();
     HeapWord* t = hr->top();
-    HeapWord* p = NULL;
-
-    switch (_vo) {
-      case VerifyOption_G1UsePrevMarking:
-        p = hr->prev_top_at_mark_start();
-        break;
-      case VerifyOption_G1UseNextMarking:
-        p = hr->next_top_at_mark_start();
-        break;
-      case VerifyOption_G1UseMarkWord:
-        // When we are verifying marking using the mark word
-        // TAMS has no relevance.
-        assert(p == NULL, "post-condition");
-        break;
-      default:
-        ShouldNotReachHere();
-    }
+    HeapWord* p = _g1h->top_at_mark_start(hr, _vo);
     _out->print_cr("** ["PTR_FORMAT", "PTR_FORMAT"] top: "PTR_FORMAT" "
                    "TAMS: "PTR_FORMAT, b, e, t, p);
     _out->cr();
@@ -2577,19 +2545,8 @@ public:
   PrintReachableRegionClosure(outputStream* out,
                               VerifyOption  vo,
                               bool          all) :
-    _out(out), _vo(vo), _all(all) { }
+    _g1h(G1CollectedHeap::heap()), _out(out), _vo(vo), _all(all) { }
 };
-
-static const char* verify_option_to_tams(VerifyOption vo) {
-  switch (vo) {
-    case VerifyOption_G1UsePrevMarking:
-      return "PTAMS";
-    case VerifyOption_G1UseNextMarking:
-      return "NTAMS";
-    default:
-      return "NONE";
-  }
-}
 
 void ConcurrentMark::print_reachable(const char* str,
                                      VerifyOption vo,
@@ -2619,7 +2576,7 @@ void ConcurrentMark::print_reachable(const char* str,
   }
 
   outputStream* out = &fout;
-  out->print_cr("-- USING %s", verify_option_to_tams(vo));
+  out->print_cr("-- USING %s", _g1h->top_at_mark_start_str(vo));
   out->cr();
 
   out->print_cr("--- ITERATING OVER REGIONS");
@@ -3153,9 +3110,6 @@ bool ConcurrentMark::do_yield_check(uint worker_id) {
       _g1h->g1_policy()->record_concurrent_pause();
     }
     cmThread()->yield();
-    if (worker_id == 0) {
-      _g1h->g1_policy()->record_concurrent_pause_end();
-    }
     return true;
   } else {
     return false;

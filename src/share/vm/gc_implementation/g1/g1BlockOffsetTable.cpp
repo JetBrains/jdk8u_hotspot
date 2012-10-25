@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,6 +27,7 @@
 #include "memory/space.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/java.hpp"
+#include "services/memTracker.hpp"
 
 //////////////////////////////////////////////////////////////////////
 // G1BlockOffsetSharedArray
@@ -44,6 +45,9 @@ G1BlockOffsetSharedArray::G1BlockOffsetSharedArray(MemRegion reserved,
   if (!_vs.initialize(rs, 0)) {
     vm_exit_during_initialization("Could not reserve enough space for heap offset array");
   }
+
+  MemTracker::record_virtual_memory_type((address)rs.base(), mtGC);
+
   _offset_array = (u_char*)_vs.low_boundary();
   resize(init_word_size);
   if (TraceBlockOffsetTable) {
@@ -378,8 +382,16 @@ G1BlockOffsetArray::forward_to_block_containing_addr_slow(HeapWord* q,
   // If the fist object's end q is at the card boundary. Start refining
   // with the corresponding card (the value of the entry will be basically
   // set to 0). If the object crosses the boundary -- start from the next card.
+  size_t n_index = _array->index_for(n);
   size_t next_index = _array->index_for(n) + !_array->is_card_boundary(n);
-  HeapWord* next_boundary = _array->address_for_index(next_index);
+  // Calculate a consistent next boundary.  If "n" is not at the boundary
+  // already, step to the boundary.
+  HeapWord* next_boundary = _array->address_for_index(n_index) +
+                            (n_index == next_index ? 0 : N_words);
+  assert(next_boundary <= _array->_end,
+         err_msg("next_boundary is beyond the end of the covered region "
+                 " next_boundary " PTR_FORMAT " _array->_end " PTR_FORMAT,
+                 next_boundary, _array->_end));
   if (csp() != NULL) {
     if (addr >= csp()->top()) return csp()->top();
     while (next_boundary < addr) {

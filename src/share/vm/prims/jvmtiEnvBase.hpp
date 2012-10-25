@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -52,7 +52,7 @@ class JvmtiTagMap;
 // done via JNI GetEnv() call. Multiple attachments are
 // allowed in jvmti.
 
-class JvmtiEnvBase : public CHeapObj {
+class JvmtiEnvBase : public CHeapObj<mtInternal> {
 
  private:
 
@@ -175,7 +175,7 @@ class JvmtiEnvBase : public CHeapObj {
     if (size == 0) {
       *mem_ptr = NULL;
     } else {
-      *mem_ptr = (unsigned char *)os::malloc((size_t)size);
+      *mem_ptr = (unsigned char *)os::malloc((size_t)size, mtInternal);
       if (*mem_ptr == NULL) {
         return JVMTI_ERROR_OUT_OF_MEMORY;
       }
@@ -185,7 +185,7 @@ class JvmtiEnvBase : public CHeapObj {
 
   jvmtiError deallocate(unsigned char* mem) {
     if (mem != NULL) {
-      os::free(mem);
+      os::free(mem, mtInternal);
     }
     return JVMTI_ERROR_NONE;
   }
@@ -264,8 +264,8 @@ class JvmtiEnvBase : public CHeapObj {
   // convert from JNIHandle to JavaThread *
   JavaThread  * get_JavaThread(jthread jni_thread);
 
-  // convert to a jni jclass from a non-null klassOop
-  jclass get_jni_class_non_null(klassOop k);
+  // convert to a jni jclass from a non-null Klass*
+  jclass get_jni_class_non_null(Klass* k);
 
   jint count_locked_objects(JavaThread *java_thread, Handle hobj);
   jvmtiError get_locked_objects_in_frame(JavaThread *calling_thread,
@@ -277,7 +277,7 @@ class JvmtiEnvBase : public CHeapObj {
 
  public:
   // get a field descriptor for the specified class and field
-  static bool get_field_descriptor(klassOop k, jfieldID field, fieldDescriptor* fd);
+  static bool get_field_descriptor(Klass* k, jfieldID field, fieldDescriptor* fd);
   // test for suspend - most (all?) of these should go away
   static bool is_thread_fully_suspended(JavaThread *thread,
                                         bool wait_for_suspend,

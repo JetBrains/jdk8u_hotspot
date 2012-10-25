@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -133,16 +133,17 @@ void InstructionPrinter::print_object(Value obj) {
       output()->print("null");
     } else if (!value->is_loaded()) {
       output()->print("<unloaded object " PTR_FORMAT ">", value);
-    } else if (value->is_method()) {
-      ciMethod* m = (ciMethod*)value;
-      output()->print("<method %s.%s>", m->holder()->name()->as_utf8(), m->name()->as_utf8());
     } else {
-      output()->print("<object " PTR_FORMAT ">", value->constant_encoding());
+      output()->print("<object " PTR_FORMAT " klass=", value->constant_encoding());
+      print_klass(value->klass());
+      output()->print(">");
     }
   } else if (type->as_InstanceConstant() != NULL) {
     ciInstance* value = type->as_InstanceConstant()->value();
     if (value->is_loaded()) {
-      output()->print("<instance " PTR_FORMAT ">", value->constant_encoding());
+      output()->print("<instance " PTR_FORMAT " klass=", value->constant_encoding());
+      print_klass(value->klass());
+      output()->print(">");
     } else {
       output()->print("<unloaded instance " PTR_FORMAT ">", value);
     }
@@ -155,6 +156,9 @@ void InstructionPrinter::print_object(Value obj) {
     }
     output()->print("class ");
     print_klass(klass);
+  } else if (type->as_MethodConstant() != NULL) {
+    ciMethod* m = type->as_MethodConstant()->value();
+    output()->print("<method %s.%s>", m->holder()->name()->as_utf8(), m->name()->as_utf8());
   } else {
     output()->print("???");
   }
@@ -450,6 +454,17 @@ void InstructionPrinter::do_NullCheck(NullCheck* x) {
   if (!x->can_trap()) {
     output()->print(" (eliminated)");
   }
+}
+
+
+void InstructionPrinter::do_TypeCast(TypeCast* x) {
+  output()->print("type_cast(");
+  print_value(x->obj());
+  output()->print(") ");
+  if (x->declared_type()->is_klass())
+    print_klass(x->declared_type()->as_klass());
+  else
+    output()->print(type2name(x->declared_type()->basic_type()));
 }
 
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,8 +30,8 @@
 #include "interpreter/interpreterRuntime.hpp"
 #include "interpreter/templateTable.hpp"
 #include "oops/arrayOop.hpp"
-#include "oops/methodDataOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/methodData.hpp"
+#include "oops/method.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiThreadState.hpp"
@@ -76,7 +76,7 @@ address AbstractInterpreterGenerator::generate_slow_signature_handler() {
 
 address InterpreterGenerator::generate_empty_entry(void) {
 
-  // rbx,: methodOop
+  // rbx,: Method*
   // rcx: receiver (unused)
   // rsi: previous interpreter state (C++ interpreter) must preserve
   // rsi: sender sp must set sp to this value on return
@@ -107,7 +107,7 @@ address InterpreterGenerator::generate_empty_entry(void) {
 
 address InterpreterGenerator::generate_math_entry(AbstractInterpreter::MethodKind kind) {
 
-  // rbx,: methodOop
+  // rbx,: Method*
   // rcx: scratrch
   // rsi: sender sp
 
@@ -219,7 +219,7 @@ address InterpreterGenerator::generate_math_entry(AbstractInterpreter::MethodKin
 // Attempt to execute abstract method. Throw exception
 address InterpreterGenerator::generate_abstract_entry(void) {
 
-  // rbx,: methodOop
+  // rbx,: Method*
   // rcx: receiver (unused)
   // rsi: previous interpreter state (C++ interpreter) must preserve
 
@@ -242,18 +242,6 @@ address InterpreterGenerator::generate_abstract_entry(void) {
   return entry_point;
 }
 
-
-// Method handle invoker
-// Dispatch a method of the form java.lang.invoke.MethodHandles::invoke(...)
-address InterpreterGenerator::generate_method_handle_entry(void) {
-  if (!EnableInvokeDynamic) {
-    return generate_abstract_entry();
-  }
-
-  address entry_point = MethodHandles::generate_method_handle_interpreter_entry(_masm);
-
-  return entry_point;
-}
 
 void Deoptimization::unwind_callee_save_values(frame* f, vframeArray* vframe_array) {
 

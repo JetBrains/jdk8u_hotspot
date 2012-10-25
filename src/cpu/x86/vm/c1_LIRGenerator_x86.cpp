@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -718,35 +718,6 @@ void LIRGenerator::do_CompareOp(CompareOp* x) {
 }
 
 
-void LIRGenerator::do_AttemptUpdate(Intrinsic* x) {
-  assert(x->number_of_arguments() == 3, "wrong type");
-  LIRItem obj       (x->argument_at(0), this);  // AtomicLong object
-  LIRItem cmp_value (x->argument_at(1), this);  // value to compare with field
-  LIRItem new_value (x->argument_at(2), this);  // replace field with new_value if it matches cmp_value
-
-  // compare value must be in rdx,eax (hi,lo); may be destroyed by cmpxchg8 instruction
-  cmp_value.load_item_force(FrameMap::long0_opr);
-
-  // new value must be in rcx,ebx (hi,lo)
-  new_value.load_item_force(FrameMap::long1_opr);
-
-  // object pointer register is overwritten with field address
-  obj.load_item();
-
-  // generate compare-and-swap; produces zero condition if swap occurs
-  int value_offset = sun_misc_AtomicLongCSImpl::value_offset();
-  LIR_Opr addr = new_pointer_register();
-  __ leal(LIR_OprFact::address(new LIR_Address(obj.result(), value_offset, T_LONG)), addr);
-  LIR_Opr t1 = LIR_OprFact::illegalOpr;  // no temp needed
-  LIR_Opr t2 = LIR_OprFact::illegalOpr;  // no temp needed
-  __ cas_long(addr, cmp_value.result(), new_value.result(), t1, t2);
-
-  // generate conditional move of boolean result
-  LIR_Opr result = rlock_result(x);
-  __ cmove(lir_cond_equal, LIR_OprFact::intConst(1), LIR_OprFact::intConst(0), result, T_LONG);
-}
-
-
 void LIRGenerator::do_CompareAndSwap(Intrinsic* x, ValueType* type) {
   assert(x->number_of_arguments() == 4, "wrong type");
   LIRItem obj   (x->argument_at(0), this);  // object
@@ -1031,13 +1002,12 @@ void LIRGenerator::do_NewInstance(NewInstance* x) {
 #endif
   CodeEmitInfo* info = state_for(x, x->state());
   LIR_Opr reg = result_register_for(x->type());
-  LIR_Opr klass_reg = new_register(objectType);
   new_instance(reg, x->klass(),
                        FrameMap::rcx_oop_opr,
                        FrameMap::rdi_oop_opr,
                        FrameMap::rsi_oop_opr,
                        LIR_OprFact::illegalOpr,
-                       FrameMap::rdx_oop_opr, info);
+                       FrameMap::rdx_metadata_opr, info);
   LIR_Opr result = rlock_result(x);
   __ move(reg, result);
 }
@@ -1054,11 +1024,11 @@ void LIRGenerator::do_NewTypeArray(NewTypeArray* x) {
   LIR_Opr tmp2 = FrameMap::rsi_oop_opr;
   LIR_Opr tmp3 = FrameMap::rdi_oop_opr;
   LIR_Opr tmp4 = reg;
-  LIR_Opr klass_reg = FrameMap::rdx_oop_opr;
+  LIR_Opr klass_reg = FrameMap::rdx_metadata_opr;
   LIR_Opr len = length.result();
   BasicType elem_type = x->elt_type();
 
-  __ oop2reg(ciTypeArrayKlass::make(elem_type)->constant_encoding(), klass_reg);
+  __ metadata2reg(ciTypeArrayKlass::make(elem_type)->constant_encoding(), klass_reg);
 
   CodeStub* slow_path = new NewTypeArrayStub(klass_reg, len, reg, info);
   __ allocate_array(reg, len, tmp1, tmp2, tmp3, tmp4, elem_type, klass_reg, slow_path);
@@ -1084,17 +1054,17 @@ void LIRGenerator::do_NewObjectArray(NewObjectArray* x) {
   LIR_Opr tmp2 = FrameMap::rsi_oop_opr;
   LIR_Opr tmp3 = FrameMap::rdi_oop_opr;
   LIR_Opr tmp4 = reg;
-  LIR_Opr klass_reg = FrameMap::rdx_oop_opr;
+  LIR_Opr klass_reg = FrameMap::rdx_metadata_opr;
 
   length.load_item_force(FrameMap::rbx_opr);
   LIR_Opr len = length.result();
 
   CodeStub* slow_path = new NewObjectArrayStub(klass_reg, len, reg, info);
-  ciObject* obj = (ciObject*) ciObjArrayKlass::make(x->klass());
+  ciKlass* obj = (ciKlass*) ciObjArrayKlass::make(x->klass());
   if (obj == ciEnv::unloaded_ciobjarrayklass()) {
     BAILOUT("encountered unloaded_ciobjarrayklass due to out of memory error");
   }
-  jobject2reg_with_patching(klass_reg, obj, patching_info);
+  klass2reg_with_patching(klass_reg, obj, patching_info);
   __ allocate_array(reg, len, tmp1, tmp2, tmp3, tmp4, T_OBJECT, klass_reg, slow_path);
 
   LIR_Opr result = rlock_result(x);
@@ -1116,10 +1086,10 @@ void LIRGenerator::do_NewMultiArray(NewMultiArray* x) {
   if (!x->klass()->is_loaded() || PatchALot) {
     patching_info = state_for(x, x->state_before());
 
-    // cannot re-use same xhandlers for multiple CodeEmitInfos, so
-    // clone all handlers.  This is handled transparently in other
-    // places by the CodeEmitInfo cloning logic but is handled
-    // specially here because a stub isn't being used.
+    // Cannot re-use same xhandlers for multiple CodeEmitInfos, so
+    // clone all handlers (NOTE: Usually this is handled transparently
+    // by the CodeEmitInfo cloning logic in CodeStub constructors but
+    // is done explicitly here because a stub isn't being used).
     x->set_exception_handlers(new XHandlers(x->exception_handlers()));
   }
   CodeEmitInfo* info = state_for(x, x->state());
@@ -1132,17 +1102,18 @@ void LIRGenerator::do_NewMultiArray(NewMultiArray* x) {
     store_stack_parameter(size->result(), in_ByteSize(i*4));
   }
 
-  LIR_Opr reg = result_register_for(x->type());
-  jobject2reg_with_patching(reg, x->klass(), patching_info);
+  LIR_Opr klass_reg = FrameMap::rax_metadata_opr;
+  klass2reg_with_patching(klass_reg, x->klass(), patching_info);
 
   LIR_Opr rank = FrameMap::rbx_opr;
   __ move(LIR_OprFact::intConst(x->rank()), rank);
   LIR_Opr varargs = FrameMap::rcx_opr;
   __ move(FrameMap::rsp_opr, varargs);
   LIR_OprList* args = new LIR_OprList(3);
-  args->append(reg);
+  args->append(klass_reg);
   args->append(rank);
   args->append(varargs);
+  LIR_Opr reg = result_register_for(x->type());
   __ call_runtime(Runtime1::entry_for(Runtime1::new_multi_array_id),
                   LIR_OprFact::illegalOpr,
                   reg, args, info);

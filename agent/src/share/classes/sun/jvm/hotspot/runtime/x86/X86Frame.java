@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -269,7 +269,6 @@ public class X86Frame extends Frame {
 
     if (isEntryFrame())       return senderForEntryFrame(map);
     if (isInterpretedFrame()) return senderForInterpreterFrame(map);
-    if (isRicochetFrame())    return senderForRicochetFrame(map);
 
     if(cb == null) {
       cb = VM.getVM().getCodeCache().findBlob(getPC());
@@ -286,16 +285,6 @@ public class X86Frame extends Frame {
     // Must be native-compiled frame, i.e. the marshaling code for native
     // methods that exists in the core system.
     return new X86Frame(getSenderSP(), getLink(), getSenderPC());
-  }
-
-  private Frame senderForRicochetFrame(X86RegisterMap map) {
-    if (DEBUG) {
-      System.out.println("senderForRicochetFrame");
-    }
-    X86RicochetFrame f = X86RicochetFrame.fromFrame(this);
-    if (map.getUpdateMap())
-      updateMapWithSavedLink(map, f.senderLinkAddress());
-    return new X86Frame(f.extendedSenderSP(), f.exactSenderSP(), f.senderLink(), f.senderPC());
   }
 
   private Frame senderForEntryFrame(X86RegisterMap map) {
@@ -463,8 +452,8 @@ public class X86Frame extends Frame {
     // for use in a non-debugging, or reflective, system. Need to
     // figure out how to express this.
     Address bcp = addressOfInterpreterFrameBCX().getAddressAt(0);
-    OopHandle methodHandle = addressOfInterpreterFrameMethod().getOopHandleAt(0);
-    Method method = (Method) VM.getVM().getObjectHeap().newOop(methodHandle);
+    Address methodHandle = addressOfInterpreterFrameMethod().getAddressAt(0);
+    Method method = (Method)Metadata.instantiateWrapperFor(methodHandle);
     return bcpToBci(bcp, method);
   }
 

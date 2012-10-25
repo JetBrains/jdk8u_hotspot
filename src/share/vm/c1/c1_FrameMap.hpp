@@ -184,8 +184,8 @@ class FrameMap : public CompilationResourceObj {
 
   // for outgoing calls, these also update the reserved area to
   // include space for arguments and any ABI area.
-  CallingConvention* c_calling_convention (const BasicTypeArray* signature);
-  CallingConvention* java_calling_convention (const BasicTypeArray* signature, bool outgoing);
+  CallingConvention* c_calling_convention(const BasicTypeArray* signature);
+  CallingConvention* java_calling_convention(const BasicTypeArray* signature, bool outgoing);
 
   // deopt support
   ByteSize sp_offset_for_orig_pc() { return sp_offset_for_monitor_base(_num_monitors); }
@@ -195,6 +195,10 @@ class FrameMap : public CompilationResourceObj {
   }
   static LIR_Opr as_oop_opr(Register r) {
     return LIR_OprFact::single_cpu_oop(cpu_reg2rnr(r));
+  }
+
+  static LIR_Opr as_metadata_opr(Register r) {
+    return LIR_OprFact::single_cpu_metadata(cpu_reg2rnr(r));
   }
 
   FrameMap(ciMethod* method, int monitors, int reserved_argument_area_size);

@@ -50,12 +50,8 @@ inline void AbstractAssembler::emit_word(int x) {
   sync();
 }
 
-extern unsigned long asm_bp;
-
 inline void AbstractAssembler::emit_long(jint x) {
   *(jint*)_code_pos = x;
-  if (_code_pos == (typeof _code_pos)asm_bp)
-    asm("nop");
   _code_pos += sizeof(jint);
   sync();
 }

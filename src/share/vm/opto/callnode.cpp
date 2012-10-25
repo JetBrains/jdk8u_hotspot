@@ -83,7 +83,7 @@ Node *StartNode::match( const ProjNode *proj, const Matcher *match ) {
       const Type *t = _domain->field_at(proj->_con);
       if (t->base() == Type::Half)  // 2nd half of Longs and Doubles
         return new (match->C, 1) ConNode(Type::TOP);
-      uint ideal_reg = Matcher::base2reg[t->base()];
+      uint ideal_reg = t->ideal_reg();
       RegMask &rm = match->_calling_convention_mask[parm_num];
       return new (match->C, 1) MachProjNode(this,proj->_con,rm,ideal_reg);
     }
@@ -131,7 +131,7 @@ uint ParmNode::ideal_reg() const {
   case TypeFunc::Parms    : {
     // Type of argument being passed
     const Type *t = in(0)->as_Start()->_domain->field_at(_con);
-    return Matcher::base2reg[t->base()];
+    return t->ideal_reg();
   }
   }
   ShouldNotReachHere();
@@ -231,9 +231,9 @@ uint TailJumpNode::match_edge(uint idx) const {
 }
 
 //=============================================================================
-JVMState::JVMState(ciMethod* method, JVMState* caller) {
+JVMState::JVMState(ciMethod* method, JVMState* caller) :
+  _method(method) {
   assert(method != NULL, "must be valid call site");
-  _method = method;
   _reexecute = Reexecute_Undefined;
   debug_only(_bci = -99);  // random garbage value
   debug_only(_map = (SafePointNode*)-1);
@@ -246,8 +246,8 @@ JVMState::JVMState(ciMethod* method, JVMState* caller) {
   _endoff = _monoff;
   _sp = 0;
 }
-JVMState::JVMState(int stack_size) {
-  _method = NULL;
+JVMState::JVMState(int stack_size) :
+  _method(NULL) {
   _bci = InvocationEntryBci;
   _reexecute = Reexecute_Undefined;
   debug_only(_map = (SafePointNode*)-1);
@@ -344,9 +344,14 @@ static void format_helper( PhaseRegAlloc *regalloc, outputStream* st, Node *n, c
       st->print(" %s%d]=#NULL",msg,i);
       break;
     case Type::AryPtr:
-    case Type::KlassPtr:
     case Type::InstPtr:
       st->print(" %s%d]=#Ptr" INTPTR_FORMAT,msg,i,t->isa_oopptr()->const_oop());
+      break;
+    case Type::KlassPtr:
+      st->print(" %s%d]=#Ptr" INTPTR_FORMAT,msg,i,t->make_ptr()->isa_klassptr()->klass());
+      break;
+    case Type::MetadataPtr:
+      st->print(" %s%d]=#Ptr" INTPTR_FORMAT,msg,i,t->make_ptr()->isa_metadataptr()->metadata());
       break;
     case Type::NarrowOop:
       st->print(" %s%d]=#Ptr" INTPTR_FORMAT,msg,i,t->make_ptr()->isa_oopptr()->const_oop());
@@ -526,8 +531,8 @@ void JVMState::dump_on(outputStream* st) const {
     }
     _map->dump(2);
   }
-  st->print("JVMS depth=%d loc=%d stk=%d mon=%d scalar=%d end=%d mondepth=%d sp=%d bci=%d reexecute=%s method=",
-             depth(), locoff(), stkoff(), monoff(), scloff(), endoff(), monitor_depth(), sp(), bci(), should_reexecute()?"true":"false");
+  st->print("JVMS depth=%d loc=%d stk=%d arg=%d mon=%d scalar=%d end=%d mondepth=%d sp=%d bci=%d reexecute=%s method=",
+             depth(), locoff(), stkoff(), argoff(), monoff(), scloff(), endoff(), monitor_depth(), sp(), bci(), should_reexecute()?"true":"false");
   if (_method == NULL) {
     st->print_cr("(none)");
   } else {
@@ -628,7 +633,7 @@ Node *CallNode::match( const ProjNode *proj, const Matcher *match ) {
     return new (match->C, 1) MachProjNode(this,proj->_con, RegMask::Empty, (uint)OptoReg::Bad);
 
   case TypeFunc::Parms: {       // Normal returns
-    uint ideal_reg = Matcher::base2reg[tf()->range()->field_at(TypeFunc::Parms)->base()];
+    uint ideal_reg = tf()->range()->field_at(TypeFunc::Parms)->ideal_reg();
     OptoRegPair regs = is_CallRuntime()
       ? match->c_return_value(ideal_reg,true)  // Calls into C runtime
       : match->  return_value(ideal_reg,true); // Calls into compiled Java code

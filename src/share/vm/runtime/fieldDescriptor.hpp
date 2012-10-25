@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,9 +25,7 @@
 #ifndef SHARE_VM_RUNTIME_FIELDDESCRIPTOR_HPP
 #define SHARE_VM_RUNTIME_FIELDDESCRIPTOR_HPP
 
-#include "oops/constantPoolOop.hpp"
-#include "oops/klassOop.hpp"
-#include "oops/oop.inline.hpp"
+#include "oops/constantPool.hpp"
 #include "oops/symbol.hpp"
 #include "runtime/fieldType.hpp"
 #include "utilities/accessFlags.hpp"
@@ -45,12 +43,12 @@ class fieldDescriptor VALUE_OBJ_CLASS_SPEC {
 
   // update the access_flags for the field in the klass
   void update_klass_field_access_flag() {
-    instanceKlass* ik = instanceKlass::cast(field_holder());
+    InstanceKlass* ik = InstanceKlass::cast(field_holder());
     ik->field(index())->set_access_flags(_access_flags.as_short());
   }
 
   FieldInfo* field() const {
-    instanceKlass* ik = instanceKlass::cast(field_holder());
+    InstanceKlass* ik = InstanceKlass::cast(field_holder());
     return ik->field(_index);
   }
 
@@ -61,15 +59,15 @@ class fieldDescriptor VALUE_OBJ_CLASS_SPEC {
   Symbol* signature() const {
     return field()->signature(_cp);
   }
-  klassOop field_holder() const        { return _cp->pool_holder(); }
-  constantPoolOop constants() const    { return _cp(); }
+  Klass* field_holder() const        { return _cp->pool_holder(); }
+  ConstantPool* constants() const    { return _cp(); }
   AccessFlags access_flags() const     { return _access_flags; }
   oop loader() const;
-  // Offset (in words) of field from start of instanceOop / klassOop
+  // Offset (in words) of field from start of instanceOop / Klass*
   int offset() const                   { return field()->offset(); }
   Symbol* generic_signature() const;
   int index() const                    { return _index; }
-  typeArrayOop annotations() const;
+  AnnotationArray* annotations() const;
 
   // Initial field value
   bool has_initial_value() const          { return field()->initval_index() != 0; }
@@ -100,6 +98,7 @@ class fieldDescriptor VALUE_OBJ_CLASS_SPEC {
   bool is_field_access_watched() const    { return access_flags().is_field_access_watched(); }
   bool is_field_modification_watched() const
                                           { return access_flags().is_field_modification_watched(); }
+  bool has_generic_signature() const      { return access_flags().field_has_generic_signature(); }
 
   void set_is_field_access_watched(const bool value) {
     _access_flags.set_is_field_access_watched(value);
@@ -112,9 +111,10 @@ class fieldDescriptor VALUE_OBJ_CLASS_SPEC {
   }
 
   // Initialization
-  void initialize(klassOop k, int index);
+  void initialize(InstanceKlass* ik, int index);
 
   // Print
+  void print() { print_on(tty); }
   void print_on(outputStream* st) const         PRODUCT_RETURN;
   void print_on_for(outputStream* st, oop obj)  PRODUCT_RETURN;
 };

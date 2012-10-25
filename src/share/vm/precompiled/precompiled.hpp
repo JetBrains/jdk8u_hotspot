@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,9 +41,7 @@
 # include "ci/ciFlags.hpp"
 # include "ci/ciInstance.hpp"
 # include "ci/ciInstanceKlass.hpp"
-# include "ci/ciInstanceKlassKlass.hpp"
 # include "ci/ciKlass.hpp"
-# include "ci/ciKlassKlass.hpp"
 # include "ci/ciMethod.hpp"
 # include "ci/ciNullObject.hpp"
 # include "ci/ciObjArrayKlass.hpp"
@@ -121,7 +119,6 @@
 # include "memory/blockOffsetTable.inline.hpp"
 # include "memory/cardTableModRefBS.hpp"
 # include "memory/collectorPolicy.hpp"
-# include "memory/compactingPermGenGen.hpp"
 # include "memory/defNewGeneration.hpp"
 # include "memory/gcLocker.hpp"
 # include "memory/genCollectedHeap.hpp"
@@ -134,7 +131,6 @@
 # include "memory/memRegion.hpp"
 # include "memory/modRefBarrierSet.hpp"
 # include "memory/oopFactory.hpp"
-# include "memory/permGen.hpp"
 # include "memory/referencePolicy.hpp"
 # include "memory/referenceProcessor.hpp"
 # include "memory/resourceArea.hpp"
@@ -149,20 +145,17 @@
 # include "memory/watermark.hpp"
 # include "oops/arrayKlass.hpp"
 # include "oops/arrayOop.hpp"
-# include "oops/constMethodOop.hpp"
-# include "oops/constantPoolOop.hpp"
-# include "oops/cpCacheOop.hpp"
+# include "oops/constMethod.hpp"
 # include "oops/instanceKlass.hpp"
 # include "oops/instanceOop.hpp"
 # include "oops/instanceRefKlass.hpp"
 # include "oops/klass.hpp"
-# include "oops/klassOop.hpp"
 # include "oops/klassPS.hpp"
 # include "oops/klassVtable.hpp"
 # include "oops/markOop.hpp"
 # include "oops/markOop.inline.hpp"
-# include "oops/methodDataOop.hpp"
-# include "oops/methodOop.hpp"
+# include "oops/methodData.hpp"
+# include "oops/method.hpp"
 # include "oops/objArrayKlass.hpp"
 # include "oops/objArrayOop.hpp"
 # include "oops/oop.hpp"
@@ -306,7 +299,6 @@
 # include "gc_implementation/g1/g1_specialized_oop_closures.hpp"
 # include "gc_implementation/g1/ptrQueue.hpp"
 # include "gc_implementation/g1/satbQueue.hpp"
-# include "gc_implementation/parNew/parGCAllocBuffer.hpp"
 # include "gc_implementation/parNew/parOopClosures.hpp"
 # include "gc_implementation/parallelScavenge/objectStartArray.hpp"
 # include "gc_implementation/parallelScavenge/parMarkBitMap.hpp"
@@ -317,11 +309,11 @@
 # include "gc_implementation/parallelScavenge/psGenerationCounters.hpp"
 # include "gc_implementation/parallelScavenge/psOldGen.hpp"
 # include "gc_implementation/parallelScavenge/psParallelCompact.hpp"
-# include "gc_implementation/parallelScavenge/psPermGen.hpp"
 # include "gc_implementation/parallelScavenge/psVirtualspace.hpp"
 # include "gc_implementation/parallelScavenge/psYoungGen.hpp"
 # include "gc_implementation/shared/gcAdaptivePolicyCounters.hpp"
 # include "gc_implementation/shared/gcPolicyCounters.hpp"
+# include "gc_implementation/shared/parGCAllocBuffer.hpp"
 #endif // SERIALGC
 
 #endif // !DONT_USE_PRECOMPILED_HEADER

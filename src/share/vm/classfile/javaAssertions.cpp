@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,7 +58,7 @@ void JavaAssertions::addOption(const char* name, bool enable) {
   // it is never freed, so will be leaked (along with other option strings -
   // e.g., bootclasspath) if a process creates/destroys multiple VMs.
   int len = (int)strlen(name);
-  char *name_copy = NEW_C_HEAP_ARRAY(char, len + 1);
+  char *name_copy = NEW_C_HEAP_ARRAY(char, len + 1, mtClass);
   strcpy(name_copy, name);
 
   // Figure out which list the new item should go on.  Names that end in "..."
@@ -94,7 +94,7 @@ void JavaAssertions::addOption(const char* name, bool enable) {
 
 oop JavaAssertions::createAssertionStatusDirectives(TRAPS) {
   Symbol* asd_sym = vmSymbols::java_lang_AssertionStatusDirectives();
-  klassOop k = SystemDictionary::resolve_or_fail(asd_sym, true, CHECK_NULL);
+  Klass* k = SystemDictionary::resolve_or_fail(asd_sym, true, CHECK_NULL);
   instanceKlassHandle asd_klass (THREAD, k);
   asd_klass->initialize(CHECK_NULL);
   Handle h = asd_klass->allocate_instance_handle(CHECK_NULL);

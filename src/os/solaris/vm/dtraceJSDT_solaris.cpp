@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -142,7 +142,7 @@ int DTraceJSDT::pd_activate(
     ++strcount;
     for(int prbc = 0; prbc < provider->probe_count; ++prbc) {
       JVM_DTraceProbe* p = &(provider->probes[prbc]);
-      Symbol* sig = JNIHandles::resolve_jmethod_id(p->method)->signature();
+      Symbol* sig = Method::resolve_jmethod_id(p->method)->signature();
       // function + name + one per argument
       strcount += 2 + ArgumentCount(sig).size();
     }
@@ -178,7 +178,7 @@ int DTraceJSDT::pd_activate(
       stroffs[curstr++] = string_index;
       string_index += strlen(name) + 1;
 
-      Symbol* sig = JNIHandles::resolve_jmethod_id(p->method)->signature();
+      Symbol* sig = Method::resolve_jmethod_id(p->method)->signature();
       SignatureStream ss(sig);
       for ( ; !ss.at_return_type(); ss.next()) {
         BasicType bt = ss.type();
@@ -227,7 +227,7 @@ int DTraceJSDT::pd_activate(
     uint32_t argscount = 0;
     for(int prbc = 0; prbc < provider->probe_count; ++prbc) {
        JVM_DTraceProbe* p = &(provider->probes[prbc]);
-       Symbol* sig = JNIHandles::resolve_jmethod_id(p->method)->signature();
+       Symbol* sig = Method::resolve_jmethod_id(p->method)->signature();
        argscount += ArgumentCount(sig).size();
     }
     secoffs[argoffs_sec] = align_size_up(offset, alignment_for[ARG_OFFSETS]);
@@ -298,7 +298,7 @@ int DTraceJSDT::pd_activate(
       strcpy(str, name);
       str += strlen(name) + 1;
 
-      Symbol* sig = JNIHandles::resolve_jmethod_id(p->method)->signature();
+      Symbol* sig = Method::resolve_jmethod_id(p->method)->signature();
       SignatureStream ss(sig);
       for ( ; !ss.at_return_type(); ss.next()) {
         BasicType bt = ss.type();
@@ -377,7 +377,7 @@ int DTraceJSDT::pd_activate(
     uint32_t argsoffs = 0;
     for(int prbc = 0; prbc < provider->probe_count; ++prbc) {
       JVM_DTraceProbe* probe = &(provider->probes[prbc]);
-      methodOop m = JNIHandles::resolve_jmethod_id(probe->method);
+      Method* m = Method::resolve_jmethod_id(probe->method);
       int arg_count = ArgumentCount(m->signature()).size();
       assert(m->code() != NULL, "must have an nmethod");
 
@@ -415,7 +415,7 @@ int DTraceJSDT::pd_activate(
       uint32_t* pof =
           (uint32_t*)(dof + sec->dofs_offset + sizeof(uint32_t) * prbc);
       JVM_DTraceProbe* probe = &(provider->probes[prbc]);
-      methodOop m = JNIHandles::resolve_jmethod_id(probe->method);
+      Method* m = Method::resolve_jmethod_id(probe->method);
       *pof = m->code()->trap_offset();
     }
 
@@ -433,7 +433,7 @@ int DTraceJSDT::pd_activate(
     uint8_t* par = (uint8_t*)(dof + sec->dofs_offset);
     for (int prbc = 0; prbc < provider->probe_count; ++prbc) {
       JVM_DTraceProbe* p = &(provider->probes[prbc]);
-      Symbol* sig = JNIHandles::resolve_jmethod_id(p->method)->signature();
+      Symbol* sig = Method::resolve_jmethod_id(p->method)->signature();
       uint8_t count = (uint8_t)ArgumentCount(sig).size();
       for (uint8_t i = 0; i < count; ++i) {
         *par++ = i;
@@ -626,45 +626,6 @@ static void printDOF(void* dof) {
   }
 }
 
-/**
- * This prints out hex data in a 'windbg' or 'xxd' form, where each line is:
- *   <hex-address>: 8 * <hex-halfword> <ascii translation>
- * example:
- * 0000000: 7f44 4f46 0102 0102 0000 0000 0000 0000  .DOF............
- * 0000010: 0000 0000 0000 0040 0000 0020 0000 0005  .......@... ....
- * 0000020: 0000 0000 0000 0040 0000 0000 0000 015d  .......@.......]
- * ...
- */
-static void printDOFRawData(void* dof) {
-  size_t size = ((dof_hdr_t*)dof)->dofh_loadsz;
-  size_t limit = (size + 16) / 16 * 16;
-  for (size_t i = 0; i < limit; ++i) {
-    if (i % 16 == 0) {
-      tty->print("%07x:", i);
-    }
-    if (i % 2 == 0) {
-      tty->print(" ");
-    }
-    if (i < size) {
-      tty->print("%02x", ((unsigned char*)dof)[i]);
-    } else {
-      tty->print("  ");
-    }
-    if ((i + 1) % 16 == 0) {
-      tty->print("  ");
-      for (size_t j = 0; j < 16; ++j) {
-        size_t idx = i + j - 15;
-        char c = ((char*)dof)[idx];
-        if (idx < size) {
-          tty->print("%c", c >= 32 && c <= 126 ? c : '.');
-        }
-      }
-      tty->print_cr("");
-    }
-  }
-  tty->print_cr("");
-}
-
 static void printDOFHelper(dof_helper_t* helper) {
   tty->print_cr("// dof_helper_t {");
   tty->print_cr("//   dofhp_mod = \"%s\"", helper->dofhp_mod);
@@ -672,7 +633,8 @@ static void printDOFHelper(dof_helper_t* helper) {
   tty->print_cr("//   dofhp_dof = 0x%016llx", helper->dofhp_dof);
   printDOF((void*)helper->dofhp_dof);
   tty->print_cr("// }");
-  printDOFRawData((void*)helper->dofhp_dof);
+  size_t len = ((dof_hdr_t*)helper)->dofh_loadsz;
+  tty->print_data((void*)helper->dofhp_dof, len, true);
 }
 
 #else // ndef HAVE_DTRACE_H

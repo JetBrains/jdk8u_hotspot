@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -284,7 +284,24 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   }
   if (_id == load_klass_id) {
     // produce a copy of the load klass instruction for use by the being initialized case
+#ifdef ASSERT
     address start = __ pc();
+#endif
+    Metadata* o = NULL;
+    __ mov_metadata(_obj, o);
+#ifdef ASSERT
+    for (int i = 0; i < _bytes_to_copy; i++) {
+      address ptr = (address)(_pc_start + i);
+      int a_byte = (*ptr) & 0xFF;
+      assert(a_byte == *start++, "should be the same code");
+    }
+#endif
+  } else if (_id == load_mirror_id) {
+    // produce a copy of the load mirror instruction for use by the being
+    // initialized case
+#ifdef ASSERT
+    address start = __ pc();
+#endif
     jobject o = NULL;
     __ movoop(_obj, o);
 #ifdef ASSERT
@@ -306,7 +323,7 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
 
   address end_of_patch = __ pc();
   int bytes_to_skip = 0;
-  if (_id == load_klass_id) {
+  if (_id == load_mirror_id) {
     int offset = __ offset();
     if (CommentedAssembly) {
       __ block_comment(" being_initialized check");
@@ -318,9 +335,9 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
     __ push(tmp2);
     // Load without verification to keep code size small. We need it because
     // begin_initialized_entry_offset has to fit in a byte. Also, we know it's not null.
-    __ load_heap_oop_not_null(tmp2, Address(_obj, java_lang_Class::klass_offset_in_bytes()));
+    __ movptr(tmp2, Address(_obj, java_lang_Class::klass_offset_in_bytes()));
     __ get_thread(tmp);
-    __ cmpptr(tmp, Address(tmp2, instanceKlass::init_thread_offset()));
+    __ cmpptr(tmp, Address(tmp2, InstanceKlass::init_thread_offset()));
     __ pop(tmp2);
     __ pop(tmp);
     __ jcc(Assembler::notEqual, call_patch);
@@ -357,9 +374,11 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   address entry = __ pc();
   NativeGeneralJump::insert_unconditional((address)_pc_start, entry);
   address target = NULL;
+  relocInfo::relocType reloc_type = relocInfo::none;
   switch (_id) {
     case access_field_id:  target = Runtime1::entry_for(Runtime1::access_field_patching_id); break;
-    case load_klass_id:    target = Runtime1::entry_for(Runtime1::load_klass_patching_id); break;
+    case load_klass_id:    target = Runtime1::entry_for(Runtime1::load_klass_patching_id); reloc_type = relocInfo::metadata_type; break;
+    case load_mirror_id:   target = Runtime1::entry_for(Runtime1::load_mirror_patching_id); reloc_type = relocInfo::oop_type; break;
     default: ShouldNotReachHere();
   }
   __ bind(call_patch);
@@ -377,10 +396,10 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   for (int j = __ offset() ; j < jmp_off + 5 ; j++ ) {
     __ nop();
   }
-  if (_id == load_klass_id) {
+  if (_id == load_klass_id || _id == load_mirror_id) {
     CodeSection* cs = __ code_section();
     RelocIterator iter(cs, (address)_pc_start, (address)(_pc_start + 1));
-    relocInfo::change_reloc_info_for_address(&iter, (address) _pc_start, relocInfo::oop_type, relocInfo::none);
+    relocInfo::change_reloc_info_for_address(&iter, (address) _pc_start, reloc_type, relocInfo::none);
   }
 }
 
@@ -420,7 +439,7 @@ void ArrayCopyStub::emit_code(LIR_Assembler* ce) {
   //---------------slow case: call to native-----------------
   __ bind(_entry);
   // Figure out where the args should go
-  // This should really convert the IntrinsicID to the methodOop and signature
+  // This should really convert the IntrinsicID to the Method* and signature
   // but I don't know how to do that.
   //
   VMRegPair args[5];
@@ -486,68 +505,6 @@ void G1PreBarrierStub::emit_code(LIR_Assembler* ce) {
   __ call(RuntimeAddress(Runtime1::entry_for(Runtime1::g1_pre_barrier_slow_id)));
   __ jmp(_continuation);
 
-}
-
-void G1UnsafeGetObjSATBBarrierStub::emit_code(LIR_Assembler* ce) {
-  // At this point we know that offset == referent_offset.
-  //
-  // So we might have to emit:
-  //   if (src == null) goto continuation.
-  //
-  // and we definitely have to emit:
-  //   if (klass(src).reference_type == REF_NONE) goto continuation
-  //   if (!marking_active) goto continuation
-  //   if (pre_val == null) goto continuation
-  //   call pre_barrier(pre_val)
-  //   goto continuation
-  //
-  __ bind(_entry);
-
-  assert(src()->is_register(), "sanity");
-  Register src_reg = src()->as_register();
-
-  if (gen_src_check()) {
-    // The original src operand was not a constant.
-    // Generate src == null?
-    __ cmpptr(src_reg, (int32_t) NULL_WORD);
-    __ jcc(Assembler::equal, _continuation);
-  }
-
-  // Generate src->_klass->_reference_type == REF_NONE)?
-  assert(tmp()->is_register(), "sanity");
-  Register tmp_reg = tmp()->as_register();
-
-  __ load_klass(tmp_reg, src_reg);
-
-  Address ref_type_adr(tmp_reg, instanceKlass::reference_type_offset());
-  __ cmpb(ref_type_adr, REF_NONE);
-  __ jcc(Assembler::equal, _continuation);
-
-  // Is marking active?
-  assert(thread()->is_register(), "precondition");
-  Register thread_reg = thread()->as_pointer_register();
-
-  Address in_progress(thread_reg, in_bytes(JavaThread::satb_mark_queue_offset() +
-                                       PtrQueue::byte_offset_of_active()));
-
-  if (in_bytes(PtrQueue::byte_width_of_active()) == 4) {
-    __ cmpl(in_progress, 0);
-  } else {
-    assert(in_bytes(PtrQueue::byte_width_of_active()) == 1, "Assumption");
-    __ cmpb(in_progress, 0);
-  }
-  __ jcc(Assembler::equal, _continuation);
-
-  // val == null?
-  assert(val()->is_register(), "Precondition.");
-  Register val_reg = val()->as_register();
-
-  __ cmpptr(val_reg, (int32_t) NULL_WORD);
-  __ jcc(Assembler::equal, _continuation);
-
-  ce->store_parameter(val()->as_register(), 0);
-  __ call(RuntimeAddress(Runtime1::entry_for(Runtime1::g1_pre_barrier_slow_id)));
-  __ jmp(_continuation);
 }
 
 jbyte* G1PostBarrierStub::_byte_map_base = NULL;

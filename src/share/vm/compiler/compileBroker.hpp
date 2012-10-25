@@ -36,13 +36,14 @@ class nmethodLocker;
 //
 // An entry in the compile queue.  It represents a pending or current
 // compilation.
-class CompileTask : public CHeapObj {
+class CompileTask : public CHeapObj<mtCompiler> {
   friend class VMStructs;
 
  private:
   Monitor*     _lock;
   uint         _compile_id;
-  jobject      _method;
+  Method*      _method;
+  jobject      _method_loader;
   int          _osr_bci;
   bool         _is_complete;
   bool         _is_success;
@@ -54,7 +55,8 @@ class CompileTask : public CHeapObj {
 
   // Fields used for logging why the compilation was initiated:
   jlong        _time_queued;  // in units of os::elapsed_counter()
-  jobject      _hot_method;   // which method actually triggered this task
+  Method*      _hot_method;   // which method actually triggered this task
+  jobject      _hot_method_loader;
   int          _hot_count;    // information about its invocation counter
   const char*  _comment;      // more info about the task
 
@@ -70,7 +72,7 @@ class CompileTask : public CHeapObj {
   void free();
 
   int          compile_id() const                { return _compile_id; }
-  jobject      method_handle() const             { return _method; }
+  Method*      method() const                    { return _method; }
   int          osr_bci() const                   { return _osr_bci; }
   bool         is_complete() const               { return _is_complete; }
   bool         is_blocking() const               { return _is_blocking; }
@@ -98,22 +100,25 @@ class CompileTask : public CHeapObj {
   void         set_prev(CompileTask* prev)       { _prev = prev; }
 
 private:
-  static void  print_compilation_impl(outputStream* st, methodOop method, int compile_id, int comp_level,
+  static void  print_compilation_impl(outputStream* st, Method* method, int compile_id, int comp_level,
                                       bool is_osr_method = false, int osr_bci = -1, bool is_blocking = false,
                                       const char* msg = NULL, bool short_form = false);
 
 public:
   void         print_compilation(outputStream* st = tty, bool short_form = false);
-  static void  print_compilation(outputStream* st, const nmethod* nm, const char* msg = NULL) {
+  static void  print_compilation(outputStream* st, const nmethod* nm, const char* msg = NULL, bool short_form = false) {
     print_compilation_impl(st, nm->method(), nm->compile_id(), nm->comp_level(),
                            nm->is_osr_method(), nm->is_osr_method() ? nm->osr_entry_bci() : -1, /*is_blocking*/ false,
-                           msg);
+                           msg, short_form);
   }
 
   static void  print_inlining(outputStream* st, ciMethod* method, int inline_level, int bci, const char* msg = NULL);
   static void  print_inlining(ciMethod* method, int inline_level, int bci, const char* msg = NULL) {
     print_inlining(tty, method, inline_level, bci, msg);
   }
+
+  // Redefine Classes support
+  void mark_on_stack();
 
   static void  print_inline_indent(int inline_level, outputStream* st = tty);
 
@@ -131,7 +136,7 @@ public:
 //
 // Per Compiler Performance Counters.
 //
-class CompilerCounters : public CHeapObj {
+class CompilerCounters : public CHeapObj<mtCompiler> {
 
   public:
     enum {
@@ -175,7 +180,7 @@ class CompilerCounters : public CHeapObj {
 // CompileQueue
 //
 // A list of CompileTasks.
-class CompileQueue : public CHeapObj {
+class CompileQueue : public CHeapObj<mtCompiler> {
  private:
   const char* _name;
   Monitor*    _lock;
@@ -205,6 +210,9 @@ class CompileQueue : public CHeapObj {
 
   bool         is_empty() const                  { return _first == NULL; }
   int          size()     const                  { return _size;          }
+
+  // Redefine Classes support
+  void mark_on_stack();
 
   void         print();
 };
@@ -399,6 +407,9 @@ class CompileBroker: AllStatic {
   static jlong total_compilation_ticks() {
     return _perf_total_compilation != NULL ? _perf_total_compilation->get_value() : 0;
   }
+
+  // Redefine Classes support
+  static void mark_on_stack();
 
   // Print a detailed accounting of compilation time
   static void print_times();

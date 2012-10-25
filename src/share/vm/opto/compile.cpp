@@ -928,17 +928,6 @@ Compile::Compile( ciEnv* ci_env,
   }
 }
 
-#ifndef PRODUCT
-void print_opto_verbose_signature( const TypeFunc *j_sig, const char *stub_name ) {
-  if(PrintOpto && Verbose) {
-    tty->print("%s   ", stub_name); j_sig->print_flattened(); tty->cr();
-  }
-}
-#endif
-
-void Compile::print_codes() {
-}
-
 //------------------------------Init-------------------------------------------
 // Prepare for a single compilation
 void Compile::Init(int aliaslevel) {
@@ -966,7 +955,7 @@ void Compile::Init(int aliaslevel) {
   set_recent_alloc(NULL, NULL);
 
   // Create Debug Information Recorder to record scopes, oopmaps, etc.
-  env()->set_oop_recorder(new OopRecorder(comp_arena()));
+  env()->set_oop_recorder(new OopRecorder(env()->arena()));
   env()->set_debug_info(new DebugInformationRecorder(env()->oop_recorder()));
   env()->set_dependencies(new Dependencies(env()));
 
@@ -1185,7 +1174,7 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
     // space to include all of the array body.  Only the header, klass
     // and array length can be accessed un-aliased.
     if( offset != Type::OffsetBot ) {
-      if( ta->const_oop() ) { // methodDataOop or methodOop
+      if( ta->const_oop() ) { // MethodData* or Method*
         offset = Type::OffsetBot;   // Flatten constant access into array body
         tj = ta = TypeAryPtr::make(ptr,ta->const_oop(),ta->ary(),ta->klass(),false,offset);
       } else if( offset == arrayOopDesc::length_offset_in_bytes() ) {
@@ -2300,7 +2289,6 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
   case Op_LoadL:
   case Op_LoadL_unaligned:
   case Op_LoadPLocked:
-  case Op_LoadLLocked:
   case Op_LoadP:
   case Op_LoadN:
   case Op_LoadRange:
@@ -2595,38 +2583,12 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
     }
     break;
 
-  case Op_Load16B:
-  case Op_Load8B:
-  case Op_Load4B:
-  case Op_Load8S:
-  case Op_Load4S:
-  case Op_Load2S:
-  case Op_Load8C:
-  case Op_Load4C:
-  case Op_Load2C:
-  case Op_Load4I:
-  case Op_Load2I:
-  case Op_Load2L:
-  case Op_Load4F:
-  case Op_Load2F:
-  case Op_Load2D:
-  case Op_Store16B:
-  case Op_Store8B:
-  case Op_Store4B:
-  case Op_Store8C:
-  case Op_Store4C:
-  case Op_Store2C:
-  case Op_Store4I:
-  case Op_Store2I:
-  case Op_Store2L:
-  case Op_Store4F:
-  case Op_Store2F:
-  case Op_Store2D:
+  case Op_LoadVector:
+  case Op_StoreVector:
     break;
 
   case Op_PackB:
   case Op_PackS:
-  case Op_PackC:
   case Op_PackI:
   case Op_PackF:
   case Op_PackL:
@@ -2634,7 +2596,7 @@ static void final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc ) {
     if (n->req()-1 > 2) {
       // Replace many operand PackNodes with a binary tree for matching
       PackNode* p = (PackNode*) n;
-      Node* btp = p->binaryTreePack(Compile::current(), 1, n->req());
+      Node* btp = p->binary_tree_pack(Compile::current(), 1, n->req());
       n->subsume_by(btp);
     }
     break;
@@ -3056,12 +3018,13 @@ bool Compile::Constant::operator==(const Constant& other) {
   if (can_be_reused() != other.can_be_reused())  return false;
   // For floating point values we compare the bit pattern.
   switch (type()) {
-  case T_FLOAT:   return (_value.i == other._value.i);
+  case T_FLOAT:   return (_v._value.i == other._v._value.i);
   case T_LONG:
-  case T_DOUBLE:  return (_value.j == other._value.j);
+  case T_DOUBLE:  return (_v._value.j == other._v._value.j);
   case T_OBJECT:
-  case T_ADDRESS: return (_value.l == other._value.l);
-  case T_VOID:    return (_value.l == other._value.l);  // jump-table entries
+  case T_METADATA: return (_v._metadata == other._v._metadata);
+  case T_ADDRESS: return (_v._value.l == other._v._value.l);
+  case T_VOID:    return (_v._value.l == other._v._value.l);  // jump-table entries
   default: ShouldNotReachHere();
   }
   return false;
@@ -3072,6 +3035,7 @@ static int type_to_size_in_bytes(BasicType t) {
   case T_LONG:    return sizeof(jlong  );
   case T_FLOAT:   return sizeof(jfloat );
   case T_DOUBLE:  return sizeof(jdouble);
+  case T_METADATA: return sizeof(Metadata*);
     // We use T_VOID as marker for jump-table entries (labels) which
     // need an internal word relocation.
   case T_VOID:
@@ -3165,10 +3129,16 @@ void Compile::ConstantTable::emit(CodeBuffer& cb) {
       }
       break;
     }
+    case T_METADATA: {
+      Metadata* obj = con.get_metadata();
+      int metadata_index = _masm.oop_recorder()->find_index(obj);
+      constant_addr = _masm.address_constant((address) obj, metadata_Relocation::spec(metadata_index));
+      break;
+    }
     default: ShouldNotReachHere();
     }
     assert(constant_addr, "consts section too small");
-    assert((constant_addr - _masm.code()->consts()->start()) == con.offset(), err_msg("must be: %d == %d", constant_addr - _masm.code()->consts()->start(), con.offset()));
+    assert((constant_addr - _masm.code()->consts()->start()) == con.offset(), err_msg_res("must be: %d == %d", constant_addr - _masm.code()->consts()->start(), con.offset()));
   }
 }
 
@@ -3198,6 +3168,12 @@ Compile::Constant Compile::ConstantTable::add(MachConstantNode* n, BasicType typ
   return con;
 }
 
+Compile::Constant Compile::ConstantTable::add(Metadata* metadata) {
+  Constant con(metadata);
+  add(con);
+  return con;
+}
+
 Compile::Constant Compile::ConstantTable::add(MachConstantNode* n, MachOper* oper) {
   jvalue value;
   BasicType type = oper->type()->basic_type();
@@ -3207,7 +3183,8 @@ Compile::Constant Compile::ConstantTable::add(MachConstantNode* n, MachOper* ope
   case T_DOUBLE:  value.d = oper->constantD(); break;
   case T_OBJECT:
   case T_ADDRESS: value.l = (jobject) oper->constant(); break;
-  default: ShouldNotReachHere();
+  case T_METADATA: return add((Metadata*)oper->constant()); break;
+  default: guarantee(false, err_msg_res("unhandled type: %s", type2name(type)));
   }
   return add(n, type, value);
 }
@@ -3229,7 +3206,7 @@ void Compile::ConstantTable::fill_jump_table(CodeBuffer& cb, MachConstantNode* n
   if (Compile::current()->in_scratch_emit_size())  return;
 
   assert(labels.is_nonempty(), "must be");
-  assert((uint) labels.length() == n->outcnt(), err_msg("must be equal: %d == %d", labels.length(), n->outcnt()));
+  assert((uint) labels.length() == n->outcnt(), err_msg_res("must be equal: %d == %d", labels.length(), n->outcnt()));
 
   // Since MachConstantNode::constant_offset() also contains
   // table_base_offset() we need to subtract the table_base_offset()
@@ -3241,7 +3218,7 @@ void Compile::ConstantTable::fill_jump_table(CodeBuffer& cb, MachConstantNode* n
 
   for (uint i = 0; i < n->outcnt(); i++) {
     address* constant_addr = &jump_table_base[i];
-    assert(*constant_addr == (((address) n) + i), err_msg("all jump-table entries must contain adjusted node pointer: " INTPTR_FORMAT " == " INTPTR_FORMAT, *constant_addr, (((address) n) + i)));
+    assert(*constant_addr == (((address) n) + i), err_msg_res("all jump-table entries must contain adjusted node pointer: " INTPTR_FORMAT " == " INTPTR_FORMAT, *constant_addr, (((address) n) + i)));
     *constant_addr = cb.consts()->target(*labels.at(i), (address) constant_addr);
     cb.consts()->relocate((address) constant_addr, relocInfo::internal_word_type);
   }

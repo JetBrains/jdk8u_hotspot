@@ -55,7 +55,10 @@ class HeapRegionSetBase;
 #define HR_FORMAT "%u:(%s)["PTR_FORMAT","PTR_FORMAT","PTR_FORMAT"]"
 #define HR_FORMAT_PARAMS(_hr_) \
                 (_hr_)->hrs_index(), \
-                (_hr_)->is_survivor() ? "S" : (_hr_)->is_young() ? "E" : "-", \
+                (_hr_)->is_survivor() ? "S" : (_hr_)->is_young() ? "E" : \
+                (_hr_)->startsHumongous() ? "HS" : \
+                (_hr_)->continuesHumongous() ? "HC" : \
+                !(_hr_)->is_empty() ? "O" : "F", \
                 (_hr_)->bottom(), (_hr_)->top(), (_hr_)->end()
 
 // sentinel value for hrs_index
@@ -82,7 +85,7 @@ protected:
 
   void walk_mem_region_with_cl(MemRegion mr,
                                HeapWord* bottom, HeapWord* top,
-                               OopClosure* cl);
+                               ExtendedOopClosure* cl);
 
   // We don't specialize this for FilteringClosure; filtering is handled by
   // the "FilterKind" mechanism.  But we provide this to avoid a compiler
@@ -91,7 +94,7 @@ protected:
                                HeapWord* bottom, HeapWord* top,
                                FilteringClosure* cl) {
     HeapRegionDCTOC::walk_mem_region_with_cl(mr, bottom, top,
-                                                       (OopClosure*)cl);
+                                             (ExtendedOopClosure*)cl);
   }
 
   // Get the actual top of the area on which the closure will
@@ -116,7 +119,7 @@ protected:
 
 public:
   HeapRegionDCTOC(G1CollectedHeap* g1,
-                  HeapRegion* hr, OopClosure* cl,
+                  HeapRegion* hr, ExtendedOopClosure* cl,
                   CardTableModRefBS::PrecisionStyle precision,
                   FilterKind fk);
 };
@@ -162,10 +165,8 @@ class G1OffsetTableContigSpace: public ContiguousSpace {
   HeapWord* _pre_dummy_top;
 
  public:
-  // Constructor.  If "is_zeroed" is true, the MemRegion "mr" may be
-  // assumed to contain zeros.
   G1OffsetTableContigSpace(G1BlockOffsetSharedArray* sharedOffsetArray,
-                           MemRegion mr, bool is_zeroed = false);
+                           MemRegion mr);
 
   void set_bottom(HeapWord* value);
   void set_end(HeapWord* value);
@@ -173,6 +174,7 @@ class G1OffsetTableContigSpace: public ContiguousSpace {
   virtual HeapWord* saved_mark_word() const;
   virtual void set_saved_mark();
   void reset_gc_time_stamp() { _gc_time_stamp = 0; }
+  unsigned get_gc_time_stamp() { return _gc_time_stamp; }
 
   // See the comment above in the declaration of _pre_dummy_top for an
   // explanation of what it is.
@@ -185,7 +187,6 @@ class G1OffsetTableContigSpace: public ContiguousSpace {
   }
   void reset_pre_dummy_top() { _pre_dummy_top = NULL; }
 
-  virtual void initialize(MemRegion mr, bool clear_space, bool mangle_space);
   virtual void clear(bool mangle_space);
 
   HeapWord* block_start(const void* p);
@@ -227,7 +228,7 @@ class HeapRegion: public G1OffsetTableContigSpace {
 
   // Requires that the region "mr" be dense with objects, and begin and end
   // with an object.
-  void oops_in_mr_iterate(MemRegion mr, OopClosure* cl);
+  void oops_in_mr_iterate(MemRegion mr, ExtendedOopClosure* cl);
 
   // The remembered set for this region.
   // (Might want to make this "inline" later, to avoid some alloc failure
@@ -336,10 +337,9 @@ class HeapRegion: public G1OffsetTableContigSpace {
   size_t _predicted_bytes_to_copy;
 
  public:
-  // If "is_zeroed" is "true", the region "mr" can be assumed to contain zeros.
   HeapRegion(uint hrs_index,
              G1BlockOffsetSharedArray* sharedOffsetArray,
-             MemRegion mr, bool is_zeroed);
+             MemRegion mr);
 
   static int    LogOfHRGrainBytes;
   static int    LogOfHRGrainWords;
@@ -437,6 +437,25 @@ class HeapRegion: public G1OffsetTableContigSpace {
   // For a humongous region, region in which it starts.
   HeapRegion* humongous_start_region() const {
     return _humongous_start_region;
+  }
+
+  // Return the number of distinct regions that are covered by this region:
+  // 1 if the region is not humongous, >= 1 if the region is humongous.
+  uint region_num() const {
+    if (!isHumongous()) {
+      return 1U;
+    } else {
+      assert(startsHumongous(), "doesn't make sense on HC regions");
+      assert(capacity() % HeapRegion::GrainBytes == 0, "sanity");
+      return (uint) (capacity() >> HeapRegion::LogOfHRGrainBytes);
+    }
+  }
+
+  // Return the index + 1 of the last HC regions that's associated
+  // with this HS region.
+  uint last_hc_index() const {
+    assert(startsHumongous(), "don't call this otherwise");
+    return hrs_index() + region_num();
   }
 
   // Same as Space::is_in_reserved, but will use the original size of the region.
@@ -575,15 +594,13 @@ class HeapRegion: public G1OffsetTableContigSpace {
   void hr_clear(bool par, bool clear_space);
   void par_clear();
 
-  void initialize(MemRegion mr, bool clear_space, bool mangle_space);
-
   // Get the start of the unmarked area in this region.
   HeapWord* prev_top_at_mark_start() const { return _prev_top_at_mark_start; }
   HeapWord* next_top_at_mark_start() const { return _next_top_at_mark_start; }
 
   // Apply "cl->do_oop" to (the addresses of) all reference fields in objects
   // allocated in the current region before the last call to "save_mark".
-  void oop_before_save_marks_iterate(OopClosure* cl);
+  void oop_before_save_marks_iterate(ExtendedOopClosure* cl);
 
   // Note the start or end of marking. This tells the heap region
   // that the collector is about to start or has finished (concurrently)
@@ -622,8 +639,8 @@ class HeapRegion: public G1OffsetTableContigSpace {
   bool is_marked() { return _prev_top_at_mark_start != bottom(); }
 
   void reset_during_compaction() {
-    guarantee( isHumongous() && startsHumongous(),
-               "should only be called for humongous regions");
+    assert(isHumongous() && startsHumongous(),
+           "should only be called for starts humongous regions");
 
     zero_marked_bytes();
     init_top_at_mark_start();
@@ -774,7 +791,7 @@ class HeapRegion: public G1OffsetTableContigSpace {
   virtual void oop_since_save_marks_iterate##nv_suffix(OopClosureType* cl);
   SPECIALIZED_SINCE_SAVE_MARKS_CLOSURES(HeapRegion_OOP_SINCE_SAVE_MARKS_DECL)
 
-  CompactibleSpace* next_compaction_space() const;
+  virtual CompactibleSpace* next_compaction_space() const;
 
   virtual void reset_after_compaction();
 

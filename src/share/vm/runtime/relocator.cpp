@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 #include "precompiled.hpp"
 #include "classfile/stackMapTableFormat.hpp"
 #include "interpreter/bytecodes.hpp"
+#include "memory/metadataFactory.hpp"
 #include "memory/oopFactory.hpp"
 #include "memory/universe.inline.hpp"
 #include "oops/oop.inline.hpp"
@@ -155,11 +156,16 @@ methodHandle Relocator::insert_space_at(int bci, int size, u_char inst_buffer[],
   if (!handle_code_changes()) return methodHandle();
 
     // Construct the new method
-  methodHandle new_method = methodOopDesc::clone_with_new_data(method(),
+  methodHandle new_method = Method::clone_with_new_data(method(),
                               code_array(), code_length(),
                               compressed_line_number_table(),
                               compressed_line_number_table_size(),
                               CHECK_(methodHandle()));
+
+  // Deallocate the old Method* from metadata
+  ClassLoaderData* loader_data = method()->method_holder()->class_loader_data();
+  loader_data->add_to_deallocate_list(method()());
+
     set_method(new_method);
 
   if (TraceRelocator) {
@@ -392,16 +398,16 @@ void Relocator::change_jumps(int break_bci, int delta) {
 // The width of instruction at "pc" is changing by "delta".  Adjust the
 // exception table, if any, of "rc->mb".
 void Relocator::adjust_exception_table(int bci, int delta) {
-  typeArrayOop table = method()->exception_table();
-  for (int index = 0; index < table->length(); index +=4) {
-    if (table->int_at(index) > bci) {
-      table->int_at_put(index+0, table->int_at(index+0) + delta);
-      table->int_at_put(index+1, table->int_at(index+1) + delta);
-    } else if (bci < table->int_at(index+1)) {
-      table->int_at_put(index+1, table->int_at(index+1) + delta);
+  ExceptionTable table(_method());
+  for (int index = 0; index < table.length(); index ++) {
+    if (table.start_pc(index) > bci) {
+      table.set_start_pc(index, table.start_pc(index) + delta);
+      table.set_end_pc(index, table.end_pc(index) + delta);
+    } else if (bci < table.end_pc(index)) {
+      table.set_end_pc(index, table.end_pc(index) + delta);
     }
-    if (table->int_at(index+2) > bci)
-      table->int_at_put(index+2, table->int_at(index+2) + delta);
+    if (table.handler_pc(index) > bci)
+      table.set_handler_pc(index, table.handler_pc(index) + delta);
   }
 }
 
@@ -443,16 +449,14 @@ void Relocator::adjust_local_var_table(int bci, int delta) {
 
 // Create a new array, copying the src array but adding a hole at
 // the specified location
-static typeArrayOop insert_hole_at(
-    size_t where, int hole_sz, typeArrayOop src) {
+static Array<u1>* insert_hole_at(ClassLoaderData* loader_data,
+    size_t where, int hole_sz, Array<u1>* src) {
   Thread* THREAD = Thread::current();
-  Handle src_hnd(THREAD, src);
-  typeArrayOop dst =
-      oopFactory::new_permanent_byteArray(src->length() + hole_sz, CHECK_NULL);
-  src = (typeArrayOop)src_hnd();
+  Array<u1>* dst =
+      MetadataFactory::new_array<u1>(loader_data, src->length() + hole_sz, 0, CHECK_NULL);
 
-  address src_addr = (address)src->byte_at_addr(0);
-  address dst_addr = (address)dst->byte_at_addr(0);
+  address src_addr = (address)src->adr_at(0);
+  address dst_addr = (address)dst->adr_at(0);
 
   memcpy(dst_addr, src_addr, where);
   memcpy(dst_addr + where + hole_sz,
@@ -464,14 +468,13 @@ static typeArrayOop insert_hole_at(
 // map frames.
 void Relocator::adjust_stack_map_table(int bci, int delta) {
   if (method()->has_stackmap_table()) {
-    typeArrayOop data = method()->stackmap_data();
-    // The data in the array is a classfile representation of the stackmap
-    // table attribute, less the initial u2 tag and u4 attribute_length fields.
-    stack_map_table_attribute* attr = stack_map_table_attribute::at(
-        (address)data->byte_at_addr(0) - (sizeof(u2) + sizeof(u4)));
+    Array<u1>* data = method()->stackmap_data();
+    // The data in the array is a classfile representation of the stackmap table
+    stack_map_table* sm_table =
+        stack_map_table::at((address)data->adr_at(0));
 
-    int count = attr->number_of_entries();
-    stack_map_frame* frame = attr->entries();
+    int count = sm_table->number_of_entries();
+    stack_map_frame* frame = sm_table->entries();
     int bci_iter = -1;
     bool offset_adjusted = false; // only need to adjust one offset
 
@@ -486,7 +489,7 @@ void Relocator::adjust_stack_map_table(int bci, int delta) {
           frame->set_offset_delta(new_offset_delta);
         } else {
           assert(frame->is_same_frame() ||
-                 frame->is_same_frame_1_stack_item_frame(),
+                 frame->is_same_locals_1_stack_item_frame(),
                  "Frame must be one of the compressed forms");
           // The new delta exceeds the capacity of the 'same_frame' or
           // 'same_frame_1_stack_item_frame' frame types.  We need to
@@ -498,14 +501,18 @@ void Relocator::adjust_stack_map_table(int bci, int delta) {
           // We can safely ignore the reverse situation as a small delta
           // can still be used in an extended version of the frame.
 
-          size_t frame_offset = (address)frame - (address)data->byte_at_addr(0);
+          size_t frame_offset = (address)frame - (address)data->adr_at(0);
 
-          data = insert_hole_at(frame_offset + 1, 2, data);
-          if (data == NULL) {
+          ClassLoaderData* loader_data = method()->method_holder()->class_loader_data();
+          Array<u1>* new_data = insert_hole_at(loader_data, frame_offset + 1, 2, data);
+          if (new_data == NULL) {
             return; // out-of-memory?
           }
+          // Deallocate old data
+          MetadataFactory::free_array<u1>(loader_data, data);
+          data = new_data;
 
-          address frame_addr = (address)(data->byte_at_addr(0) + frame_offset);
+          address frame_addr = (address)(data->adr_at(0) + frame_offset);
           frame = stack_map_frame::at(frame_addr);
 
 
@@ -513,7 +520,7 @@ void Relocator::adjust_stack_map_table(int bci, int delta) {
           if (frame->is_same_frame()) {
             same_frame_extended::create_at(frame_addr, new_offset_delta);
           } else {
-            same_frame_1_stack_item_extended::create_at(
+            same_locals_1_stack_item_extended::create_at(
               frame_addr, new_offset_delta, NULL);
             // the verification_info_type should already be at the right spot
           }
@@ -574,7 +581,7 @@ bool Relocator::expand_code_array(int delta) {
   if (code_array() != NULL) {
     memcpy(new_code_array, code_array(), code_length());
   } else {
-    // Initial copy. Copy directly from methodOop
+    // Initial copy. Copy directly from Method*
     memcpy(new_code_array, method()->code_base(), code_length());
   }
 

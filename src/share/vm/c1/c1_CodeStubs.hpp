@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -346,7 +346,8 @@ class PatchingStub: public CodeStub {
  public:
   enum PatchID {
     access_field_id,
-    load_klass_id
+    load_klass_id,
+    load_mirror_id
   };
   enum constants {
     patch_info_size = 3
@@ -360,7 +361,7 @@ class PatchingStub: public CodeStub {
   Label         _patch_site_continuation;
   Register      _obj;
   CodeEmitInfo* _info;
-  int           _oop_index;  // index of the patchable oop in nmethod oop table if needed
+  int           _index;  // index of the patchable oop or Klass* in nmethod oop or metadata table if needed
   static int    _patch_info_offset;
 
   void align_patch_site(MacroAssembler* masm);
@@ -368,10 +369,10 @@ class PatchingStub: public CodeStub {
  public:
   static int patch_info_offset() { return _patch_info_offset; }
 
-  PatchingStub(MacroAssembler* masm, PatchID id, int oop_index = -1):
+  PatchingStub(MacroAssembler* masm, PatchID id, int index = -1):
       _id(id)
     , _info(NULL)
-    , _oop_index(oop_index) {
+    , _index(index) {
     if (os::is_MP()) {
       // force alignment of patch sites on MP hardware so we
       // can guarantee atomic writes to the patch site.
@@ -399,8 +400,8 @@ class PatchingStub: public CodeStub {
       }
       NativeMovRegMem* n_move = nativeMovRegMem_at(pc_start());
       n_move->set_offset(field_offset);
-    } else if (_id == load_klass_id) {
-      assert(_obj != noreg, "must have register object for load_klass");
+    } else if (_id == load_klass_id || _id == load_mirror_id) {
+      assert(_obj != noreg, "must have register object for load_klass/load_mirror");
 #ifdef ASSERT
       // verify that we're pointing at a NativeMovConstReg
       nativeMovConstReg_at(pc_start());
@@ -571,71 +572,6 @@ class G1PreBarrierStub: public CodeStub {
   }
 #ifndef PRODUCT
   virtual void print_name(outputStream* out) const { out->print("G1PreBarrierStub"); }
-#endif // PRODUCT
-};
-
-// This G1 barrier code stub is used in Unsafe.getObject.
-// It generates a sequence of guards around the SATB
-// barrier code that are used to detect when we have
-// the referent field of a Reference object.
-// The first check is assumed to have been generated
-// in the code generated for Unsafe.getObject().
-
-class G1UnsafeGetObjSATBBarrierStub: public CodeStub {
- private:
-  LIR_Opr _val;
-  LIR_Opr _src;
-
-  LIR_Opr _tmp;
-  LIR_Opr _thread;
-
-  bool _gen_src_check;
-
- public:
-  // A G1 barrier that is guarded by generated guards that determine whether
-  // val (which is the result of Unsafe.getObject() should be recorded in an
-  // SATB log buffer. We could be reading the referent field of a Reference object
-  // using Unsafe.getObject() and we need to record the referent.
-  //
-  // * val is the operand returned by the unsafe.getObject routine.
-  // * src is the base object
-  // * tmp is a temp used to load the klass of src, and then reference type
-  // * thread is the thread object.
-
-  G1UnsafeGetObjSATBBarrierStub(LIR_Opr val, LIR_Opr src,
-                                LIR_Opr tmp, LIR_Opr thread,
-                                bool gen_src_check) :
-    _val(val), _src(src),
-    _tmp(tmp), _thread(thread),
-    _gen_src_check(gen_src_check)
-  {
-    assert(_val->is_register(), "should have already been loaded");
-    assert(_src->is_register(), "should have already been loaded");
-
-    assert(_tmp->is_register(), "should be a temporary register");
-  }
-
-  LIR_Opr val() const { return _val; }
-  LIR_Opr src() const { return _src; }
-
-  LIR_Opr tmp() const { return _tmp; }
-  LIR_Opr thread() const { return _thread; }
-
-  bool gen_src_check() const { return _gen_src_check; }
-
-  virtual void emit_code(LIR_Assembler* e);
-
-  virtual void visit(LIR_OpVisitState* visitor) {
-    visitor->do_slow_case();
-    visitor->do_input(_val);
-    visitor->do_input(_src);
-    visitor->do_input(_thread);
-
-    visitor->do_temp(_tmp);
-  }
-
-#ifndef PRODUCT
-  virtual void print_name(outputStream* out) const { out->print("G1UnsafeGetObjSATBBarrierStub"); }
 #endif // PRODUCT
 };
 

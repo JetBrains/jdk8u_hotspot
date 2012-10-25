@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@
 
 class ObjectStartArray;
 
-class PSMarkSweepDecorator: public CHeapObj {
+class PSMarkSweepDecorator: public CHeapObj<mtGC> {
  private:
   static PSMarkSweepDecorator* _destination_decorator;
 
@@ -59,7 +59,6 @@ class PSMarkSweepDecorator: public CHeapObj {
   // spaces in a given order. We want to fill space A, space B, and so
   // on. The code that controls that order is in the following methods.
   static void set_destination_decorator_tenured();
-  static void set_destination_decorator_perm_gen();
   static void advance_destination_decorator();
   static PSMarkSweepDecorator* destination_decorator();
 

@@ -29,7 +29,7 @@
 #include "code/icBuffer.hpp"
 #include "code/vtableStubs.hpp"
 #include "interpreter/interpreter.hpp"
-#include "oops/compiledICHolderOop.hpp"
+#include "oops/compiledICHolder.hpp"
 #include "prims/jvmtiRedefineClassesTrace.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/vframeArray.hpp"
@@ -400,13 +400,13 @@ int SharedRuntime::java_calling_convention(const BasicType *sig_bt,
     case T_LONG:                // LP64, longs compete with int args
       assert(sig_bt[i+1] == T_VOID, "");
 #ifdef _LP64
-      if (int_reg_cnt < int_reg_max) int_reg_cnt++;
+      if (int_reg_cnt < int_reg_max)  int_reg_cnt++;
 #endif
       break;
     case T_OBJECT:
     case T_ARRAY:
     case T_ADDRESS: // Used, e.g., in slow-path locking for the lock's stack address
-      if (int_reg_cnt < int_reg_max) int_reg_cnt++;
+      if (int_reg_cnt < int_reg_max)  int_reg_cnt++;
 #ifndef _LP64
       else                            stk_reg_pairs++;
 #endif
@@ -416,11 +416,11 @@ int SharedRuntime::java_calling_convention(const BasicType *sig_bt,
     case T_CHAR:
     case T_BYTE:
     case T_BOOLEAN:
-      if (int_reg_cnt < int_reg_max) int_reg_cnt++;
+      if (int_reg_cnt < int_reg_max)  int_reg_cnt++;
       else                            stk_reg_pairs++;
       break;
     case T_FLOAT:
-      if (flt_reg_cnt < flt_reg_max) flt_reg_cnt++;
+      if (flt_reg_cnt < flt_reg_max)  flt_reg_cnt++;
       else                            stk_reg_pairs++;
       break;
     case T_DOUBLE:
@@ -436,7 +436,6 @@ int SharedRuntime::java_calling_convention(const BasicType *sig_bt,
   // This is where the longs/doubles start on the stack.
   stk_reg_pairs = (stk_reg_pairs+1) & ~1; // Round
 
-  int int_reg_pairs = (int_reg_cnt+1) & ~1; // 32-bit 2-reg longs only
   int flt_reg_pairs = (flt_reg_cnt+1) & ~1;
 
   // int stk_reg = frame::register_save_words*(wordSize>>2);
@@ -517,24 +516,15 @@ int SharedRuntime::java_calling_convention(const BasicType *sig_bt,
           stk_reg_pairs += 2;
         }
 #else // COMPILER2
-        if (int_reg_pairs + 1 < int_reg_max) {
-          if (is_outgoing) {
-            regs[i].set_pair(as_oRegister(int_reg_pairs + 1)->as_VMReg(), as_oRegister(int_reg_pairs)->as_VMReg());
-          } else {
-            regs[i].set_pair(as_iRegister(int_reg_pairs + 1)->as_VMReg(), as_iRegister(int_reg_pairs)->as_VMReg());
-          }
-          int_reg_pairs += 2;
-        } else {
           regs[i].set2(VMRegImpl::stack2reg(stk_reg_pairs));
           stk_reg_pairs += 2;
-        }
 #endif // COMPILER2
 #endif // _LP64
       break;
 
     case T_FLOAT:
       if (flt_reg < flt_reg_max) regs[i].set1(as_FloatRegister(flt_reg++)->as_VMReg());
-      else                       regs[i].set1(    VMRegImpl::stack2reg(stk_reg++));
+      else                       regs[i].set1(VMRegImpl::stack2reg(stk_reg++));
       break;
     case T_DOUBLE:
       assert(sig_bt[i+1] == T_VOID, "expecting half");
@@ -609,10 +599,10 @@ class AdapterGenerator {
 // Patch the callers callsite with entry to compiled code if it exists.
 void AdapterGenerator::patch_callers_callsite() {
   Label L;
-  __ ld_ptr(G5_method, in_bytes(methodOopDesc::code_offset()), G3_scratch);
+  __ ld_ptr(G5_method, in_bytes(Method::code_offset()), G3_scratch);
   __ br_null(G3_scratch, false, Assembler::pt, L);
   // Schedule the branch target address early.
-  __ delayed()->ld_ptr(G5_method, in_bytes(methodOopDesc::interpreter_entry_offset()), G3_scratch);
+  __ delayed()->ld_ptr(G5_method, in_bytes(Method::interpreter_entry_offset()), G3_scratch);
   // Call into the VM to patch the caller, then jump to compiled callee
   __ save_frame(4);     // Args in compiled layout; do not blow them
 
@@ -621,7 +611,7 @@ void AdapterGenerator::patch_callers_callsite() {
   // G2: global allocated to TLS
   // G3: used in inline cache check (scratch)
   // G4: 2nd Long arg (32bit build);
-  // G5: used in inline cache check (methodOop)
+  // G5: used in inline cache check (Method*)
 
   // The longs must go to the stack by hand since in the 32 bit build they can be trashed by window ops.
 
@@ -655,7 +645,7 @@ void AdapterGenerator::patch_callers_callsite() {
   __ ldx(FP, -8 + STACK_BIAS, G1);
   __ ldx(FP, -16 + STACK_BIAS, G4);
   __ mov(L5, G5_method);
-  __ ld_ptr(G5_method, in_bytes(methodOopDesc::interpreter_entry_offset()), G3_scratch);
+  __ ld_ptr(G5_method, in_bytes(Method::interpreter_entry_offset()), G3_scratch);
 #endif /* _LP64 */
 
   __ restore();      // Restore args
@@ -863,7 +853,7 @@ void AdapterGenerator::gen_c2i_adapter(
 
 #ifdef _LP64
   // Need to reload G3_scratch, used for temporary displacements.
-  __ ld_ptr(G5_method, in_bytes(methodOopDesc::interpreter_entry_offset()), G3_scratch);
+  __ ld_ptr(G5_method, in_bytes(Method::interpreter_entry_offset()), G3_scratch);
 
   // Pass O5_savedSP as an argument to the interpreter.
   // The interpreter will restore SP to this value before returning.
@@ -886,6 +876,20 @@ void AdapterGenerator::gen_c2i_adapter(
   __ delayed()->add(SP, G1, Gargs);
 }
 
+static void range_check(MacroAssembler* masm, Register pc_reg, Register temp_reg, Register temp2_reg,
+                        address code_start, address code_end,
+                        Label& L_ok) {
+  Label L_fail;
+  __ set(ExternalAddress(code_start), temp_reg);
+  __ set(pointer_delta(code_end, code_start, 1), temp2_reg);
+  __ cmp(pc_reg, temp_reg);
+  __ brx(Assembler::lessEqualUnsigned, false, Assembler::pn, L_fail);
+  __ delayed()->add(temp_reg, temp2_reg, temp_reg);
+  __ cmp(pc_reg, temp_reg);
+  __ cmp_and_brx_short(pc_reg, temp_reg, Assembler::lessUnsigned, Assembler::pt, L_ok);
+  __ bind(L_fail);
+}
+
 void AdapterGenerator::gen_i2c_adapter(
                             int total_args_passed,
                             // VMReg max_arg,
@@ -906,6 +910,51 @@ void AdapterGenerator::gen_i2c_adapter(
   // race and use a c2i we will remain interpreted for the race loser(s).
   // This removes all sorts of headaches on the x86 side and also eliminates
   // the possibility of having c2i -> i2c -> c2i -> ... endless transitions.
+
+  // More detail:
+  // Adapters can be frameless because they do not require the caller
+  // to perform additional cleanup work, such as correcting the stack pointer.
+  // An i2c adapter is frameless because the *caller* frame, which is interpreted,
+  // routinely repairs its own stack pointer (from interpreter_frame_last_sp),
+  // even if a callee has modified the stack pointer.
+  // A c2i adapter is frameless because the *callee* frame, which is interpreted,
+  // routinely repairs its caller's stack pointer (from sender_sp, which is set
+  // up via the senderSP register).
+  // In other words, if *either* the caller or callee is interpreted, we can
+  // get the stack pointer repaired after a call.
+  // This is why c2i and i2c adapters cannot be indefinitely composed.
+  // In particular, if a c2i adapter were to somehow call an i2c adapter,
+  // both caller and callee would be compiled methods, and neither would
+  // clean up the stack pointer changes performed by the two adapters.
+  // If this happens, control eventually transfers back to the compiled
+  // caller, but with an uncorrected stack, causing delayed havoc.
+
+  if (VerifyAdapterCalls &&
+      (Interpreter::code() != NULL || StubRoutines::code1() != NULL)) {
+    // So, let's test for cascading c2i/i2c adapters right now.
+    //  assert(Interpreter::contains($return_addr) ||
+    //         StubRoutines::contains($return_addr),
+    //         "i2c adapter must return to an interpreter frame");
+    __ block_comment("verify_i2c { ");
+    Label L_ok;
+    if (Interpreter::code() != NULL)
+      range_check(masm, O7, O0, O1,
+                  Interpreter::code()->code_start(), Interpreter::code()->code_end(),
+                  L_ok);
+    if (StubRoutines::code1() != NULL)
+      range_check(masm, O7, O0, O1,
+                  StubRoutines::code1()->code_begin(), StubRoutines::code1()->code_end(),
+                  L_ok);
+    if (StubRoutines::code2() != NULL)
+      range_check(masm, O7, O0, O1,
+                  StubRoutines::code2()->code_begin(), StubRoutines::code2()->code_end(),
+                  L_ok);
+    const char* msg = "i2c adapter must return to an interpreter frame";
+    __ block_comment(msg);
+    __ stop(msg);
+    __ bind(L_ok);
+    __ block_comment("} verify_i2ce ");
+  }
 
   // As you can see from the list of inputs & outputs there are not a lot
   // of temp registers to work with: mostly G1, G3 & G4.
@@ -997,7 +1046,7 @@ void AdapterGenerator::gen_i2c_adapter(
 
   // Will jump to the compiled code just as if compiled code was doing it.
   // Pre-load the register-jump target early, to schedule it better.
-  __ ld_ptr(G5_method, in_bytes(methodOopDesc::from_compiled_offset()), G3);
+  __ ld_ptr(G5_method, in_bytes(Method::from_compiled_offset()), G3);
 
   // Now generate the shuffle code.  Pick up all register args and move the
   // rest through G1_scratch.
@@ -1114,7 +1163,7 @@ void AdapterGenerator::gen_i2c_adapter(
 #ifndef _LP64
     if (g3_crushed) {
       // Rats load was wasted, at least it is in cache...
-      __ ld_ptr(G5_method, methodOopDesc::from_compiled_offset(), G3);
+      __ ld_ptr(G5_method, Method::from_compiled_offset(), G3);
     }
 #endif /* _LP64 */
 
@@ -1163,7 +1212,7 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
 
 
   // -------------------------------------------------------------------------
-  // Generate a C2I adapter.  On entry we know G5 holds the methodOop.  The
+  // Generate a C2I adapter.  On entry we know G5 holds the Method*.  The
   // args start out packed in the compiled layout.  They need to be unpacked
   // into the interpreter layout.  This will almost always require some stack
   // space.  We grow the current (compiled) stack, then repack the args.  We
@@ -1183,25 +1232,21 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
     AddressLiteral ic_miss(SharedRuntime::get_ic_miss_stub());
 
     __ verify_oop(O0);
-    __ verify_oop(G5_method);
     __ load_klass(O0, G3_scratch);
-    __ verify_oop(G3_scratch);
 
 #if !defined(_LP64) && defined(COMPILER2)
     __ save(SP, -frame::register_save_words*wordSize, SP);
-    __ ld_ptr(G5_method, compiledICHolderOopDesc::holder_klass_offset(), R_temp);
-    __ verify_oop(R_temp);
+    __ ld_ptr(G5_method, CompiledICHolder::holder_klass_offset(), R_temp);
     __ cmp(G3_scratch, R_temp);
     __ restore();
 #else
-    __ ld_ptr(G5_method, compiledICHolderOopDesc::holder_klass_offset(), R_temp);
-    __ verify_oop(R_temp);
+    __ ld_ptr(G5_method, CompiledICHolder::holder_klass_offset(), R_temp);
     __ cmp(G3_scratch, R_temp);
 #endif
 
     Label ok, ok2;
     __ brx(Assembler::equal, false, Assembler::pt, ok);
-    __ delayed()->ld_ptr(G5_method, compiledICHolderOopDesc::holder_method_offset(), G5_method);
+    __ delayed()->ld_ptr(G5_method, CompiledICHolder::holder_method_offset(), G5_method);
     __ jump_to(ic_miss, G3_scratch);
     __ delayed()->nop();
 
@@ -1209,10 +1254,10 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
     // Method might have been compiled since the call site was patched to
     // interpreted if that is the case treat it as a miss so we can get
     // the call site corrected.
-    __ ld_ptr(G5_method, in_bytes(methodOopDesc::code_offset()), G3_scratch);
+    __ ld_ptr(G5_method, in_bytes(Method::code_offset()), G3_scratch);
     __ bind(ok2);
     __ br_null(G3_scratch, false, Assembler::pt, skip_fixup);
-    __ delayed()->ld_ptr(G5_method, in_bytes(methodOopDesc::interpreter_entry_offset()), G3_scratch);
+    __ delayed()->ld_ptr(G5_method, in_bytes(Method::interpreter_entry_offset()), G3_scratch);
     __ jump_to(ic_miss, G3_scratch);
     __ delayed()->nop();
 
@@ -1295,6 +1340,7 @@ int SharedRuntime::c_calling_convention(const BasicType *sig_bt,
       case T_ADDRESS: // raw pointers, like current thread, for VM calls
       case T_ARRAY:
       case T_OBJECT:
+      case T_METADATA:
         regs[i].set2( int_stk_helper( j ) );
         break;
       case T_FLOAT:
@@ -1343,6 +1389,7 @@ int SharedRuntime::c_calling_convention(const BasicType *sig_bt,
       case T_FLOAT:
       case T_INT:
       case T_OBJECT:
+      case T_METADATA:
       case T_SHORT:
         regs[i].set1( int_stk_helper( i ) );
         break;
@@ -1937,20 +1984,156 @@ static void unpack_array_argument(MacroAssembler* masm, VMRegPair reg, BasicType
   __ bind(done);
 }
 
+static void verify_oop_args(MacroAssembler* masm,
+                            int total_args_passed,
+                            const BasicType* sig_bt,
+                            const VMRegPair* regs) {
+  Register temp_reg = G5_method;  // not part of any compiled calling seq
+  if (VerifyOops) {
+    for (int i = 0; i < total_args_passed; i++) {
+      if (sig_bt[i] == T_OBJECT ||
+          sig_bt[i] == T_ARRAY) {
+        VMReg r = regs[i].first();
+        assert(r->is_valid(), "bad oop arg");
+        if (r->is_stack()) {
+          RegisterOrConstant ld_off = reg2offset(r) + STACK_BIAS;
+          ld_off = __ ensure_simm13_or_reg(ld_off, temp_reg);
+          __ ld_ptr(SP, ld_off, temp_reg);
+          __ verify_oop(temp_reg);
+        } else {
+          __ verify_oop(r->as_Register());
+        }
+      }
+    }
+  }
+}
+
+static void gen_special_dispatch(MacroAssembler* masm,
+                                 int total_args_passed,
+                                 int comp_args_on_stack,
+                                 vmIntrinsics::ID special_dispatch,
+                                 const BasicType* sig_bt,
+                                 const VMRegPair* regs) {
+  verify_oop_args(masm, total_args_passed, sig_bt, regs);
+
+  // Now write the args into the outgoing interpreter space
+  bool     has_receiver   = false;
+  Register receiver_reg   = noreg;
+  int      member_arg_pos = -1;
+  Register member_reg     = noreg;
+  int      ref_kind       = MethodHandles::signature_polymorphic_intrinsic_ref_kind(special_dispatch);
+  if (ref_kind != 0) {
+    member_arg_pos = total_args_passed - 1;  // trailing MemberName argument
+    member_reg = G5_method;  // known to be free at this point
+    has_receiver = MethodHandles::ref_kind_has_receiver(ref_kind);
+  } else if (special_dispatch == vmIntrinsics::_invokeBasic) {
+    has_receiver = true;
+  } else {
+    fatal(err_msg("special_dispatch=%d", special_dispatch));
+  }
+
+  if (member_reg != noreg) {
+    // Load the member_arg into register, if necessary.
+    assert(member_arg_pos >= 0 && member_arg_pos < total_args_passed, "oob");
+    assert(sig_bt[member_arg_pos] == T_OBJECT, "dispatch argument must be an object");
+    VMReg r = regs[member_arg_pos].first();
+    assert(r->is_valid(), "bad member arg");
+    if (r->is_stack()) {
+      RegisterOrConstant ld_off = reg2offset(r) + STACK_BIAS;
+      ld_off = __ ensure_simm13_or_reg(ld_off, member_reg);
+      __ ld_ptr(SP, ld_off, member_reg);
+    } else {
+      // no data motion is needed
+      member_reg = r->as_Register();
+    }
+  }
+
+  if (has_receiver) {
+    // Make sure the receiver is loaded into a register.
+    assert(total_args_passed > 0, "oob");
+    assert(sig_bt[0] == T_OBJECT, "receiver argument must be an object");
+    VMReg r = regs[0].first();
+    assert(r->is_valid(), "bad receiver arg");
+    if (r->is_stack()) {
+      // Porting note:  This assumes that compiled calling conventions always
+      // pass the receiver oop in a register.  If this is not true on some
+      // platform, pick a temp and load the receiver from stack.
+      assert(false, "receiver always in a register");
+      receiver_reg = G3_scratch;  // known to be free at this point
+      RegisterOrConstant ld_off = reg2offset(r) + STACK_BIAS;
+      ld_off = __ ensure_simm13_or_reg(ld_off, member_reg);
+      __ ld_ptr(SP, ld_off, receiver_reg);
+    } else {
+      // no data motion is needed
+      receiver_reg = r->as_Register();
+    }
+  }
+
+  // Figure out which address we are really jumping to:
+  MethodHandles::generate_method_handle_dispatch(masm, special_dispatch,
+                                                 receiver_reg, member_reg, /*for_compiler_entry:*/ true);
+}
+
 // ---------------------------------------------------------------------------
 // Generate a native wrapper for a given method.  The method takes arguments
 // in the Java compiled code convention, marshals them to the native
 // convention (handlizes oops, etc), transitions to native, makes the call,
 // returns to java state (possibly blocking), unhandlizes any result and
 // returns.
+//
+// Critical native functions are a shorthand for the use of
+// GetPrimtiveArrayCritical and disallow the use of any other JNI
+// functions.  The wrapper is expected to unpack the arguments before
+// passing them to the callee and perform checks before and after the
+// native call to ensure that they GC_locker
+// lock_critical/unlock_critical semantics are followed.  Some other
+// parts of JNI setup are skipped like the tear down of the JNI handle
+// block and the check for pending exceptions it's impossible for them
+// to be thrown.
+//
+// They are roughly structured like this:
+//    if (GC_locker::needs_gc())
+//      SharedRuntime::block_for_jni_critical();
+//    tranistion to thread_in_native
+//    unpack arrray arguments and call native entry point
+//    check for safepoint in progress
+//    check if any thread suspend flags are set
+//      call into JVM and possible unlock the JNI critical
+//      if a GC was suppressed while in the critical native.
+//    transition back to thread_in_Java
+//    return to caller
+//
 nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
                                                 methodHandle method,
                                                 int compile_id,
                                                 int total_in_args,
                                                 int comp_args_on_stack, // in VMRegStackSlots
-                                                BasicType *in_sig_bt,
-                                                VMRegPair *in_regs,
+                                                BasicType* in_sig_bt,
+                                                VMRegPair* in_regs,
                                                 BasicType ret_type) {
+  if (method->is_method_handle_intrinsic()) {
+    vmIntrinsics::ID iid = method->intrinsic_id();
+    intptr_t start = (intptr_t)__ pc();
+    int vep_offset = ((intptr_t)__ pc()) - start;
+    gen_special_dispatch(masm,
+                         total_in_args,
+                         comp_args_on_stack,
+                         method->intrinsic_id(),
+                         in_sig_bt,
+                         in_regs);
+    int frame_complete = ((intptr_t)__ pc()) - start;  // not complete, period
+    __ flush();
+    int stack_slots = SharedRuntime::out_preserve_stack_slots();  // no out slots at all, actually
+    return nmethod::new_native_nmethod(method,
+                                       compile_id,
+                                       masm->code(),
+                                       vep_offset,
+                                       frame_complete,
+                                       stack_slots / VMRegImpl::slots_per_word,
+                                       in_ByteSize(-1),
+                                       in_ByteSize(-1),
+                                       (OopMapSet*)NULL);
+  }
   bool is_critical_native = true;
   address native_func = method->critical_native_function();
   if (native_func == NULL) {
@@ -2386,7 +2569,7 @@ nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     // create inner frame
     __ save_frame(0);
     __ mov(G2_thread, L7_thread_cache);
-    __ set_oop_constant(JNIHandles::make_local(method()), O1);
+    __ set_metadata_constant(method(), O1);
     __ call_VM_leaf(L7_thread_cache,
          CAST_FROM_FN_PTR(address, SharedRuntime::dtrace_method_entry),
          G2_thread, O1);
@@ -2398,7 +2581,7 @@ nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     // create inner frame
     __ save_frame(0);
     __ mov(G2_thread, L7_thread_cache);
-    __ set_oop_constant(JNIHandles::make_local(method()), O1);
+    __ set_metadata_constant(method(), O1);
     __ call_VM_leaf(L7_thread_cache,
          CAST_FROM_FN_PTR(address, SharedRuntime::rc_trace_method_entry),
          G2_thread, O1);
@@ -2684,7 +2867,7 @@ nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     SkipIfEqual skip_if(
       masm, G3_scratch, &DTraceMethodProbes, Assembler::zero);
     save_native_result(masm, ret_type, stack_slots);
-    __ set_oop_constant(JNIHandles::make_local(method()), O1);
+    __ set_metadata_constant(method(), O1);
     __ call_VM_leaf(L7_thread_cache,
        CAST_FROM_FN_PTR(address, SharedRuntime::dtrace_method_exit),
        G2_thread, O1);
@@ -3896,9 +4079,9 @@ RuntimeStub* SharedRuntime::generate_resolve_blob(address destination, const cha
   __ ld_ptr(G2_thread, in_bytes(Thread::pending_exception_offset()), O1);
   __ br_notnull_short(O1, Assembler::pn, pending);
 
-  // get the returned methodOop
+  // get the returned Method*
 
-  __ get_vm_result(G5_method);
+  __ get_vm_result_2(G5_method);
   __ stx(G5_method, SP, RegisterSaver::G5_offset()+STACK_BIAS);
 
   // O0 is where we want to jump, overwrite G3 which is saved and scratch

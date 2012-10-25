@@ -26,7 +26,7 @@
 #define SHARE_VM_RUNTIME_FRAME_HPP
 
 #include "asm/assembler.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "runtime/basicLock.hpp"
 #include "runtime/monitorChunk.hpp"
 #include "runtime/registerMap.hpp"
@@ -138,7 +138,7 @@ class frame VALUE_OBJ_CLASS_SPEC {
   bool is_interpreted_frame()    const;
   bool is_java_frame()           const;
   bool is_entry_frame()          const;             // Java frame called from C?
-  bool is_ricochet_frame()       const;
+  bool is_ignored_frame()        const;
   bool is_native_frame()         const;
   bool is_runtime_frame()        const;
   bool is_compiled_frame()       const;
@@ -179,7 +179,6 @@ class frame VALUE_OBJ_CLASS_SPEC {
   // Helper methods for better factored code in frame::sender
   frame sender_for_compiled_frame(RegisterMap* map) const;
   frame sender_for_entry_frame(RegisterMap* map) const;
-  frame sender_for_ricochet_frame(RegisterMap* map) const;
   frame sender_for_interpreter_frame(RegisterMap* map) const;
   frame sender_for_native_frame(RegisterMap* map) const;
 
@@ -201,7 +200,7 @@ class frame VALUE_OBJ_CLASS_SPEC {
 
   oop*      obj_at_addr(int offset) const        { return (oop*)     addr_at(offset); }
 
-  oop*      adjusted_obj_at_addr(methodOop method, int index) { return obj_at_addr(adjust_offset(method, index)); }
+  oop*      adjusted_obj_at_addr(Method* method, int index) { return obj_at_addr(adjust_offset(method, index)); }
 
  private:
   jint*    int_at_addr(int offset) const         { return (jint*)    addr_at(offset); }
@@ -347,10 +346,10 @@ class frame VALUE_OBJ_CLASS_SPEC {
 
  public:
   // Method & constant pool cache
-  methodOop interpreter_frame_method() const;
-  void interpreter_frame_set_method(methodOop method);
-  methodOop* interpreter_frame_method_addr() const;
-  constantPoolCacheOop* interpreter_frame_cache_addr() const;
+  Method* interpreter_frame_method() const;
+  void interpreter_frame_set_method(Method* method);
+  Method** interpreter_frame_method_addr() const;
+  ConstantPoolCache** interpreter_frame_cache_addr() const;
 #ifdef PPC
   oop* interpreter_frame_mirror_addr() const;
 #endif
@@ -418,7 +417,6 @@ class frame VALUE_OBJ_CLASS_SPEC {
   // Oops-do's
   void oops_compiled_arguments_do(Symbol* signature, bool has_receiver, const RegisterMap* reg_map, OopClosure* f);
   void oops_interpreted_do(OopClosure* f, const RegisterMap* map, bool query_oop_map_cache = true);
-  void oops_ricochet_do(OopClosure* f, const RegisterMap* map);
 
  private:
   void oops_interpreted_arguments_do(Symbol* signature, bool has_receiver, OopClosure* f);
@@ -427,11 +425,14 @@ class frame VALUE_OBJ_CLASS_SPEC {
   void oops_do_internal(OopClosure* f, CodeBlobClosure* cf, RegisterMap* map, bool use_interpreter_oop_map_cache);
   void oops_entry_do(OopClosure* f, const RegisterMap* map);
   void oops_code_blob_do(OopClosure* f, CodeBlobClosure* cf, const RegisterMap* map);
-  int adjust_offset(methodOop method, int index); // helper for above fn
+  int adjust_offset(Method* method, int index); // helper for above fn
  public:
   // Memory management
   void oops_do(OopClosure* f, CodeBlobClosure* cf, RegisterMap* map) { oops_do_internal(f, cf, map, true); }
   void nmethods_do(CodeBlobClosure* cf);
+
+  // RedefineClasses support for finding live interpreted methods on the stack
+  void metadata_do(void f(Metadata*));
 
   void gc_prologue();
   void gc_epilogue();

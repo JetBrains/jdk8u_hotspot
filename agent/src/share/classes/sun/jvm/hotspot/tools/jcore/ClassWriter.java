@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@ import java.io.*;
 import java.util.*;
 import sun.jvm.hotspot.oops.*;
 import sun.jvm.hotspot.runtime.*;
+import sun.jvm.hotspot.utilities.*;
 
 public class ClassWriter implements /* imports */ ClassConstants
 {
@@ -42,10 +43,10 @@ public class ClassWriter implements /* imports */ ClassConstants
     protected ConstantPool      cpool;
 
     // Map between class name to index of type CONSTANT_Class
-    protected Map               classToIndex = new HashMap();
+    protected Map<String, Short> classToIndex = new HashMap<String, Short>();
 
     // Map between any modified UTF-8 and it's constant pool index.
-    protected Map               utf8ToIndex = new HashMap();
+    protected Map<String, Short> utf8ToIndex = new HashMap<String, Short>();
 
     // constant pool index for attribute names.
 
@@ -61,12 +62,12 @@ public class ClassWriter implements /* imports */ ClassConstants
     protected short  _signatureIndex;
 
     protected static int extractHighShortFromInt(int val) {
-        // must stay in sync with constantPoolOopDesc::name_and_type_at_put, method_at_put, etc.
+        // must stay in sync with ConstantPool::name_and_type_at_put, method_at_put, etc.
         return (val >> 16) & 0xFFFF;
     }
 
     protected static int extractLowShortFromInt(int val) {
-        // must stay in sync with constantPoolOopDesc::name_and_type_at_put, method_at_put, etc.
+        // must stay in sync with ConstantPool::name_and_type_at_put, method_at_put, etc.
         return val & 0xFFFF;
     }
 
@@ -107,8 +108,8 @@ public class ClassWriter implements /* imports */ ClassConstants
     }
 
     protected void writeConstantPool() throws IOException {
-        final TypeArray tags = cpool.getTags();
-        final long len = tags.getLength();
+        final U1Array tags = cpool.getTags();
+        final long len = tags.length();
         dos.writeShort((short) len);
 
         if (DEBUG) debugMessage("constant pool length = " + len);
@@ -118,7 +119,7 @@ public class ClassWriter implements /* imports */ ClassConstants
         // collect all modified UTF-8 Strings from Constant Pool
 
         for (ci = 1; ci < len; ci++) {
-            byte cpConstType = tags.getByteAt(ci);
+            int cpConstType = tags.at(ci);
             if(cpConstType == JVM_CONSTANT_Utf8) {
                 Symbol sym = cpool.getSymbolAt(ci);
                 utf8ToIndex.put(sym.asString(), new Short((short) ci));
@@ -182,9 +183,9 @@ public class ClassWriter implements /* imports */ ClassConstants
         if (DEBUG) debugMessage("Signature index = " + _signatureIndex);
 
         for(ci = 1; ci < len; ci++) {
+            int cpConstType = tags.at(ci);
             // write cp_info
             // write constant type
-            byte cpConstType = tags.getByteAt(ci);
             switch(cpConstType) {
                 case JVM_CONSTANT_Utf8: {
                      dos.writeByte(cpConstType);
@@ -226,12 +227,11 @@ public class ClassWriter implements /* imports */ ClassConstants
                      ci++;
                      break;
 
-                case JVM_CONSTANT_Class: {
-                     dos.writeByte(cpConstType);
-                     // Klass already resolved. ConstantPool constains klassOop.
-                     Klass refKls = (Klass) cpool.getObjAtRaw(ci);
-                     String klassName = refKls.getName().asString();
-
+                case JVM_CONSTANT_Class:
+                case JVM_CONSTANT_UnresolvedClass:
+                case JVM_CONSTANT_UnresolvedClassInError: {
+                     dos.writeByte(JVM_CONSTANT_Class);
+                     String klassName = cpool.getKlassNameAt(ci).asString();
                      Short s = (Short) utf8ToIndex.get(klassName);
                      classToIndex.put(klassName, new Short((short)ci));
                      dos.writeShort(s.shortValue());
@@ -239,35 +239,10 @@ public class ClassWriter implements /* imports */ ClassConstants
                      break;
                 }
 
-                // case JVM_CONSTANT_ClassIndex:
-                case JVM_CONSTANT_UnresolvedClassInError:
-                case JVM_CONSTANT_UnresolvedClass: {
-                     dos.writeByte(JVM_CONSTANT_Class);
-                     String klassName = cpool.getSymbolAt(ci).asString();
-
-                     Short s = (Short) utf8ToIndex.get(klassName);
-                     classToIndex.put(klassName, new Short((short) ci));
-
-                     dos.writeShort(s.shortValue());
-                     if (DEBUG) debugMessage("CP[" + ci + "] = class " + s);
-                     break;
-                }
-
                 case JVM_CONSTANT_String: {
                      dos.writeByte(cpConstType);
-                     String str = OopUtilities.stringOopToString(cpool.getObjAtRaw(ci));
+                     String str = cpool.getUnresolvedStringAt(ci).asString();
                      Short s = (Short) utf8ToIndex.get(str);
-                     dos.writeShort(s.shortValue());
-                     if (DEBUG) debugMessage("CP[" + ci + "] = string " + s);
-                     break;
-                }
-
-                // case JVM_CONSTANT_StringIndex:
-                case JVM_CONSTANT_UnresolvedString: {
-                     dos.writeByte(JVM_CONSTANT_String);
-                     String val = cpool.getSymbolAt(ci).asString();
-
-                     Short s = (Short) utf8ToIndex.get(val);
                      dos.writeShort(s.shortValue());
                      if (DEBUG) debugMessage("CP[" + ci + "] = string " + s);
                      break;
@@ -363,15 +338,15 @@ public class ClassWriter implements /* imports */ ClassConstants
         }
     }
     protected void writeInterfaces() throws IOException {
-        ObjArray interfaces = klass.getLocalInterfaces();
-        final int len = (int) interfaces.getLength();
+        KlassArray interfaces = klass.getLocalInterfaces();
+        final int len = interfaces.length();
 
         if (DEBUG) debugMessage("number of interfaces = " + len);
 
         // write interfaces count
         dos.writeShort((short) len);
         for (int i = 0; i < len; i++) {
-           Klass k = (Klass) interfaces.getObjAt(i);
+           Klass k = interfaces.getAt(i);
            Short index = (Short) classToIndex.get(k.getName().asString());
            dos.writeShort(index.shortValue());
            if (DEBUG) debugMessage("\t" + index);
@@ -379,7 +354,8 @@ public class ClassWriter implements /* imports */ ClassConstants
     }
 
     protected void writeFields() throws IOException {
-        final int length = klass.getJavaFieldsCount();
+        U2Array fields = klass.getFields();
+        final int length = (int) fields.length();
 
         // write number of fields
         dos.writeShort((short) length);
@@ -447,13 +423,13 @@ public class ClassWriter implements /* imports */ ClassConstants
     }
 
     protected void writeMethods() throws IOException {
-        ObjArray methods = klass.getMethods();
-        final int len = (int) methods.getLength();
+        MethodArray methods = klass.getMethods();
+        final int len = methods.length();
         // write number of methods
         dos.writeShort((short) len);
         if (DEBUG) debugMessage("number of methods = " + len);
         for (int m = 0; m < len; m++) {
-            writeMethod((Method) methods.getObjAt(m));
+            writeMethod(methods.at(m));
         }
     }
 
@@ -504,11 +480,14 @@ public class ClassWriter implements /* imports */ ClassConstants
                             2           /* exp. table len.  */ +
                             2           /* code attr. count */;
 
-            TypeArray exceptionTable = m.getExceptionTable();
-            final int exceptionTableLen = (int) exceptionTable.getLength();
-            if (exceptionTableLen != 0) {
+            boolean hasExceptionTable = m.hasExceptionTable();
+            ExceptionTableElement[] exceptionTable = null;
+            int exceptionTableLen = 0;
+            if (hasExceptionTable) {
+                exceptionTable = m.getExceptionTable();
+                exceptionTableLen = exceptionTable.length;
                 if (DEBUG) debugMessage("\tmethod has exception table");
-                codeSize += (exceptionTableLen / 4) /* exception table is 4-tuple array */
+                codeSize += exceptionTableLen /* exception table is 4-tuple array */
                                          * (2 /* start_pc     */ +
                                             2 /* end_pc       */ +
                                             2 /* handler_pc   */ +
@@ -586,15 +565,15 @@ public class ClassWriter implements /* imports */ ClassConstants
             dos.write(code);
 
             // write exception table size
-            dos.writeShort((short) (exceptionTableLen / 4));
-            if (DEBUG) debugMessage("\texception table length = " + (exceptionTableLen / 4));
+            dos.writeShort((short) exceptionTableLen);
+            if (DEBUG) debugMessage("\texception table length = " + exceptionTableLen);
 
             if (exceptionTableLen != 0) {
-                for (int e = 0; e < exceptionTableLen; e += 4) {
-                     dos.writeShort((short) exceptionTable.getIntAt(e));
-                     dos.writeShort((short) exceptionTable.getIntAt(e + 1));
-                     dos.writeShort((short) exceptionTable.getIntAt(e + 2));
-                     dos.writeShort((short) exceptionTable.getIntAt(e + 3));
+                for (int e = 0; e < exceptionTableLen; e++) {
+                     dos.writeShort((short) exceptionTable[e].getStartPC());
+                     dos.writeShort((short) exceptionTable[e].getEndPC());
+                     dos.writeShort((short) exceptionTable[e].getHandlerPC());
+                     dos.writeShort((short) exceptionTable[e].getCatchTypeIndex());
                 }
             }
 
@@ -680,8 +659,8 @@ public class ClassWriter implements /* imports */ ClassConstants
         if (genericSignature != null)
             classAttributeCount++;
 
-        TypeArray innerClasses = klass.getInnerClasses();
-        final int numInnerClasses = (int) (innerClasses.getLength() / 4);
+        U2Array innerClasses = klass.getInnerClasses();
+        final int numInnerClasses = (int) (innerClasses.length() / 4);
         if (numInnerClasses != 0)
             classAttributeCount++;
 
@@ -721,7 +700,7 @@ public class ClassWriter implements /* imports */ ClassConstants
             if (DEBUG) debugMessage("class has " + numInnerClasses + " inner class entries");
 
             for (int index = 0; index < numInnerClasses * 4; index++) {
-                dos.writeShort(innerClasses.getShortAt(index));
+                dos.writeShort(innerClasses.at(index));
             }
         }
     }

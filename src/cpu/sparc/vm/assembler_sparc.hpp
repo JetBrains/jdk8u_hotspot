@@ -152,7 +152,7 @@ REGISTER_DECLARATION(Register, I5_savedSP       , I5); // Saved SP before bumpin
                                                        // is added and removed as needed in the frame code.
 // Interface to signature handler
 REGISTER_DECLARATION(Register, Llocals          , L7); // pointer to locals for signature handler
-REGISTER_DECLARATION(Register, Lmethod          , L6); // methodOop when calling signature handler
+REGISTER_DECLARATION(Register, Lmethod          , L6); // Method* when calling signature handler
 
 #else
 REGISTER_DECLARATION(Register, Lesp             , L0); // expression stack pointer
@@ -351,7 +351,7 @@ class Address VALUE_OBJ_CLASS_SPEC {
 
   // Convert the raw encoding form into the form expected by the
   // constructor for Address.
-  static Address make_raw(int base, int index, int scale, int disp, bool disp_is_oop);
+  static Address make_raw(int base, int index, int scale, int disp, relocInfo::relocType disp_reloc);
 
   friend class Assembler;
 };
@@ -438,11 +438,11 @@ class AddressLiteral VALUE_OBJ_CLASS_SPEC {
       _rspec(rspec_from_rtype(rtype, (address) addr)) {}
 #endif
 
-  AddressLiteral(oop addr, relocInfo::relocType rtype = relocInfo::none)
+  AddressLiteral(Metadata* addr, relocInfo::relocType rtype = relocInfo::none)
     : _address((address) addr),
       _rspec(rspec_from_rtype(rtype, (address) addr)) {}
 
-  AddressLiteral(oop* addr, relocInfo::relocType rtype = relocInfo::none)
+  AddressLiteral(Metadata** addr, relocInfo::relocType rtype = relocInfo::none)
     : _address((address) addr),
       _rspec(rspec_from_rtype(rtype, (address) addr)) {}
 
@@ -478,7 +478,7 @@ class ExternalAddress: public AddressLiteral {
 
  public:
   ExternalAddress(address target) : AddressLiteral(target, reloc_for_target(          target)) {}
-  ExternalAddress(oop*    target) : AddressLiteral(target, reloc_for_target((address) target)) {}
+  ExternalAddress(Metadata** target) : AddressLiteral(target, reloc_for_target((address) target)) {}
 };
 
 inline Address RegisterImpl::address_in_saved_window() const {
@@ -2311,10 +2311,13 @@ public:
   void call_VM_leaf(Register thread_cache, address entry_point, Register arg_1, Register arg_2, Register arg_3);
 
   void get_vm_result  (Register oop_result);
-  void get_vm_result_2(Register oop_result);
+  void get_vm_result_2(Register metadata_result);
 
   // vm result is currently getting hijacked to for oop preservation
   void set_vm_result(Register oop_result);
+
+  // Emit the CompiledIC call idiom
+  void ic_call(address entry, bool emit_delay = true);
 
   // if call_VM_base was called with check_exceptions=false, then call
   // check_and_forward_exception to handle exceptions when it is safe
@@ -2372,8 +2375,14 @@ public:
   void _verify_oop(Register reg, const char * msg, const char * file, int line);
   void _verify_oop_addr(Address addr, const char * msg, const char * file, int line);
 
+  // TODO: verify_method and klass metadata (compare against vptr?)
+  void _verify_method_ptr(Register reg, const char * msg, const char * file, int line) {}
+  void _verify_klass_ptr(Register reg, const char * msg, const char * file, int line){}
+
 #define verify_oop(reg) _verify_oop(reg, "broken oop " #reg, __FILE__, __LINE__)
 #define verify_oop_addr(addr) _verify_oop_addr(addr, "broken oop addr ", __FILE__, __LINE__)
+#define verify_method_ptr(reg) _verify_method_ptr(reg, "broken method " #reg, __FILE__, __LINE__)
+#define verify_klass_ptr(reg) _verify_klass_ptr(reg, "broken klass " #reg, __FILE__, __LINE__)
 
         // only if +VerifyOops
   void verify_FPU(int stack_depth, const char* s = "illegal FPU state");
@@ -2391,6 +2400,13 @@ public:
   inline void    set_oop             (jobject obj, Register d);              // uses allocate_oop_address
   inline void    set_oop_constant    (jobject obj, Register d);              // uses constant_oop_address
   inline void    set_oop             (const AddressLiteral& obj_addr, Register d); // same as load_address
+
+  // metadata in code that we have to keep track of
+  AddressLiteral allocate_metadata_address(Metadata* obj); // allocate_index
+  AddressLiteral constant_metadata_address(Metadata* obj); // find_index
+  inline void    set_metadata             (Metadata* obj, Register d);              // uses allocate_metadata_address
+  inline void    set_metadata_constant    (Metadata* obj, Register d);              // uses constant_metadata_address
+  inline void    set_metadata             (const AddressLiteral& obj_addr, Register d); // same as load_address
 
   void set_narrow_oop( jobject obj, Register d );
 
@@ -2538,6 +2554,11 @@ public:
                                Register temp_reg, Register temp2_reg,
                                Label& no_such_interface);
 
+  // virtual method calling
+  void lookup_virtual_method(Register recv_klass,
+                             RegisterOrConstant vtable_index,
+                             Register method_result);
+
   // Test sub_klass against super_klass, with fast and slow paths.
 
   // The fast path produces a tri-state answer: yes / no / maybe-slow.
@@ -2577,12 +2598,6 @@ public:
                            Label& L_success);
 
   // method handles (JSR 292)
-  void check_method_handle_type(Register mtype_reg, Register mh_reg,
-                                Register temp_reg,
-                                Label& wrong_method_type);
-  void load_method_handle_vmslots(Register vmslots_reg, Register mh_reg,
-                                  Register temp_reg);
-  void jump_to_method_handle_entry(Register mh_reg, Register temp_reg, bool emit_delayed_nop = true);
   // offset relative to Gargs of argument at tos[arg_slot].
   // (arg_slot == 0 means the last argument, not the first).
   RegisterOrConstant argument_offset(RegisterOrConstant arg_slot,
@@ -2590,7 +2605,7 @@ public:
                                      int extra_slot_offset = 0);
   // Address of Gargs and argument_offset.
   Address            argument_address(RegisterOrConstant arg_slot,
-                                      Register temp_reg,
+                                      Register temp_reg = noreg,
                                       int extra_slot_offset = 0);
 
   // Stack overflow checking

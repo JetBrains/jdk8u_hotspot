@@ -28,7 +28,7 @@
 #include "interpreter/interpreter.hpp"
 #include "nativeInst_aarch64.hpp"
 #include "oops/instanceOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/method.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/methodHandles.hpp"
@@ -92,7 +92,7 @@ class StubGenerator: public StubCodeGenerator {
   //    c_rarg0:   call wrapper address                   address
   //    c_rarg1:   result                                 address
   //    c_rarg2:   result type                            BasicType
-  //    c_rarg3:   method                                 methodOop
+  //    c_rarg3:   method                                 Method*
   //    c_rarg4:   (interpreter) entry point              address
   //    c_rarg5:   parameters                             intptr_t*
   //    c_rarg6:   parameter size (in words)              int
@@ -282,7 +282,7 @@ class StubGenerator: public StubCodeGenerator {
     __ BIND(parameters_done);
 
     // call Java entry -- passing methdoOop, and current sp
-    //      rmethod: methodOop
+    //      rmethod: Method*
     //      r10: sender sp
     __ mov(r10, sp);
     BLOCK_COMMENT("call Java function");
@@ -1123,14 +1123,6 @@ class StubGenerator: public StubCodeGenerator {
     // we don't need this or aarch64
 
     // StubRoutines::x86::_verify_mxcsr_entry    = generate_verify_mxcsr();
-
-    // Build this early so it's available for the interpreter.  Stub
-    // expects the required and actual types as register arguments in
-    // j_rarg0 and j_rarg1 respectively.
-    StubRoutines::_throw_WrongMethodTypeException_entry =
-      generate_throw_exception("WrongMethodTypeException throw_exception",
-                               CAST_FROM_FN_PTR(address, SharedRuntime::throw_WrongMethodTypeException),
-                               j_rarg0, j_rarg1);
 
     // Build this early so it's available for the interpreter.
     StubRoutines::_throw_StackOverflowError_entry =

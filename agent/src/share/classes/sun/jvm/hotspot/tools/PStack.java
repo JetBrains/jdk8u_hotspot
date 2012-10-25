@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2006, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,7 @@ import sun.jvm.hotspot.oops.*;
 import sun.jvm.hotspot.runtime.*;
 
 public class PStack extends Tool {
-    // in non-verbose mode, methodOops are not printed in java frames
+    // in non-verbose mode, Method*s are not printed in java frames
    public PStack(boolean v, boolean concurrentLocks) {
       this.verbose = v;
       this.concurrentLocks = concurrentLocks;
@@ -158,7 +158,7 @@ public class PStack extends Tool {
                         printUnknown(out);
                      }
                   }
-                  f = f.sender();
+                  f = f.sender(th);
                }
             } catch (Exception exp) {
                exp.printStackTrace();
@@ -247,7 +247,7 @@ public class PStack extends Tool {
             }
 
             if (verbose) {
-               sb.append(" methodOop:" + method.getHandle());
+               sb.append(" Method*:" + method.getAddress());
             }
 
             if (vf.isCompiledFrame()) {

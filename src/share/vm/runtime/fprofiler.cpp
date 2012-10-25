@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -70,12 +70,12 @@ IntervalData*     FlatProfiler::interval_data       = NULL;
 ThreadProfiler::ThreadProfiler() {
   // Space for the ProfilerNodes
   const int area_size = 1 * ProfilerNodeSize * 1024;
-  area_bottom = AllocateHeap(area_size, "fprofiler");
+  area_bottom = AllocateHeap(area_size, mtInternal);
   area_top    = area_bottom;
   area_limit  = area_bottom + area_size;
 
   // ProfilerNode pointer table
-  table = NEW_C_HEAP_ARRAY(ProfilerNode*, table_size);
+  table = NEW_C_HEAP_ARRAY(ProfilerNode*, table_size, mtInternal);
   initialize();
   engaged = false;
 }
@@ -157,7 +157,7 @@ address PCRecorder::base     = NULL;
 void PCRecorder::init() {
   MutexLockerEx lm(CodeCache_lock, Mutex::_no_safepoint_check_flag);
   int s = size();
-  counters = NEW_C_HEAP_ARRAY(int, s);
+  counters = NEW_C_HEAP_ARRAY(int, s, mtInternal);
   for (int index = 0; index < s; index++) {
     counters[index] = 0;
   }
@@ -288,9 +288,9 @@ class ProfilerNode {
   virtual bool is_runtime_stub() const{ return false; }
   virtual void oops_do(OopClosure* f) = 0;
 
-  virtual bool interpreted_match(methodOop m) const { return false; }
-  virtual bool compiled_match(methodOop m ) const { return false; }
-  virtual bool stub_match(methodOop m, const char* name) const { return false; }
+  virtual bool interpreted_match(Method* m) const { return false; }
+  virtual bool compiled_match(Method* m ) const { return false; }
+  virtual bool stub_match(Method* m, const char* name) const { return false; }
   virtual bool adapter_match() const { return false; }
   virtual bool runtimeStub_match(const CodeBlob* stub, const char* name) const { return false; }
   virtual bool unknown_compiled_match(const CodeBlob* cb) const { return false; }
@@ -312,12 +312,12 @@ class ProfilerNode {
     st->cr();
   }
 
-  virtual methodOop method()         = 0;
+  virtual Method* method()         = 0;
 
   virtual void print_method_on(outputStream* st) {
     int limit;
     int i;
-    methodOop m = method();
+    Method* m = method();
     Symbol* k = m->klass_name();
     // Print the class name with dots instead of slashes
     limit = k->utf8_length();
@@ -337,11 +337,13 @@ class ProfilerNode {
       char c = (char) n->byte_at(i);
       st->print("%c", c);
     }
-    if( Verbose ) {
+    if (Verbose || WizardMode) {
       // Disambiguate overloaded methods
       Symbol* sig = m->signature();
       sig->print_symbol_on(st);
-    }
+    } else if (MethodHandles::is_signature_polymorphic(m->intrinsic_id()))
+      // compare with Method::print_short_name
+      MethodHandles::print_as_basic_type_signature_on(st, m->signature(), true);
   }
 
   virtual void print(outputStream* st, int total_ticks) {
@@ -354,7 +356,7 @@ class ProfilerNode {
   }
 
   // for hashing into the table
-  static int hash(methodOop method) {
+  static int hash(Method* method) {
       // The point here is to try to make something fairly unique
       // out of the fields we can read without grabbing any locks
       // since the method may be locked when we need the hash.
@@ -386,24 +388,26 @@ void ProfilerNode::operator delete(void* p){
 
 class interpretedNode : public ProfilerNode {
  private:
-   methodOop _method;
+   Method* _method;
+   oop       _class_loader;  // needed to keep metadata for the method alive
  public:
-   interpretedNode(methodOop method, TickPosition where) : ProfilerNode() {
+   interpretedNode(Method* method, TickPosition where) : ProfilerNode() {
      _method = method;
+     _class_loader = method->method_holder()->class_loader();
      update(where);
    }
 
    bool is_interpreted() const { return true; }
 
-   bool interpreted_match(methodOop m) const {
+   bool interpreted_match(Method* m) const {
       return _method == m;
    }
 
    void oops_do(OopClosure* f) {
-     f->do_oop((oop*)&_method);
+     f->do_oop(&_class_loader);
    }
 
-   methodOop method() { return _method; }
+   Method* method() { return _method; }
 
    static void print_title(outputStream* st) {
      st->fill_to(col1);
@@ -423,22 +427,24 @@ class interpretedNode : public ProfilerNode {
 
 class compiledNode : public ProfilerNode {
  private:
-   methodOop _method;
+   Method* _method;
+   oop       _class_loader;  // needed to keep metadata for the method alive
  public:
-   compiledNode(methodOop method, TickPosition where) : ProfilerNode() {
+   compiledNode(Method* method, TickPosition where) : ProfilerNode() {
      _method = method;
+     _class_loader = method->method_holder()->class_loader();
      update(where);
   }
   bool is_compiled()    const { return true; }
 
-  bool compiled_match(methodOop m) const {
+  bool compiled_match(Method* m) const {
     return _method == m;
   }
 
-  methodOop method()         { return _method; }
+  Method* method()         { return _method; }
 
   void oops_do(OopClosure* f) {
-    f->do_oop((oop*)&_method);
+    f->do_oop(&_class_loader);
   }
 
   static void print_title(outputStream* st) {
@@ -458,26 +464,28 @@ class compiledNode : public ProfilerNode {
 
 class stubNode : public ProfilerNode {
  private:
-  methodOop _method;
+  Method* _method;
+  oop       _class_loader;  // needed to keep metadata for the method alive
   const char* _symbol;   // The name of the nearest VM symbol (for +ProfileVM). Points to a unique string
  public:
-   stubNode(methodOop method, const char* name, TickPosition where) : ProfilerNode() {
+   stubNode(Method* method, const char* name, TickPosition where) : ProfilerNode() {
      _method = method;
+     _class_loader = method->method_holder()->class_loader();
      _symbol = name;
      update(where);
    }
 
    bool is_stub() const { return true; }
 
-   bool stub_match(methodOop m, const char* name) const {
+   void oops_do(OopClosure* f) {
+     f->do_oop(&_class_loader);
+   }
+
+   bool stub_match(Method* m, const char* name) const {
      return (_method == m) && (_symbol == name);
    }
 
-   void oops_do(OopClosure* f) {
-     f->do_oop((oop*)&_method);
-   }
-
-   methodOop method() { return _method; }
+   Method* method() { return _method; }
 
    static void print_title(outputStream* st) {
      st->fill_to(col1);
@@ -510,7 +518,7 @@ class adapterNode : public ProfilerNode {
 
   bool adapter_match() const { return true; }
 
-  methodOop method()         { return NULL; }
+  Method* method()         { return NULL; }
 
   void oops_do(OopClosure* f) {
     ;
@@ -543,7 +551,7 @@ class runtimeStubNode : public ProfilerNode {
             (_symbol == name);
   }
 
-  methodOop method() { return NULL; }
+  Method* method() { return NULL; }
 
   static void print_title(outputStream* st) {
     st->fill_to(col1);
@@ -591,7 +599,7 @@ class unknown_compiledNode : public ProfilerNode {
        return !strcmp(((SingletonBlob*)cb)->name(), _name);
   }
 
-  methodOop method()         { return NULL; }
+  Method* method()         { return NULL; }
 
   void oops_do(OopClosure* f) {
     ;
@@ -625,7 +633,7 @@ class vmNode : public ProfilerNode {
 
   bool vm_match(const char* name) const { return strcmp(name, _name) == 0; }
 
-  methodOop method()          { return NULL; }
+  Method* method()          { return NULL; }
 
   static int hash(const char* name){
     // Compute a simple hash
@@ -659,7 +667,7 @@ class vmNode : public ProfilerNode {
   }
 };
 
-void ThreadProfiler::interpreted_update(methodOop method, TickPosition where) {
+void ThreadProfiler::interpreted_update(Method* method, TickPosition where) {
   int index = entry(ProfilerNode::hash(method));
   if (!table[index]) {
     table[index] = new (this) interpretedNode(method, where);
@@ -676,7 +684,7 @@ void ThreadProfiler::interpreted_update(methodOop method, TickPosition where) {
   }
 }
 
-void ThreadProfiler::compiled_update(methodOop method, TickPosition where) {
+void ThreadProfiler::compiled_update(Method* method, TickPosition where) {
   int index = entry(ProfilerNode::hash(method));
   if (!table[index]) {
     table[index] = new (this) compiledNode(method, where);
@@ -693,7 +701,7 @@ void ThreadProfiler::compiled_update(methodOop method, TickPosition where) {
   }
 }
 
-void ThreadProfiler::stub_update(methodOop method, const char* name, TickPosition where) {
+void ThreadProfiler::stub_update(Method* method, const char* name, TickPosition where) {
   int index = entry(ProfilerNode::hash(method));
   if (!table[index]) {
     table[index] = new (this) stubNode(method, name, where);
@@ -850,7 +858,7 @@ void FlatProfiler::record_thread_ticks() {
   if (Threads_lock->try_lock()) {
     {  // Threads_lock scope
       maxthreads = Threads::number_of_threads();
-      threadsList = NEW_C_HEAP_ARRAY(JavaThread *, maxthreads);
+      threadsList = NEW_C_HEAP_ARRAY(JavaThread *, maxthreads, mtInternal);
       suspendedthreadcount = 0;
       for (JavaThread* tp = Threads::first(); tp != NULL; tp = tp->next()) {
         if (tp->is_Compiler_thread()) {
@@ -955,7 +963,7 @@ void ThreadProfiler::record_interpreted_tick(JavaThread* thread, frame fr, TickP
 
   // The frame has been fully validated so we can trust the method and bci
 
-  methodOop method = *fr.interpreter_frame_method_addr();
+  Method* method = *fr.interpreter_frame_method_addr();
 
   interpreted_update(method, where);
 
@@ -982,8 +990,8 @@ void ThreadProfiler::record_compiled_tick(JavaThread* thread, frame fr, TickPosi
         cb = fr.cb();
         localwhere = tp_native;
   }
-  methodOop method = (cb->is_nmethod()) ? ((nmethod *)cb)->method() :
-                                          (methodOop)NULL;
+  Method* method = (cb->is_nmethod()) ? ((nmethod *)cb)->method() :
+                                          (Method*)NULL;
 
   if (method == NULL) {
     if (cb->is_runtime_stub())
@@ -1195,8 +1203,8 @@ void ThreadProfiler::reset() {
 
 void FlatProfiler::allocate_table() {
   { // Bytecode table
-    bytecode_ticks      = NEW_C_HEAP_ARRAY(int, Bytecodes::number_of_codes);
-    bytecode_ticks_stub = NEW_C_HEAP_ARRAY(int, Bytecodes::number_of_codes);
+    bytecode_ticks      = NEW_C_HEAP_ARRAY(int, Bytecodes::number_of_codes, mtInternal);
+    bytecode_ticks_stub = NEW_C_HEAP_ARRAY(int, Bytecodes::number_of_codes, mtInternal);
     for(int index = 0; index < Bytecodes::number_of_codes; index++) {
       bytecode_ticks[index]      = 0;
       bytecode_ticks_stub[index] = 0;
@@ -1205,7 +1213,7 @@ void FlatProfiler::allocate_table() {
 
   if (ProfilerRecordPC) PCRecorder::init();
 
-  interval_data         = NEW_C_HEAP_ARRAY(IntervalData, interval_print_size);
+  interval_data         = NEW_C_HEAP_ARRAY(IntervalData, interval_print_size, mtInternal);
   FlatProfiler::interval_reset();
 }
 

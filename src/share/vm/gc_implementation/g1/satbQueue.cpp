@@ -27,6 +27,7 @@
 #include "gc_implementation/g1/satbQueue.hpp"
 #include "memory/allocation.inline.hpp"
 #include "memory/sharedHeap.hpp"
+#include "oops/oop.inline.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/thread.hpp"
 #include "runtime/vmThread.hpp"
@@ -208,7 +209,7 @@ void SATBMarkQueueSet::initialize(Monitor* cbl_mon, Mutex* fl_lock,
   PtrQueueSet::initialize(cbl_mon, fl_lock, process_completed_threshold, -1);
   _shared_satb_queue.set_lock(lock);
   if (ParallelGCThreads > 0) {
-    _par_closures = NEW_C_HEAP_ARRAY(ObjectClosure*, ParallelGCThreads);
+    _par_closures = NEW_C_HEAP_ARRAY(ObjectClosure*, ParallelGCThreads, mtGC);
   }
 }
 

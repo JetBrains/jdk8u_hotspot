@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -135,15 +135,15 @@ implements ReferenceType {
         ReferenceTypeImpl other = (ReferenceTypeImpl)refType;
         int comp = name().compareTo(other.name());
         if (comp == 0) {
-            Oop rf1 = ref();
-            Oop rf2 = other.ref();
+            Klass rf1 = ref();
+            Klass rf2 = other.ref();
             // optimize for typical case: refs equal and VMs equal
             if (rf1.equals(rf2)) {
                 // sequenceNumbers are always positive
                 comp = vm.sequenceNumber -
                  ((VirtualMachineImpl)(other.virtualMachine())).sequenceNumber;
             } else {
-                comp = rf1.getHandle().minus(rf2.getHandle()) < 0? -1 : 1;
+                comp = rf1.getAddress().minus(rf2.getAddress()) < 0? -1 : 1;
             }
         }
         return comp;
@@ -225,7 +225,7 @@ implements ReferenceType {
     private boolean isThrowableBacktraceField(sun.jvm.hotspot.oops.Field fld) {
         // refer to JvmtiEnv::GetClassFields in jvmtiEnv.cpp.
         // We want to filter out java.lang.Throwable.backtrace (see 4446677).
-        // It contains some methodOops that aren't quite real Objects.
+        // It contains some Method*s that aren't quite real Objects.
         if (fld.getFieldHolder().getName().equals(vm.javaLangThrowable()) &&
             fld.getID().getName().equals("backtrace")) {
             return true;
@@ -688,8 +688,7 @@ implements ReferenceType {
         if (sde == null) {
            String extension = null;
            if (saKlass instanceof InstanceKlass) {
-              Symbol sdeSym = ((InstanceKlass)saKlass).getSourceDebugExtension();
-              extension = (sdeSym != null)? sdeSym.asString() : null;
+              extension = ((InstanceKlass)saKlass).getSourceDebugExtension();
            }
            if (extension == null) {
               sde = NO_SDE_INFO_MARK;
@@ -933,7 +932,7 @@ implements ReferenceType {
     }
 
     long uniqueID() {
-        return vm.getAddressValue(ref());
+        return vm.getAddressValue(ref().getJavaMirror());
     }
 
     // new method since 1.6

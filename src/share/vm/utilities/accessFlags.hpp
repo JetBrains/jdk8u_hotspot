@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -39,7 +39,7 @@ enum {
   // flags actually put in .class file
   JVM_ACC_WRITTEN_FLAGS           = 0x00007FFF,
 
-  // methodOop flags
+  // Method* flags
   JVM_ACC_MONITOR_MATCH           = 0x10000000,     // True if we know that monitorenter/monitorexit bytecodes match
   JVM_ACC_HAS_MONITOR_BYTECODES   = 0x20000000,     // Method contains monitorenter/monitorexit bytecodes
   JVM_ACC_HAS_LOOPS               = 0x40000000,     // Method has loops
@@ -54,25 +54,23 @@ enum {
   JVM_ACC_IS_OLD                  = 0x00010000,     // RedefineClasses() has replaced this method
   JVM_ACC_IS_OBSOLETE             = 0x00020000,     // RedefineClasses() has made method obsolete
   JVM_ACC_IS_PREFIXED_NATIVE      = 0x00040000,     // JVMTI has prefixed this native method
+  JVM_ACC_ON_STACK                = 0x00080000,     // RedefinedClasses() is used on the stack
 
-  JVM_MH_INVOKE_BITS           // = 0x10001100      // MethodHandle.invoke quasi-native
-                                  = (JVM_ACC_NATIVE | JVM_ACC_SYNTHETIC | JVM_ACC_MONITOR_MATCH),
-
-  // klassOop flags
+  // Klass* flags
   JVM_ACC_HAS_MIRANDA_METHODS     = 0x10000000,     // True if this class has miranda methods in it's vtable
   JVM_ACC_HAS_VANILLA_CONSTRUCTOR = 0x20000000,     // True if klass has a vanilla default constructor
   JVM_ACC_HAS_FINALIZER           = 0x40000000,     // True if klass has a non-empty finalize() method
   JVM_ACC_IS_CLONEABLE            = (int)0x80000000,// True if klass supports the Clonable interface
   JVM_ACC_HAS_FINAL_METHOD        = 0x01000000,     // True if klass has final method
 
-  // klassOop and methodOop flags
+  // Klass* and Method* flags
   JVM_ACC_HAS_LOCAL_VARIABLE_TABLE= 0x00200000,
 
   JVM_ACC_PROMOTED_FLAGS          = 0x00200000,     // flags promoted from methods to the holding klass
 
   // field flags
   // Note: these flags must be defined in the low order 16 bits because
-  // instanceKlass only stores a ushort worth of information from the
+  // InstanceKlass only stores a ushort worth of information from the
   // AccessFlags value.
   // These bits must not conflict with any other field-related access flags
   // (e.g., ACC_ENUM).
@@ -117,7 +115,7 @@ class AccessFlags VALUE_OBJ_CLASS_SPEC {
   // Attribute flags
   bool is_synthetic   () const         { return (_flags & JVM_ACC_SYNTHETIC   ) != 0; }
 
-  // methodOop flags
+  // Method* flags
   bool is_monitor_matching     () const { return (_flags & JVM_ACC_MONITOR_MATCH          ) != 0; }
   bool has_monitor_bytecodes   () const { return (_flags & JVM_ACC_HAS_MONITOR_BYTECODES  ) != 0; }
   bool has_loops               () const { return (_flags & JVM_ACC_HAS_LOOPS              ) != 0; }
@@ -133,22 +131,13 @@ class AccessFlags VALUE_OBJ_CLASS_SPEC {
   bool is_obsolete             () const { return (_flags & JVM_ACC_IS_OBSOLETE            ) != 0; }
   bool is_prefixed_native      () const { return (_flags & JVM_ACC_IS_PREFIXED_NATIVE     ) != 0; }
 
-  // JSR 292:  A method of the form MethodHandle.invoke(A...)R method is
-  // neither bytecoded nor a JNI native, but rather a fast call through
-  // a lightweight method handle object.  Because it is not bytecoded,
-  // it has the native bit set, but the monitor-match bit is also set
-  // to distinguish it from a JNI native (which never has the match bit set).
-  // The synthetic bit is also present, because such a method is never
-  // explicitly defined in Java code.
-  bool is_method_handle_invoke () const { return (_flags & JVM_MH_INVOKE_BITS) == JVM_MH_INVOKE_BITS; }
-
-  // klassOop flags
+  // Klass* flags
   bool has_miranda_methods     () const { return (_flags & JVM_ACC_HAS_MIRANDA_METHODS    ) != 0; }
   bool has_vanilla_constructor () const { return (_flags & JVM_ACC_HAS_VANILLA_CONSTRUCTOR) != 0; }
   bool has_finalizer           () const { return (_flags & JVM_ACC_HAS_FINALIZER          ) != 0; }
   bool has_final_method        () const { return (_flags & JVM_ACC_HAS_FINAL_METHOD       ) != 0; }
   bool is_cloneable            () const { return (_flags & JVM_ACC_IS_CLONEABLE           ) != 0; }
-  // klassOop and methodOop flags
+  // Klass* and Method* flags
   bool has_localvariable_table () const { return (_flags & JVM_ACC_HAS_LOCAL_VARIABLE_TABLE) != 0; }
   void set_has_localvariable_table()    { atomic_set_bits(JVM_ACC_HAS_LOCAL_VARIABLE_TABLE); }
   void clear_has_localvariable_table()  { atomic_clear_bits(JVM_ACC_HAS_LOCAL_VARIABLE_TABLE); }
@@ -157,6 +146,7 @@ class AccessFlags VALUE_OBJ_CLASS_SPEC {
   bool is_field_access_watched() const  { return (_flags & JVM_ACC_FIELD_ACCESS_WATCHED) != 0; }
   bool is_field_modification_watched() const
                                         { return (_flags & JVM_ACC_FIELD_MODIFICATION_WATCHED) != 0; }
+  bool on_stack() const                 { return (_flags & JVM_ACC_ON_STACK) != 0; }
   bool is_internal() const              { return (_flags & JVM_ACC_FIELD_INTERNAL) != 0; }
   bool field_has_generic_signature() const
                                         { return (_flags & JVM_ACC_FIELD_HAS_GENERIC_SIGNATURE) != 0; }
@@ -180,7 +170,7 @@ class AccessFlags VALUE_OBJ_CLASS_SPEC {
   void atomic_clear_bits(jint bits);
 
  private:
-  friend class methodOopDesc;
+  friend class Method;
   friend class Klass;
   friend class ClassFileParser;
   // the functions below should only be called on the _access_flags inst var directly,
@@ -189,7 +179,7 @@ class AccessFlags VALUE_OBJ_CLASS_SPEC {
   // attribute flags
   void set_is_synthetic()              { atomic_set_bits(JVM_ACC_SYNTHETIC);               }
 
-  // methodOop flags
+  // Method* flags
   void set_monitor_matching()          { atomic_set_bits(JVM_ACC_MONITOR_MATCH);           }
   void set_has_monitor_bytecodes()     { atomic_set_bits(JVM_ACC_HAS_MONITOR_BYTECODES);   }
   void set_has_loops()                 { atomic_set_bits(JVM_ACC_HAS_LOOPS);               }
@@ -204,7 +194,7 @@ class AccessFlags VALUE_OBJ_CLASS_SPEC {
   void set_is_obsolete()               { atomic_set_bits(JVM_ACC_IS_OBSOLETE);             }
   void set_is_prefixed_native()        { atomic_set_bits(JVM_ACC_IS_PREFIXED_NATIVE);      }
 
-  // klassOop flags
+  // Klass* flags
   void set_has_vanilla_constructor()   { atomic_set_bits(JVM_ACC_HAS_VANILLA_CONSTRUCTOR); }
   void set_has_finalizer()             { atomic_set_bits(JVM_ACC_HAS_FINALIZER);           }
   void set_has_final_method()          { atomic_set_bits(JVM_ACC_HAS_FINAL_METHOD);        }
@@ -234,6 +224,14 @@ class AccessFlags VALUE_OBJ_CLASS_SPEC {
                                          atomic_set_bits(JVM_ACC_FIELD_HAS_GENERIC_SIGNATURE);
                                        }
 
+  void set_on_stack(const bool value)
+                                       {
+                                         if (value) {
+                                           atomic_set_bits(JVM_ACC_ON_STACK);
+                                         } else {
+                                           atomic_clear_bits(JVM_ACC_ON_STACK);
+                                         }
+                                       }
   // Conversion
   jshort as_short() const              { return (jshort)_flags; }
   jint   as_int() const                { return _flags; }

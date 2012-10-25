@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -68,7 +68,7 @@ private:
   static bool          _thread_allocated_memory_enabled;
 
   // Need to keep the list of thread dump result that
-  // keep references to methodOop since thread dump can be
+  // keep references to Method* since thread dump can be
   // requested by multiple threads concurrently.
   static ThreadDumpResult* _threaddump_list;
 
@@ -116,7 +116,7 @@ public:
 };
 
 // Per-thread Statistics for synchronization
-class ThreadStatistics : public CHeapObj {
+class ThreadStatistics : public CHeapObj<mtInternal> {
 private:
   // The following contention statistics are only updated by
   // the thread owning these statistics when contention occurs.
@@ -186,7 +186,7 @@ public:
 };
 
 // Thread snapshot to represent the thread state and statistics
-class ThreadSnapshot : public CHeapObj {
+class ThreadSnapshot : public CHeapObj<mtInternal> {
 private:
   JavaThread* _thread;
   oop         _threadObj;
@@ -244,7 +244,7 @@ public:
   void        oops_do(OopClosure* f);
 };
 
-class ThreadStackTrace : public CHeapObj {
+class ThreadStackTrace : public CHeapObj<mtInternal> {
  private:
   JavaThread*                     _thread;
   int                             _depth;  // number of stack frames added
@@ -272,12 +272,12 @@ class ThreadStackTrace : public CHeapObj {
   void            add_jni_locked_monitor(oop object) { _jni_locked_monitors->append(object); }
 };
 
-// StackFrameInfo for keeping methodOop and bci during
+// StackFrameInfo for keeping Method* and bci during
 // stack walking for later construction of StackTraceElement[]
 // Java instances
-class StackFrameInfo : public CHeapObj {
+class StackFrameInfo : public CHeapObj<mtInternal> {
  private:
-  methodOop           _method;
+  Method*             _method;
   int                 _bci;
   GrowableArray<oop>* _locked_monitors; // list of object monitors locked by this frame
 
@@ -289,7 +289,7 @@ class StackFrameInfo : public CHeapObj {
       delete _locked_monitors;
     }
   };
-  methodOop method() const       { return _method; }
+  Method* method() const       { return _method; }
   int       bci()    const       { return _bci; }
   void      oops_do(OopClosure* f);
 
@@ -299,7 +299,7 @@ class StackFrameInfo : public CHeapObj {
   void      print_on(outputStream* st) const;
 };
 
-class ThreadConcurrentLocks : public CHeapObj {
+class ThreadConcurrentLocks : public CHeapObj<mtInternal> {
 private:
   GrowableArray<instanceOop>* _owned_locks;
   ThreadConcurrentLocks*      _next;
@@ -356,7 +356,7 @@ class ThreadDumpResult : public StackObj {
   void                 oops_do(OopClosure* f);
 };
 
-class DeadlockCycle : public CHeapObj {
+class DeadlockCycle : public CHeapObj<mtInternal> {
  private:
   bool _is_deadlock;
   GrowableArray<JavaThread*>* _threads;

@@ -34,7 +34,7 @@
 // A FreeBlockDictionary is an abstract superclass that will allow
 // a number of alternative implementations in the future.
 template <class Chunk>
-class FreeBlockDictionary: public CHeapObj {
+class FreeBlockDictionary: public CHeapObj<mtGC> {
  public:
   enum Dither {
     atLeast,
@@ -48,6 +48,10 @@ class FreeBlockDictionary: public CHeapObj {
   };
 
  private:
+  // This field is added and can be set to point to the
+  // the Mutex used to synchronize access to the
+  // dictionary so that assertion checking can be done.
+  // For example it is set to point to _parDictionaryAllocLock.
   NOT_PRODUCT(Mutex* _lock;)
 
  public:

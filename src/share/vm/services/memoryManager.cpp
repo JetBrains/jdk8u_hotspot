@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -100,7 +100,7 @@ instanceOop MemoryManager::get_memory_manager_instance(TRAPS) {
   if (mgr_obj == NULL) {
     // It's ok for more than one thread to execute the code up to the locked region.
     // Extra manager instances will just be gc'ed.
-    klassOop k = Management::sun_management_ManagementFactory_klass(CHECK_0);
+    Klass* k = Management::sun_management_ManagementFactory_klass(CHECK_0);
     instanceKlassHandle ik(THREAD, k);
 
     Handle mgr_name = java_lang_String::create_from_str(name(), CHECK_0);
@@ -166,15 +166,15 @@ void MemoryManager::oops_do(OopClosure* f) {
 
 GCStatInfo::GCStatInfo(int num_pools) {
   // initialize the arrays for memory usage
-  _before_gc_usage_array = (MemoryUsage*) NEW_C_HEAP_ARRAY(MemoryUsage, num_pools);
-  _after_gc_usage_array  = (MemoryUsage*) NEW_C_HEAP_ARRAY(MemoryUsage, num_pools);
+  _before_gc_usage_array = (MemoryUsage*) NEW_C_HEAP_ARRAY(MemoryUsage, num_pools, mtInternal);
+  _after_gc_usage_array  = (MemoryUsage*) NEW_C_HEAP_ARRAY(MemoryUsage, num_pools, mtInternal);
   _usage_array_size = num_pools;
   clear();
 }
 
 GCStatInfo::~GCStatInfo() {
-  FREE_C_HEAP_ARRAY(MemoryUsage*, _before_gc_usage_array);
-  FREE_C_HEAP_ARRAY(MemoryUsage*, _after_gc_usage_array);
+  FREE_C_HEAP_ARRAY(MemoryUsage*, _before_gc_usage_array, mtInternal);
+  FREE_C_HEAP_ARRAY(MemoryUsage*, _after_gc_usage_array, mtInternal);
 }
 
 void GCStatInfo::set_gc_usage(int pool_index, MemoryUsage usage, bool before_gc) {
@@ -214,8 +214,8 @@ GCMemoryManager::~GCMemoryManager() {
 
 void GCMemoryManager::initialize_gc_stat_info() {
   assert(MemoryService::num_memory_pools() > 0, "should have one or more memory pools");
-  _last_gc_stat = new(ResourceObj::C_HEAP) GCStatInfo(MemoryService::num_memory_pools());
-  _current_gc_stat = new(ResourceObj::C_HEAP) GCStatInfo(MemoryService::num_memory_pools());
+  _last_gc_stat = new(ResourceObj::C_HEAP, mtGC) GCStatInfo(MemoryService::num_memory_pools());
+  _current_gc_stat = new(ResourceObj::C_HEAP, mtGC) GCStatInfo(MemoryService::num_memory_pools());
   // tracking concurrent collections we need two objects: one to update, and one to
   // hold the publicly available "last (completed) gc" information.
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -268,7 +268,22 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
 #ifdef ASSERT
     address start = __ pc();
 #endif
-    AddressLiteral addrlit(NULL, oop_Relocation::spec(_oop_index));
+    AddressLiteral addrlit(NULL, metadata_Relocation::spec(_index));
+    __ patchable_set(addrlit, _obj);
+
+#ifdef ASSERT
+    for (int i = 0; i < _bytes_to_copy; i++) {
+      address ptr = (address)(_pc_start + i);
+      int a_byte = (*ptr) & 0xFF;
+      assert(a_byte == *start++, "should be the same code");
+    }
+#endif
+  } else if (_id == load_mirror_id) {
+    // produce a copy of the load mirror instruction for use by the being initialized case
+#ifdef ASSERT
+    address start = __ pc();
+#endif
+    AddressLiteral addrlit(NULL, oop_Relocation::spec(_index));
     __ patchable_set(addrlit, _obj);
 
 #ifdef ASSERT
@@ -289,7 +304,7 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
 
   address end_of_patch = __ pc();
   int bytes_to_skip = 0;
-  if (_id == load_klass_id) {
+  if (_id == load_mirror_id) {
     int offset = __ offset();
     if (CommentedAssembly) {
       __ block_comment(" being_initialized check");
@@ -300,9 +315,9 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
     // check that this code is being executed by the initializing
     // thread.
     assert(_obj != noreg, "must be a valid register");
-    assert(_oop_index >= 0, "must have oop index");
-    __ load_heap_oop(_obj, java_lang_Class::klass_offset_in_bytes(), G3);
-    __ ld_ptr(G3, in_bytes(instanceKlass::init_thread_offset()), G3);
+    assert(_index >= 0, "must have oop index");
+    __ ld_ptr(_obj, java_lang_Class::klass_offset_in_bytes(), G3);
+    __ ld_ptr(G3, in_bytes(InstanceKlass::init_thread_offset()), G3);
     __ cmp_and_brx_short(G2_thread, G3, Assembler::notEqual, Assembler::pn, call_patch);
 
     // load_klass patches may execute the patched code before it's
@@ -335,9 +350,11 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   address entry = __ pc();
   NativeGeneralJump::insert_unconditional((address)_pc_start, entry);
   address target = NULL;
+  relocInfo::relocType reloc_type = relocInfo::none;
   switch (_id) {
     case access_field_id:  target = Runtime1::entry_for(Runtime1::access_field_patching_id); break;
-    case load_klass_id:    target = Runtime1::entry_for(Runtime1::load_klass_patching_id); break;
+    case load_klass_id:    target = Runtime1::entry_for(Runtime1::load_klass_patching_id); reloc_type = relocInfo::metadata_type; break;
+    case load_mirror_id:   target = Runtime1::entry_for(Runtime1::load_mirror_patching_id); reloc_type = relocInfo::oop_type; break;
     default: ShouldNotReachHere();
   }
   __ bind(call_patch);
@@ -351,15 +368,15 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   ce->add_call_info_here(_info);
   __ br(Assembler::always, false, Assembler::pt, _patch_site_entry);
   __ delayed()->nop();
-  if (_id == load_klass_id) {
+  if (_id == load_klass_id || _id == load_mirror_id) {
     CodeSection* cs = __ code_section();
     address pc = (address)_pc_start;
     RelocIterator iter(cs, pc, pc + 1);
-    relocInfo::change_reloc_info_for_address(&iter, (address) pc, relocInfo::oop_type, relocInfo::none);
+    relocInfo::change_reloc_info_for_address(&iter, (address) pc, reloc_type, relocInfo::none);
 
     pc = (address)(_pc_start + NativeMovConstReg::add_offset);
     RelocIterator iter2(cs, pc, pc+1);
-    relocInfo::change_reloc_info_for_address(&iter2, (address) pc, relocInfo::oop_type, relocInfo::none);
+    relocInfo::change_reloc_info_for_address(&iter2, (address) pc, reloc_type, relocInfo::none);
   }
 
 }
@@ -433,85 +450,6 @@ void G1PreBarrierStub::emit_code(LIR_Assembler* ce) {
   __ br(Assembler::always, false, Assembler::pt, _continuation);
   __ delayed()->nop();
 
-}
-
-void G1UnsafeGetObjSATBBarrierStub::emit_code(LIR_Assembler* ce) {
-  // At this point we know that offset == referent_offset.
-  //
-  // So we might have to emit:
-  //   if (src == null) goto continuation.
-  //
-  // and we definitely have to emit:
-  //   if (klass(src).reference_type == REF_NONE) goto continuation
-  //   if (!marking_active) goto continuation
-  //   if (pre_val == null) goto continuation
-  //   call pre_barrier(pre_val)
-  //   goto continuation
-  //
-  __ bind(_entry);
-
-  assert(src()->is_register(), "sanity");
-  Register src_reg = src()->as_register();
-
-  if (gen_src_check()) {
-    // The original src operand was not a constant.
-    // Generate src == null?
-    if (__ is_in_wdisp16_range(_continuation)) {
-      __ br_null(src_reg, /*annul*/false, Assembler::pt, _continuation);
-    } else {
-      __ cmp(src_reg, G0);
-      __ brx(Assembler::equal, false, Assembler::pt, _continuation);
-    }
-    __ delayed()->nop();
-  }
-
-  // Generate src->_klass->_reference_type() == REF_NONE)?
-  assert(tmp()->is_register(), "sanity");
-  Register tmp_reg = tmp()->as_register();
-
-  __ load_klass(src_reg, tmp_reg);
-
-  Address ref_type_adr(tmp_reg, instanceKlass::reference_type_offset());
-  __ ldub(ref_type_adr, tmp_reg);
-
-  // _reference_type field is of type ReferenceType (enum)
-  assert(REF_NONE == 0, "check this code");
-  __ cmp_zero_and_br(Assembler::equal, tmp_reg, _continuation, /*annul*/false, Assembler::pt);
-  __ delayed()->nop();
-
-  // Is marking active?
-  assert(thread()->is_register(), "precondition");
-  Register thread_reg = thread()->as_pointer_register();
-
-  Address in_progress(thread_reg, in_bytes(JavaThread::satb_mark_queue_offset() +
-                                       PtrQueue::byte_offset_of_active()));
-
-  if (in_bytes(PtrQueue::byte_width_of_active()) == 4) {
-    __ ld(in_progress, tmp_reg);
-  } else {
-    assert(in_bytes(PtrQueue::byte_width_of_active()) == 1, "Assumption");
-    __ ldsb(in_progress, tmp_reg);
-  }
-
-  __ cmp_zero_and_br(Assembler::equal, tmp_reg, _continuation, /*annul*/false, Assembler::pt);
-  __ delayed()->nop();
-
-  // val == null?
-  assert(val()->is_register(), "Precondition.");
-  Register val_reg = val()->as_register();
-
-  if (__ is_in_wdisp16_range(_continuation)) {
-    __ br_null(val_reg, /*annul*/false, Assembler::pt, _continuation);
-  } else {
-    __ cmp(val_reg, G0);
-    __ brx(Assembler::equal, false, Assembler::pt, _continuation);
-  }
-  __ delayed()->nop();
-
-  __ call(Runtime1::entry_for(Runtime1::Runtime1::g1_pre_barrier_slow_id));
-  __ delayed()->mov(val_reg, G4);
-  __ br(Assembler::always, false, Assembler::pt, _continuation);
-  __ delayed()->nop();
 }
 
 jbyte* G1PostBarrierStub::_byte_map_base = NULL;

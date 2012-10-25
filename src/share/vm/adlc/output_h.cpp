@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -674,16 +674,19 @@ void gen_inst_format(FILE *fp, FormDict &globals, InstructForm &inst, bool for_c
   else if( inst.is_ideal_mem() ) {
     // Print out the field name if available to improve readability
     fprintf(fp,  "    if (ra->C->alias_type(adr_type())->field() != NULL) {\n");
-    fprintf(fp,  "      st->print(\" ! Field \");\n");
-    fprintf(fp,  "      if( ra->C->alias_type(adr_type())->is_volatile() )\n");
-    fprintf(fp,  "        st->print(\" Volatile\");\n");
-    fprintf(fp,  "      ra->C->alias_type(adr_type())->field()->holder()->name()->print_symbol_on(st);\n");
+    fprintf(fp,  "      ciField* f = ra->C->alias_type(adr_type())->field();\n");
+    fprintf(fp,  "      st->print(\" ! Field: \");\n");
+    fprintf(fp,  "      if (f->is_volatile())\n");
+    fprintf(fp,  "        st->print(\"volatile \");\n");
+    fprintf(fp,  "      f->holder()->name()->print_symbol_on(st);\n");
     fprintf(fp,  "      st->print(\".\");\n");
-    fprintf(fp,  "      ra->C->alias_type(adr_type())->field()->name()->print_symbol_on(st);\n");
+    fprintf(fp,  "      f->name()->print_symbol_on(st);\n");
+    fprintf(fp,  "      if (f->is_constant())\n");
+    fprintf(fp,  "        st->print(\" (constant)\");\n");
     fprintf(fp,  "    } else\n");
     // Make sure 'Volatile' gets printed out
-    fprintf(fp,  "    if( ra->C->alias_type(adr_type())->is_volatile() )\n");
-    fprintf(fp,  "      st->print(\" Volatile!\");\n");
+    fprintf(fp,  "    if (ra->C->alias_type(adr_type())->is_volatile())\n");
+    fprintf(fp,  "      st->print(\" volatile!\");\n");
   }
 
   // Complete the definition of the format function
@@ -1360,8 +1363,8 @@ void ArchDesc::declareClasses(FILE *fp) {
           fprintf(fp,   " return _c0->get_con();");
           fprintf(fp, " }\n");
           // Generate query to determine if this pointer is an oop
-          fprintf(fp,"  virtual bool           constant_is_oop() const {");
-          fprintf(fp,   " return _c0->isa_oop_ptr();");
+          fprintf(fp,"  virtual relocInfo::relocType           constant_reloc() const {");
+          fprintf(fp,   " return _c0->reloc();");
           fprintf(fp, " }\n");
         }
         else if (!strcmp(oper->ideal_type(_globalNames), "ConN")) {
@@ -1370,8 +1373,8 @@ void ArchDesc::declareClasses(FILE *fp) {
           fprintf(fp,   " return _c0->get_ptrtype()->get_con();");
           fprintf(fp, " }\n");
           // Generate query to determine if this pointer is an oop
-          fprintf(fp,"  virtual bool           constant_is_oop() const {");
-          fprintf(fp,   " return _c0->get_ptrtype()->isa_oop_ptr();");
+          fprintf(fp,"  virtual relocInfo::relocType           constant_reloc() const {");
+          fprintf(fp,   " return _c0->get_ptrtype()->reloc();");
           fprintf(fp, " }\n");
         }
         else if (!strcmp(oper->ideal_type(_globalNames), "ConL")) {

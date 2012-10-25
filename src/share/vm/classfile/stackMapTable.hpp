@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,9 +26,10 @@
 #define SHARE_VM_CLASSFILE_STACKMAPTABLE_HPP
 
 #include "classfile/stackMapFrame.hpp"
+#include "classfile/verifier.hpp"
 #include "memory/allocation.hpp"
-#include "oops/constantPoolOop.hpp"
-#include "oops/methodOop.hpp"
+#include "oops/constantPool.hpp"
+#include "oops/method.hpp"
 #include "utilities/globalDefinitions.hpp"
 #ifdef TARGET_ARCH_x86
 # include "bytes_x86.hpp"
@@ -76,12 +77,12 @@ class StackMapTable : public StackObj {
   // specified offset. Return true if the two frames match.
   bool match_stackmap(
     StackMapFrame* current_frame, int32_t offset,
-    bool match, bool update, TRAPS) const;
+    bool match, bool update, ErrorContext* ctx, TRAPS) const;
   // Match and/or update current_frame to the frame in stackmap table with
   // specified offset and frame index. Return true if the two frames match.
   bool match_stackmap(
     StackMapFrame* current_frame, int32_t offset, int32_t frame_index,
-    bool match, bool update, TRAPS) const;
+    bool match, bool update, ErrorContext* ctx, TRAPS) const;
 
   // Check jump instructions. Make sure there are no uninitialized
   // instances on backward branch.
@@ -96,29 +97,28 @@ class StackMapTable : public StackObj {
   void check_new_object(
     const StackMapFrame* frame, int32_t target, TRAPS) const;
 
-  // Debugging
-  void print() const PRODUCT_RETURN;
+  void print_on(outputStream* str) const;
 };
 
 class StackMapStream : StackObj {
  private:
-  typeArrayHandle _data;
+  Array<u1>* _data;
   int _index;
  public:
-  StackMapStream(typeArrayHandle ah)
+  StackMapStream(Array<u1>* ah)
     : _data(ah), _index(0) {
   }
   u1 get_u1(TRAPS) {
     if (_data == NULL || _index >= _data->length()) {
       stackmap_format_error("access beyond the end of attribute", CHECK_0);
     }
-    return _data->byte_at(_index++);
+    return _data->at(_index++);
   }
   u2 get_u2(TRAPS) {
     if (_data == NULL || _index >= _data->length() - 1) {
       stackmap_format_error("access beyond the end of attribute", CHECK_0);
     }
-    u2 res = Bytes::get_Java_u2((u1*)_data->byte_at_addr(_index));
+    u2 res = Bytes::get_Java_u2(_data->adr_at(_index));
     _index += 2;
     return res;
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@
 #include "memory/cardTableModRefBS.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/java.hpp"
+#include "services/memTracker.hpp"
 
 void ObjectStartArray::initialize(MemRegion reserved_region) {
   // We're based on the assumption that we use the same
@@ -50,6 +51,7 @@ void ObjectStartArray::initialize(MemRegion reserved_region) {
   if (!backing_store.is_reserved()) {
     vm_exit_during_initialization("Could not reserve space for ObjectStartArray");
   }
+  MemTracker::record_virtual_memory_type((address)backing_store.base(), mtGC);
 
   // We do not commit any memory initially
   if (!_virtual_space.initialize(backing_store, 0)) {
@@ -57,9 +59,13 @@ void ObjectStartArray::initialize(MemRegion reserved_region) {
   }
 
   _raw_base = (jbyte*)_virtual_space.low_boundary();
+
   if (_raw_base == NULL) {
     vm_exit_during_initialization("Could not get raw_base address");
   }
+
+  MemTracker::record_virtual_memory_type((address)_raw_base, mtGC);
+
 
   _offset_base = _raw_base - (size_t(reserved_region.start()) >> block_shift);
 
@@ -134,8 +140,10 @@ bool ObjectStartArray::object_starts_in_range(HeapWord* start_addr,
     }
   }
   // No object starts in this slice; verify this using
-  // more traditional methods:
-  assert(object_start(end_addr - 1) <= start_addr,
+  // more traditional methods:  Note that no object can
+  // start before the start_addr.
+  assert(end_addr == start_addr ||
+         object_start(end_addr - 1) <= start_addr,
          "Oops an object does start in this slice?");
   return false;
 }

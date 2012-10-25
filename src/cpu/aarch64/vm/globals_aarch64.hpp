@@ -81,4 +81,13 @@ define_pd_global(intx, CMSYoungGenPerWorker, 64*M);  // default max size of CMS 
 
 // avoid biased locking while we are bootstrapping the aarch64 build
 define_pd_global(bool, UseBiasedLocking, false);
+
+#define ARCH_FLAGS(develop, product, diagnostic, experimental, notproduct) \
+                                                                            \
+  product(bool, NotifySimulator, true,                                      \
+         "tell the AArch64 sim where we are in method code")                \
+                                                                            \
+  product(bool, UseSimulatorCache, false,                                   \
+         "tell the AArch64 sim where we are in method code")                \
+
 #endif // CPU_X86_VM_GLOBALS_X86_HPP
