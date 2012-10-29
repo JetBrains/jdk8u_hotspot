@@ -479,7 +479,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
         in_bytes(JavaThread::do_not_unlock_if_synchronized_offset()));
   __ mov(rscratch2, true);
   __ strb(rscratch2, do_not_unlock_if_synchronized);
-  
+
   // increment invocation count & check for overflow
   Label invocation_counter_overflow;
   if (inc_counter) {
@@ -492,9 +492,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   bang_stack_shadow_pages(true);
 
   // reset the _do_not_unlock_if_synchronized flag
-  __ add(rscratch1, rthread,
-	 in_bytes(JavaThread::do_not_unlock_if_synchronized_offset()));
-  __ strb(zr, rscratch1);
+  __ strb(zr, do_not_unlock_if_synchronized);
 
   // check for synchronized methods
   // Must happen AFTER invocation_counter check and stack overflow check,
@@ -952,11 +950,11 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
   // _do_not_unlock_if_synchronized to true. The remove_activation
   // will check this flag.
 
-  __ add(rscratch1, rthread,
-	 in_bytes(JavaThread::do_not_unlock_if_synchronized_offset()));
+   const Address do_not_unlock_if_synchronized(rthread,
+        in_bytes(JavaThread::do_not_unlock_if_synchronized_offset()));
   __ mov(rscratch2, true);
-  __ strb(rscratch2, rscratch1);
-  
+  __ strb(rscratch2, do_not_unlock_if_synchronized);
+
   // increment invocation count & check for overflow
   Label invocation_counter_overflow;
   Label profile_method;
@@ -977,9 +975,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
   bang_stack_shadow_pages(false);
 
   // reset the _do_not_unlock_if_synchronized flag
-  __ add(rscratch1, rthread,
-	 in_bytes(JavaThread::do_not_unlock_if_synchronized_offset()));
-  __ strb(zr, rscratch1);
+  __ strb(zr, do_not_unlock_if_synchronized);
 
   // check for synchronized methods
   // Must happen AFTER invocation_counter check and stack overflow check,
