@@ -330,9 +330,13 @@ void InterpreterMacroAssembler::dispatch_only(TosState state) {
   dispatch_base(state, Interpreter::dispatch_table(state));
 }
 
-void InterpreterMacroAssembler::dispatch_only_normal(TosState state) { Unimplemented(); }
+void InterpreterMacroAssembler::dispatch_only_normal(TosState state) {
+  dispatch_base(state, Interpreter::normal_table(state));
+}
 
-void InterpreterMacroAssembler::dispatch_only_noverify(TosState state) { Unimplemented(); }
+void InterpreterMacroAssembler::dispatch_only_noverify(TosState state) {
+  dispatch_base(state, Interpreter::normal_table(state), false);
+}
 
 
 void InterpreterMacroAssembler::dispatch_next(TosState state, int step) {
@@ -341,7 +345,11 @@ void InterpreterMacroAssembler::dispatch_next(TosState state, int step) {
   dispatch_base(state, Interpreter::dispatch_table(state));
 }
 
-void InterpreterMacroAssembler::dispatch_via(TosState state, address* table) { Unimplemented(); }
+void InterpreterMacroAssembler::dispatch_via(TosState state, address* table) {
+  // load current bytecode
+  ldrb(rscratch1, Address(rbcp, 0));
+  dispatch_base(state, table);
+}
 
 // remove activation
 //
