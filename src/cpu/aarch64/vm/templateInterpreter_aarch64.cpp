@@ -1468,7 +1468,7 @@ void TemplateInterpreterGenerator::stop_interpreter_at() {
 }
 
 extern "C" {
-  void bccheck1(u_int64_t methodVal, u_int64_t bcpVal, char *method, int *bcidx, char *decode)
+  void bccheck1(u_int64_t methodVal, u_int64_t bcpVal, int verify, char *method, int *bcidx, char *decode)
   {
     if (method != 0) {
       method[0] = '\0';
@@ -1480,20 +1480,22 @@ extern "C" {
       decode[0] = 0;
     }
 
-    // verify the supplied method oop
-    // is the 'method*' in range
-    intptr_t checkVal = (intptr_t)methodVal;
-    if (checkVal == 0) {
-      return;
-    }
-    if ((checkVal & Universe::verify_oop_mask()) != Universe::verify_oop_bits()) {
-      return;
-    }
-    // is the klass of the 'methodOop' a sensible value
-    checkVal = (intptr_t)((Method*)checkVal)->method_holder();
-
-    if (checkVal == 0) {
-      return;
+    if (verify) {
+      // verify the supplied method oop
+      // is the 'method*' in range
+      intptr_t checkVal = (intptr_t)methodVal;
+      if (checkVal == 0) {
+	return;
+      }
+      if ((checkVal & Universe::verify_oop_mask()) != Universe::verify_oop_bits()) {
+	return;
+      }
+      // is the klass of the 'methodOop' a sensible value
+      checkVal = (intptr_t)((Method*)checkVal)->method_holder();
+      
+      if (checkVal == 0) {
+	return;
+      }
     }
 
     Method* meth = (Method*)methodVal;
@@ -1518,9 +1520,9 @@ extern "C" {
   }
 
 
-  JNIEXPORT void bccheck(u_int64_t methodVal, u_int64_t bcpVal, char *method, int *bcidx, char *decode)
+  JNIEXPORT void bccheck(u_int64_t methodVal, u_int64_t bcpVal, int verify, char *method, int *bcidx, char *decode)
   {
-    bccheck1(methodVal, bcpVal, method, bcidx, decode);
+    bccheck1(methodVal, bcpVal, verify, method, bcidx, decode);
   }
 }
 
