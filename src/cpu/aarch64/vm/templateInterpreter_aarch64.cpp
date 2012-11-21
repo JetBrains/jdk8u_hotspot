@@ -380,9 +380,21 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
   } else {
     __ stp(zr, rbcp, Address(__ pre(sp, -2 * wordSize))); // set bcp
   }
+
   __ mov(esp, sp); // Initialize expression stack pointer
-  __ sub(sp, sp, os::vm_page_size()); // Move SP out of the way
-  __ str(esp, Address(esp));
+
+  // Move SP out of the way
+  if (native_call)
+    __ sub(sp, sp, os::vm_page_size());
+  else {
+    __ ldrh(rscratch1, Address(rmethod, Method::max_stack_offset()));
+    __ add(rscratch1, rscratch1, frame::interpreter_frame_monitor_size()
+	   + (EnableInvokeDynamic ? 2 : 0));
+    __ sub(rscratch1, sp, rscratch1, ext::uxtw, 3);
+    __ andr(sp, rscratch1, -16);
+  }
+
+  __ str(esp, Address(esp)); // Initial ESP
 }
 
 // End of helpers
@@ -546,8 +558,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   __ lsl(t, t, Interpreter::logStackElementSize);
 
   __ sub(rscratch1, esp, t, ext::uxtx, 0);
-  __ sub(rscratch1, rscratch1, frame::arg_reg_save_area_bytes); // windows
-  __ andr(sp, rscratch1, -16); // must be 16 byte boundary
+  __ sub(esp, rscratch1, frame::arg_reg_save_area_bytes); // windows
 
   // get signature handler
   {
@@ -697,13 +708,8 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
     // runtime call by hand.
     //
     __ mov(c_rarg0, rthread);
-    __ mov(r16, esp); // remember sp
-    __ sub(rscratch1, esp, frame::arg_reg_save_area_bytes); // windows
-    __ andr(rscratch1, rscratch1, -16); // align stack as required by ABI
-    __ mov(sp, rscratch1);
     __ mov(rscratch2, CAST_FROM_FN_PTR(address, JavaThread::check_special_condition_for_native_trans));
     __ brx86(rscratch2, 1, 0, 0);
-    __ mov(esp, r16); // restore sp
     __ reinit_heapbase();
     __ bind(Continue);
   }
@@ -749,13 +755,8 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
 
     __ pusha(); // XXX only save smashed registers
     __ mov(c_rarg0, rthread);
-    __ mov(r16, esp); // remember sp
-    __ sub(rscratch1, esp, frame::arg_reg_save_area_bytes); // windows
-    __ andr(rscratch1, rscratch1, -16); // align stack as required by ABI
-    __ mov(sp, rscratch1);
     __ mov(rscratch2, CAST_FROM_FN_PTR(address, SharedRuntime::reguard_yellow_pages));
     __ brx86(rscratch2, 0, 0, 0);
-    __ mov(esp, r16); // restore sp
     __ popa(); // XXX only restore smashed registers
     __ reinit_heapbase();
     __ bind(no_reguard);
@@ -904,17 +905,21 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
   __ add(rlocals, esp, r2, ext::uxtx, 3);
   __ sub(rlocals, rlocals, wordSize);
 
+  // Make room for locals
+  __ sub(rscratch1, esp, r3, ext::uxtx, 3);
+  __ andr(sp, rscratch1, -16);
+
   // r3 - # of additional locals
   // allocate space for locals
   // explicitly initialize locals
   {
     Label exit, loop;
-    __ ands(r3, r3, r3);
+    __ ands(zr, r3, r3);
     __ br(Assembler::LE, exit); // do nothing if r3 <= 0
     __ bind(loop);
     __ push(zr); // initialize local variables
     __ subs(r3, r3, 1); // until everything initialized
-    __ br(Assembler::GT, loop);
+    __ cbnz(r3, loop);
     __ bind(exit);
   }
 
@@ -1059,7 +1064,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
 //
 // Arguments:
 //
-// rbx: Method*
+// rmethod: Method*
 //
 // Stack layout immediately at entry
 //
@@ -1073,26 +1078,26 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
 // the stack will look like below when we are ready to execute the
 // first bytecode (or call the native routine). The register usage
 // will be as the template based interpreter expects (see
-// interpreter_amd64.hpp).
+// interpreter_aarch64.hpp).
 //
 // local variables follow incoming parameters immediately; i.e.
 // the return address is moved to the end of the locals).
 //
-// [ monitor entry      ] <--- rsp
+// [ monitor entry      ] <--- esp
 //   ...
 // [ monitor entry      ]
 // [ expr. stack bottom ]
-// [ saved r13          ]
-// [ current r14        ]
+// [ saved rbcp         ]
+// [ current rlocals    ]
 // [ Method*            ]
-// [ saved efp          ] <--- rfp
+// [ saved rfp          ] <--- rfp
 // [ return address     ]
 // [ local variable m   ]
 //   ...
 // [ local variable 1   ]
 // [ parameter n        ]
 //   ...
-// [ parameter 1        ] <--- r14
+// [ parameter 1        ] <--- rlocals
 
 address AbstractInterpreterGenerator::generate_method_entry(
                                         AbstractInterpreter::MethodKind kind) {
@@ -1450,12 +1455,7 @@ void TemplateInterpreterGenerator::trace_bytecode(Template* t) {
 
   assert(Interpreter::trace_code(t->tos_in()) != NULL,
          "entry must have been generated");
-  __ mov(r19, esp);
-  __ andr(sp, r19, -16); // align stack as required by ABI
-  __ push(lr);
   __ bl(Interpreter::trace_code(t->tos_in()));
-  __ pop(lr);
-  __ mov(esp, r19); // restore sp
   __ reinit_heapbase();
 }
 
