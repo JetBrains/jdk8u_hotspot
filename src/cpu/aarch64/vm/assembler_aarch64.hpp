@@ -2208,7 +2208,6 @@ public:
   void fat_nop();
 
   // Stack frame creation/removal
-  void entry_sp();
   void enter();
   void leave();
 

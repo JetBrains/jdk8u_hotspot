@@ -289,8 +289,7 @@ class StubGenerator: public StubCodeGenerator {
 
     // call Java entry -- passing methdoOop, and current sp
     //      rmethod: Method*
-    //      r10: sender sp
-    __ mov(r10, esp);
+    //      esp: sender sp
     BLOCK_COMMENT("call Java function");
     __ blr(c_rarg4);
 
