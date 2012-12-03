@@ -78,6 +78,7 @@ void InterpreterRuntime::SignatureHandlerGenerator::pass_int() {
     __ ldr(r0, src);
     __ str(r0, Address(to(), _stack_offset));
     _stack_offset += wordSize;
+    _num_int_args++;
     break;
   }
 }
@@ -118,6 +119,7 @@ void InterpreterRuntime::SignatureHandlerGenerator::pass_long() {
     __ ldr(r0, src);
     __ str(r0, Address(to(), _stack_offset));
     _stack_offset += wordSize;
+    _num_int_args++;
     break;
   }
 }
@@ -235,6 +237,7 @@ void InterpreterRuntime::SignatureHandlerGenerator::pass_object() {
       __ str(temp(), Address(to(), _stack_offset));
       __ bind(L);
       _stack_offset += wordSize;
+      _num_int_args++;
       break;
    }
   }
@@ -302,6 +305,7 @@ class SlowSignatureHandler
       _num_int_args++;
     } else {
       *_to++ = from_obj;
+      _num_int_args++;
     }
   }
 
@@ -315,6 +319,7 @@ class SlowSignatureHandler
       _num_int_args++;
     } else {
       *_to++ = from_obj;
+      _num_int_args++;
     }
   }
 
@@ -328,6 +333,7 @@ class SlowSignatureHandler
       _num_int_args++;
     } else {
       *_to++ = (*from_addr == 0) ? NULL : (intptr_t) from_addr;
+      _num_int_args++;
     }
   }
 
@@ -341,6 +347,7 @@ class SlowSignatureHandler
       _num_fp_args++;
     } else {
       *_to++ = from_obj;
+      _num_int_args++;
     }
   }
 
@@ -355,6 +362,7 @@ class SlowSignatureHandler
       _num_fp_args++;
     } else {
       *_to++ = from_obj;
+      _num_int_args++;
     }
   }
 
@@ -365,9 +373,9 @@ class SlowSignatureHandler
     _from = from;
     _to   = to;
 
-    _int_args = to - (method->is_static() ? 14 : 15);
-    _fp_args =  to - 9;
-    _fp_identifiers = to - 10;
+    _int_args = to - (method->is_static() ? 16 : 17);
+    _fp_args =  to - 8;
+    _fp_identifiers = to - 9;
     *(int*) _fp_identifiers = 0;
     _num_int_args = (method->is_static() ? 1 : 0);
     _num_fp_args = 0;
@@ -407,7 +415,7 @@ IRT_ENTRY(address,
   assert(m->is_native(), "sanity check");
 
   // handle arguments
-  SlowSignatureHandler ssh(m, (address)from, to + 1);
+  SlowSignatureHandler ssh(m, (address)from, to);
   ssh.iterate(UCONST64(-1));
 
   // set the call format
