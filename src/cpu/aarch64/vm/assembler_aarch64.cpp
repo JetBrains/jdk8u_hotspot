@@ -1874,11 +1874,13 @@ void MacroAssembler::get_vm_result_2(Register metadata_result, Register java_thr
   str(zr, Address(java_thread, JavaThread::vm_result_2_offset()));
 }
 
-void MacroAssembler::check_and_handle_earlyret(Register java_thread) {Unimplemented(); }
-
 void MacroAssembler::align(int modulus) {
   while (offset() % modulus != 0) nop();
 }
+
+// these are meant to be no-ops overridden by InterpreterMacroAssembler
+
+void MacroAssembler::check_and_handle_earlyret(Register java_thread) { Unimplemented(); }
 
 void MacroAssembler::check_and_handle_popframe(Register java_thread) { Unimplemented(); }
 
