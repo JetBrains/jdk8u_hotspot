@@ -1989,7 +1989,7 @@ void TemplateTable::load_invoke_cp_cache_entry(int byte_no,
   if (itable_index != noreg) {
     __ ldr(itable_index, Address(cache, index_offset));
   }
-  __ ldr(flags, Address(cache, flags_offset));
+  __ ldrw(flags, Address(cache, flags_offset));
 }
 
 
@@ -2613,11 +2613,6 @@ void TemplateTable::prepare_invoke(int byte_no,
       (address)Interpreter::return_3_addrs_by_index_table();
     __ mov(rscratch1, table_addr);
     __ ldr(lr, Address(rscratch1, rscratch2, Address::lsl(3)));
-  }
-
-  // flags is a whole xword: mask it off
-  if (save_flags) {
-    __ andr(flags, flags, 0xffffffffu);
   }
 }
 
