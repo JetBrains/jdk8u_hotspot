@@ -75,7 +75,7 @@ address TemplateInterpreterGenerator::generate_StackOverflowError_handler() {
     __ mov(rscratch2, sp);
     __ cmp(rscratch1, rscratch2); // maximal rsp for current rfp (stack
                            // grows negative)
-    __ br(Assembler::CC, L); // check if frame is complete
+    __ br(Assembler::HS, L); // check if frame is complete
     __ stop ("interpreter frame not set up");
     __ bind(L);
   }
@@ -192,9 +192,7 @@ address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, 
   __ ldrb(r1, Address(r1,
 		     in_bytes(ConstantPoolCache::base_offset()) +
 		     3 * wordSize));
-  __ mov(rscratch1, esp);
-  __ add(rscratch1, rscratch1, r1, Assembler::LSL, 3);
-  __ mov(esp, rscratch1);
+  __ add(esp, esp, r1, Assembler::LSL, 3);
 #ifdef ASSERT
   __ spillcheck(rscratch1, rscratch2);
 #endif // ASSERT
@@ -308,12 +306,81 @@ void InterpreterGenerator::generate_counter_overflow(Label* do_continue) {
 // too.
 //
 // Args:
-//      rdx: number of additional locals this frame needs (what we must check)
-//      rbx: Method*
+//      r3: number of additional locals this frame needs (what we must check)
+//      rmethod: Method*
 //
 // Kills:
-//      rax
-void InterpreterGenerator::generate_stack_overflow_check(void) {  }
+//      r0
+void InterpreterGenerator::generate_stack_overflow_check(void) {
+
+  // monitor entry size: see picture of stack set
+  // (generate_method_entry) and frame_amd64.hpp
+  const int entry_size = frame::interpreter_frame_monitor_size() * wordSize;
+
+  // total overhead size: entry_size + (saved rbp through expr stack
+  // bottom).  be sure to change this if you add/subtract anything
+  // to/from the overhead area
+  const int overhead_size =
+    -(frame::interpreter_frame_initial_sp_offset * wordSize) + entry_size;
+
+  const int page_size = os::vm_page_size();
+
+  Label after_frame_check;
+
+  // see if the frame is greater than one page in size. If so,
+  // then we need to verify there is enough stack space remaining
+  // for the additional locals.
+  __ cmp(r3, (page_size - overhead_size) / Interpreter::stackElementSize);
+  // __ br(Assembler::LS, after_frame_check);
+
+  // compute rsp as if this were going to be the last frame on
+  // the stack before the red zone
+
+  const Address stack_base(rthread, Thread::stack_base_offset());
+  const Address stack_size(rthread, Thread::stack_size_offset());
+
+  // locals + overhead, in bytes
+  __ mov(r0, overhead_size);
+  __ add(r0, r0, r3, Assembler::LSL, Interpreter::logStackElementSize);  // 2 slots per parameter.
+
+  __ ldr(rscratch1, stack_base);
+  __ ldr(rscratch2, stack_size);
+
+#ifdef ASSERT
+  Label stack_base_okay, stack_size_okay;
+  // verify that thread stack base is non-zero
+  __ cbnz(rscratch1, stack_base_okay);
+  __ stop("stack base is zero");
+  __ bind(stack_base_okay);
+  // verify that thread stack size is non-zero
+  __ cbnz(rscratch2, stack_size_okay);
+  __ stop("stack size is zero");
+  __ bind(stack_size_okay);
+#endif
+
+  // Add stack base to locals and subtract stack size
+  __ sub(rscratch1, rscratch1, rscratch2); // Stack limit
+  __ add(r0, r0, rscratch1);
+
+  // Use the maximum number of pages we might bang.
+  const int max_pages = StackShadowPages > (StackRedPages+StackYellowPages) ? StackShadowPages :
+                                                                              (StackRedPages+StackYellowPages);
+
+  // add in the red and yellow zone sizes
+  __ add(r0, r0, max_pages * page_size * 2);
+
+  // check against the current stack bottom
+  __ cmp(sp, r0);
+  __ br(Assembler::LO, after_frame_check);
+
+  // Note: the restored frame is not necessarily interpreted.
+  // Use the shared runtime version of the StackOverflowError.
+  assert(StubRoutines::throw_StackOverflowError_entry() != NULL, "stub not yet generated");
+  __ b(RuntimeAddress(StubRoutines::throw_StackOverflowError_entry()));
+
+  // all done with frame size check
+  __ bind(after_frame_check);
+}
 
 // Allocate monitor and lock method (asm interpreter)
 //
@@ -472,6 +539,21 @@ address InterpreterGenerator::generate_accessor_entry(void) {
 address InterpreterGenerator::generate_Reference_get_entry(void) {
   return NULL;
 }
+
+void InterpreterGenerator::bang_stack_shadow_pages(bool native_call) {
+  // Bang each page in the shadow zone. We can't assume it's been done for
+  // an interpreter frame with greater than a page of locals, so each page
+  // needs to be checked.  Only true for non-native.
+  if (UseStackBanging) {
+    const int start_page = native_call ? StackShadowPages : 1;
+    const int page_size = os::vm_page_size();
+    for (int pages = start_page; pages <= StackShadowPages ; pages++) {
+      __ sub(rscratch2, sp, pages*page_size);
+      __ ldr(zr, Address(rscratch2));
+    }
+  }
+}
+
 
 // Interpreter stub for calling a native method. (asm interpreter)
 // This sets up a somewhat different looking stack for calling the
@@ -754,10 +836,10 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
     Label Continue;
     __ mov(rscratch2, SafepointSynchronize::address_of_state());
     __ ldr(rscratch2, rscratch2);
-    __ cmp(rscratch2, SafepointSynchronize::_not_synchronized);
-
+    assert(SafepointSynchronize::_not_synchronized == 0,
+	   "SafepointSynchronize::_not_synchronized");
     Label L;
-    __ br(Assembler::NE, L);
+    __ cbnz(rscratch2, L);
     __ ldrw(rscratch2, Address(rthread, JavaThread::suspend_flags_offset()));
     __ cbz(rscratch2, Continue);
     __ bind(L);
@@ -910,7 +992,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   __ leave();
   // restore sp
   __ ldr(rscratch1, Address(__ post(sp, 2 * wordSize)));
-  __ mov(rscratch1, sp);
+  __ mov(sp, rscratch1);
 
   if (inc_counter) {
     // Handle overflow of counter and compile method
@@ -944,10 +1026,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
   // get parameter size (always needed)
   __ load_unsigned_short(r2, size_of_parameters);
 
-  __ mov(rscratch1, j_rarg1); // Sender SP
-  // r1: Method*
   // r2: size of parameters
-  // rscratch1: sender_sp (could differ from sp+wordSize if we were called via c2i )
 
   __ load_unsigned_short(r3, size_of_locals); // get size of locals in words
   __ sub(r3, r3, r2); // r3 = no. of additional locals
@@ -1552,7 +1631,7 @@ extern "C" {
       }
       // is the klass of the 'methodOop' a sensible value
       checkVal = (intptr_t)((Method*)checkVal)->method_holder();
-      
+
       if (checkVal == 0) {
 	return;
       }

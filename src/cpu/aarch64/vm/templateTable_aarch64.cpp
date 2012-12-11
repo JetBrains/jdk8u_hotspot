@@ -599,7 +599,7 @@ void TemplateTable::index_check(Register array, Register index)
     __ mov(r1, index);
   }
   Label ok;
-  __ br(Assembler::CS, ok);
+  __ br(Assembler::LO, ok);
   __ mov(rscratch1, Interpreter::_throw_ArrayIndexOutOfBoundsException_entry);
   __ br(rscratch1);
   __ bind(ok);
@@ -1725,7 +1725,7 @@ void TemplateTable::fast_linearswitch() {
   __ br(Assembler::EQ, found);
   __ bind(loop_entry);
   __ subs(r1, r1, 1);
-  __ br(Assembler::GE, loop);
+  __ br(Assembler::PL, loop);
   // default case
   __ profile_switch_default(r0);
   __ ldrw(r3, Address(r19, 0));
@@ -2021,7 +2021,7 @@ void TemplateTable::load_invoke_cp_cache_entry(int byte_no,
   if (itable_index != noreg) {
     __ ldr(itable_index, Address(cache, index_offset));
   }
-  __ ldr(flags, Address(cache, flags_offset));
+  __ ldrw(flags, Address(cache, flags_offset));
 }
 
 
@@ -2646,11 +2646,6 @@ void TemplateTable::prepare_invoke(int byte_no,
     __ mov(rscratch1, table_addr);
     __ ldr(lr, Address(rscratch1, rscratch2, Address::lsl(3)));
   }
-
-  // flags is a whole xword: mask it off
-  if (save_flags) {
-    __ andr(flags, flags, 0xffffffffu);
-  }
 }
 
 
@@ -3222,7 +3217,7 @@ void TemplateTable::monitorenter()
     __ mov(c_rarg3, esp);                 // set start value for copy loop
     __ str(c_rarg1, monitor_block_bot);   // set new monitor block bottom
 
-    __ cmp(sp, c_rarg1);                  // Check if we need to move sp
+    __ cmp(sp, c_rarg3);                  // Check if we need to move sp
     __ br(Assembler::LO, no_adjust);      // to allow more stack space
 					  // for our new esp
     __ sub(sp, sp, 2 * wordSize);
