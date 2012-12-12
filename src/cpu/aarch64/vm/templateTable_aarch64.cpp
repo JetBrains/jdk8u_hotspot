@@ -1427,12 +1427,24 @@ void TemplateTable::convert()
     break;
   case Bytecodes::_f2i:
   {
+    Label L_Okay;
+    __ clear_fpsr();
     __ fcvtzsw(r0, v0);
+    __ get_fpsr(r1);
+    __ cbzw(r1, L_Okay);
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::f2i), 1);
+    __ bind(L_Okay);
   }
     break;
   case Bytecodes::_f2l:
   {
+    Label L_Okay;
+    __ clear_fpsr();
     __ fcvtzs(r0, v0);
+    __ get_fpsr(r1);
+    __ cbzw(r1, L_Okay);
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::f2l), 1);
+    __ bind(L_Okay);
   }
     break;
   case Bytecodes::_f2d:
@@ -1440,12 +1452,24 @@ void TemplateTable::convert()
     break;
   case Bytecodes::_d2i:
   {
+    Label L_Okay;
+    __ clear_fpsr();
     __ fcvtzdw(r0, v0);
+    __ get_fpsr(r1);
+    __ cbzw(r1, L_Okay);
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::d2i), 1);
+    __ bind(L_Okay);
   }
     break;
   case Bytecodes::_d2l:
   {
+    Label L_Okay;
+    __ clear_fpsr();
     __ fcvtzd(r0, v0);
+    __ get_fpsr(r1);
+    __ cbzw(r1, L_Okay);
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::d2l), 1);
+    __ bind(L_Okay);
   }
     break;
   case Bytecodes::_d2f:
