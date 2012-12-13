@@ -1266,9 +1266,10 @@ void TemplateTable::fop2(Operation op)
     __ fdivs(v0, v1, v0);
     break;
   case rem:
-    __ fmovs(v0, v1);
+    __ fmovs(v1, v0);
     __ pop_f(v0);
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::frem), 2);
+    __ call_VM_leaf_base1(CAST_FROM_FN_PTR(address, SharedRuntime::frem),
+			 0, 2, MacroAssembler::ret_type_float);
     break;
   default:
     ShouldNotReachHere();
@@ -1298,9 +1299,10 @@ void TemplateTable::dop2(Operation op)
     __ fdivd(v0, v1, v0);
     break;
   case rem:
-    __ fmovd(v0, v1);
+    __ fmovd(v1, v0);
     __ pop_d(v0);
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::frem), 2);
+    __ call_VM_leaf_base1(CAST_FROM_FN_PTR(address, SharedRuntime::drem),
+			 0, 2, MacroAssembler::ret_type_double);
     break;
   default:
     ShouldNotReachHere();
@@ -1441,7 +1443,8 @@ void TemplateTable::convert()
     __ fcvtzsw(r0, v0);
     __ get_fpsr(r1);
     __ cbzw(r1, L_Okay);
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::f2i), 1);
+    __ call_VM_leaf_base1(CAST_FROM_FN_PTR(address, SharedRuntime::f2i),
+			 0, 1, MacroAssembler::ret_type_integral);
     __ bind(L_Okay);
   }
     break;
@@ -1452,7 +1455,8 @@ void TemplateTable::convert()
     __ fcvtzs(r0, v0);
     __ get_fpsr(r1);
     __ cbzw(r1, L_Okay);
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::f2l), 1);
+    __ call_VM_leaf_base1(CAST_FROM_FN_PTR(address, SharedRuntime::f2l),
+			 0, 1, MacroAssembler::ret_type_integral);
     __ bind(L_Okay);
   }
     break;
@@ -1466,7 +1470,8 @@ void TemplateTable::convert()
     __ fcvtzdw(r0, v0);
     __ get_fpsr(r1);
     __ cbzw(r1, L_Okay);
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::d2i), 1);
+    __ call_VM_leaf_base1(CAST_FROM_FN_PTR(address, SharedRuntime::d2i),
+			 0, 1, MacroAssembler::ret_type_integral);
     __ bind(L_Okay);
   }
     break;
@@ -1477,7 +1482,8 @@ void TemplateTable::convert()
     __ fcvtzd(r0, v0);
     __ get_fpsr(r1);
     __ cbzw(r1, L_Okay);
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::d2l), 1);
+    __ call_VM_leaf_base1(CAST_FROM_FN_PTR(address, SharedRuntime::d2l),
+			 0, 1, MacroAssembler::ret_type_integral);
     __ bind(L_Okay);
   }
     break;
