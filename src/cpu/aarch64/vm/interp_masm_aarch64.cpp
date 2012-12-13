@@ -60,7 +60,7 @@ void InterpreterMacroAssembler::get_method(Register reg) { Unimplemented(); }
 
 void InterpreterMacroAssembler::check_and_handle_popframe(Register java_thread) {
   if (JvmtiExport::can_pop_frame()) {
-    Unimplemented(); 
+    Unimplemented();
   }
 }
 
@@ -112,7 +112,7 @@ void InterpreterMacroAssembler::get_cache_and_index_at_bcp(Register cache,
   lsl(index, index, 2);
   // aarch64 already has the cache in rcpool so there is no need to
   // install it in cache. instead we pre-add the indexed offset to
-  // rcpool and return it in cache. all lients of this method need to
+  // rcpool and return it in cache. All clients of this method need to
   // be modified accordingly.
   lea(cache, Address(rcpool, index, Address::lsl(3)));
 }
