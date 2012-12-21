@@ -686,7 +686,6 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   const Register result_handler = r19;
 
   // allocate space for parameters
-  __ verify_oop(rmethod);
   __ load_unsigned_short(t,
                          Address(rmethod,
                                  Method::size_of_parameters_offset()));
@@ -716,7 +715,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   assert(InterpreterRuntime::SignatureHandlerGenerator::temp() == rscratch1,
           "adjust this code");
 
-  // The generated handlers do not touch rmethod (the method oop).
+  // The generated handlers do not touch rmethod (the method).
   // However, large signatures cannot be cached and are generated
   // each time here.  The slow-path generator can do a GC on return,
   // so we must reload it after the call.
@@ -760,7 +759,6 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
                                 InterpreterRuntime::prepare_native_call),
                rmethod);
     __ get_method(rmethod);
-    __ verify_oop(rmethod);
     __ ldr(r10, Address(rmethod, Method::native_function_offset()));
     __ bind(L);
   }
@@ -902,7 +900,6 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // until here.  Also can't call_VM until the bcp has been
   // restored.  Need bcp for throwing exception below so get it now.
   __ get_method(rmethod);
-  __ verify_oop(rmethod);
 
   // restore bcp to have legal interpreter frame, i.e., bci == 0 <=>
   // rbcp == code_base()
