@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef CPU_X86_VM_TEMPLATETABLE_X86_64_HPP
-#define CPU_X86_VM_TEMPLATETABLE_X86_64_HPP
+#ifndef CPU_AARCH64_VM_TEMPLATETABLE_AARCH64_64_HPP
+#define CPU_AARCH64_VM_TEMPLATETABLE_AARCH64_64_HPP
 
 static void prepare_invoke(int byte_no,
                              Register method,         // linked method (or i-klass)
@@ -38,4 +38,4 @@ static void prepare_invoke(int byte_no,
   static void index_check(Register array, Register index);
   static void index_check_without_pop(Register array, Register index);
 
-#endif // CPU_X86_VM_TEMPLATETABLE_X86_64_HPP
+#endif // CPU_AARCH64_VM_TEMPLATETABLE_AARCH64_64_HPP

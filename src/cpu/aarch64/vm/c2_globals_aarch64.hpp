@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef CPU_X86_VM_C2_GLOBALS_X86_HPP
-#define CPU_X86_VM_C2_GLOBALS_X86_HPP
+#ifndef CPU_AARCH64_VM_C2_GLOBALS_AARCH64_HPP
+#define CPU_AARCH64_VM_C2_GLOBALS_AARCH64_HPP
 
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/macros.hpp"
@@ -93,4 +93,4 @@ define_pd_global(uintx,MetaspaceSize,    ScaleForWordSize(16*M));
 // Ergonomics related flags
 define_pd_global(bool, NeverActAsServerClassMachine, false);
 
-#endif // CPU_X86_VM_C2_GLOBALS_X86_HPP
+#endif // CPU_AARCH64_VM_C2_GLOBALS_AARCH64_HPP
