@@ -22,8 +22,8 @@
  *
  */
 
-#ifndef CPU_X86_VM_GLOBALS_X86_HPP
-#define CPU_X86_VM_GLOBALS_X86_HPP
+#ifndef CPU_AARCH64_VM_GLOBALS_AARCH64_HPP
+#define CPU_AARCH64_VM_GLOBALS_AARCH64_HPP
 
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/macros.hpp"
@@ -84,4 +84,4 @@ define_pd_global(bool, UseBiasedLocking, false);
   product(bool, UseSimulatorCache, false,                                   \
          "tell the AArch64 sim where we are in method code")                \
 
-#endif // CPU_X86_VM_GLOBALS_X86_HPP
+#endif // CPU_AARCH64_VM_GLOBALS_AARCH64_HPP
