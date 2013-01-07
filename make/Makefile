@@ -110,8 +110,8 @@ all_debug:     universal_debug
 else
 ifeq ($(SRCARCH),aarch64)
 all_debug:     jvmg1 docs export_debug
-else
 all_product:   $(COMMON_VM_PRODUCT_TARGETS)
+else
 all_fastdebug: $(COMMON_VM_FASTDEBUG_TARGETS)
 all_debug:     $(COMMON_VM_DEBUG_TARGETS)
 endif
