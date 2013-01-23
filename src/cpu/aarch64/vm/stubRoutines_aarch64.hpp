@@ -29,7 +29,12 @@
 // definition. See stubRoutines.hpp for a description on how to
 // extend it.
 
-static bool    returns_to_call_stub(address return_pc)   { return return_pc == _call_stub_return_address; }
+// n.b. if we are notifying entry/exit to the simulator then the call
+// stub does a notify at normal return placing
+// call_stub_return_address one instruction beyond the notify. the
+// latter address is sued by the stack unwind code when doign an
+// exception return.
+static bool    returns_to_call_stub(address return_pc)   { return return_pc == _call_stub_return_address + (NotifySimulator ? -4 : 0); }
 
 enum platform_dependent_constants {
   code_size1 = 19000,          // simply increase if too small (assembler will crash if too small)
@@ -42,7 +47,6 @@ class x86 {
  private:
   static address _get_previous_fp_entry;
   static address _get_previous_sp_entry;
-  static address _verify_mxcsr_entry;
 
   static address _f2i_fixup;
   static address _f2l_fixup;
@@ -53,7 +57,6 @@ class x86 {
   static address _float_sign_flip;
   static address _double_sign_mask;
   static address _double_sign_flip;
-  static address _mxcsr_std;
 
  public:
 
@@ -65,11 +68,6 @@ class x86 {
   static address get_previous_sp_entry()
   {
     return _get_previous_sp_entry;
-  }
-
-  static address verify_mxcsr_entry()
-  {
-    return _verify_mxcsr_entry;
   }
 
   static address f2i_fixup()
@@ -110,11 +108,6 @@ class x86 {
   static address double_sign_flip()
   {
     return _double_sign_flip;
-  }
-
-  static address mxcsr_std()
-  {
-    return _mxcsr_std;
   }
 };
 

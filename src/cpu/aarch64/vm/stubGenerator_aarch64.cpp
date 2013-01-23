@@ -41,15 +41,6 @@
 #ifdef TARGET_OS_FAMILY_linux
 # include "thread_linux.inline.hpp"
 #endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_bsd
-# include "thread_bsd.inline.hpp"
-#endif
 #ifdef COMPILER2
 #include "opto/runtime.hpp"
 #endif
@@ -98,10 +89,10 @@ class StubGenerator: public StubCodeGenerator {
   //    c_rarg6:   parameter size (in words)              int
   //    c_rarg7:   thread                                 Thread*
   //
-  // There is no return form the stub itself as any Java result
+  // There is no return from the stub itself as any Java result
   // is written to result
   //
-  // we save r30 (lr)a as the return PC at the base of the frame and
+  // we save r30 (lr) as the return PC at the base of the frame and
   // link r29 (fp) below it as the frame pointer installing sp (r31)
   // into fp.
   //
@@ -290,6 +281,22 @@ class StubGenerator: public StubCodeGenerator {
     BLOCK_COMMENT("call Java function");
     __ blr(c_rarg4);
 
+#ifndef PRODUCT
+    // tell the simulator we have returned to the stub
+
+    // we do this here because the notify will already have been done
+    // if we get to the next instruction via an exception
+    //
+    // n.b. adding this instruction here affects the calculation of
+    // whether or not a routine returns to the call stub (used when
+    // doing stack walks) since the normal test is to check the return
+    // pc against the address saved below. so we may need to allow for
+    // this extra instruction in the check.
+
+    if (NotifySimulator) {
+      __ notify(Assembler::method_reentry);
+    }
+#endif
     // save current address for use by exception handling code
 
     return_address = __ pc();
@@ -639,19 +646,6 @@ class StubGenerator: public StubCodeGenerator {
 
   address generate_get_previous_sp() { return 0; }
 
-  //----------------------------------------------------------------------------------------------------
-  // Support for void verify_mxcsr()
-  //
-  // This routine is used with -Xcheck:jni to verify that native
-  // JNI code does not return to Java code without restoring the
-  // MXCSR register to our expected state.
-
-  // NOTE: on x86 this is called from the cpp and template
-  // interpreters and internally from the call stub -- we can probbaly
-  // do without any equivalent for aarch64 for now at least
-
-  address generate_verify_mxcsr() { Unimplemented(); return 0; }
-
   // NOTE: these fixup routines appear only to be called from the
   // opto code (they are mentioned in x86_64.ad) so we can do
   // without them for now on aarch64
@@ -663,11 +657,6 @@ class StubGenerator: public StubCodeGenerator {
   address generate_d2i_fixup() { Unimplemented(); return 0; }
 
   address generate_d2l_fixup() { Unimplemented(); return 0; }
-
-  // NOTE: this appears only to be used internal to the x86 call stub
-  // to support the mxcsr code so we can do without it for now on aarch64
-
-  address generate_fp_mask(const char *stub_name, int64_t mask) { Unimplemented(); return 0; }
 
   // The following routine generates a subroutine to throw an
   // asynchronous UnknownError when an unsafe access gets a fault that
@@ -1280,10 +1269,6 @@ class StubGenerator: public StubCodeGenerator {
     // platform dependent
     StubRoutines::x86::_get_previous_fp_entry = generate_get_previous_fp();
     StubRoutines::x86::_get_previous_sp_entry = generate_get_previous_sp();
-
-    // we don't need this or aarch64
-
-    // StubRoutines::x86::_verify_mxcsr_entry    = generate_verify_mxcsr();
 
     // Build this early so it's available for the interpreter.
     StubRoutines::_throw_StackOverflowError_entry =

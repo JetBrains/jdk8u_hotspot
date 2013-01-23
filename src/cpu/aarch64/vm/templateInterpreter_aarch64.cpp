@@ -601,6 +601,12 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
 
   // initialize fixed part of activation frame
   generate_fixed_frame(true, rscratch1);
+#ifndef PRODUCT
+  // tell the simulator that a method has been entered
+  if (NotifySimulator) {
+    __ notify(Assembler::method_entry);
+  }
+#endif
 
   // make sure method is native & not abstract
 #ifdef ASSERT
@@ -1306,6 +1312,13 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
   __ restore_locals();
   __ restore_constant_pool_cache();
   __ reinit_heapbase();  // restore rheapbase as heapbase.
+#ifndef PRODUCT
+  // tell the simulator that the caller method has been reentered
+  if (NotifySimulator) {
+    __ get_method(rmethod);
+    __ notify(Assembler::method_reentry);
+  }
+#endif
   // Entry point for exceptions thrown within interpreter code
   Interpreter::_throw_exception_entry = __ pc();
   // If we came here via a NullPointerException on the receiver of a
@@ -1604,7 +1617,23 @@ void TemplateInterpreterGenerator::stop_interpreter_at() {
   __ pop(rscratch1);
 }
 
+#include <sys/mman.h>
+#include <unistd.h>
+
 extern "C" {
+  static int PAGESIZE = getpagesize();
+  int is_mapped_address(u_int64_t address)
+  {
+    address = (address & ~((u_int64_t)PAGESIZE - 1));
+    if (msync((void *)address, PAGESIZE, MS_ASYNC) == 0) {
+      return true;
+    }
+    if (errno != ENOMEM) {
+      return true;
+    }
+    return false;
+  }
+
   void bccheck1(u_int64_t methodVal, u_int64_t bcpVal, int verify, char *method, int *bcidx, char *decode)
   {
     if (method != 0) {
@@ -1618,19 +1647,14 @@ extern "C" {
     }
 
     if (verify) {
-      // verify the supplied method oop
-      // is the 'method*' in range
-      intptr_t checkVal = (intptr_t)methodVal;
-      if (checkVal == 0) {
+      if (!is_mapped_address(methodVal)) {
 	return;
       }
-      if ((checkVal & Universe::verify_oop_mask()) != Universe::verify_oop_bits()) {
+      Metadata *md = (Metadata*)methodVal;
+      if (!md->is_valid()) {
 	return;
       }
-      // is the klass of the 'methodOop' a sensible value
-      checkVal = (intptr_t)((Method*)checkVal)->method_holder();
-
-      if (checkVal == 0) {
+      if (!md->is_method()) {
 	return;
       }
     }

@@ -64,11 +64,7 @@ define_pd_global(intx, PreInflateSpin,           10);
 define_pd_global(bool, RewriteBytecodes,     true);
 define_pd_global(bool, RewriteFrequentPairs, false);
 
-#ifdef _ALLBSD_SOURCE
-define_pd_global(bool, UseMembar,            true);
-#else
 define_pd_global(bool, UseMembar,            false);
-#endif
 
 // GC Ergo Flags
 define_pd_global(intx, CMSYoungGenPerWorker, 64*M);  // default max size of CMS young gen, per GC worker thread
@@ -77,11 +73,11 @@ define_pd_global(intx, CMSYoungGenPerWorker, 64*M);  // default max size of CMS 
 define_pd_global(bool, UseBiasedLocking, false);
 
 #define ARCH_FLAGS(develop, product, diagnostic, experimental, notproduct) \
-                                                                            \
-  product(bool, NotifySimulator, true,                                      \
-         "tell the AArch64 sim where we are in method code")                \
-                                                                            \
-  product(bool, UseSimulatorCache, false,                                   \
-         "tell the AArch64 sim where we are in method code")                \
+                                                                           \
+  product(bool, NotifySimulator, true,                                     \
+         "tell the AArch64 sim where we are in method code")               \
+                                                                           \
+  product(bool, UseSimulatorCache, false,                                  \
+         "tell sim to cache memory updates until exclusive op occurs")     \
 
 #endif // CPU_AARCH64_VM_GLOBALS_AARCH64_HPP
