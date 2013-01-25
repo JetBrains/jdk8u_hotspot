@@ -42,14 +42,8 @@
 
 
 int MetaspaceShared::_max_alignment = 0;
-int MetaspaceShared::max_alignment()                   { return _max_alignment; }
-void MetaspaceShared::set_max_alignment(int alignment) { _max_alignment = alignment; }
 
-// Accessor functions to save shared space created for metadata, which has
-// extra space allocated at the end for miscellaneous data and code.
 ReservedSpace* MetaspaceShared::_shared_rs = NULL;
-ReservedSpace* MetaspaceShared::shared_rs()            { return _shared_rs; }
-void MetaspaceShared::set_shared_rs(ReservedSpace* rs) { _shared_rs = rs; }
 
 // Read/write a data stream for restoring/preserving metadata pointers and
 // miscellaneous data from/to the shared archive file.
@@ -437,7 +431,7 @@ void VM_PopulateDumpSharedSpace::doit() {
 }
 
 static void link_shared_classes(Klass* obj, TRAPS) {
-  Klass* k = Klass::cast(obj);
+  Klass* k = obj;
   if (k->oop_is_instance()) {
     InstanceKlass* ik = (InstanceKlass*) k;
     // Link the class to cause the bytecodes to be rewritten and the
@@ -669,8 +663,8 @@ bool MetaspaceShared::is_in_shared_space(const void* p) {
   if (_ro_base == NULL || _rw_base == NULL) {
     return false;
   } else {
-    return ((p > _ro_base && p < (_ro_base + SharedReadOnlySize)) ||
-            (p > _rw_base && p < (_rw_base + SharedReadWriteSize)));
+    return ((p >= _ro_base && p < (_ro_base + SharedReadOnlySize)) ||
+            (p >= _rw_base && p < (_rw_base + SharedReadWriteSize)));
   }
 }
 
@@ -698,14 +692,6 @@ bool MetaspaceShared::map_shared_spaces(FileMapInfo* mapinfo) {
   // Map in the shared memory and then map the regions on top of it
   ReservedSpace shared_rs = mapinfo->reserve_shared_memory();
   if (!shared_rs.is_reserved()) return false;
-
-  // Split reserved memory into pieces (windows needs this)
-  ReservedSpace ro_rs   = shared_rs.first_part(SharedReadOnlySize);
-  ReservedSpace tmp_rs1 = shared_rs.last_part(SharedReadOnlySize);
-  ReservedSpace rw_rs   = tmp_rs1.first_part(SharedReadWriteSize);
-  ReservedSpace tmp_rs2 = tmp_rs1.last_part(SharedReadWriteSize);
-  ReservedSpace md_rs   = tmp_rs2.first_part(SharedMiscDataSize);
-  ReservedSpace mc_rs   = tmp_rs2.last_part(SharedMiscDataSize);
 
   // Map each shared region
   if ((_ro_base = mapinfo->map_region(ro)) != NULL &&

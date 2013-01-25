@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -1362,7 +1362,7 @@ void PhaseCFG::GlobalCodeMotion( Matcher &matcher, uint unique, Node_List &proj_
   // If we inserted any instructions between a Call and his CatchNode,
   // clone the instructions on all paths below the Catch.
   for( i=0; i < _num_blocks; i++ )
-    _blocks[i]->call_catch_cleanup(_bbs);
+    _blocks[i]->call_catch_cleanup(_bbs, C);
 
 #ifndef PRODUCT
   if (trace_opto_pipelining()) {

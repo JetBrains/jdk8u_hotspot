@@ -40,23 +40,26 @@
 #include "prims/nativeLookup.hpp"
 #include "runtime/sharedRuntime.hpp"
 
-#ifndef PRODUCT
-void trace_type_profile(ciMethod *method, int depth, int bci, ciMethod *prof_method, ciKlass *prof_klass, int site_count, int receiver_count) {
-  if (TraceTypeProfile || PrintInlining || PrintOptoInlining) {
+void trace_type_profile(Compile* C, ciMethod *method, int depth, int bci, ciMethod *prof_method, ciKlass *prof_klass, int site_count, int receiver_count) {
+  if (TraceTypeProfile || PrintInlining NOT_PRODUCT(|| PrintOptoInlining)) {
+    outputStream* out = tty;
     if (!PrintInlining) {
-      if (!PrintOpto && !PrintCompilation) {
+      if (NOT_PRODUCT(!PrintOpto &&) !PrintCompilation) {
         method->print_short_name();
         tty->cr();
       }
       CompileTask::print_inlining(prof_method, depth, bci);
+    } else {
+      out = C->print_inlining_stream();
     }
-    CompileTask::print_inline_indent(depth);
-    tty->print(" \\-> TypeProfile (%d/%d counts) = ", receiver_count, site_count);
-    prof_klass->name()->print_symbol();
-    tty->cr();
+    CompileTask::print_inline_indent(depth, out);
+    out->print(" \\-> TypeProfile (%d/%d counts) = ", receiver_count, site_count);
+    stringStream ss;
+    prof_klass->name()->print_symbol_on(&ss);
+    out->print(ss.as_string());
+    out->cr();
   }
 }
-#endif
 
 CallGenerator* Compile::call_generator(ciMethod* callee, int vtable_index, bool call_is_virtual,
                                        JVMState* jvms, bool allow_inline,
@@ -109,7 +112,17 @@ CallGenerator* Compile::call_generator(ciMethod* callee, int vtable_index, bool 
   // intrinsics handle strict f.p. correctly.
   if (allow_inline && allow_intrinsics) {
     CallGenerator* cg = find_intrinsic(callee, call_is_virtual);
-    if (cg != NULL)  return cg;
+    if (cg != NULL) {
+      if (cg->is_predicted()) {
+        // Code without intrinsic but, hopefully, inlined.
+        CallGenerator* inline_cg = this->call_generator(callee,
+              vtable_index, call_is_virtual, jvms, allow_inline, prof_factor, false);
+        if (inline_cg != NULL) {
+          cg = CallGenerator::for_predicted_intrinsic(cg, inline_cg);
+        }
+      }
+      return cg;
+    }
   }
 
   // Do method handle calls.
@@ -225,13 +238,13 @@ CallGenerator* Compile::call_generator(ciMethod* callee, int vtable_index, bool 
           }
           if (miss_cg != NULL) {
             if (next_hit_cg != NULL) {
-              NOT_PRODUCT(trace_type_profile(jvms->method(), jvms->depth() - 1, jvms->bci(), next_receiver_method, profile.receiver(1), site_count, profile.receiver_count(1)));
+              trace_type_profile(C, jvms->method(), jvms->depth() - 1, jvms->bci(), next_receiver_method, profile.receiver(1), site_count, profile.receiver_count(1));
               // We don't need to record dependency on a receiver here and below.
               // Whenever we inline, the dependency is added by Parse::Parse().
               miss_cg = CallGenerator::for_predicted_call(profile.receiver(1), miss_cg, next_hit_cg, PROB_MAX);
             }
             if (miss_cg != NULL) {
-              NOT_PRODUCT(trace_type_profile(jvms->method(), jvms->depth() - 1, jvms->bci(), receiver_method, profile.receiver(0), site_count, receiver_count));
+              trace_type_profile(C, jvms->method(), jvms->depth() - 1, jvms->bci(), receiver_method, profile.receiver(0), site_count, receiver_count);
               CallGenerator* cg = CallGenerator::for_predicted_call(profile.receiver(0), miss_cg, hit_cg, profile.receiver_prob(0));
               if (cg != NULL)  return cg;
             }
@@ -326,7 +339,7 @@ bool Parse::can_not_compile_call_site(ciMethod *dest_method, ciInstanceKlass* kl
     return true;
   }
 
-  assert(dest_method->will_link(method()->holder(), klass, bc()), "dest_method: typeflow responsibility");
+  assert(dest_method->is_loaded(), "dest_method: typeflow responsibility");
   return false;
 }
 
@@ -342,7 +355,7 @@ void Parse::do_call() {
   // Set frequently used booleans
   const bool is_virtual = bc() == Bytecodes::_invokevirtual;
   const bool is_virtual_or_interface = is_virtual || bc() == Bytecodes::_invokeinterface;
-  const bool has_receiver = is_virtual_or_interface || bc() == Bytecodes::_invokespecial;
+  const bool has_receiver = Bytecodes::has_receiver(bc());
 
   // Find target being called
   bool             will_link;
@@ -372,6 +385,8 @@ void Parse::do_call() {
   // Note:  In the absence of miranda methods, an abstract class K can perform
   // an invokevirtual directly on an interface method I.m if K implements I.
 
+  // orig_callee is the resolved callee which's signature includes the
+  // appendix argument.
   const int nargs = orig_callee->arg_size();
 
   // Push appendix argument (MethodType, CallSite, etc.), if one.
@@ -514,15 +529,15 @@ void Parse::do_call() {
         } else if (rt == T_INT || is_subword_type(rt)) {
           // FIXME: This logic should be factored out.
           if (ct == T_BOOLEAN) {
-            retnode = _gvn.transform( new (C, 3) AndINode(retnode, intcon(0x1)) );
+            retnode = _gvn.transform( new (C) AndINode(retnode, intcon(0x1)) );
           } else if (ct == T_CHAR) {
-            retnode = _gvn.transform( new (C, 3) AndINode(retnode, intcon(0xFFFF)) );
+            retnode = _gvn.transform( new (C) AndINode(retnode, intcon(0xFFFF)) );
           } else if (ct == T_BYTE) {
-            retnode = _gvn.transform( new (C, 3) LShiftINode(retnode, intcon(24)) );
-            retnode = _gvn.transform( new (C, 3) RShiftINode(retnode, intcon(24)) );
+            retnode = _gvn.transform( new (C) LShiftINode(retnode, intcon(24)) );
+            retnode = _gvn.transform( new (C) RShiftINode(retnode, intcon(24)) );
           } else if (ct == T_SHORT) {
-            retnode = _gvn.transform( new (C, 3) LShiftINode(retnode, intcon(16)) );
-            retnode = _gvn.transform( new (C, 3) RShiftINode(retnode, intcon(16)) );
+            retnode = _gvn.transform( new (C) LShiftINode(retnode, intcon(16)) );
+            retnode = _gvn.transform( new (C) RShiftINode(retnode, intcon(16)) );
           } else {
             assert(ct == T_INT, err_msg_res("rt=%s, ct=%s", type2name(rt), type2name(ct)));
           }
@@ -532,7 +547,7 @@ void Parse::do_call() {
             const TypeOopPtr* arg_type = TypeOopPtr::make_from_klass(rtype->as_klass());
             const Type*       sig_type = TypeOopPtr::make_from_klass(ctype->as_klass());
             if (arg_type != NULL && !arg_type->higher_equal(sig_type)) {
-              Node* cast_obj = _gvn.transform(new (C, 2) CheckCastPPNode(control(), retnode, sig_type));
+              Node* cast_obj = _gvn.transform(new (C) CheckCastPPNode(control(), retnode, sig_type));
               pop();
               push(cast_obj);
             }
@@ -564,7 +579,7 @@ void Parse::do_call() {
       }
       // If there is going to be a trap, put it at the next bytecode:
       set_bci(iter().next_bci());
-      do_null_assert(peek(), T_OBJECT);
+      null_assert(peek());
       set_bci(iter().cur_bci()); // put it back
     }
   }
@@ -614,7 +629,7 @@ void Parse::catch_call_exceptions(ciExceptionHandlerStream& handlers) {
   }
 
   int len = bcis->length();
-  CatchNode *cn = new (C, 2) CatchNode(control(), i_o, len+1);
+  CatchNode *cn = new (C) CatchNode(control(), i_o, len+1);
   Node *catch_ = _gvn.transform(cn);
 
   // now branch with the exception state to each of the (potential)
@@ -625,14 +640,14 @@ void Parse::catch_call_exceptions(ciExceptionHandlerStream& handlers) {
     // Locals are just copied from before the call.
     // Get control from the CatchNode.
     int handler_bci = bcis->at(i);
-    Node* ctrl = _gvn.transform( new (C, 1) CatchProjNode(catch_, i+1,handler_bci));
+    Node* ctrl = _gvn.transform( new (C) CatchProjNode(catch_, i+1,handler_bci));
     // This handler cannot happen?
     if (ctrl == top())  continue;
     set_control(ctrl);
 
     // Create exception oop
     const TypeInstPtr* extype = extypes->at(i)->is_instptr();
-    Node *ex_oop = _gvn.transform(new (C, 2) CreateExNode(extypes->at(i), ctrl, i_o));
+    Node *ex_oop = _gvn.transform(new (C) CreateExNode(extypes->at(i), ctrl, i_o));
 
     // Handle unloaded exception classes.
     if (saw_unloaded->contains(handler_bci)) {
@@ -671,7 +686,7 @@ void Parse::catch_call_exceptions(ciExceptionHandlerStream& handlers) {
 
   // The first CatchProj is for the normal return.
   // (Note:  If this is a call to rethrow_Java, this node goes dead.)
-  set_control(_gvn.transform( new (C, 1) CatchProjNode(catch_, CatchProjNode::fall_through_index, CatchProjNode::no_handler_bci)));
+  set_control(_gvn.transform( new (C) CatchProjNode(catch_, CatchProjNode::fall_through_index, CatchProjNode::no_handler_bci)));
 }
 
 
@@ -722,7 +737,7 @@ void Parse::catch_inline_exceptions(SafePointNode* ex_map) {
     // I'm loading the class from, I can replace the LoadKlass with the
     // klass constant for the exception oop.
     if( ex_node->is_Phi() ) {
-      ex_klass_node = new (C, ex_node->req()) PhiNode( ex_node->in(0), TypeKlassPtr::OBJECT );
+      ex_klass_node = new (C) PhiNode( ex_node->in(0), TypeKlassPtr::OBJECT );
       for( uint i = 1; i < ex_node->req(); i++ ) {
         Node* p = basic_plus_adr( ex_node->in(i), ex_node->in(i), oopDesc::klass_offset_in_bytes() );
         Node* k = _gvn.transform( LoadKlassNode::make(_gvn, immutable_memory(), p, TypeInstPtr::KLASS, TypeKlassPtr::OBJECT) );
@@ -788,7 +803,7 @@ void Parse::catch_inline_exceptions(SafePointNode* ex_map) {
       PreserveJVMState pjvms(this);
       const TypeInstPtr* tinst = TypeOopPtr::make_from_klass_unique(klass)->cast_to_ptr_type(TypePtr::NotNull)->is_instptr();
       assert(klass->has_subklass() || tinst->klass_is_exact(), "lost exactness");
-      Node* ex_oop = _gvn.transform(new (C, 2) CheckCastPPNode(control(), ex_node, tinst));
+      Node* ex_oop = _gvn.transform(new (C) CheckCastPPNode(control(), ex_node, tinst));
       push_ex_oop(ex_oop);      // Push exception oop for handler
 #ifndef PRODUCT
       if (PrintOpto && WizardMode) {

@@ -1075,7 +1075,7 @@ static jint invoke_array_primitive_value_callback(jvmtiArrayPrimitiveValueCallba
 
   // get base address of first element
   typeArrayOop array = typeArrayOop(obj);
-  BasicType type = typeArrayKlass::cast(array->klass())->element_type();
+  BasicType type = TypeArrayKlass::cast(array->klass())->element_type();
   void* elements = array->base(type);
 
   // jvmtiPrimitiveType is defined so this mapping is always correct
@@ -1135,7 +1135,7 @@ static jint invoke_primitive_field_callback_for_static_fields
 
     // get offset and field value
     int offset = field->field_offset();
-    address addr = (address)klass + offset;
+    address addr = (address)klass->java_mirror() + offset;
     jvalue value;
     copy_to_jvalue(&value, addr, value_type);
 
@@ -2750,7 +2750,7 @@ inline bool VM_HeapWalkOperation::iterate_over_array(oop o) {
   objArrayOop array = objArrayOop(o);
 
   // array reference to its class
-  oop mirror = objArrayKlass::cast(array->klass())->java_mirror();
+  oop mirror = ObjArrayKlass::cast(array->klass())->java_mirror();
   if (!CallbackInvoker::report_class_reference(o, mirror)) {
     return false;
   }
@@ -2774,7 +2774,7 @@ inline bool VM_HeapWalkOperation::iterate_over_array(oop o) {
 // a type array references its class
 inline bool VM_HeapWalkOperation::iterate_over_type_array(oop o) {
   Klass* k = o->klass();
-  oop mirror = Klass::cast(k)->java_mirror();
+  oop mirror = k->java_mirror();
   if (!CallbackInvoker::report_class_reference(o, mirror)) {
     return false;
   }
@@ -2823,7 +2823,7 @@ inline bool VM_HeapWalkOperation::iterate_over_class(oop java_class) {
     // super (only if something more interesting than java.lang.Object)
     Klass* java_super = ik->java_super();
     if (java_super != NULL && java_super != SystemDictionary::Object_klass()) {
-      oop super = Klass::cast(java_super)->java_mirror();
+      oop super = java_super->java_mirror();
       if (!CallbackInvoker::report_superclass_reference(mirror, super)) {
         return false;
       }
@@ -2862,11 +2862,10 @@ inline bool VM_HeapWalkOperation::iterate_over_class(oop java_class) {
           oop entry;
           if (tag.is_string()) {
             entry = pool->resolved_string_at(i);
-            // If the entry is non-null it it resolved.
+            // If the entry is non-null it is resolved.
             if (entry == NULL) continue;
-            assert(java_lang_String::is_instance(entry), "must be string");
           } else {
-            entry = Klass::cast(pool->resolved_klass_at(i))->java_mirror();
+            entry = pool->resolved_klass_at(i)->java_mirror();
           }
           if (!CallbackInvoker::report_constant_pool_reference(mirror, entry, (jint)i)) {
             return false;
@@ -2880,7 +2879,7 @@ inline bool VM_HeapWalkOperation::iterate_over_class(oop java_class) {
     //  but are specified by IterateOverReachableObjects and must be reported).
     Array<Klass*>* interfaces = ik->local_interfaces();
     for (i = 0; i < interfaces->length(); i++) {
-      oop interf = Klass::cast((Klass*)interfaces->at(i))->java_mirror();
+      oop interf = ((Klass*)interfaces->at(i))->java_mirror();
       if (interf == NULL) {
         continue;
       }
@@ -2929,7 +2928,7 @@ inline bool VM_HeapWalkOperation::iterate_over_class(oop java_class) {
 // references from the class).
 inline bool VM_HeapWalkOperation::iterate_over_object(oop o) {
   // reference to the class
-  if (!CallbackInvoker::report_class_reference(o, Klass::cast(o->klass())->java_mirror())) {
+  if (!CallbackInvoker::report_class_reference(o, o->klass()->java_mirror())) {
     return false;
   }
 

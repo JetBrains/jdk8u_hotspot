@@ -238,10 +238,6 @@
 #endif
 #endif
 
-// JavaStack Implementation
-#define MORE_STACK(count)  \
-    (topOfStack -= ((count) * Interpreter::stackElementWords))
-
 
 #define UPDATE_PC(opsize) {pc += opsize; }
 /*
@@ -578,7 +574,7 @@ BytecodeInterpreter::run(interpreterState istate) {
 
 /* 0xE0 */ &&opc_default,     &&opc_default,        &&opc_default,      &&opc_default,
 /* 0xE4 */ &&opc_default,     &&opc_fast_aldc,      &&opc_fast_aldc_w,  &&opc_return_register_finalizer,
-/* 0xE8 */ &&opc_default,     &&opc_default,        &&opc_default,      &&opc_default,
+/* 0xE8 */ &&opc_invokehandle,&&opc_default,        &&opc_default,      &&opc_default,
 /* 0xEC */ &&opc_default,     &&opc_default,        &&opc_default,      &&opc_default,
 
 /* 0xF0 */ &&opc_default,     &&opc_default,        &&opc_default,      &&opc_default,
@@ -1629,7 +1625,7 @@ run:
           if (rhsObject != NULL) {
             /* Check assignability of rhsObject into arrObj */
             Klass* rhsKlassOop = rhsObject->klass(); // EBX (subclass)
-            Klass* elemKlassOop = objArrayKlass::cast(arrObj->klass())->element_klass(); // superklass EAX
+            Klass* elemKlassOop = ObjArrayKlass::cast(arrObj->klass())->element_klass(); // superklass EAX
             //
             // Check for compatibilty. This check must not GC!!
             // Seems way more expensive now that we must dispatch
@@ -1776,7 +1772,7 @@ run:
 
           oop obj;
           if ((Bytecodes::Code)opcode == Bytecodes::_getstatic) {
-            Klass* k = (Klass*) cache->f1();
+            Klass* k = cache->f1_as_klass();
             obj = k->java_mirror();
             MORE_STACK(1);  // Assume single slot push
           } else {
@@ -1888,7 +1884,7 @@ run:
             --count;
           }
           if ((Bytecodes::Code)opcode == Bytecodes::_putstatic) {
-            Klass* k = (Klass*) cache->f1();
+            Klass* k = cache->f1_as_klass();
             obj = k->java_mirror();
           } else {
             --count;
@@ -2050,8 +2046,8 @@ run:
             if (objKlassOop != klassOf &&
                 !objKlassOop->is_subtype_of(klassOf)) {
               ResourceMark rm(THREAD);
-              const char* objName = Klass::cast(objKlassOop)->external_name();
-              const char* klassName = Klass::cast(klassOf)->external_name();
+              const char* objName = objKlassOop->external_name();
+              const char* klassName = klassOf->external_name();
               char* message = SharedRuntime::generate_class_cast_message(
                 objName, klassName);
               VM_JAVA_ERROR(vmSymbols::java_lang_ClassCastException(), message);
@@ -2193,6 +2189,7 @@ run:
       }
 
       CASE(_invokedynamic): {
+
         if (!EnableInvokeDynamic) {
           // We should not encounter this bytecode if !EnableInvokeDynamic.
           // The verifier will stop it.  However, if we get past the verifier,
@@ -2202,26 +2199,64 @@ run:
           ShouldNotReachHere();
         }
 
-        int index = Bytes::get_native_u4(pc+1);
+        u4 index = Bytes::get_native_u4(pc+1);
+        ConstantPoolCacheEntry* cache = cp->constant_pool()->invokedynamic_cp_cache_entry_at(index);
 
         // We are resolved if the resolved_references field contains a non-null object (CallSite, etc.)
         // This kind of CP cache entry does not need to match the flags byte, because
         // there is a 1-1 relation between bytecode type and CP entry type.
-        ConstantPool* constants = METHOD->constants();
-        oop result = constants->resolved_references()->obj_at(index);
-        if (result == NULL) {
+        if (! cache->is_resolved((Bytecodes::Code) opcode)) {
           CALL_VM(InterpreterRuntime::resolve_invokedynamic(THREAD),
                   handle_exception);
-          result = THREAD->vm_result();
+          cache = cp->constant_pool()->invokedynamic_cp_cache_entry_at(index);
         }
 
-        VERIFY_OOP(result);
-        oop method_handle = java_lang_invoke_CallSite::target(result);
-        CHECK_NULL(method_handle);
+        Method* method = cache->f1_as_method();
+        VERIFY_OOP(method);
 
-        istate->set_msg(call_method_handle);
-        istate->set_callee((Method*) method_handle);
+        if (cache->has_appendix()) {
+          ConstantPool* constants = METHOD->constants();
+          SET_STACK_OBJECT(cache->appendix_if_resolved(constants), 0);
+          MORE_STACK(1);
+        }
+
+        istate->set_msg(call_method);
+        istate->set_callee(method);
+        istate->set_callee_entry_point(method->from_interpreted_entry());
         istate->set_bcp_advance(5);
+
+        UPDATE_PC_AND_RETURN(0); // I'll be back...
+      }
+
+      CASE(_invokehandle): {
+
+        if (!EnableInvokeDynamic) {
+          ShouldNotReachHere();
+        }
+
+        u2 index = Bytes::get_native_u2(pc+1);
+        ConstantPoolCacheEntry* cache = cp->entry_at(index);
+
+        if (! cache->is_resolved((Bytecodes::Code) opcode)) {
+          CALL_VM(InterpreterRuntime::resolve_invokehandle(THREAD),
+                  handle_exception);
+          cache = cp->entry_at(index);
+        }
+
+        Method* method = cache->f1_as_method();
+
+        VERIFY_OOP(method);
+
+        if (cache->has_appendix()) {
+          ConstantPool* constants = METHOD->constants();
+          SET_STACK_OBJECT(cache->appendix_if_resolved(constants), 0);
+          MORE_STACK(1);
+        }
+
+        istate->set_msg(call_method);
+        istate->set_callee(method);
+        istate->set_callee_entry_point(method->from_interpreted_entry());
+        istate->set_bcp_advance(3);
 
         UPDATE_PC_AND_RETURN(0); // I'll be back...
       }

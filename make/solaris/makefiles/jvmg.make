@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1999, 2008, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -51,7 +51,6 @@ MAPFILE = $(GAMMADIR)/make/solaris/makefiles/mapfile-vers \
 # and mustn't be otherwise.
 MAPFILE_DTRACE = $(GAMMADIR)/make/solaris/makefiles/mapfile-vers-$(TYPE)
 
-G_SUFFIX = _g
 VERSION = debug
 SYSDEFS += -DASSERT -DDEBUG
 PICFLAGS = DEFAULT

@@ -34,29 +34,34 @@ const u2 ConstMethod::MAX_IDNUM   = 0xFFFE;
 const u2 ConstMethod::UNSET_IDNUM = 0xFFFF;
 
 ConstMethod* ConstMethod::allocate(ClassLoaderData* loader_data,
-                                            int byte_code_size,
-                                            int compressed_line_number_size,
-                                            int localvariable_table_length,
-                                            int exception_table_length,
-                                            int checked_exceptions_length,
-                                            TRAPS) {
+                                   int byte_code_size,
+                                   int compressed_line_number_size,
+                                   int localvariable_table_length,
+                                   int exception_table_length,
+                                   int checked_exceptions_length,
+                                   u2  generic_signature_index,
+                                   MethodType method_type,
+                                   TRAPS) {
   int size = ConstMethod::size(byte_code_size,
                                       compressed_line_number_size,
                                       localvariable_table_length,
                                       exception_table_length,
-                                      checked_exceptions_length);
+                                      checked_exceptions_length,
+                                      generic_signature_index);
   return new (loader_data, size, true, THREAD) ConstMethod(
-                       byte_code_size, compressed_line_number_size,
-                       localvariable_table_length, exception_table_length,
-                       checked_exceptions_length, size);
+      byte_code_size, compressed_line_number_size, localvariable_table_length,
+      exception_table_length, checked_exceptions_length, generic_signature_index,
+      method_type, size);
 }
 
 ConstMethod::ConstMethod(int byte_code_size,
-                                       int compressed_line_number_size,
-                                       int localvariable_table_length,
-                                       int exception_table_length,
-                                       int checked_exceptions_length,
-                                       int size) {
+                         int compressed_line_number_size,
+                         int localvariable_table_length,
+                         int exception_table_length,
+                         int checked_exceptions_length,
+                         u2  generic_signature_index,
+                         MethodType method_type,
+                         int size) {
 
   No_Safepoint_Verifier no_safepoint;
   set_interpreter_kind(Interpreter::invalid);
@@ -65,10 +70,12 @@ ConstMethod::ConstMethod(int byte_code_size,
   set_stackmap_data(NULL);
   set_code_size(byte_code_size);
   set_constMethod_size(size);
-  set_inlined_tables_length(checked_exceptions_length,
+  set_inlined_tables_length(generic_signature_index,
+                            checked_exceptions_length,
                             compressed_line_number_size,
                             localvariable_table_length,
                             exception_table_length);
+  set_method_type(method_type);
   assert(this->size() == size, "wrong size for object");
 }
 
@@ -88,7 +95,8 @@ int ConstMethod::size(int code_size,
                                     int compressed_line_number_size,
                                     int local_variable_table_length,
                                     int exception_table_length,
-                                    int checked_exceptions_length) {
+                                    int checked_exceptions_length,
+                                    u2  generic_signature_index) {
   int extra_bytes = code_size;
   if (compressed_line_number_size > 0) {
     extra_bytes += compressed_line_number_size;
@@ -106,13 +114,15 @@ int ConstMethod::size(int code_size,
     extra_bytes += sizeof(u2);
     extra_bytes += exception_table_length * sizeof(ExceptionTableElement);
   }
+  if (generic_signature_index != 0) {
+    extra_bytes += sizeof(u2);
+  }
   int extra_words = align_size_up(extra_bytes, BytesPerWord) / BytesPerWord;
   return align_object_size(header_size() + extra_words);
 }
 
 Method* ConstMethod::method() const {
-    return InstanceKlass::cast(_constants->pool_holder())->method_with_idnum(
-                               _method_idnum);
+    return _constants->pool_holder()->method_with_idnum(_method_idnum);
   }
 
 // linenumber table - note that length is unknown until decompression,
@@ -124,10 +134,17 @@ u_char* ConstMethod::compressed_linenumber_table() const {
   return code_end();
 }
 
-u2* ConstMethod::checked_exceptions_length_addr() const {
+u2* ConstMethod::generic_signature_index_addr() const {
   // Located at the end of the constMethod.
-  assert(has_checked_exceptions(), "called only if table is present");
+  assert(has_generic_signature(), "called only if generic signature exists");
   return last_u2_element();
+}
+
+u2* ConstMethod::checked_exceptions_length_addr() const {
+  // Located immediately before the generic signature index.
+  assert(has_checked_exceptions(), "called only if table is present");
+  return has_generic_signature() ? (last_u2_element() - 1) :
+                                    last_u2_element();
 }
 
 u2* ConstMethod::exception_table_length_addr() const {
@@ -136,8 +153,10 @@ u2* ConstMethod::exception_table_length_addr() const {
     // If checked_exception present, locate immediately before them.
     return (u2*) checked_exceptions_start() - 1;
   } else {
-    // Else, the exception table is at the end of the constMethod.
-    return last_u2_element();
+    // Else, the exception table is at the end of the constMethod or
+    // immediately before the generic signature index.
+    return has_generic_signature() ? (last_u2_element() - 1) :
+                                      last_u2_element();
   }
 }
 
@@ -151,24 +170,29 @@ u2* ConstMethod::localvariable_table_length_addr() const {
       // If checked_exception present, locate immediately before them.
       return (u2*) checked_exceptions_start() - 1;
     } else {
-      // Else, the linenumber table is at the end of the constMethod.
-      return last_u2_element();
+      // Else, the linenumber table is at the end of the constMethod or
+      // immediately before the generic signature index.
+      return has_generic_signature() ? (last_u2_element() - 1) :
+                                        last_u2_element();
     }
   }
 }
 
-
 // Update the flags to indicate the presence of these optional fields.
-void ConstMethod::set_inlined_tables_length(
-                                              int checked_exceptions_len,
-                                              int compressed_line_number_size,
-                                              int localvariable_table_len,
-                                              int exception_table_len) {
+void ConstMethod::set_inlined_tables_length(u2  generic_signature_index,
+                                            int checked_exceptions_len,
+                                            int compressed_line_number_size,
+                                            int localvariable_table_len,
+                                            int exception_table_len) {
   // Must be done in the order below, otherwise length_addr accessors
   // will not work. Only set bit in header if length is positive.
   assert(_flags == 0, "Error");
   if (compressed_line_number_size > 0) {
     _flags |= _has_linenumber_table;
+  }
+  if (generic_signature_index != 0) {
+    _flags |= _has_generic_signature;
+    *(generic_signature_index_addr()) = generic_signature_index;
   }
   if (checked_exceptions_len > 0) {
     _flags |= _has_checked_exceptions;

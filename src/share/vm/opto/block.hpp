@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -292,7 +292,7 @@ class Block : public CFGElement {
   void needed_for_next_call(Node *this_call, VectorSet &next_call, Block_Array &bbs);
   bool schedule_local(PhaseCFG *cfg, Matcher &m, GrowableArray<int> &ready_cnt, VectorSet &next_call);
   // Cleanup if any code lands between a Call and his Catch
-  void call_catch_cleanup(Block_Array &bbs);
+  void call_catch_cleanup(Block_Array &bbs, Compile *C);
   // Detect implicit-null-check opportunities.  Basically, find NULL checks
   // with suitable memory ops nearby.  Use the memory op to do the NULL check.
   // I can generate a memory op if there is not one nearby.

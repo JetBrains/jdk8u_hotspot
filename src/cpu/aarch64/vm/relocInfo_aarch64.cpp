@@ -23,8 +23,7 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.inline.hpp"
-#include "assembler_aarch64.inline.hpp"
+#include "asm/macroAssembler.hpp"
 #include "code/relocInfo.hpp"
 #include "nativeInst_aarch64.hpp"
 #include "oops/oop.inline.hpp"

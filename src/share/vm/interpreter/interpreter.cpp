@@ -23,7 +23,9 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.hpp"
+#include "asm/macroAssembler.hpp"
+#include "asm/macroAssembler.inline.hpp"
+#include "compiler/disassembler.hpp"
 #include "interpreter/bytecodeHistogram.hpp"
 #include "interpreter/bytecodeInterpreter.hpp"
 #include "interpreter/interpreter.hpp"
@@ -60,6 +62,8 @@ void InterpreterCodelet::verify() {
 
 
 void InterpreterCodelet::print_on(outputStream* st) const {
+  ttyLocker ttyl;
+
   if (PrintInterpreter) {
     st->cr();
     st->print_cr("----------------------------------------------------------------------");
@@ -72,7 +76,7 @@ void InterpreterCodelet::print_on(outputStream* st) const {
 
   if (PrintInterpreter) {
     st->cr();
-    Disassembler::decode(code_begin(), code_end(), st);
+    Disassembler::decode(code_begin(), code_end(), st, DEBUG_ONLY(_comments) NOT_DEBUG(CodeComments()));
   }
 }
 
@@ -460,5 +464,13 @@ void AbstractInterpreterGenerator::bang_stack_shadow_pages(bool native_call) {
     for (int pages = start_page; pages <= StackShadowPages ; pages++) {
       __ bang_stack_with_offset(pages*page_size);
     }
+  }
+}
+
+void AbstractInterpreterGenerator::initialize_method_handle_entries() {
+  // method handle entry kinds are generated later in MethodHandlesAdapterGenerator::generate:
+  for (int i = Interpreter::method_handle_invoke_FIRST; i <= Interpreter::method_handle_invoke_LAST; i++) {
+    Interpreter::MethodKind kind = (Interpreter::MethodKind) i;
+    Interpreter::_entry_table[kind] = Interpreter::_entry_table[Interpreter::abstract];
   }
 }

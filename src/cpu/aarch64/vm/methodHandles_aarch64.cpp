@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "asm/macroAssembler.hpp"
 #include "interpreter/interpreter.hpp"
 #include "interpreter/interpreterRuntime.hpp"
 #include "memory/allocation.inline.hpp"
@@ -149,8 +150,9 @@ void MethodHandles::jump_to_lambda_form(MacroAssembler* _masm,
 
   if (VerifyMethodHandles && !for_compiler_entry) {
     // make sure recv is already on stack
+    __ ldr(temp2, Address(method_temp, Method::const_offset()));
     __ load_sized_value(temp2,
-                        Address(method_temp, Method::size_of_parameters_offset()),
+                        Address(temp2, ConstMethod::size_of_parameters_offset()),
                         sizeof(u2), /*is_signed*/ false);
     // assert(sizeof(u2) == sizeof(Method::_size_of_parameters), "");
     Label L;
@@ -189,8 +191,6 @@ address MethodHandles::generate_method_handle_interpreter_entry(MacroAssembler* 
   Register temp   = r0;
   Register mh     = r1;   // MH receiver; dies quickly and is recycled
 
-  address code_start = __ pc();
-
   // here's where control starts out:
   __ align(CodeEntryAlignment);
   address entry_point = __ pc();
@@ -216,8 +216,9 @@ address MethodHandles::generate_method_handle_interpreter_entry(MacroAssembler* 
   int ref_kind = signature_polymorphic_intrinsic_ref_kind(iid);
   assert(ref_kind != 0 || iid == vmIntrinsics::_invokeBasic, "must be _invokeBasic or a linkTo intrinsic");
   if (ref_kind == 0 || MethodHandles::ref_kind_has_receiver(ref_kind)) {
+    __ ldr(argp, Address(rmethod, Method::const_offset()));
     __ load_sized_value(argp,
-                        Address(rmethod, Method::size_of_parameters_offset()),
+                        Address(argp, ConstMethod::size_of_parameters_offset()),
                         sizeof(u2), /*is_signed*/ false);
     // assert(sizeof(u2) == sizeof(Method::_size_of_parameters), "");
     r3_first_arg_addr = __ argument_address(argp, -1);
@@ -230,26 +231,9 @@ address MethodHandles::generate_method_handle_interpreter_entry(MacroAssembler* 
     DEBUG_ONLY(argp = noreg);
   }
 
-  // rdx_first_arg_addr is live!
+  // r3_first_arg_addr is live!
 
-  if (TraceMethodHandles) {
-    const char* name = vmIntrinsics::name_at(iid);
-    if (*name == '_')  name += 1;
-    const size_t len = strlen(name) + 50;
-    char* qname = NEW_C_HEAP_ARRAY(char, len, mtInternal);
-    const char* suffix = "";
-    if (vmIntrinsics::method_for(iid) == NULL ||
-        !vmIntrinsics::method_for(iid)->access_flags().is_public()) {
-      if (is_signature_polymorphic_static(iid))
-        suffix = "/static";
-      else
-        suffix = "/private";
-    }
-    jio_snprintf(qname, len, "MethodHandle::interpreter_entry::%s%s", name, suffix);
-    // note: stub look for mh in rcx
-    trace_method_handle(_masm, qname);
-  }
-
+  trace_method_handle_interpreter_entry(_masm, iid);
   if (iid == vmIntrinsics::_invokeBasic) {
     generate_method_handle_dispatch(_masm, iid, mh, noreg, not_for_compiler_entry);
 
@@ -264,14 +248,6 @@ address MethodHandles::generate_method_handle_interpreter_entry(MacroAssembler* 
     Register rmember = rmethod;  // MemberName ptr; incoming method ptr is dead now
     __ pop(rmember);             // extract last argument
     generate_method_handle_dispatch(_masm, iid, recv, rmember, not_for_compiler_entry);
-  }
-
-  if (PrintMethodHandleStubs) {
-    address code_end = __ pc();
-    tty->print_cr("--------");
-    tty->print_cr("method handle interpreter entry for %s", vmIntrinsics::name_at(iid));
-    Disassembler::decode(code_start, code_end);
-    tty->cr();
   }
 
   return entry_point;
@@ -297,8 +273,6 @@ void MethodHandles::generate_method_handle_dispatch(MacroAssembler* _masm,
 
   assert_different_registers(temp1, temp2, temp3, receiver_reg);
   assert_different_registers(temp1, temp2, temp3, member_reg);
-  if (!for_compiler_entry)
-    assert_different_registers(temp1, temp2, temp3, saved_last_sp_register());  // don't trash lastSP
 
   if (iid == vmIntrinsics::_invokeBasic) {
     // indirect through MH.form.vmentry.vmtarget
@@ -361,14 +335,13 @@ void MethodHandles::generate_method_handle_dispatch(MacroAssembler* _masm,
     //  rsi/r13 - interpreter linkage (if interpreted)
     //  r2, rdx, rsi, rdi, r8, r8 - compiler arguments (if compiled)
 
-    bool method_is_live = false;
+    Label L_incompatible_class_change_error;
     switch (iid) {
     case vmIntrinsics::_linkToSpecial:
       if (VerifyMethodHandles) {
         verify_ref_kind(_masm, JVM_REF_invokeSpecial, member_reg, temp3);
       }
       __ ldr(rmethod, member_vmtarget);
-      method_is_live = true;
       break;
 
     case vmIntrinsics::_linkToStatic:
@@ -376,7 +349,6 @@ void MethodHandles::generate_method_handle_dispatch(MacroAssembler* _masm,
         verify_ref_kind(_masm, JVM_REF_invokeStatic, member_reg, temp3);
       }
       __ ldr(rmethod, member_vmtarget);
-      method_is_live = true;
       break;
 
     case vmIntrinsics::_linkToVirtual:
@@ -405,7 +377,6 @@ void MethodHandles::generate_method_handle_dispatch(MacroAssembler* _masm,
 
       // get target Method* & entry point
       __ lookup_virtual_method(temp1_recv_klass, temp2_index, rmethod);
-      method_is_live = true;
       break;
     }
 
@@ -433,35 +404,29 @@ void MethodHandles::generate_method_handle_dispatch(MacroAssembler* _masm,
       }
 
       // given intf, index, and recv klass, dispatch to the implementation method
-      Label L_no_such_interface;
       __ lookup_interface_method(temp1_recv_klass, temp3_intf,
                                  // note: next two args must be the same:
                                  rindex, rmethod,
                                  temp2,
-                                 L_no_such_interface);
-
-      __ verify_method_ptr(rmethod);
-      jump_from_method_handle(_masm, rmethod, temp2, for_compiler_entry);
-      __ hlt(0);
-
-      __ bind(L_no_such_interface);
-      __ b(RuntimeAddress(StubRoutines::throw_IncompatibleClassChangeError_entry()));
+                                 L_incompatible_class_change_error);
       break;
     }
 
     default:
-      fatal(err_msg("unexpected intrinsic %d: %s", iid, vmIntrinsics::name_at(iid)));
+      fatal(err_msg_res("unexpected intrinsic %d: %s", iid, vmIntrinsics::name_at(iid)));
       break;
     }
 
-    if (method_is_live) {
-      // live at this point:  rmethod, rsi/r13 (if interpreted)
+    // live at this point:  rmethod, rsi/r13 (if interpreted)
 
-      // After figuring out which concrete method to call, jump into it.
-      // Note that this works in the interpreter with no data motion.
-      // But the compiled version will require that r2_recv be shifted out.
-      __ verify_method_ptr(rmethod);
-      jump_from_method_handle(_masm, rmethod, temp1, for_compiler_entry);
+    // After figuring out which concrete method to call, jump into it.
+    // Note that this works in the interpreter with no data motion.
+    // But the compiled version will require that r2_recv be shifted out.
+    __ verify_method_ptr(rmethod);
+    jump_from_method_handle(_masm, rmethod, temp1, for_compiler_entry);
+    if (iid == vmIntrinsics::_linkToInterface) {
+      __ bind(L_incompatible_class_change_error);
+      __ b(RuntimeAddress(StubRoutines::throw_IncompatibleClassChangeError_entry()));
     }
   }
 }

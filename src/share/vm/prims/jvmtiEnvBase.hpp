@@ -56,7 +56,9 @@ class JvmtiEnvBase : public CHeapObj<mtInternal> {
 
  private:
 
+#if INCLUDE_JVMTI
   static JvmtiEnvBase*     _head_environment;  // head of environment list
+#endif // INCLUDE_JVMTI
 
   static bool              _globally_initialized;
   static jvmtiPhase        _phase;
@@ -67,7 +69,7 @@ class JvmtiEnvBase : public CHeapObj<mtInternal> {
   enum {
     JDK15_JVMTI_VERSION = JVMTI_VERSION_1_0 +  33,  /* version: 1.0.33  */
     JDK16_JVMTI_VERSION = JVMTI_VERSION_1_1 + 102,  /* version: 1.1.102 */
-    JDK17_JVMTI_VERSION = JVMTI_VERSION_1_2 +   1   /* version: 1.2.1   */
+    JDK17_JVMTI_VERSION = JVMTI_VERSION_1_2 +   2   /* version: 1.2.2   */
   };
 
   static jvmtiPhase  get_phase()                    { return _phase; }
@@ -129,7 +131,10 @@ class JvmtiEnvBase : public CHeapObj<mtInternal> {
   friend class JvmtiEnvIterator;
   JvmtiEnv* next_environment()                     { return (JvmtiEnv*)_next; }
   void set_next_environment(JvmtiEnvBase* env)     { _next = env; }
-  static JvmtiEnv* head_environment()              { return (JvmtiEnv*)_head_environment; }
+  static JvmtiEnv* head_environment()              {
+    JVMTI_ONLY(return (JvmtiEnv*)_head_environment);
+    NOT_JVMTI(return NULL);
+  }
 
  public:
 

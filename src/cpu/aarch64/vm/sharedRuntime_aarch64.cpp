@@ -23,8 +23,8 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.hpp"
-#include "assembler_aarch64.inline.hpp"
+#include "asm/macroAssembler.hpp"
+#include "asm/macroAssembler.inline.hpp"
 #include "code/debugInfoRec.hpp"
 #include "code/icBuffer.hpp"
 #include "code/vtableStubs.hpp"
@@ -447,8 +447,6 @@ class ComputeMoveOrder: public StackObj {
 nmethod *SharedRuntime::generate_native_wrapper(MacroAssembler *masm,
                                                 methodHandle method,
                                                 int compile_id,
-                                                int total_in_args,
-                                                int comp_args_on_stack,
                                                 BasicType *in_sig_bt,
                                                 VMRegPair *in_regs,
                                                 BasicType ret_type) { Unimplemented(); return 0; }
@@ -500,7 +498,7 @@ void SharedRuntime::generate_uncommon_trap_blob() { Unimplemented(); }
 // Generate a special Compile2Runtime blob that saves all registers,
 // and setup oopmap.
 //
-SafepointBlob* SharedRuntime::generate_handler_blob(address call_ptr, bool cause_return) {
+SafepointBlob* SharedRuntime::generate_handler_blob(address call_ptr, int poll_type) {
     ResourceMark rm;
   OopMapSet *oop_maps = new OopMapSet();
   OopMap* map;

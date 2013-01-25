@@ -197,9 +197,9 @@ class CompilationLog : public StringEventLog {
 
   void log_compile(JavaThread* thread, CompileTask* task) {
     StringLogMessage lm;
-    stringStream msg = lm.stream();
+    stringStream sstr = lm.stream();
     // msg.time_stamp().update_to(tty->time_stamp().ticks());
-    task->print_compilation(&msg, true);
+    task->print_compilation(&sstr, NULL, true);
     log(thread, "%s", (const char*)lm);
   }
 
@@ -272,7 +272,7 @@ void CompileTask::initialize(int compile_id,
 
   _compile_id = compile_id;
   _method = method();
-  _method_loader = JNIHandles::make_global(_method->method_holder()->class_loader());
+  _method_holder = JNIHandles::make_global(method->method_holder()->klass_holder());
   _osr_bci = osr_bci;
   _is_blocking = is_blocking;
   _comp_level = comp_level;
@@ -283,7 +283,7 @@ void CompileTask::initialize(int compile_id,
   _code_handle = NULL;
 
   _hot_method = NULL;
-  _hot_method_loader = NULL;
+  _hot_method_holder = NULL;
   _hot_count = hot_count;
   _time_queued = 0;  // tidy
   _comment = comment;
@@ -295,8 +295,9 @@ void CompileTask::initialize(int compile_id,
         _hot_method = _method;
       } else {
         _hot_method = hot_method();
+        // only add loader or mirror if different from _method_holder
+        _hot_method_holder = JNIHandles::make_global(hot_method->method_holder()->klass_holder());
       }
-      _hot_method_loader = JNIHandles::make_global(_hot_method->method_holder()->class_loader());
     }
   }
 
@@ -321,8 +322,8 @@ void CompileTask::set_code(nmethod* nm) {
 void CompileTask::free() {
   set_code(NULL);
   assert(!_lock->is_locked(), "Should not be locked when freed");
-  JNIHandles::destroy_global(_method_loader);
-  JNIHandles::destroy_global(_hot_method_loader);
+  JNIHandles::destroy_global(_method_holder);
+  JNIHandles::destroy_global(_hot_method_holder);
 }
 
 
@@ -491,9 +492,9 @@ void CompileTask::print_inline_indent(int inline_level, outputStream* st) {
 
 // ------------------------------------------------------------------
 // CompileTask::print_compilation
-void CompileTask::print_compilation(outputStream* st, bool short_form) {
+void CompileTask::print_compilation(outputStream* st, const char* msg, bool short_form) {
   bool is_osr_method = osr_bci() != InvocationEntryBci;
-  print_compilation_impl(st, method(), compile_id(), comp_level(), is_osr_method, osr_bci(), is_blocking(), NULL, short_form);
+  print_compilation_impl(st, method(), compile_id(), comp_level(), is_osr_method, osr_bci(), is_blocking(), msg, short_form);
 }
 
 // ------------------------------------------------------------------
@@ -1051,7 +1052,7 @@ void CompileBroker::compile_method_base(methodHandle method,
   guarantee(!method->is_abstract(), "cannot compile abstract methods");
   assert(method->method_holder()->oop_is_instance(),
          "sanity check");
-  assert(!InstanceKlass::cast(method->method_holder())->is_not_initialized(),
+  assert(!method->method_holder()->is_not_initialized(),
          "method holder must be initialized");
   assert(!method->is_method_handle_intrinsic(), "do not enqueue these guys");
 
@@ -1206,7 +1207,7 @@ nmethod* CompileBroker::compile_method(methodHandle method, int osr_bci,
   assert(method->method_holder()->oop_is_instance(), "not an instance method");
   assert(osr_bci == InvocationEntryBci || (0 <= osr_bci && osr_bci < method->code_size()), "bci out of range");
   assert(!method->is_abstract() && (osr_bci == InvocationEntryBci || !method->is_native()), "cannot compile abstract/native methods");
-  assert(!InstanceKlass::cast(method->method_holder())->is_not_initialized(), "method holder must be initialized");
+  assert(!method->method_holder()->is_not_initialized(), "method holder must be initialized");
 
   if (!TieredCompilation) {
     comp_level = CompLevel_highest_tier;
@@ -1249,7 +1250,7 @@ nmethod* CompileBroker::compile_method(methodHandle method, int osr_bci,
     // We accept a higher level osr method
     nmethod* nm = method->lookup_osr_nmethod_for(osr_bci, comp_level, false);
     if (nm != NULL) return nm;
-    if (method->is_not_osr_compilable()) return NULL;
+    if (method->is_not_osr_compilable(comp_level)) return NULL;
   }
 
   assert(!HAS_PENDING_EXCEPTION, "No exception should be present");
@@ -1330,7 +1331,7 @@ bool CompileBroker::compilation_is_complete(methodHandle method,
                                             int          comp_level) {
   bool is_osr = (osr_bci != standard_entry_bci);
   if (is_osr) {
-    if (method->is_not_osr_compilable()) {
+    if (method->is_not_osr_compilable(comp_level)) {
       return true;
     } else {
       nmethod* result = method->lookup_osr_nmethod_for(osr_bci, comp_level, true);
@@ -1381,7 +1382,7 @@ bool CompileBroker::compilation_is_prohibited(methodHandle method, int osr_bci, 
   // Some compilers may not support on stack replacement.
   if (is_osr &&
       (!CICompileOSR || !compiler(comp_level)->supports_osr())) {
-    method->set_not_osr_compilable();
+    method->set_not_osr_compilable(comp_level);
     return true;
   }
 
@@ -1570,7 +1571,8 @@ void CompileBroker::compiler_thread_loop() {
   }
   CompileLog* log = thread->log();
   if (log != NULL) {
-    log->begin_elem("start_compile_thread thread='" UINTX_FORMAT "' process='%d'",
+    log->begin_elem("start_compile_thread name='%s' thread='" UINTX_FORMAT "' process='%d'",
+                    thread->name(),
                     os::current_thread_id(),
                     os::current_process_id());
     log->stamp();
@@ -1807,11 +1809,10 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
         _compilation_log->log_failure(thread, task, ci_env.failure_reason(), retry_message);
       }
       if (PrintCompilation) {
-        tty->print("%4d   COMPILE SKIPPED: %s", compile_id, ci_env.failure_reason());
-        if (retry_message != NULL) {
-          tty->print(" (%s)", retry_message);
-        }
-        tty->cr();
+        FormatBufferResource msg = retry_message != NULL ?
+            err_msg_res("COMPILE SKIPPED: %s (%s)", ci_env.failure_reason(), retry_message) :
+            err_msg_res("COMPILE SKIPPED: %s",      ci_env.failure_reason());
+        task->print_compilation(tty, msg);
       }
     } else {
       task->mark_success();
@@ -1840,14 +1841,20 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
     tty->print_cr("size: %d time: %d inlined: %d bytes", code_size, (int)time.milliseconds(), task->num_inlined_bytecodes());
   }
 
-  if (compilable == ciEnv::MethodCompilable_never) {
-    if (is_osr) {
-      method->set_not_osr_compilable();
-    } else {
+  // Disable compilation, if required.
+  switch (compilable) {
+  case ciEnv::MethodCompilable_never:
+    if (is_osr)
+      method->set_not_osr_compilable_quietly();
+    else
       method->set_not_compilable_quietly();
-    }
-  } else if (compilable == ciEnv::MethodCompilable_not_at_tier) {
-    method->set_not_compilable_quietly(task->comp_level());
+    break;
+  case ciEnv::MethodCompilable_not_at_tier:
+    if (is_osr)
+      method->set_not_osr_compilable_quietly(task->comp_level());
+    else
+      method->set_not_compilable_quietly(task->comp_level());
+    break;
   }
 
   // Note that the queued_for_compilation bits are cleared without

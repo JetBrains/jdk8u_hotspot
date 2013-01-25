@@ -44,6 +44,7 @@
 #include "runtime/mutexLocker.hpp"
 #include "runtime/os.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "services/attachListener.hpp"
 #include "services/memTracker.hpp"
 #include "services/threadService.hpp"
@@ -51,19 +52,15 @@
 #include "utilities/events.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "os_linux.inline.hpp"
-# include "thread_linux.inline.hpp"
 #endif
 #ifdef TARGET_OS_FAMILY_solaris
 # include "os_solaris.inline.hpp"
-# include "thread_solaris.inline.hpp"
 #endif
 #ifdef TARGET_OS_FAMILY_windows
 # include "os_windows.inline.hpp"
-# include "thread_windows.inline.hpp"
 #endif
 #ifdef TARGET_OS_FAMILY_bsd
 # include "os_bsd.inline.hpp"
-# include "thread_bsd.inline.hpp"
 #endif
 
 # include <signal.h>
@@ -201,14 +198,21 @@ OSReturn os::set_priority(Thread* thread, ThreadPriority p) {
   }
 }
 
-
+// The mapping from OS priority back to Java priority may be inexact because
+// Java priorities can map M:1 with native priorities. If you want the definite
+// Java priority then use JavaThread::java_priority()
 OSReturn os::get_priority(const Thread* const thread, ThreadPriority& priority) {
   int p;
   int os_prio;
   OSReturn ret = get_native_priority(thread, &os_prio);
   if (ret != OS_OK) return ret;
 
-  for (p = MaxPriority; p > MinPriority && java_to_os_priority[p] > os_prio; p--) ;
+  if (java_to_os_priority[MaxPriority] > java_to_os_priority[MinPriority]) {
+    for (p = MaxPriority; p > MinPriority && java_to_os_priority[p] > os_prio; p--) ;
+  } else {
+    // niceness values are in reverse order
+    for (p = MaxPriority; p > MinPriority && java_to_os_priority[p] < os_prio; p--) ;
+  }
   priority = (ThreadPriority)p;
   return OS_OK;
 }
@@ -390,12 +394,16 @@ void* os::native_java_library() {
     // Try to load verify dll first. In 1.3 java dll depends on it and is not
     // always able to find it when the loading executable is outside the JDK.
     // In order to keep working with 1.2 we ignore any loading errors.
-    dll_build_name(buffer, sizeof(buffer), Arguments::get_dll_dir(), "verify");
-    dll_load(buffer, ebuf, sizeof(ebuf));
+    if (dll_build_name(buffer, sizeof(buffer), Arguments::get_dll_dir(),
+                       "verify")) {
+      dll_load(buffer, ebuf, sizeof(ebuf));
+    }
 
     // Load java dll
-    dll_build_name(buffer, sizeof(buffer), Arguments::get_dll_dir(), "java");
-    _native_java_library = dll_load(buffer, ebuf, sizeof(ebuf));
+    if (dll_build_name(buffer, sizeof(buffer), Arguments::get_dll_dir(),
+                       "java")) {
+      _native_java_library = dll_load(buffer, ebuf, sizeof(ebuf));
+    }
     if (_native_java_library == NULL) {
       vm_exit_during_initialization("Unable to load native library", ebuf);
     }
@@ -403,8 +411,10 @@ void* os::native_java_library() {
 #if defined(__OpenBSD__)
     // Work-around OpenBSD's lack of $ORIGIN support by pre-loading libnet.so
     // ignore errors
-    dll_build_name(buffer, sizeof(buffer), Arguments::get_dll_dir(), "net");
-    dll_load(buffer, ebuf, sizeof(ebuf));
+    if (dll_build_name(buffer, sizeof(buffer), Arguments::get_dll_dir(),
+                       "net")) {
+      dll_load(buffer, ebuf, sizeof(ebuf));
+    }
 #endif
   }
   static jboolean onLoaded = JNI_FALSE;
@@ -569,7 +579,9 @@ void* os::malloc(size_t size, MEMFLAGS memflags, address caller) {
     // if NULL is returned the calling functions assume out of memory.
     size = 1;
   }
-
+  if (size > size + space_before + space_after) { // Check for rollover.
+    return NULL;
+  }
   NOT_PRODUCT(if (MallocVerifyInterval > 0) check_heap());
   u_char* ptr = (u_char*)::malloc(size + space_before + space_after);
 
@@ -593,9 +605,7 @@ void* os::malloc(size_t size, MEMFLAGS memflags, address caller) {
   if (PrintMalloc && tty != NULL) tty->print_cr("os::malloc " SIZE_FORMAT " bytes --> " PTR_FORMAT, size, memblock);
 
   // we do not track MallocCushion memory
-  if (MemTracker::is_on()) {
     MemTracker::record_malloc((address)memblock, size, memflags, caller == 0 ? CALLER_PC : caller);
-  }
 
   return memblock;
 }
@@ -606,7 +616,7 @@ void* os::realloc(void *memblock, size_t size, MEMFLAGS memflags, address caller
   NOT_PRODUCT(inc_stat_counter(&num_mallocs, 1));
   NOT_PRODUCT(inc_stat_counter(&alloc_bytes, size));
   void* ptr = ::realloc(memblock, size);
-  if (ptr != NULL && MemTracker::is_on()) {
+  if (ptr != NULL) {
     MemTracker::record_realloc((address)memblock, (address)ptr, size, memflags,
      caller == 0 ? CALLER_PC : caller);
   }
@@ -871,6 +881,7 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
         st->print(" for ");
         nm->method()->print_value_on(st);
       }
+      st->cr();
       nm->print_nmethod(verbose);
       return;
     }
@@ -891,7 +902,11 @@ void os::print_location(outputStream* st, intptr_t x, bool verbose) {
       print = true;
     }
     if (print) {
-      st->print_cr(INTPTR_FORMAT " is an oop", addr);
+      if (p == (HeapWord*) addr) {
+        st->print_cr(INTPTR_FORMAT " is an oop", addr);
+      } else {
+        st->print_cr(INTPTR_FORMAT " is pointing into object: " INTPTR_FORMAT, addr, p);
+      }
       oop(p)->print_on(st);
       return;
     }
@@ -1146,7 +1161,7 @@ char** os::split_path(const char* path, int* n) {
   if (inpath == NULL) {
     return NULL;
   }
-  strncpy(inpath, path, strlen(path));
+  strcpy(inpath, path);
   int count = 1;
   char* p = strchr(inpath, psepchar);
   // Get a count of elements to allocate memory
@@ -1389,7 +1404,7 @@ bool os::create_stack_guard_pages(char* addr, size_t bytes) {
 
 char* os::reserve_memory(size_t bytes, char* addr, size_t alignment_hint) {
   char* result = pd_reserve_memory(bytes, addr, alignment_hint);
-  if (result != NULL && MemTracker::is_on()) {
+  if (result != NULL) {
     MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
   }
 
@@ -1397,7 +1412,7 @@ char* os::reserve_memory(size_t bytes, char* addr, size_t alignment_hint) {
 }
 char* os::attempt_reserve_memory_at(size_t bytes, char* addr) {
   char* result = pd_attempt_reserve_memory_at(bytes, addr);
-  if (result != NULL && MemTracker::is_on()) {
+  if (result != NULL) {
     MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
   }
   return result;
@@ -1410,7 +1425,7 @@ void os::split_reserved_memory(char *base, size_t size,
 
 bool os::commit_memory(char* addr, size_t bytes, bool executable) {
   bool res = pd_commit_memory(addr, bytes, executable);
-  if (res && MemTracker::is_on()) {
+  if (res) {
     MemTracker::record_virtual_memory_commit((address)addr, bytes, CALLER_PC);
   }
   return res;
@@ -1419,7 +1434,7 @@ bool os::commit_memory(char* addr, size_t bytes, bool executable) {
 bool os::commit_memory(char* addr, size_t size, size_t alignment_hint,
                               bool executable) {
   bool res = os::pd_commit_memory(addr, size, alignment_hint, executable);
-  if (res && MemTracker::is_on()) {
+  if (res) {
     MemTracker::record_virtual_memory_commit((address)addr, size, CALLER_PC);
   }
   return res;
@@ -1446,8 +1461,9 @@ char* os::map_memory(int fd, const char* file_name, size_t file_offset,
                            char *addr, size_t bytes, bool read_only,
                            bool allow_exec) {
   char* result = pd_map_memory(fd, file_name, file_offset, addr, bytes, read_only, allow_exec);
-  if (result != NULL && MemTracker::is_on()) {
+  if (result != NULL) {
     MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
+    MemTracker::record_virtual_memory_commit((address)result, bytes, CALLER_PC);
   }
   return result;
 }
@@ -1462,6 +1478,7 @@ char* os::remap_memory(int fd, const char* file_name, size_t file_offset,
 bool os::unmap_memory(char *addr, size_t bytes) {
   bool result = pd_unmap_memory(addr, bytes);
   if (result) {
+    MemTracker::record_virtual_memory_uncommit((address)addr, bytes);
     MemTracker::record_virtual_memory_release((address)addr, bytes);
   }
   return result;

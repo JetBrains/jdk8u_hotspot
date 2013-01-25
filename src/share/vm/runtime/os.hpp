@@ -255,6 +255,7 @@ class os: AllStatic {
   static int    vm_allocation_granularity();
   static char*  reserve_memory(size_t bytes, char* addr = 0,
                                size_t alignment_hint = 0);
+  static char*  reserve_memory_aligned(size_t size, size_t alignment);
   static char*  attempt_reserve_memory_at(size_t bytes, char* addr);
   static void   split_reserved_memory(char *base, size_t size,
                                       size_t split, bool realloc);
@@ -387,7 +388,7 @@ class os: AllStatic {
   static void pd_start_thread(Thread* thread);
   static void start_thread(Thread* thread);
 
-  static void initialize_thread();
+  static void initialize_thread(Thread* thr);
   static void free_thread(OSThread* osthread);
 
   // thread id on Linux/64bit is 64bit, on Windows and Solaris, it's 32bit
@@ -479,7 +480,8 @@ class os: AllStatic {
   static const char*    get_current_directory(char *buf, int buflen);
 
   // Builds a platform-specific full library path given a ld path and lib name
-  static void           dll_build_name(char* buffer, size_t size,
+  // Returns true if buffer contains full path to existing file, false otherwise
+  static bool           dll_build_name(char* buffer, size_t size,
                                        const char* pathname, const char* fname);
 
   // Symbol lookup, find nearest function name; basically it implements

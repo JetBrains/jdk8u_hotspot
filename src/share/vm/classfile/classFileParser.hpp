@@ -148,9 +148,10 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   // Interface parsing
   Array<Klass*>* parse_interfaces(constantPoolHandle cp,
                                   int length,
-                                    ClassLoaderData* loader_data,
+                                  ClassLoaderData* loader_data,
                                   Handle protection_domain,
                                   Symbol* class_name,
+                                  bool* has_default_methods,
                                   TRAPS);
   void record_defined_class_dependencies(instanceKlassHandle defined_klass, TRAPS);
 
@@ -166,10 +167,10 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                               TRAPS);
   Array<u2>* parse_fields(ClassLoaderData* loader_data,
                           Symbol* class_name,
-                               constantPoolHandle cp, bool is_interface,
-                               FieldAllocationCount *fac,
+                          constantPoolHandle cp, bool is_interface,
+                          FieldAllocationCount *fac,
                           Array<AnnotationArray*>** fields_annotations,
-                               u2* java_fields_count_ptr, TRAPS);
+                          u2* java_fields_count_ptr, TRAPS);
 
   // Method parsing
   methodHandle parse_method(ClassLoaderData* loader_data,
@@ -181,13 +182,14 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                             AnnotationArray** method_default_annotations,
                             TRAPS);
   Array<Method*>* parse_methods(ClassLoaderData* loader_data,
-                                  constantPoolHandle cp,
-                                  bool is_interface,
+                                constantPoolHandle cp,
+                                bool is_interface,
                                 AccessFlags* promoted_flags,
                                 bool* has_final_method,
-                                  Array<AnnotationArray*>** methods_annotations,
-                                  Array<AnnotationArray*>** methods_parameter_annotations,
-                                  Array<AnnotationArray*>** methods_default_annotations,
+                                Array<AnnotationArray*>** methods_annotations,
+                                Array<AnnotationArray*>** methods_parameter_annotations,
+                                Array<AnnotationArray*>** methods_default_annotations,
+                                bool* has_default_method,
                                 TRAPS);
   Array<int>* sort_methods(ClassLoaderData* loader_data,
                            Array<Method*>* methods,
@@ -232,9 +234,9 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   // Annotations handling
   AnnotationArray* assemble_annotations(ClassLoaderData* loader_data,
                                         u1* runtime_visible_annotations,
-                                       int runtime_visible_annotations_length,
-                                       u1* runtime_invisible_annotations,
-                                       int runtime_invisible_annotations_length, TRAPS);
+                                        int runtime_visible_annotations_length,
+                                        u1* runtime_invisible_annotations,
+                                        int runtime_invisible_annotations_length, TRAPS);
   int skip_annotation(u1* buffer, int limit, int index);
   int skip_annotation_value(u1* buffer, int limit, int index);
   void parse_annotations(u1* buffer, int limit, constantPoolHandle cp,
@@ -252,8 +254,8 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                      unsigned int* nonstatic_oop_counts);
   void set_precomputed_flags(instanceKlassHandle k);
   Array<Klass*>* compute_transitive_interfaces(ClassLoaderData* loader_data,
-                                                 instanceKlassHandle super,
-                                                 Array<Klass*>* local_ifs, TRAPS);
+                                               instanceKlassHandle super,
+                                               Array<Klass*>* local_ifs, TRAPS);
 
   // Format checker methods
   void classfile_parse_error(const char* msg, TRAPS);
@@ -344,7 +346,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   // constant pool construction, but in later versions they can.
   // %%% Let's phase out the old is_klass_reference.
   bool is_klass_reference(constantPoolHandle cp, int index) {
-    return ((LinkWellKnownClasses || EnableInvokeDynamic)
+    return (EnableInvokeDynamic
             ? cp->tag_at(index).is_klass_or_reference()
             : cp->tag_at(index).is_klass_reference());
   }
@@ -361,16 +363,16 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   // "parsed_name" is updated by this method, and is the name found
   // while parsing the stream.
   instanceKlassHandle parseClassFile(Symbol* name,
-                                     Handle class_loader,
+                                     ClassLoaderData* loader_data,
                                      Handle protection_domain,
                                      TempNewSymbol& parsed_name,
                                      bool verify,
                                      TRAPS) {
     KlassHandle no_host_klass;
-    return parseClassFile(name, class_loader, protection_domain, no_host_klass, NULL, parsed_name, verify, THREAD);
+    return parseClassFile(name, loader_data, protection_domain, no_host_klass, NULL, parsed_name, verify, THREAD);
   }
   instanceKlassHandle parseClassFile(Symbol* name,
-                                     Handle class_loader,
+                                     ClassLoaderData* loader_data,
                                      Handle protection_domain,
                                      KlassHandle host_klass,
                                      GrowableArray<Handle>* cp_patches,

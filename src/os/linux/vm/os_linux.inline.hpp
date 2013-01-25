@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,30 +26,26 @@
 #define OS_LINUX_VM_OS_LINUX_INLINE_HPP
 
 #include "runtime/atomic.hpp"
+#include "runtime/atomic.inline.hpp"
 #include "runtime/os.hpp"
+
 #ifdef TARGET_OS_ARCH_linux_x86
-# include "atomic_linux_x86.inline.hpp"
 # include "orderAccess_linux_x86.inline.hpp"
 #endif
-#ifdef TARGET_OS_ARCH_linux_aarch64
-# include "atomic_linux_aarch64.inline.hpp"
-# include "orderAccess_linux_aarch64.inline.hpp"
-#endif
 #ifdef TARGET_OS_ARCH_linux_sparc
-# include "atomic_linux_sparc.inline.hpp"
 # include "orderAccess_linux_sparc.inline.hpp"
 #endif
 #ifdef TARGET_OS_ARCH_linux_zero
-# include "atomic_linux_zero.inline.hpp"
 # include "orderAccess_linux_zero.inline.hpp"
 #endif
 #ifdef TARGET_OS_ARCH_linux_arm
-# include "atomic_linux_arm.inline.hpp"
 # include "orderAccess_linux_arm.inline.hpp"
 #endif
 #ifdef TARGET_OS_ARCH_linux_ppc
-# include "atomic_linux_ppc.inline.hpp"
 # include "orderAccess_linux_ppc.inline.hpp"
+#endif
+#ifdef TARGET_OS_ARCH_linux_aarch64
+# include "orderAccess_linux_aarch64.inline.hpp"
 #endif
 
 // System includes

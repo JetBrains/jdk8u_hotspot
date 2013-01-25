@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,19 +25,8 @@
 #ifndef SHARE_VM_UTILITIES_WORKGROUP_HPP
 #define SHARE_VM_UTILITIES_WORKGROUP_HPP
 
+#include "runtime/thread.inline.hpp"
 #include "utilities/taskqueue.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_bsd
-# include "thread_bsd.inline.hpp"
-#endif
 
 // Task class hierarchy:
 //   AbstractGangTask
@@ -101,7 +90,7 @@ protected:
     NOT_PRODUCT(_name = name);
     _counter = 0;
   }
-  virtual ~AbstractGangTask() { }
+  ~AbstractGangTask() { }
 
 public:
 };

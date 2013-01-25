@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,13 +26,13 @@
 #define OS_SOLARIS_VM_OS_SOLARIS_INLINE_HPP
 
 #include "runtime/atomic.hpp"
+#include "runtime/atomic.inline.hpp"
 #include "runtime/os.hpp"
+
 #ifdef TARGET_OS_ARCH_solaris_x86
-# include "atomic_solaris_x86.inline.hpp"
 # include "orderAccess_solaris_x86.inline.hpp"
 #endif
 #ifdef TARGET_OS_ARCH_solaris_sparc
-# include "atomic_solaris_sparc.inline.hpp"
 # include "orderAccess_solaris_sparc.inline.hpp"
 #endif
 

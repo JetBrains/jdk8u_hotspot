@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,7 +48,7 @@ NodeHash::NodeHash(uint est_max_size) :
   _total_insert_probes(0), _total_inserts(0),
   _insert_probes(0), _grows(0) {
   // _sentinel must be in the current node space
-  _sentinel = new (Compile::current(), 1) ProjNode(NULL, TypeFunc::Control);
+  _sentinel = new (Compile::current()) ProjNode(NULL, TypeFunc::Control);
   memset(_table,0,sizeof(Node*)*_max);
 }
 
@@ -63,7 +63,7 @@ NodeHash::NodeHash(Arena *arena, uint est_max_size) :
   _total_insert_probes(0), _total_inserts(0),
   _insert_probes(0), _grows(0) {
   // _sentinel must be in the current node space
-  _sentinel = new (Compile::current(), 1) ProjNode(NULL, TypeFunc::Control);
+  _sentinel = new (Compile::current()) ProjNode(NULL, TypeFunc::Control);
   memset(_table,0,sizeof(Node*)*_max);
 }
 
@@ -383,6 +383,8 @@ PhaseRemoveUseless::PhaseRemoveUseless( PhaseGVN *gvn, Unique_Node_List *worklis
 
   // Identify nodes that are reachable from below, useful.
   C->identify_useful_nodes(_useful);
+  // Update dead node list
+  C->update_dead_node_list(_useful);
 
   // Remove all useless nodes from PhaseValues' recorded types
   // Must be done before disconnecting nodes to preserve hash-table-invariant
@@ -1190,7 +1192,7 @@ void PhaseIterGVN::remove_globally_dead_node( Node *dead ) {
             }
           }
         }
-
+        C->record_dead_node(dead->_idx);
         if (dead->is_macro()) {
           C->remove_macro_node(dead);
         }
@@ -1199,6 +1201,11 @@ void PhaseIterGVN::remove_globally_dead_node( Node *dead ) {
           continue;
         }
       }
+      // Constant node that has no out-edges and has only one in-edge from
+      // root is usually dead. However, sometimes reshaping walk makes
+      // it reachable by adding use edges. So, we will NOT count Con nodes
+      // as dead to be conservative about the dead node count at any
+      // given time.
     }
 
     // Aggressively kill globally dead uses
@@ -1246,7 +1253,7 @@ void PhaseIterGVN::subsume_node( Node *old, Node *nn ) {
   }
 
   // Smash all inputs to 'old', isolating him completely
-  Node *temp = new (C, 1) Node(1);
+  Node *temp = new (C) Node(1);
   temp->init_req(0,nn);     // Add a use to nn to prevent him from dying
   remove_dead_node( old );
   temp->del_req(0);         // Yank bogus edge

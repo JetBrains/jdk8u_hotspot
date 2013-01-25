@@ -36,9 +36,7 @@
 #include "runtime/basicLock.hpp"
 #include "runtime/biasedLocking.hpp"
 #include "runtime/sharedRuntime.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
+#include "runtime/thread.inline.hpp"
 
 
 // Implementation of InterpreterMacroAssembler

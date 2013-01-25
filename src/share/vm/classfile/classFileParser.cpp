@@ -27,6 +27,8 @@
 #include "classfile/classLoader.hpp"
 #include "classfile/classLoaderData.hpp"
 #include "classfile/classLoaderData.inline.hpp"
+#include "classfile/defaultMethods.hpp"
+#include "classfile/genericSignatures.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/symbolTable.hpp"
 #include "classfile/systemDictionary.hpp"
@@ -67,7 +69,7 @@
 
 #define JAVA_CLASSFILE_MAGIC              0xCAFEBABE
 #define JAVA_MIN_SUPPORTED_VERSION        45
-#define JAVA_MAX_SUPPORTED_VERSION        51
+#define JAVA_MAX_SUPPORTED_VERSION        52
 #define JAVA_MAX_SUPPORTED_MINOR_VERSION  0
 
 // Used for two backward compatibility reasons:
@@ -83,6 +85,9 @@
 // Used for backward compatibility reasons:
 // - to check NameAndType_info signatures more aggressively
 #define JAVA_7_VERSION                    51
+
+// Extension method support.
+#define JAVA_8_VERSION                    52
 
 
 void ClassFileParser::parse_constant_pool_entries(ClassLoaderData* loader_data, constantPoolHandle cp, int length, TRAPS) {
@@ -782,9 +787,10 @@ bool put_after_lookup(Symbol* name, Symbol* sig, NameSigHash** table) {
 
 Array<Klass*>* ClassFileParser::parse_interfaces(constantPoolHandle cp,
                                                  int length,
-                                                   ClassLoaderData* loader_data,
+                                                 ClassLoaderData* loader_data,
                                                  Handle protection_domain,
                                                  Symbol* class_name,
+                                                 bool* has_default_methods,
                                                  TRAPS) {
   ClassFileStream* cfs = stream();
   assert(length > 0, "only called for length>0");
@@ -816,13 +822,13 @@ Array<Klass*>* ClassFileParser::parse_interfaces(constantPoolHandle cp,
                     unresolved_klass, class_loader, protection_domain,
                     false, CHECK_NULL);
       interf = KlassHandle(THREAD, k);
-
-      if (LinkWellKnownClasses)  // my super type is well known to me
-        cp->klass_at_put(interface_index, interf()); // eagerly resolve
     }
 
-    if (!Klass::cast(interf())->is_interface()) {
+    if (!interf()->is_interface()) {
       THROW_MSG_(vmSymbols::java_lang_IncompatibleClassChangeError(), "Implementing class", NULL);
+    }
+    if (InstanceKlass::cast(interf())->has_default_methods()) {
+      *has_default_methods = true;
     }
     interfaces->at_put(index, interf());
   }
@@ -1008,40 +1014,42 @@ static FieldAllocationType _basic_type_to_atype[2 * (T_CONFLICT + 1)] = {
   BAD_ALLOCATION_TYPE, // 1
   BAD_ALLOCATION_TYPE, // 2
   BAD_ALLOCATION_TYPE, // 3
-  NONSTATIC_BYTE ,     // T_BOOLEAN  =  4,
-  NONSTATIC_SHORT,     // T_CHAR     =  5,
-  NONSTATIC_WORD,      // T_FLOAT    =  6,
-  NONSTATIC_DOUBLE,    // T_DOUBLE   =  7,
-  NONSTATIC_BYTE,      // T_BYTE     =  8,
-  NONSTATIC_SHORT,     // T_SHORT    =  9,
-  NONSTATIC_WORD,      // T_INT      = 10,
-  NONSTATIC_DOUBLE,    // T_LONG     = 11,
-  NONSTATIC_OOP,       // T_OBJECT   = 12,
-  NONSTATIC_OOP,       // T_ARRAY    = 13,
-  BAD_ALLOCATION_TYPE, // T_VOID     = 14,
-  BAD_ALLOCATION_TYPE, // T_ADDRESS  = 15,
-  BAD_ALLOCATION_TYPE, // T_NARROWOOP= 16,
-  BAD_ALLOCATION_TYPE, // T_METADATA = 17,
-  BAD_ALLOCATION_TYPE, // T_CONFLICT = 18,
+  NONSTATIC_BYTE ,     // T_BOOLEAN     =  4,
+  NONSTATIC_SHORT,     // T_CHAR        =  5,
+  NONSTATIC_WORD,      // T_FLOAT       =  6,
+  NONSTATIC_DOUBLE,    // T_DOUBLE      =  7,
+  NONSTATIC_BYTE,      // T_BYTE        =  8,
+  NONSTATIC_SHORT,     // T_SHORT       =  9,
+  NONSTATIC_WORD,      // T_INT         = 10,
+  NONSTATIC_DOUBLE,    // T_LONG        = 11,
+  NONSTATIC_OOP,       // T_OBJECT      = 12,
+  NONSTATIC_OOP,       // T_ARRAY       = 13,
+  BAD_ALLOCATION_TYPE, // T_VOID        = 14,
+  BAD_ALLOCATION_TYPE, // T_ADDRESS     = 15,
+  BAD_ALLOCATION_TYPE, // T_NARROWOOP   = 16,
+  BAD_ALLOCATION_TYPE, // T_METADATA    = 17,
+  BAD_ALLOCATION_TYPE, // T_NARROWKLASS = 18,
+  BAD_ALLOCATION_TYPE, // T_CONFLICT    = 19,
   BAD_ALLOCATION_TYPE, // 0
   BAD_ALLOCATION_TYPE, // 1
   BAD_ALLOCATION_TYPE, // 2
   BAD_ALLOCATION_TYPE, // 3
-  STATIC_BYTE ,        // T_BOOLEAN  =  4,
-  STATIC_SHORT,        // T_CHAR     =  5,
-  STATIC_WORD,          // T_FLOAT    =  6,
-  STATIC_DOUBLE,       // T_DOUBLE   =  7,
-  STATIC_BYTE,         // T_BYTE     =  8,
-  STATIC_SHORT,        // T_SHORT    =  9,
-  STATIC_WORD,         // T_INT      = 10,
-  STATIC_DOUBLE,       // T_LONG     = 11,
-  STATIC_OOP,          // T_OBJECT   = 12,
-  STATIC_OOP,          // T_ARRAY    = 13,
-  BAD_ALLOCATION_TYPE, // T_VOID     = 14,
-  BAD_ALLOCATION_TYPE, // T_ADDRESS  = 15,
-  BAD_ALLOCATION_TYPE, // T_NARROWOOP= 16,
-  BAD_ALLOCATION_TYPE, // T_METADATA = 17,
-  BAD_ALLOCATION_TYPE, // T_CONFLICT = 18,
+  STATIC_BYTE ,        // T_BOOLEAN     =  4,
+  STATIC_SHORT,        // T_CHAR        =  5,
+  STATIC_WORD,         // T_FLOAT       =  6,
+  STATIC_DOUBLE,       // T_DOUBLE      =  7,
+  STATIC_BYTE,         // T_BYTE        =  8,
+  STATIC_SHORT,        // T_SHORT       =  9,
+  STATIC_WORD,         // T_INT         = 10,
+  STATIC_DOUBLE,       // T_LONG        = 11,
+  STATIC_OOP,          // T_OBJECT      = 12,
+  STATIC_OOP,          // T_ARRAY       = 13,
+  BAD_ALLOCATION_TYPE, // T_VOID        = 14,
+  BAD_ALLOCATION_TYPE, // T_ADDRESS     = 15,
+  BAD_ALLOCATION_TYPE, // T_NARROWOOP   = 16,
+  BAD_ALLOCATION_TYPE, // T_METADATA    = 17,
+  BAD_ALLOCATION_TYPE, // T_NARROWKLASS = 18,
+  BAD_ALLOCATION_TYPE, // T_CONFLICT    = 19,
 };
 
 static FieldAllocationType basic_type_to_atype(bool is_static, BasicType type) {
@@ -1072,10 +1080,11 @@ class FieldAllocationCount: public ResourceObj {
 
 Array<u2>* ClassFileParser::parse_fields(ClassLoaderData* loader_data,
                                          Symbol* class_name,
-                                              constantPoolHandle cp, bool is_interface,
-                                              FieldAllocationCount *fac,
+                                         constantPoolHandle cp,
+                                         bool is_interface,
+                                         FieldAllocationCount *fac,
                                          Array<AnnotationArray*>** fields_annotations,
-                                              u2* java_fields_count_ptr, TRAPS) {
+                                         u2* java_fields_count_ptr, TRAPS) {
   ClassFileStream* cfs = stream();
   cfs->guarantee_more(2, CHECK_NULL);  // length
   u2 length = cfs->get_u2_fast();
@@ -1928,7 +1937,8 @@ methodHandle ClassFileParser::parse_method(ClassLoaderData* loader_data,
     if (method_attribute_name == vmSymbols::tag_code()) {
       // Parse Code attribute
       if (_need_verify) {
-        guarantee_property(!access_flags.is_native() && !access_flags.is_abstract(),
+        guarantee_property(
+            !access_flags.is_native() && !access_flags.is_abstract(),
                         "Code attribute in native or abstract methods in class file %s",
                          CHECK_(nullHandle));
       }
@@ -2125,7 +2135,9 @@ methodHandle ClassFileParser::parse_method(ClassLoaderData* loader_data,
         runtime_visible_annotations_length = method_attribute_length;
         runtime_visible_annotations = cfs->get_u1_buffer();
         assert(runtime_visible_annotations != NULL, "null visible annotations");
-        parse_annotations(runtime_visible_annotations, runtime_visible_annotations_length, cp, &parsed_annotations, CHECK_(nullHandle));
+        parse_annotations(runtime_visible_annotations,
+            runtime_visible_annotations_length, cp, &parsed_annotations,
+            CHECK_(nullHandle));
         cfs->skip_u1(runtime_visible_annotations_length, CHECK_(nullHandle));
       } else if (PreserveAllAnnotations && method_attribute_name == vmSymbols::tag_runtime_invisible_annotations()) {
         runtime_invisible_annotations_length = method_attribute_length;
@@ -2169,14 +2181,10 @@ methodHandle ClassFileParser::parse_method(ClassLoaderData* loader_data,
   }
 
   // All sizing information for a Method* is finally available, now create it
-  Method* m = Method::allocate(loader_data,
-                                        code_length,
-                                        access_flags,
-                                            linenumber_table_length,
-                                            total_lvt_length,
-                                            exception_table_length,
-                                            checked_exceptions_length,
-                                            CHECK_(nullHandle));
+  Method* m = Method::allocate(
+      loader_data, code_length, access_flags, linenumber_table_length,
+      total_lvt_length, exception_table_length, checked_exceptions_length,
+      generic_signature_index, ConstMethod::NORMAL, CHECK_(nullHandle));
 
   ClassLoadingService::add_class_method_size(m->size()*HeapWordSize);
 
@@ -2184,7 +2192,6 @@ methodHandle ClassFileParser::parse_method(ClassLoaderData* loader_data,
   m->set_constants(cp());
   m->set_name_index(name_index);
   m->set_signature_index(signature_index);
-  m->set_generic_signature_index(generic_signature_index);
 #ifdef CC_INTERP
   // hmm is there a gc issue here??
   ResultTypeFinder rtf(cp->symbol_at(signature_index));
@@ -2206,7 +2213,6 @@ methodHandle ClassFileParser::parse_method(ClassLoaderData* loader_data,
   // Fill in code attribute information
   m->set_max_stack(max_stack);
   m->set_max_locals(max_locals);
-
   m->constMethod()->set_stackmap_data(stackmap_data);
 
   // Copy byte codes
@@ -2351,14 +2357,15 @@ methodHandle ClassFileParser::parse_method(ClassLoaderData* loader_data,
 // are added to klass's access_flags.
 
 Array<Method*>* ClassFileParser::parse_methods(ClassLoaderData* loader_data,
-                                                 constantPoolHandle cp,
-                                                 bool is_interface,
-                                              AccessFlags* promoted_flags,
-                                              bool* has_final_method,
-                                                 Array<AnnotationArray*>** methods_annotations,
-                                                 Array<AnnotationArray*>** methods_parameter_annotations,
-                                                 Array<AnnotationArray*>** methods_default_annotations,
-                                              TRAPS) {
+                                               constantPoolHandle cp,
+                                               bool is_interface,
+                                               AccessFlags* promoted_flags,
+                                               bool* has_final_method,
+                                               Array<AnnotationArray*>** methods_annotations,
+                                               Array<AnnotationArray*>** methods_parameter_annotations,
+                                               Array<AnnotationArray*>** methods_default_annotations,
+                                               bool* has_default_methods,
+                                               TRAPS) {
   ClassFileStream* cfs = stream();
   AnnotationArray* method_annotations = NULL;
   AnnotationArray* method_parameter_annotations = NULL;
@@ -2383,6 +2390,10 @@ Array<Method*>* ClassFileParser::parse_methods(ClassLoaderData* loader_data,
 
       if (method->is_final()) {
         *has_final_method = true;
+      }
+      if (is_interface && !method->is_abstract() && !method->is_static()) {
+        // default method
+        *has_default_methods = true;
       }
       methods->at_put(index, method());
       if (*methods_annotations == NULL) {
@@ -2450,10 +2461,9 @@ Array<int>* ClassFileParser::sort_methods(ClassLoaderData* loader_data,
   }
   // Sort method array by ascending method name (for faster lookups & vtable construction)
   // Note that the ordering is not alphabetical, see Symbol::fast_compare
-  Method::sort_methods(methods,
-                              methods_annotations,
-                              methods_parameter_annotations,
-                              methods_default_annotations);
+  Method::sort_methods(methods, methods_annotations,
+                       methods_parameter_annotations,
+                       methods_default_annotations);
 
   // If JVMTI original method ordering or sharing is enabled construct int
   // array remembering the original ordering
@@ -2835,10 +2845,10 @@ void ClassFileParser::parse_classfile_attributes(ClassLoaderData* loader_data,
   }
   AnnotationArray* annotations = assemble_annotations(loader_data,
                                                       runtime_visible_annotations,
-                                                     runtime_visible_annotations_length,
-                                                     runtime_invisible_annotations,
-                                                     runtime_invisible_annotations_length,
-                                                     CHECK);
+                                                      runtime_visible_annotations_length,
+                                                      runtime_invisible_annotations,
+                                                      runtime_invisible_annotations_length,
+                                                      CHECK);
   set_class_annotations(annotations);
 
   if (parsed_innerclasses_attribute || parsed_enclosingmethod_attribute) {
@@ -2884,9 +2894,9 @@ void ClassFileParser::apply_parsed_class_attributes(instanceKlassHandle k) {
 
 AnnotationArray* ClassFileParser::assemble_annotations(ClassLoaderData* loader_data,
                                                        u1* runtime_visible_annotations,
-                                                      int runtime_visible_annotations_length,
-                                                      u1* runtime_invisible_annotations,
-                                                      int runtime_invisible_annotations_length, TRAPS) {
+                                                       int runtime_visible_annotations_length,
+                                                       u1* runtime_invisible_annotations,
+                                                       int runtime_invisible_annotations_length, TRAPS) {
   AnnotationArray* annotations = NULL;
   if (runtime_visible_annotations != NULL ||
       runtime_invisible_annotations != NULL) {
@@ -2910,8 +2920,36 @@ AnnotationArray* ClassFileParser::assemble_annotations(ClassLoaderData* loader_d
 }
 
 
+#ifndef PRODUCT
+static void parseAndPrintGenericSignatures(
+    instanceKlassHandle this_klass, TRAPS) {
+  assert(ParseAllGenericSignatures == true, "Shouldn't call otherwise");
+  ResourceMark rm;
+
+  if (this_klass->generic_signature() != NULL) {
+    using namespace generic;
+    ClassDescriptor* spec = ClassDescriptor::parse_generic_signature(this_klass(), CHECK);
+
+    tty->print_cr("Parsing %s", this_klass->generic_signature()->as_C_string());
+    spec->print_on(tty);
+
+    for (int i = 0; i < this_klass->methods()->length(); ++i) {
+      Method* m = this_klass->methods()->at(i);
+      MethodDescriptor* method_spec = MethodDescriptor::parse_generic_signature(m, spec);
+      Symbol* sig = m->generic_signature();
+      if (sig == NULL) {
+        sig = m->signature();
+      }
+      tty->print_cr("Parsing %s", sig->as_C_string());
+      method_spec->print_on(tty);
+    }
+  }
+}
+#endif // ndef PRODUCT
+
+
 instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
-                                                    Handle class_loader,
+                                                    ClassLoaderData* loader_data,
                                                     Handle protection_domain,
                                                     KlassHandle host_klass,
                                                     GrowableArray<Handle>* cp_patches,
@@ -2925,7 +2963,9 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
   // original class bytes.
   unsigned char *cached_class_file_bytes = NULL;
   jint cached_class_file_length;
-  ClassLoaderData* loader_data = ClassLoaderData::class_loader_data(class_loader());
+  Handle class_loader(THREAD, loader_data->class_loader());
+  bool has_default_methods = false;
+  ResourceMark rm(THREAD);
 
   ClassFileStream* cfs = stream();
   // Timing
@@ -2964,7 +3004,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     unsigned char* ptr = cfs->buffer();
     unsigned char* end_ptr = cfs->buffer() + cfs->length();
 
-    JvmtiExport::post_class_file_load_hook(name, class_loader, protection_domain,
+    JvmtiExport::post_class_file_load_hook(name, class_loader(), protection_domain,
                                            &ptr, &end_ptr,
                                            &cached_class_file_bytes,
                                            &cached_class_file_length);
@@ -3141,7 +3181,9 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     if (itfs_len == 0) {
       local_interfaces = Universe::the_empty_klass_array();
     } else {
-      local_interfaces = parse_interfaces(cp, itfs_len, loader_data, protection_domain, _class_name, CHECK_(nullHandle));
+      local_interfaces = parse_interfaces(
+          cp, itfs_len, loader_data, protection_domain, _class_name,
+          &has_default_methods, CHECK_(nullHandle));
     }
 
     u2 java_fields_count = 0;
@@ -3161,13 +3203,14 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     Array<AnnotationArray*>* methods_parameter_annotations = NULL;
     Array<AnnotationArray*>* methods_default_annotations = NULL;
     Array<Method*>* methods = parse_methods(loader_data,
-                                              cp, access_flags.is_interface(),
-                                           &promoted_flags,
-                                           &has_final_method,
-                                              &methods_annotations,
-                                              &methods_parameter_annotations,
-                                              &methods_default_annotations,
-                                           CHECK_(nullHandle));
+                                            cp, access_flags.is_interface(),
+                                            &promoted_flags,
+                                            &has_final_method,
+                                            &methods_annotations,
+                                            &methods_parameter_annotations,
+                                            &methods_default_annotations,
+                                            &has_default_methods,
+                                            CHECK_(nullHandle));
 
     // Additional attributes
     ClassAnnotationCollector parsed_annotations;
@@ -3186,19 +3229,21 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
                            "Interfaces must have java.lang.Object as superclass in class file %s",
                            CHECK_(nullHandle));
       }
-      Klass* k = SystemDictionary::resolve_super_or_fail(class_name,
-                                                           sk,
-                                                           class_loader,
-                                                           protection_domain,
-                                                           true,
-                                                           CHECK_(nullHandle));
+      Klass* k = SystemDictionary::resolve_super_or_fail(class_name, sk,
+                                                         class_loader,
+                                                         protection_domain,
+                                                         true,
+                                                         CHECK_(nullHandle));
 
       KlassHandle kh (THREAD, k);
       super_klass = instanceKlassHandle(THREAD, kh());
-      if (LinkWellKnownClasses)  // my super class is well known to me
-        cp->klass_at_put(super_class_index, super_klass()); // eagerly resolve
     }
     if (super_klass.not_null()) {
+
+      if (super_klass->has_default_methods()) {
+        has_default_methods = true;
+      }
+
       if (super_klass->is_interface()) {
         ResourceMark rm(THREAD);
         Exceptions::fthrow(
@@ -3222,10 +3267,10 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     // sort methods
     Array<int>* method_ordering = sort_methods(loader_data,
                                                methods,
-                                                   methods_annotations,
-                                                   methods_parameter_annotations,
-                                                   methods_default_annotations,
-                                                   CHECK_(nullHandle));
+                                               methods_annotations,
+                                               methods_parameter_annotations,
+                                               methods_default_annotations,
+                                               CHECK_(nullHandle));
 
     // promote flags from parse_methods() to the klass' flags
     access_flags.add_promoted_flags(promoted_flags.as_int());
@@ -3235,14 +3280,11 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     int itable_size = 0;
     int num_miranda_methods = 0;
 
-    klassVtable::compute_vtable_size_and_num_mirandas(vtable_size,
-                                                      num_miranda_methods,
-                                                      super_klass(),
-                                                      methods,
-                                                      access_flags,
-                                                      class_loader,
-                                                      class_name,
-                                                      local_interfaces,
+    GrowableArray<Method*> all_mirandas(20);
+
+    klassVtable::compute_vtable_size_and_num_mirandas(
+        &vtable_size, &num_miranda_methods, &all_mirandas, super_klass(), methods,
+        access_flags, class_loader, class_name, local_interfaces,
                                                       CHECK_(nullHandle));
 
     // Size of Java itable (in words)
@@ -3591,16 +3633,16 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       InstanceKlass::nonstatic_oop_map_size(total_oop_map_count);
 
     Klass* ik = InstanceKlass::allocate_instance_klass(loader_data,
-                                                         vtable_size,
-                                                         itable_size,
-                                                static_field_size,
-                                                         total_oop_map_size2,
-                                                         rt,
-                                                access_flags,
-                                                         name,
-                                                         super_klass(),
-                                                         host_klass,
-                                                CHECK_(nullHandle));
+                                                       vtable_size,
+                                                       itable_size,
+                                                       static_field_size,
+                                                       total_oop_map_size2,
+                                                       rt,
+                                                       access_flags,
+                                                       name,
+                                                       super_klass(),
+                                                       host_klass,
+                                                       CHECK_(nullHandle));
 
     // Add all classes to our internal class loader list here,
     // including classes in the bootstrap (NULL) class loader.
@@ -3642,7 +3684,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     // has to be changed accordingly.
     this_klass->set_initial_method_idnum(methods->length());
     this_klass->set_name(cp->klass_name_at(this_class_index));
-    if (LinkWellKnownClasses || is_anonymous())  // I am well known to myself
+    if (is_anonymous())  // I am well known to myself
       cp->klass_at_put(this_class_index, this_klass()); // eagerly resolve
 
     if (fields_annotations != NULL ||
@@ -3662,6 +3704,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
 
     this_klass->set_minor_version(minor_version);
     this_klass->set_major_version(major_version);
+    this_klass->set_has_default_methods(has_default_methods);
 
     // Set up Method*::intrinsic_id as soon as we know the names of methods.
     // (We used to do this lazily, but now we query it in Rewriter,
@@ -3679,6 +3722,16 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
                                         cached_class_file_length);
     }
 
+    // Fill in field values obtained by parse_classfile_attributes
+    if (parsed_annotations.has_any_annotations())
+      parsed_annotations.apply_to(this_klass);
+    // Create annotations
+    if (_annotations != NULL && this_klass->annotations() == NULL) {
+      Annotations* anno = Annotations::allocate(loader_data, CHECK_NULL);
+      this_klass->set_annotations(anno);
+    }
+    apply_parsed_class_attributes(this_klass);
+
     // Miranda methods
     if ((num_miranda_methods > 0) ||
         // if this class introduced new miranda methods or
@@ -3688,18 +3741,6 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       this_klass->set_has_miranda_methods(); // then set a flag
     }
 
-    // Fill in field values obtained by parse_classfile_attributes
-    if (parsed_annotations.has_any_annotations()) {
-      parsed_annotations.apply_to(this_klass);
-    }
-    // Create annotations
-    if (_annotations != NULL && this_klass->annotations() == NULL) {
-      Annotations* anno = Annotations::allocate(loader_data, CHECK_NULL);
-      this_klass->set_annotations(anno);
-    }
-    apply_parsed_class_attributes(this_klass);
-
-    // Compute transitive closure of interfaces this class implements
     this_klass->set_transitive_interfaces(transitive_interfaces);
 
     // Fill in information needed to compute superclasses.
@@ -3708,6 +3749,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     // Initialize itable offset tables
     klassItable::setup_itable_offset_table(this_klass);
 
+    // Compute transitive closure of interfaces this class implements
     // Do final class setup
     fill_oop_maps(this_klass, nonstatic_oop_map_count, nonstatic_oop_offsets, nonstatic_oop_counts);
 
@@ -3732,6 +3774,21 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       check_illegal_static_method(this_klass, CHECK_(nullHandle));
     }
 
+
+#ifdef ASSERT
+    if (ParseAllGenericSignatures) {
+      parseAndPrintGenericSignatures(this_klass, CHECK_(nullHandle));
+    }
+#endif
+
+    // Generate any default methods - default methods are interface methods
+    // that have a default implementation.  This is new with Lambda project.
+    if (has_default_methods && !access_flags.is_interface() &&
+        local_interfaces->length() > 0) {
+      DefaultMethods::generate_default_methods(
+          this_klass(), &all_mirandas, CHECK_(nullHandle));
+    }
+
     // Allocate mirror and initialize static fields
     java_lang_Class::create_mirror(this_klass, CHECK_(nullHandle));
 
@@ -3750,6 +3807,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
                                              false /* not shared class */);
 
     if (TraceClassLoading) {
+      ResourceMark rm;
       // print in a single call to reduce interleaving of output
       if (cfs->source() != NULL) {
         tty->print("[Loaded %s from %s]\n", this_klass->external_name(),
@@ -3764,15 +3822,15 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
           tty->print("[Loaded %s]\n", this_klass->external_name());
         }
       } else {
-        ResourceMark rm;
         tty->print("[Loaded %s from %s]\n", this_klass->external_name(),
                    InstanceKlass::cast(class_loader->klass())->external_name());
       }
     }
 
     if (TraceClassResolution) {
+      ResourceMark rm;
       // print out the superclass.
-      const char * from = Klass::cast(this_klass())->external_name();
+      const char * from = this_klass()->external_name();
       if (this_klass->java_super() != NULL) {
         tty->print("RESOLVE %s %s (super)\n", from, InstanceKlass::cast(this_klass->java_super())->external_name());
       }
@@ -3791,6 +3849,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
 
 #ifndef PRODUCT
     if( PrintCompactFieldsSavings ) {
+      ResourceMark rm;
       if( nonstatic_field_size < orig_nonstatic_field_size ) {
         tty->print("[Saved %d of %d bytes in %s]\n",
                  (orig_nonstatic_field_size - nonstatic_field_size)*heapOopSize,
@@ -3816,7 +3875,6 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
 
   return this_klass;
 }
-
 
 unsigned int
 ClassFileParser::compute_oop_map_count(instanceKlassHandle super,
@@ -3923,13 +3981,13 @@ void ClassFileParser::set_precomputed_flags(instanceKlassHandle k) {
     // java.lang.Object has empty default constructor
     k->set_has_vanilla_constructor();
   } else {
-    if (Klass::cast(super)->has_vanilla_constructor() &&
+    if (super->has_vanilla_constructor() &&
         _has_vanilla_constructor) {
       k->set_has_vanilla_constructor();
     }
 #ifdef ASSERT
     bool v = false;
-    if (Klass::cast(super)->has_vanilla_constructor()) {
+    if (super->has_vanilla_constructor()) {
       Method* constructor = k->find_method(vmSymbols::object_initializer_name(
 ), vmSymbols::void_method_signature());
       if (constructor != NULL && constructor->is_vanilla_constructor()) {
@@ -3945,8 +4003,7 @@ void ClassFileParser::set_precomputed_flags(instanceKlassHandle k) {
   assert(k->size_helper() > 0, "layout_helper is initialized");
   if ((!RegisterFinalizersAtInit && k->has_finalizer())
       || k->is_abstract() || k->is_interface()
-      || (k->name() == vmSymbols::java_lang_Class()
-          && k->class_loader_data()->is_the_null_class_loader_data())
+      || (k->name() == vmSymbols::java_lang_Class() && k->class_loader() == NULL)
       || k->size_helper() >= FastAllocateSizeLimit) {
     // Forbid fast-path allocation.
     jint lh = Klass::instance_layout_helper(k->size_helper(), true);
@@ -4071,7 +4128,7 @@ void ClassFileParser::check_super_interface_access(instanceKlassHandle this_klas
   int lng = local_interfaces->length();
   for (int i = lng - 1; i >= 0; i--) {
     Klass* k = local_interfaces->at(i);
-    assert (k != NULL && Klass::cast(k)->is_interface(), "invalid interface");
+    assert (k != NULL && k->is_interface(), "invalid interface");
     if (!Reflection::verify_class_access(this_klass(), k, false)) {
       ResourceMark rm(THREAD);
       Exceptions::fthrow(
@@ -4134,7 +4191,7 @@ void ClassFileParser::check_final_method_override(instanceKlassHandle this_klass
           }
 
           // continue to look from super_m's holder's super.
-          k = InstanceKlass::cast(super_m->method_holder())->super();
+          k = super_m->method_holder()->super();
           continue;
         }
 
@@ -4269,13 +4326,16 @@ void ClassFileParser::verify_legal_method_modifiers(
   const bool is_strict       = (flags & JVM_ACC_STRICT)       != 0;
   const bool is_synchronized = (flags & JVM_ACC_SYNCHRONIZED) != 0;
   const bool major_gte_15    = _major_version >= JAVA_1_5_VERSION;
+  const bool major_gte_8     = _major_version >= JAVA_8_VERSION;
   const bool is_initializer  = (name == vmSymbols::object_initializer_name());
 
   bool is_illegal = false;
 
   if (is_interface) {
-    if (!is_abstract || !is_public || is_static || is_final ||
-        is_native || (major_gte_15 && (is_synchronized || is_strict))) {
+    if (!is_public || is_static || is_final || is_native ||
+        ((is_synchronized || is_strict) && major_gte_15 &&
+            (!major_gte_8 || is_abstract)) ||
+        (!major_gte_8 && !is_abstract)) {
       is_illegal = true;
     }
   } else { // not interface

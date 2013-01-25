@@ -154,6 +154,8 @@ class java_lang_String : AllStatic {
   static char*  as_utf8_string(oop java_string, int start, int len);
   static char*  as_platform_dependent_str(Handle java_string, TRAPS);
   static jchar* as_unicode_string(oop java_string, int& length);
+  // produce an ascii string with all other values quoted using \u####
+  static char*  as_quoted_ascii(oop java_string);
 
   // Compute the hash value for a java.lang.String object which would
   // contain the characters passed in.
@@ -164,8 +166,8 @@ class java_lang_String : AllStatic {
   // objects in the shared archive file.
   // hash P(31) from Kernighan & Ritchie
   //
-  // For this reason, THIS ALGORITHM MUST MATCH String.toHash().
-  template <typename T> static unsigned int to_hash(T* s, int len) {
+  // For this reason, THIS ALGORITHM MUST MATCH String.hashCode().
+  template <typename T> static unsigned int hash_code(T* s, int len) {
     unsigned int h = 0;
     while (len-- > 0) {
       h = 31*h + (unsigned int) *s;
@@ -173,10 +175,10 @@ class java_lang_String : AllStatic {
     }
     return h;
   }
-  static unsigned int to_hash(oop java_string);
+  static unsigned int hash_code(oop java_string);
 
   // This is the string hash code used by the StringTable, which may be
-  // the same as String.toHash or an alternate hash code.
+  // the same as String.hashCode or an alternate hash code.
   static unsigned int hash_string(oop java_string);
 
   static bool equals(oop java_string, jchar* chars, int len);
@@ -912,7 +914,7 @@ class java_lang_invoke_MethodHandle: AllStatic {
 
   // Testers
   static bool is_subclass(Klass* klass) {
-    return Klass::cast(klass)->is_subclass_of(SystemDictionary::MethodHandle_klass());
+    return klass->is_subclass_of(SystemDictionary::MethodHandle_klass());
   }
   static bool is_instance(oop obj) {
     return obj != NULL && is_subclass(obj->klass());
@@ -942,7 +944,7 @@ class java_lang_invoke_LambdaForm: AllStatic {
   // Testers
   static bool is_subclass(Klass* klass) {
     return SystemDictionary::LambdaForm_klass() != NULL &&
-      Klass::cast(klass)->is_subclass_of(SystemDictionary::LambdaForm_klass());
+      klass->is_subclass_of(SystemDictionary::LambdaForm_klass());
   }
   static bool is_instance(oop obj) {
     return obj != NULL && is_subclass(obj->klass());
@@ -1004,7 +1006,7 @@ class java_lang_invoke_MemberName: AllStatic {
 
   // Testers
   static bool is_subclass(Klass* klass) {
-    return Klass::cast(klass)->is_subclass_of(SystemDictionary::MemberName_klass());
+    return klass->is_subclass_of(SystemDictionary::MemberName_klass());
   }
   static bool is_instance(oop obj) {
     return obj != NULL && is_subclass(obj->klass());
@@ -1090,7 +1092,7 @@ public:
 
   // Testers
   static bool is_subclass(Klass* klass) {
-    return Klass::cast(klass)->is_subclass_of(SystemDictionary::CallSite_klass());
+    return klass->is_subclass_of(SystemDictionary::CallSite_klass());
   }
   static bool is_instance(oop obj) {
     return obj != NULL && is_subclass(obj->klass());
@@ -1123,8 +1125,7 @@ class java_security_AccessControlContext: AllStatic {
 // Interface to java.lang.ClassLoader objects
 
 #define CLASSLOADER_INJECTED_FIELDS(macro)                            \
-  macro(java_lang_ClassLoader, loader_data,  intptr_signature, false) \
-  macro(java_lang_ClassLoader, dependencies, object_signature, false)
+  macro(java_lang_ClassLoader, loader_data,  intptr_signature, false)
 
 class java_lang_ClassLoader : AllStatic {
  private:
@@ -1133,7 +1134,6 @@ class java_lang_ClassLoader : AllStatic {
    hc_parent_offset = 0
   };
   static int _loader_data_offset;
-  static int _dependencies_offset;
   static bool offsets_computed;
   static int parent_offset;
   static int parallelCapable_offset;
@@ -1143,9 +1143,6 @@ class java_lang_ClassLoader : AllStatic {
 
   static ClassLoaderData** loader_data_addr(oop loader);
   static ClassLoaderData* loader_data(oop loader);
-
-  static oop  dependencies(oop loader);
-  static HeapWord* dependencies_addr(oop loader);
 
   static oop parent(oop loader);
   static bool isAncestor(oop loader, oop cl);
@@ -1160,7 +1157,7 @@ class java_lang_ClassLoader : AllStatic {
 
   // Testers
   static bool is_subclass(Klass* klass) {
-    return Klass::cast(klass)->is_subclass_of(SystemDictionary::ClassLoader_klass());
+    return klass->is_subclass_of(SystemDictionary::ClassLoader_klass());
   }
   static bool is_instance(oop obj) {
     return obj != NULL && is_subclass(obj->klass());

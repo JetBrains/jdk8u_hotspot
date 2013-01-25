@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -93,6 +93,24 @@ enum { name##_##type##EnumValue = value##_##type##EnumValue }
 #define REGISTER_DEFINITION(type, name) \
 const type name = ((type)name##_##type##EnumValue)
 
+#ifdef TARGET_ARCH_x86
+# include "register_x86.hpp"
+#endif
+#ifdef TARGET_ARCH_sparc
+# include "register_sparc.hpp"
+#endif
+#ifdef TARGET_ARCH_zero
+# include "register_zero.hpp"
+#endif
+#ifdef TARGET_ARCH_arm
+# include "register_arm.hpp"
+#endif
+#ifdef TARGET_ARCH_ppc
+# include "register_ppc.hpp"
+#endif
+#ifdef TARGET_ARCH_aarch64
+# include "register_aarch64.hpp"
+#endif
 
 
 // Debugging support
@@ -103,8 +121,8 @@ inline void assert_different_registers(
 ) {
   assert(
     a != b,
-    err_msg("registers must be different: a=%d, b=%d",
-            a, b)
+    err_msg_res("registers must be different: a=%d, b=%d",
+                a, b)
   );
 }
 
@@ -117,8 +135,8 @@ inline void assert_different_registers(
   assert(
     a != b && a != c
            && b != c,
-    err_msg("registers must be different: a=%d, b=%d, c=%d",
-            a, b, c)
+    err_msg_res("registers must be different: a=%d, b=%d, c=%d",
+                a, b, c)
   );
 }
 
@@ -133,8 +151,8 @@ inline void assert_different_registers(
     a != b && a != c && a != d
            && b != c && b != d
                      && c != d,
-    err_msg("registers must be different: a=%d, b=%d, c=%d, d=%d",
-            a, b, c, d)
+    err_msg_res("registers must be different: a=%d, b=%d, c=%d, d=%d",
+                a, b, c, d)
   );
 }
 
@@ -151,8 +169,8 @@ inline void assert_different_registers(
            && b != c && b != d && b != e
                      && c != d && c != e
                                && d != e,
-    err_msg("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d",
-            a, b, c, d, e)
+    err_msg_res("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d",
+                a, b, c, d, e)
   );
 }
 
@@ -171,8 +189,8 @@ inline void assert_different_registers(
                      && c != d && c != e && c != f
                                && d != e && d != f
                                          && e != f,
-    err_msg("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d, f=%d",
-            a, b, c, d, e, f)
+    err_msg_res("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d, f=%d",
+                a, b, c, d, e, f)
   );
 }
 
@@ -193,8 +211,8 @@ inline void assert_different_registers(
                                && d != e && d != f && d != g
                                          && e != f && e != g
                                                    && f != g,
-    err_msg("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d, f=%d, g=%d",
-            a, b, c, d, e, f, g)
+    err_msg_res("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d, f=%d, g=%d",
+                a, b, c, d, e, f, g)
   );
 }
 
@@ -217,8 +235,8 @@ inline void assert_different_registers(
                                          && e != f && e != g && e != h
                                                    && f != g && f != h
                                                              && g != h,
-    err_msg("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d, f=%d, g=%d, h=%d",
-            a, b, c, d, e, f, g, h)
+    err_msg_res("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d, f=%d, g=%d, h=%d",
+                a, b, c, d, e, f, g, h)
   );
 }
 
@@ -243,8 +261,8 @@ inline void assert_different_registers(
                                                    && f != g && f != h && f != i
                                                              && g != h && g != i
                                                                        && h != i,
-    err_msg("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d, f=%d, g=%d, h=%d, i=%d",
-            a, b, c, d, e, f, g, h, i)
+    err_msg_res("registers must be different: a=%d, b=%d, c=%d, d=%d, e=%d, f=%d, g=%d, h=%d, i=%d",
+                a, b, c, d, e, f, g, h, i)
   );
 }
 

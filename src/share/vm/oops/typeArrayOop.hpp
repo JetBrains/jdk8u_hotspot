@@ -76,7 +76,7 @@ class typeArrayOopDesc : public arrayOopDesc {
   jfloat*   float_base()  const { return (jfloat*)  base(T_FLOAT); }
   jdouble*  double_base() const { return (jdouble*) base(T_DOUBLE); }
 
-  friend class typeArrayKlass;
+  friend class TypeArrayKlass;
 
  public:
   jbyte* byte_at_addr(int which) const {
@@ -193,7 +193,7 @@ class typeArrayOopDesc : public arrayOopDesc {
 
  public:
   int object_size() {
-    typeArrayKlass* tk = typeArrayKlass::cast(klass());
+    TypeArrayKlass* tk = TypeArrayKlass::cast(klass());
     return object_size(tk->layout_helper(), length());
   }
 };

@@ -89,8 +89,8 @@ class ConstantPool : public Metadata {
   friend class Universe;             // For null constructor
  private:
   Array<u1>*           _tags;        // the tag array describing the constant pool's contents
-  ConstantPoolCache* _cache;       // the cache holding interpreter runtime information
-  Klass*               _pool_holder; // the corresponding class
+  ConstantPoolCache*   _cache;       // the cache holding interpreter runtime information
+  InstanceKlass*       _pool_holder; // the corresponding class
   Array<u2>*           _operands;    // for variable-sized (InvokeDynamic) nodes, usually empty
 
   // Array of resolved objects from the constant pool and map from resolved
@@ -196,9 +196,9 @@ class ConstantPool : public Metadata {
   void set_on_stack(const bool value);
 
   // Klass holding pool
-  Klass* pool_holder() const              { return _pool_holder; }
-  void set_pool_holder(Klass* k)          { _pool_holder = k; }
-  Klass** pool_holder_addr()              { return &_pool_holder; }
+  InstanceKlass* pool_holder() const      { return _pool_holder; }
+  void set_pool_holder(InstanceKlass* k)  { _pool_holder = k; }
+  InstanceKlass** pool_holder_addr()      { return &_pool_holder; }
 
   // Interpreter runtime support
   ConstantPoolCache* cache() const        { return _cache; }
@@ -471,7 +471,7 @@ class ConstantPool : public Metadata {
     assert(tag_at(which).is_string(), "Corrupted constant pool");
     // Must do an acquire here in case another thread resolved the klass
     // behind our back, lest we later load stale values thru the oop.
-    // we might want a volatile_obj_at in objArrayKlass.
+    // we might want a volatile_obj_at in ObjArrayKlass.
     int obj_index = cp_to_object_index(which);
     return resolved_references()->obj_at(obj_index);
   }
@@ -697,13 +697,15 @@ class ConstantPool : public Metadata {
   friend class SystemDictionary;
 
   // Used by compiler to prevent classloading.
-  static Method*         method_at_if_loaded      (constantPoolHandle this_oop, int which);
-  static bool      has_appendix_at_if_loaded      (constantPoolHandle this_oop, int which);
-  static oop           appendix_at_if_loaded      (constantPoolHandle this_oop, int which);
-  static Klass*           klass_at_if_loaded      (constantPoolHandle this_oop, int which);
-  static Klass*       klass_ref_at_if_loaded      (constantPoolHandle this_oop, int which);
+  static Method*          method_at_if_loaded      (constantPoolHandle this_oop, int which);
+  static bool       has_appendix_at_if_loaded      (constantPoolHandle this_oop, int which);
+  static oop            appendix_at_if_loaded      (constantPoolHandle this_oop, int which);
+  static bool    has_method_type_at_if_loaded      (constantPoolHandle this_oop, int which);
+  static oop         method_type_at_if_loaded      (constantPoolHandle this_oop, int which);
+  static Klass*            klass_at_if_loaded      (constantPoolHandle this_oop, int which);
+  static Klass*        klass_ref_at_if_loaded      (constantPoolHandle this_oop, int which);
   // Same as above - but does LinkResolving.
-  static Klass*       klass_ref_at_if_loaded_check(constantPoolHandle this_oop, int which, TRAPS);
+  static Klass*        klass_ref_at_if_loaded_check(constantPoolHandle this_oop, int which, TRAPS);
 
   // Routines currently used for annotations (only called by jvm.cpp) but which might be used in the
   // future by other Java code. These take constant pool indices rather than

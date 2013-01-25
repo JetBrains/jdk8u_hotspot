@@ -25,6 +25,8 @@
 #ifndef CPU_AARCH64_VM_FRAME_AARCH64_INLINE_HPP
 #define CPU_AARCH64_VM_FRAME_AARCH64_INLINE_HPP
 
+#include "code/codeCache.hpp"
+
 // Inline functions for AArch64 frames:
 
 // Constructors:

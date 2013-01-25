@@ -24,36 +24,35 @@
 #include "precompiled.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "memory/binaryTreeDictionary.hpp"
+#include "memory/freeList.hpp"
 #include "memory/collectorPolicy.hpp"
 #include "memory/filemap.hpp"
 #include "memory/freeList.hpp"
+#include "memory/metablock.hpp"
+#include "memory/metachunk.hpp"
 #include "memory/metaspace.hpp"
 #include "memory/metaspaceShared.hpp"
 #include "memory/resourceArea.hpp"
 #include "memory/universe.hpp"
 #include "runtime/globals.hpp"
 #include "runtime/mutex.hpp"
+#include "runtime/orderAccess.hpp"
 #include "services/memTracker.hpp"
 #include "utilities/copy.hpp"
 #include "utilities/debug.hpp"
 
-// Define this macro to deallocate Metablock.  If not defined,
-// blocks are not yet deallocated and are only mangled.
-#undef DEALLOCATE_BLOCKS
+typedef BinaryTreeDictionary<Metablock, FreeList> BlockTreeDictionary;
+typedef BinaryTreeDictionary<Metachunk, FreeList> ChunkTreeDictionary;
+// Define this macro to enable slow integrity checking of
+// the free chunk lists
+const bool metaspace_slow_verify = false;
 
-// Easily recognizable patterns
-// These patterns can be the same in 32bit or 64bit since
-// they only have to be easily recognizable.
-const void* metaspace_allocation_leader = (void*) 0X11111111;
-const void* metaspace_allocation_trailer = (void*) 0X77777777;
 
 // Parameters for stress mode testing
 const uint metadata_deallocate_a_lot_block = 10;
 const uint metadata_deallocate_a_lock_chunk = 3;
 size_t const allocation_from_dictionary_limit = 64 * K;
-const size_t metadata_chunk_initialize = 0xf7f7f7f7;
 const size_t metadata_deallocate = 0xf5f5f5f5;
-const size_t metadata_space_manager_allocate = 0xf3f3f3f3;
 
 MetaWord* last_allocated = 0;
 
@@ -62,11 +61,12 @@ enum ChunkIndex {
   SmallIndex = 0,
   MediumIndex = 1,
   HumongousIndex = 2,
-  NumberOfFreeLists = 3
+  NumberOfFreeLists = 2,
+  NumberOfInUseLists = 3
 };
 
 static ChunkIndex next_chunk_index(ChunkIndex i) {
-  assert(i < NumberOfFreeLists, "Out of bound");
+  assert(i < NumberOfInUseLists, "Out of bound");
   return (ChunkIndex) (i+1);
 }
 
@@ -91,174 +91,6 @@ bool MetaspaceGC::_should_concurrent_collect = false;
 // chunk is the chunk from which allocations are done.  Space freed in
 // a chunk is placed on the free list of blocks (BlockFreelist) and
 // reused from there.
-//
-// Future modification
-//
-// The Metachunk can conceivable be replaced by the Chunk in
-// allocation.hpp.  Note that the latter Chunk is the space for
-// allocation (allocations from the chunk are out of the space in
-// the Chunk after the header for the Chunk) where as Metachunks
-// point to space in a VirtualSpace.  To replace Metachunks with
-// Chunks, change Chunks so that they can be allocated out of a VirtualSpace.
-//
-
-// Metablock are the unit of allocation from a Chunk.  It contains
-// the size of the requested allocation in a debug build.
-// Also in a debug build it has a marker before and after the
-// body of the block. The address of the body is the address returned
-// by the allocation.
-//
-// Layout in a debug build.  In a product build only the body is present.
-//
-//     +-----------+-----------+------------+     +-----------+
-//     | word size | leader    | body       | ... | trailer   |
-//     +-----------+-----------+------------+     +-----------+
-//
-// A Metablock may be reused by its SpaceManager but are never moved between
-// SpaceManagers.  There is no explicit link to the Metachunk
-// from which it was allocated.  Metablock are not deallocated, rather
-// the Metachunk it is a part of will be deallocated when it's
-// associated class loader is collected.
-//
-// When the word size of a block is passed in to the deallocation
-// call the word size no longer needs to be part of a Metablock.
-
-class Metablock {
-  friend class VMStructs;
- private:
-  // Used to align the allocation (see below) and for debugging.
-#ifdef ASSERT
-  struct {
-    size_t _word_size;
-    void*  _leader;
-  } _header;
-  void* _data[1];
-#endif
-  static size_t _overhead;
-
-#ifdef ASSERT
-  void set_word_size(size_t v) { _header._word_size = v; }
-  void* leader() { return _header._leader; }
-  void* trailer() {
-    jlong index = (jlong) _header._word_size - sizeof(_header)/BytesPerWord - 1;
-    assert(index > 0, err_msg("Bad indexling of trailer %d", index));
-    void** ptr = &_data[index];
-    return *ptr;
-  }
-  void set_leader(void* v) { _header._leader = v; }
-  void set_trailer(void* v) {
-    void** ptr = &_data[_header._word_size - sizeof(_header)/BytesPerWord - 1];
-    *ptr = v;
-  }
- public:
-  size_t word_size() { return _header._word_size; }
-#endif
- public:
-
-  static Metablock* initialize(MetaWord* p, size_t word_size);
-
-  // This places the body of the block at a 2 word boundary
-  // because every block starts on a 2 word boundary.  Work out
-  // how to make the body on a 2 word boundary if the block
-  // starts on a arbitrary boundary.  JJJ
-
-#ifdef ASSERT
-  MetaWord* data() { return (MetaWord*) &_data[0]; }
-#else
-  MetaWord* data() { return (MetaWord*) this; }
-#endif
-  static Metablock* metablock_from_data(MetaWord* p) {
-#ifdef ASSERT
-    size_t word_offset = offset_of(Metablock, _data)/BytesPerWord;
-    Metablock* result = (Metablock*) (p - word_offset);
-    return result;
-#else
-    return (Metablock*) p;
-#endif
-  }
-
-  static size_t overhead() { return _overhead; }
-  void verify();
-};
-
-//  Metachunk - Quantum of allocation from a Virtualspace
-//    Metachunks are reused (when freed are put on a global freelist) and
-//    have no permanent association to a SpaceManager.
-
-//            +--------------+ <- end
-//            |              |          --+       ---+
-//            |              |            | free     |
-//            |              |            |          |
-//            |              |            |          | capacity
-//            |              |            |          |
-//            |              | <- top   --+          |
-//            |              |           ---+        |
-//            |              |              | used   |
-//            |              |              |        |
-//            |              |              |        |
-//            +--------------+ <- bottom ---+     ---+
-
-class Metachunk VALUE_OBJ_CLASS_SPEC {
-  // link to support lists of chunks
-  Metachunk* _next;
-
-  MetaWord* _bottom;
-  MetaWord* _end;
-  MetaWord* _top;
-  size_t _word_size;
-
-  // Metachunks are allocated out of a MetadataVirtualSpace and
-  // and use some of its space to describe itself (plus alignment
-  // considerations).  Metadata is allocated in the rest of the chunk.
-  // This size is the overhead of maintaining the Metachunk within
-  // the space.
-  static size_t _overhead;
-
-  void set_bottom(MetaWord* v) { _bottom = v; }
-  void set_end(MetaWord* v) { _end = v; }
-  void set_top(MetaWord* v) { _top = v; }
-  void set_word_size(size_t v) { _word_size = v; }
- public:
-
-  // Used to add a Metachunk to a list of Metachunks
-  void set_next(Metachunk* v) { _next = v; assert(v != this, "Boom");}
-
-  Metablock* allocate(size_t word_size);
-  static Metachunk* initialize(MetaWord* ptr, size_t word_size);
-
-  // Accessors
-  Metachunk* next() const { return _next; }
-  MetaWord* bottom() const { return _bottom; }
-  MetaWord* end() const { return _end; }
-  MetaWord* top() const { return _top; }
-  size_t word_size() const { return _word_size; }
-  static size_t overhead() { return _overhead; }
-
-  // Reset top to bottom so chunk can be reused.
-  void reset_empty() { _top = (_bottom + _overhead); }
-  bool is_empty() { return _top == (_bottom + _overhead); }
-
-  // used (has been allocated)
-  // free (available for future allocations)
-  // capacity (total size of chunk)
-  size_t used_word_size();
-  size_t free_word_size();
-  size_t capacity_word_size();
-
-#ifdef ASSERT
-  void mangle() {
-    // Mangle the payload of the chunk and not the links that
-    // maintain list of chunks.
-    HeapWord* start = (HeapWord*)(bottom() + overhead());
-    size_t word_size = capacity_word_size() - overhead();
-    Copy::fill_to_words(start, word_size, metadata_chunk_initialize);
-  }
-#endif // ASSERT
-
-  void print_on(outputStream* st) const;
-  void verify();
-};
-
 
 // Pointer to list of Metachunks.
 class ChunkList VALUE_OBJ_CLASS_SPEC {
@@ -292,7 +124,10 @@ class ChunkManager VALUE_OBJ_CLASS_SPEC {
   //   SmallChunk
   //   MediumChunk
   //   HumongousChunk
-  ChunkList _free_chunks[3];
+  ChunkList _free_chunks[NumberOfFreeLists];
+
+  //   HumongousChunk
+  ChunkTreeDictionary _humongous_dictionary;
 
   // ChunkManager in all lists of this type
   size_t _free_chunks_total;
@@ -313,7 +148,17 @@ class ChunkManager VALUE_OBJ_CLASS_SPEC {
   size_t sum_free_chunks_count();
 
   void locked_verify_free_chunks_total();
+  void slow_locked_verify_free_chunks_total() {
+    if (metaspace_slow_verify) {
+      locked_verify_free_chunks_total();
+    }
+  }
   void locked_verify_free_chunks_count();
+  void slow_locked_verify_free_chunks_count() {
+    if (metaspace_slow_verify) {
+      locked_verify_free_chunks_count();
+    }
+  }
   void verify_free_chunks_count();
 
  public:
@@ -337,7 +182,9 @@ class ChunkManager VALUE_OBJ_CLASS_SPEC {
   }
   ChunkList* free_medium_chunks() { return &_free_chunks[1]; }
   ChunkList* free_small_chunks() { return &_free_chunks[0]; }
-  ChunkList* free_humongous_chunks() { return &_free_chunks[2]; }
+  ChunkTreeDictionary* humongous_dictionary() {
+    return &_humongous_dictionary;
+  }
 
   ChunkList* free_chunks(ChunkIndex index);
 
@@ -351,46 +198,50 @@ class ChunkManager VALUE_OBJ_CLASS_SPEC {
 
   // Debug support
   void verify();
+  void slow_verify() {
+    if (metaspace_slow_verify) {
+      verify();
+    }
+  }
   void locked_verify();
+  void slow_locked_verify() {
+    if (metaspace_slow_verify) {
+      locked_verify();
+    }
+  }
   void verify_free_chunks_total();
 
   void locked_print_free_chunks(outputStream* st);
   void locked_print_sum_free_chunks(outputStream* st);
+
+  void print_on(outputStream* st);
 };
 
 
 // Used to manage the free list of Metablocks (a block corresponds
 // to the allocation of a quantum of metadata).
 class BlockFreelist VALUE_OBJ_CLASS_SPEC {
-#ifdef DEALLOCATE_BLOCKS
-  BinaryTreeDictionary<Metablock>* _dictionary;
-#endif
-  static Metablock* initialize_free_chunk(Metablock* block, size_t word_size);
+  BlockTreeDictionary* _dictionary;
+  static Metablock* initialize_free_chunk(MetaWord* p, size_t word_size);
 
-#ifdef DEALLOCATE_BLOCKS
   // Accessors
-  BinaryTreeDictionary<Metablock>* dictionary() const { return _dictionary; }
-#endif
+  BlockTreeDictionary* dictionary() const { return _dictionary; }
 
  public:
   BlockFreelist();
   ~BlockFreelist();
 
   // Get and return a block to the free list
-  Metablock* get_block(size_t word_size);
-  void return_block(Metablock* block, size_t word_size);
+  MetaWord* get_block(size_t word_size);
+  void return_block(MetaWord* p, size_t word_size);
 
-  size_t totalSize() {
-#ifdef DEALLOCATE_BLOCKS
-    if (dictionary() == NULL) {
-      return 0;
-    } else {
-      return dictionary()->totalSize();
-    }
-#else
+  size_t total_size() {
+  if (dictionary() == NULL) {
     return 0;
-#endif
+  } else {
+    return dictionary()->total_size();
   }
+}
 
   void print_on(outputStream* st) const;
 };
@@ -457,10 +308,12 @@ class VirtualSpaceNode : public CHeapObj<mtClass> {
   bool expand_by(size_t words, bool pre_touch = false);
   bool shrink_by(size_t words);
 
+#ifdef ASSERT
   // Debug support
   static void verify_virtual_space_total();
   static void verify_virtual_space_count();
   void mangle();
+#endif
 
   void print_on(outputStream* st) const;
 };
@@ -600,7 +453,6 @@ class VirtualSpaceList : public CHeapObj<mtClass> {
   };
 };
 
-
 class Metadebug : AllStatic {
   // Debugging support for Metaspaces
   static int _deallocate_block_a_lot_count;
@@ -655,7 +507,7 @@ class SpaceManager : public CHeapObj<mtClass> {
   // List of chunks in use by this SpaceManager.  Allocations
   // are done from the current chunk.  The list is used for deallocating
   // chunks when the SpaceManager is freed.
-  Metachunk* _chunks_in_use[NumberOfFreeLists];
+  Metachunk* _chunks_in_use[NumberOfInUseLists];
   Metachunk* _current_chunk;
 
   // Virtual space where allocation comes from.
@@ -700,24 +552,6 @@ class SpaceManager : public CHeapObj<mtClass> {
   // Add chunk to the list of chunks in use
   void add_chunk(Metachunk* v, bool make_current);
 
-  // Debugging support
-  void verify_chunks_in_use_index(ChunkIndex index, Metachunk* v) {
-    switch (index) {
-    case 0:
-      assert(v->word_size() == SmallChunk, "Not a SmallChunk");
-      break;
-    case 1:
-      assert(v->word_size() == MediumChunk, "Not a MediumChunk");
-      break;
-    case 2:
-      assert(v->word_size() > MediumChunk, "Not a HumongousChunk");
-      break;
-    default:
-      assert(false, "Wrong list.");
-    }
-  }
-
- protected:
   Mutex* lock() const { return _lock; }
 
  public:
@@ -751,10 +585,10 @@ class SpaceManager : public CHeapObj<mtClass> {
   MetaWord* allocate(size_t word_size);
 
   // Helper for allocations
-  Metablock* allocate_work(size_t word_size);
+  MetaWord* allocate_work(size_t word_size);
 
   // Returns a block to the per manager freelist
-  void deallocate(MetaWord* p);
+  void deallocate(MetaWord* p, size_t word_size);
 
   // Based on the allocation size and a minimum chunk size,
   // returned chunk size (for expanding space for chunk allocation).
@@ -763,7 +597,7 @@ class SpaceManager : public CHeapObj<mtClass> {
   // Called when an allocation from the current chunk fails.
   // Gets a new chunk (may require getting a new virtual space),
   // and allocates from that chunk.
-  Metablock* grow_and_allocate(size_t word_size);
+  MetaWord* grow_and_allocate(size_t word_size);
 
   // debugging support.
 
@@ -772,8 +606,9 @@ class SpaceManager : public CHeapObj<mtClass> {
   void locked_print_chunks_in_use_on(outputStream* st) const;
 
   void verify();
+  void verify_chunk_size(Metachunk* chunk);
+  NOT_PRODUCT(void mangle_freed_chunks();)
 #ifdef ASSERT
-  void mangle_freed_chunks();
   void verify_allocation_total();
 #endif
 };
@@ -788,193 +623,60 @@ Mutex* const SpaceManager::_expand_lock =
             SpaceManager::_expand_lock_name,
             Mutex::_allow_vm_block_flag);
 
-#ifdef ASSERT
-size_t Metablock::_overhead =
-  Chunk::aligned_overhead_size(sizeof(Metablock)) / BytesPerWord;
-#else
-size_t Metablock::_overhead = 0;
-#endif
-size_t Metachunk::_overhead =
-  Chunk::aligned_overhead_size(sizeof(Metachunk)) / BytesPerWord;
-
-// New blocks returned by the Metaspace are zero initialized.
-// We should fix the constructors to not assume this instead.
-Metablock* Metablock::initialize(MetaWord* p, size_t word_size) {
-  Metablock* result = (Metablock*) p;
-
-  // Clear the memory
-  Copy::fill_to_aligned_words((HeapWord*)result, word_size);
-#ifdef ASSERT
-  result->set_word_size(word_size);
-  // Check after work size is set.
-  result->set_leader((void*) metaspace_allocation_leader);
-  result->set_trailer((void*) metaspace_allocation_trailer);
-#endif
-  return result;
-}
-
-void Metablock::verify() {
-#ifdef ASSERT
-  assert(leader() == metaspace_allocation_leader &&
-         trailer() == metaspace_allocation_trailer,
-         "block has been corrupted");
-#endif
-}
-
-// Metachunk methods
-
-Metachunk* Metachunk::initialize(MetaWord* ptr, size_t word_size) {
-  // Set bottom, top, and end.  Allow space for the Metachunk itself
-  Metachunk* chunk = (Metachunk*) ptr;
-
-  MetaWord* chunk_bottom = ptr + _overhead;
-  chunk->set_bottom(ptr);
-  chunk->set_top(chunk_bottom);
-  MetaWord* chunk_end = ptr + word_size;
-  assert(chunk_end > chunk_bottom, "Chunk must be too small");
-  chunk->set_end(chunk_end);
-  chunk->set_next(NULL);
-  chunk->set_word_size(word_size);
-#ifdef ASSERT
-  size_t data_word_size = pointer_delta(chunk_end, chunk_bottom, sizeof(MetaWord));
-  Copy::fill_to_words((HeapWord*) chunk_bottom, data_word_size, metadata_chunk_initialize);
-#endif
-  return chunk;
-}
-
-
-Metablock* Metachunk::allocate(size_t word_size) {
-  Metablock* result = NULL;
-  // If available, bump the pointer to allocate.
-  if (free_word_size() >= word_size) {
-    result = Metablock::initialize(_top, word_size);
-    _top = _top + word_size;
-  }
-#ifdef ASSERT
-  assert(result == NULL ||
-         result->word_size() == word_size,
-         "Block size is not set correctly");
-#endif
-  return result;
-}
-
-// _bottom points to the start of the chunk including the overhead.
-size_t Metachunk::used_word_size() {
-  return pointer_delta(_top, _bottom, sizeof(MetaWord));
-}
-
-size_t Metachunk::free_word_size() {
-  return pointer_delta(_end, _top, sizeof(MetaWord));
-}
-
-size_t Metachunk::capacity_word_size() {
-  return pointer_delta(_end, _bottom, sizeof(MetaWord));
-}
-
-void Metachunk::print_on(outputStream* st) const {
-  st->print_cr("Metachunk:"
-               " bottom " PTR_FORMAT " top " PTR_FORMAT
-               " end " PTR_FORMAT " size " SIZE_FORMAT,
-               bottom(), top(), end(), word_size());
-}
-
-
-void Metachunk::verify() {
-#ifdef ASSERT
-  // Cannot walk through the blocks unless the blocks have
-  // headers with sizes.
-  MetaWord* curr = bottom() + overhead();
-  while (curr < top()) {
-    Metablock* block = (Metablock*) curr;
-    size_t word_size = block->word_size();
-    block->verify();
-    curr = curr + word_size;
-  }
-#endif
-  return;
-}
-
 // BlockFreelist methods
 
-#ifdef DEALLOCATE_BLOCKS
 BlockFreelist::BlockFreelist() : _dictionary(NULL) {}
-#else
-BlockFreelist::BlockFreelist() {}
-#endif
 
 BlockFreelist::~BlockFreelist() {
-#ifdef DEALLOCATE_BLOCKS
   if (_dictionary != NULL) {
     if (Verbose && TraceMetadataChunkAllocation) {
       _dictionary->print_free_lists(gclog_or_tty);
     }
     delete _dictionary;
   }
-#endif
 }
 
-Metablock* BlockFreelist::initialize_free_chunk(Metablock* block, size_t word_size) {
-#ifdef DEALLOCATE_BLOCKS
-#ifdef ASSERT
-  assert(word_size = block->word_size(), "Wrong chunk size");
-#endif
-  Metablock* result = block;
-  result->setSize(word_size);
-  result->linkPrev(NULL);
-  result->linkNext(NULL);
+Metablock* BlockFreelist::initialize_free_chunk(MetaWord* p, size_t word_size) {
+  Metablock* block = (Metablock*) p;
+  block->set_word_size(word_size);
+  block->set_prev(NULL);
+  block->set_next(NULL);
 
-  return result;
-#else
-  ShouldNotReachHere();
   return block;
-#endif
 }
 
-void BlockFreelist::return_block(Metablock* block, size_t word_size) {
-#ifdef ASSERT
-  assert(word_size = block->word_size(), "Block size is wrong");;
-#endif
-  Metablock* free_chunk = initialize_free_chunk(block, word_size);
-#ifdef DEALLOCATE_BLOCKS
+void BlockFreelist::return_block(MetaWord* p, size_t word_size) {
+  Metablock* free_chunk = initialize_free_chunk(p, word_size);
   if (dictionary() == NULL) {
-   _dictionary = new BinaryTreeDictionary<Metablock>(false /* adaptive_freelists */);
+   _dictionary = new BlockTreeDictionary();
   }
-  dictionary()->returnChunk(free_chunk);
-#endif
+  dictionary()->return_chunk(free_chunk);
 }
 
-Metablock* BlockFreelist::get_block(size_t word_size) {
-#ifdef DEALLOCATE_BLOCKS
+MetaWord* BlockFreelist::get_block(size_t word_size) {
   if (dictionary() == NULL) {
     return NULL;
   }
 
-  Metablock* free_chunk =
-    dictionary()->getChunk(word_size, FreeBlockDictionary<Metablock>::exactly);
-#else
-  Metablock* free_chunk = NULL;
-#endif
-  if (free_chunk == NULL) {
+  if (word_size < TreeChunk<Metablock, FreeList>::min_size()) {
+    // Dark matter.  Too small for dictionary.
     return NULL;
   }
-  assert(free_chunk->word_size() == word_size, "Size of chunk is incorrect");
-  Metablock* block = Metablock::initialize((MetaWord*) free_chunk, word_size);
-#ifdef ASSERT
-  assert(block->word_size() == word_size, "Block size is not set correctly");
-#endif
 
-  return block;
+  Metablock* free_block =
+    dictionary()->get_chunk(word_size, FreeBlockDictionary<Metablock>::exactly);
+  if (free_block == NULL) {
+    return NULL;
+  }
+
+  return (MetaWord*) free_block;
 }
 
 void BlockFreelist::print_on(outputStream* st) const {
-#ifdef DEALLOCATE_BLOCKS
   if (dictionary() == NULL) {
     return;
   }
   dictionary()->print_free_lists(st);
-#else
-  return;
-#endif
 }
 
 // VirtualSpaceNode methods
@@ -1102,10 +804,12 @@ void VirtualSpaceNode::print_on(outputStream* st) const {
            vs->high_boundary());
 }
 
+#ifdef ASSERT
 void VirtualSpaceNode::mangle() {
   size_t word_size = capacity_words_in_vs();
   Copy::fill_to_words((HeapWord*) low(), word_size, 0xf1f1f1f1);
 }
+#endif // ASSERT
 
 // VirtualSpaceList methods
 // Space allocated from the VirtualSpace
@@ -1192,6 +896,8 @@ bool VirtualSpaceList::grow_vs(size_t vs_word_size) {
     delete new_entry;
     return false;
   } else {
+    // ensure lock-free iteration sees fully initialized node
+    OrderAccess::storestore();
     link_vs(new_entry, vs_word_size);
     return true;
   }
@@ -1281,7 +987,6 @@ void VirtualSpaceList::print_on(outputStream* st) const {
   }
 }
 
-#ifndef PRODUCT
 bool VirtualSpaceList::contains(const void *ptr) {
   VirtualSpaceNode* list = virtual_space_list();
   VirtualSpaceListIterator iter(list);
@@ -1293,7 +998,6 @@ bool VirtualSpaceList::contains(const void *ptr) {
   }
   return false;
 }
-#endif // PRODUCT
 
 
 // MetaspaceGC methods
@@ -1597,14 +1301,11 @@ void Metadebug::deallocate_block_a_lot(SpaceManager* sm,
         Metadebug::deallocate_block_a_lot_count() % MetaDataDeallocateALotInterval == 0 ) {
     Metadebug::set_deallocate_block_a_lot_count(0);
     for (uint i = 0; i < metadata_deallocate_a_lot_block; i++) {
-      Metablock* dummy_block = sm->allocate_work(raw_word_size);
+      MetaWord* dummy_block = sm->allocate_work(raw_word_size);
       if (dummy_block == 0) {
         break;
       }
-#ifdef ASSERT
-      assert(dummy_block->word_size() == raw_word_size, "Block size is not set correctly");
-#endif
-      sm->deallocate(dummy_block->data());
+      sm->deallocate(dummy_block, raw_word_size);
     }
   } else {
     Metadebug::inc_deallocate_block_a_lot_count();
@@ -1719,7 +1420,7 @@ size_t ChunkManager::free_chunks_total() {
   if (!UseConcMarkSweepGC && !SpaceManager::expand_lock()->is_locked()) {
     MutexLockerEx cl(SpaceManager::expand_lock(),
                      Mutex::_no_safepoint_check_flag);
-    locked_verify_free_chunks_total();
+    slow_locked_verify_free_chunks_total();
   }
 #endif
   return _free_chunks_total;
@@ -1736,10 +1437,10 @@ size_t ChunkManager::free_chunks_count() {
                      Mutex::_no_safepoint_check_flag);
     // This lock is only needed in debug because the verification
     // of the _free_chunks_totals walks the list of free chunks
-    locked_verify_free_chunks_count();
+    slow_locked_verify_free_chunks_count();
   }
 #endif
-    return _free_chunks_count;
+  return _free_chunks_count;
 }
 
 void ChunkManager::locked_verify_free_chunks_total() {
@@ -1773,19 +1474,14 @@ void ChunkManager::verify_free_chunks_count() {
 }
 
 void ChunkManager::verify() {
-#ifdef ASSERT
-  if (!UseConcMarkSweepGC) {
-    MutexLockerEx cl(SpaceManager::expand_lock(),
-                       Mutex::_no_safepoint_check_flag);
-    locked_verify_free_chunks_total();
-    locked_verify_free_chunks_count();
-  }
-#endif
+  MutexLockerEx cl(SpaceManager::expand_lock(),
+                     Mutex::_no_safepoint_check_flag);
+  locked_verify();
 }
 
 void ChunkManager::locked_verify() {
-  locked_verify_free_chunks_total();
   locked_verify_free_chunks_count();
+  locked_verify_free_chunks_total();
 }
 
 void ChunkManager::locked_print_free_chunks(outputStream* st) {
@@ -1803,7 +1499,6 @@ ChunkList* ChunkManager::free_chunks(ChunkIndex index) {
   return &_free_chunks[index];
 }
 
-
 // These methods that sum the free chunk lists are used in printing
 // methods that are used in product builds.
 size_t ChunkManager::sum_free_chunks() {
@@ -1818,6 +1513,7 @@ size_t ChunkManager::sum_free_chunks() {
 
     result = result + list->sum_list_capacity();
   }
+  result = result + humongous_dictionary()->total_size();
   return result;
 }
 
@@ -1831,6 +1527,7 @@ size_t ChunkManager::sum_free_chunks_count() {
     }
     count = count + list->sum_list_count();
   }
+  count = count + humongous_dictionary()->total_free_blocks();
   return count;
 }
 
@@ -1853,7 +1550,7 @@ void ChunkManager::free_chunks_put(Metachunk* chunk) {
   free_list->set_head(chunk);
   // chunk is being returned to the chunk free list
   inc_free_chunks_total(chunk->capacity_word_size());
-  locked_verify();
+  slow_locked_verify();
 }
 
 void ChunkManager::chunk_freelist_deallocate(Metachunk* chunk) {
@@ -1861,8 +1558,8 @@ void ChunkManager::chunk_freelist_deallocate(Metachunk* chunk) {
   // manangement code for a Metaspace and does not hold the
   // lock.
   assert(chunk != NULL, "Deallocating NULL");
-  // MutexLockerEx fcl(SpaceManager::expand_lock(), Mutex::_no_safepoint_check_flag);
-  locked_verify();
+  assert_lock_strong(SpaceManager::expand_lock());
+  slow_locked_verify();
   if (TraceMetadataChunkAllocation) {
     tty->print_cr("ChunkManager::chunk_freelist_deallocate: chunk "
                   PTR_FORMAT "  size " SIZE_FORMAT,
@@ -1874,24 +1571,25 @@ void ChunkManager::chunk_freelist_deallocate(Metachunk* chunk) {
 Metachunk* ChunkManager::free_chunks_get(size_t word_size) {
   assert_lock_strong(SpaceManager::expand_lock());
 
-  locked_verify();
-  ChunkList* free_list = find_free_chunks_list(word_size);
-  assert(free_list != NULL, "Sanity check");
+  slow_locked_verify();
 
-  Metachunk* chunk = free_list->head();
-  debug_only(Metachunk* debug_head = chunk;)
+  Metachunk* chunk = NULL;
+  if (!SpaceManager::is_humongous(word_size)) {
+    ChunkList* free_list = find_free_chunks_list(word_size);
+    assert(free_list != NULL, "Sanity check");
 
-  if (chunk == NULL) {
-    return NULL;
-  }
+    chunk = free_list->head();
+    debug_only(Metachunk* debug_head = chunk;)
 
-  Metachunk* prev_chunk = chunk;
-  if (chunk->word_size() == word_size) {
-    // Chunk is being removed from the chunks free list.
-    dec_free_chunks_total(chunk->capacity_word_size());
+    if (chunk == NULL) {
+      return NULL;
+    }
+
     // Remove the chunk as the head of the list.
     free_list->set_head(chunk->next());
     chunk->set_next(NULL);
+    // Chunk has been removed from the chunks free list.
+    dec_free_chunks_total(chunk->capacity_word_size());
 
     if (TraceMetadataChunkAllocation && Verbose) {
       tty->print_cr("ChunkManager::free_chunks_get: free_list "
@@ -1899,87 +1597,32 @@ Metachunk* ChunkManager::free_chunks_get(size_t word_size) {
                     free_list, chunk, chunk->word_size());
     }
   } else {
-    assert(SpaceManager::is_humongous(word_size),
-      "Should only need to check humongous");
-    // This code to find the best fit is just for purposes of
-    // investigating the loss due to fragmentation on a humongous
-    // chunk.  It will be replace by a binaryTreeDictionary for
-    // the humongous chunks.
-    uint count = 0;
-    Metachunk* best_fit = NULL;
-    Metachunk* best_fit_prev = NULL;
-    while (chunk != NULL) {
-      count++;
-      if (chunk->word_size() < word_size) {
-        prev_chunk = chunk;
-        chunk = chunk->next();
-      } else if (chunk->word_size() == word_size) {
-        break;
-      } else {
-        if (best_fit == NULL ||
-            best_fit->word_size() > chunk->word_size()) {
-          best_fit_prev = prev_chunk;
-          best_fit = chunk;
-        }
-        prev_chunk = chunk;
-        chunk = chunk->next();
+    chunk = humongous_dictionary()->get_chunk(
+      word_size,
+      FreeBlockDictionary<Metachunk>::atLeast);
+
+    if (chunk != NULL) {
+      if (TraceMetadataHumongousAllocation) {
+        size_t waste = chunk->word_size() - word_size;
+        tty->print_cr("Free list allocate humongous chunk size " SIZE_FORMAT
+                      " for requested size " SIZE_FORMAT
+                      " waste " SIZE_FORMAT,
+                      chunk->word_size(), word_size, waste);
       }
+      // Chunk is being removed from the chunks free list.
+      dec_free_chunks_total(chunk->capacity_word_size());
+#ifdef ASSERT
+      chunk->set_is_free(false);
+#endif
     }
-      if (chunk == NULL) {
-        prev_chunk = best_fit_prev;
-        chunk = best_fit;
-      }
-      if (chunk != NULL) {
-        if (TraceMetadataHumongousAllocation) {
-          size_t waste = chunk->word_size() - word_size;
-          tty->print_cr("Free list allocate humongous chunk size " SIZE_FORMAT
-                        " for requested size " SIZE_FORMAT
-                        " waste " SIZE_FORMAT
-                        " found at " SIZE_FORMAT " of " SIZE_FORMAT,
-                        chunk->word_size(), word_size, waste,
-                        count, free_list->sum_list_count());
-        }
-        // Chunk is being removed from the chunks free list.
-        dec_free_chunks_total(chunk->capacity_word_size());
-        // Remove the chunk if it is at the head of the list.
-        if (chunk == free_list->head()) {
-          free_list->set_head(chunk->next());
-
-          if (TraceMetadataHumongousAllocation) {
-            tty->print_cr("ChunkManager::free_chunks_get: humongous free_list "
-                          PTR_FORMAT " chunk " PTR_FORMAT " size " SIZE_FORMAT
-                          " new head " PTR_FORMAT,
-                          free_list, chunk, chunk->word_size(),
-                          free_list->head());
-          }
-        } else {
-          // Remove a chunk in the interior of the list
-          prev_chunk->set_next(chunk->next());
-
-          if (TraceMetadataHumongousAllocation) {
-            tty->print_cr("ChunkManager::free_chunks_get: humongous free_list "
-                          PTR_FORMAT " chunk " PTR_FORMAT " size " SIZE_FORMAT
-                          PTR_FORMAT "  prev " PTR_FORMAT " next " PTR_FORMAT,
-                          free_list, chunk, chunk->word_size(),
-                          prev_chunk, chunk->next());
-          }
-        }
-        chunk->set_next(NULL);
-      } else {
-        if (TraceMetadataHumongousAllocation) {
-          tty->print_cr("ChunkManager::free_chunks_get: New humongous chunk of size "
-                        SIZE_FORMAT,
-                        word_size);
-        }
-      }
   }
-  locked_verify();
+  slow_locked_verify();
   return chunk;
 }
 
 Metachunk* ChunkManager::chunk_freelist_allocate(size_t word_size) {
   assert_lock_strong(SpaceManager::expand_lock());
-  locked_verify();
+  slow_locked_verify();
 
   // Take from the beginning of the list
   Metachunk* chunk = free_chunks_get(word_size);
@@ -2000,12 +1643,18 @@ Metachunk* ChunkManager::chunk_freelist_allocate(size_t word_size) {
   return chunk;
 }
 
+void ChunkManager::print_on(outputStream* out) {
+  if (PrintFLSStatistics != 0) {
+    humongous_dictionary()->report_statistics();
+  }
+}
+
 // SpaceManager methods
 
 size_t SpaceManager::sum_free_in_chunks_in_use() const {
   MutexLockerEx cl(lock(), Mutex::_no_safepoint_check_flag);
   size_t free = 0;
-  for (ChunkIndex i = SmallIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
+  for (ChunkIndex i = SmallIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
     Metachunk* chunk = chunks_in_use(i);
     while (chunk != NULL) {
       free += chunk->free_word_size();
@@ -2018,11 +1667,12 @@ size_t SpaceManager::sum_free_in_chunks_in_use() const {
 size_t SpaceManager::sum_waste_in_chunks_in_use() const {
   MutexLockerEx cl(lock(), Mutex::_no_safepoint_check_flag);
   size_t result = 0;
-  for (ChunkIndex i = SmallIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
-   // Count the free space in all the chunk but not the
-   // current chunk from which allocations are still being done.
+  for (ChunkIndex i = SmallIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
+
+
    result += sum_waste_in_chunks_in_use(i);
   }
+
   return result;
 }
 
@@ -2033,10 +1683,10 @@ size_t SpaceManager::sum_waste_in_chunks_in_use(ChunkIndex index) const {
   // Count the free space in all the chunk but not the
   // current chunk from which allocations are still being done.
   if (chunk != NULL) {
-    while (chunk != NULL) {
-      if (chunk != current_chunk()) {
-        result += chunk->free_word_size();
-      }
+    Metachunk* prev = chunk;
+    while (chunk != NULL && chunk != current_chunk()) {
+      result += chunk->free_word_size();
+      prev = chunk;
       chunk = chunk->next();
       count++;
     }
@@ -2047,7 +1697,7 @@ size_t SpaceManager::sum_waste_in_chunks_in_use(ChunkIndex index) const {
 size_t SpaceManager::sum_capacity_in_chunks_in_use() const {
   MutexLockerEx cl(lock(), Mutex::_no_safepoint_check_flag);
   size_t sum = 0;
-  for (ChunkIndex i = SmallIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
+  for (ChunkIndex i = SmallIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
     Metachunk* chunk = chunks_in_use(i);
     while (chunk != NULL) {
       // Just changed this sum += chunk->capacity_word_size();
@@ -2061,9 +1711,10 @@ size_t SpaceManager::sum_capacity_in_chunks_in_use() const {
 
 size_t SpaceManager::sum_count_in_chunks_in_use() {
   size_t count = 0;
-  for (ChunkIndex i = SmallIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
+  for (ChunkIndex i = SmallIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
     count = count + sum_count_in_chunks_in_use(i);
   }
+
   return count;
 }
 
@@ -2081,7 +1732,7 @@ size_t SpaceManager::sum_count_in_chunks_in_use(ChunkIndex i) {
 size_t SpaceManager::sum_used_in_chunks_in_use() const {
   MutexLockerEx cl(lock(), Mutex::_no_safepoint_check_flag);
   size_t used = 0;
-  for (ChunkIndex i = SmallIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
+  for (ChunkIndex i = SmallIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
     Metachunk* chunk = chunks_in_use(i);
     while (chunk != NULL) {
       used += chunk->used_word_size();
@@ -2139,15 +1790,13 @@ size_t SpaceManager::calc_chunk_size(size_t word_size) {
     gclog_or_tty->print_cr("  word_size " PTR_FORMAT, word_size);
     gclog_or_tty->print_cr("  chunk_word_size " PTR_FORMAT,
                            chunk_word_size);
-    gclog_or_tty->print_cr("    block overhead " PTR_FORMAT
-                           " chunk overhead " PTR_FORMAT,
-                           Metablock::overhead(),
+    gclog_or_tty->print_cr("    chunk overhead " PTR_FORMAT,
                            Metachunk::overhead());
   }
   return chunk_word_size;
 }
 
-Metablock* SpaceManager::grow_and_allocate(size_t word_size) {
+MetaWord* SpaceManager::grow_and_allocate(size_t word_size) {
   assert(vs_list()->current_virtual_space() != NULL,
          "Should have been set");
   assert(current_chunk() == NULL ||
@@ -2180,7 +1829,7 @@ Metablock* SpaceManager::grow_and_allocate(size_t word_size) {
 void SpaceManager::print_on(outputStream* st) const {
 
   for (ChunkIndex i = SmallIndex;
-       i < NumberOfFreeLists ;
+       i < NumberOfInUseLists ;
        i = next_chunk_index(i) ) {
     st->print_cr("  chunks_in_use " PTR_FORMAT " chunk size " PTR_FORMAT,
                  chunks_in_use(i),
@@ -2191,8 +1840,11 @@ void SpaceManager::print_on(outputStream* st) const {
                sum_waste_in_chunks_in_use(SmallIndex),
                sum_waste_in_chunks_in_use(MediumIndex),
                sum_waste_in_chunks_in_use(HumongousIndex));
-  // Nothing in them yet
-  // block_freelists()->print_on(st);
+  // block free lists
+  if (block_freelists() != NULL) {
+    st->print_cr("total in block free lists " SIZE_FORMAT,
+      block_freelists()->total_size());
+  }
 }
 
 SpaceManager::SpaceManager(Mutex* lock, VirtualSpaceList* vs_list) :
@@ -2200,7 +1852,7 @@ SpaceManager::SpaceManager(Mutex* lock, VirtualSpaceList* vs_list) :
   _allocation_total(0),
   _lock(lock) {
   Metadebug::init_allocation_fail_alot_count();
-  for (ChunkIndex i = SmallIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
+  for (ChunkIndex i = SmallIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
     _chunks_in_use[i] = NULL;
   }
   _current_chunk = NULL;
@@ -2215,22 +1867,20 @@ SpaceManager::~SpaceManager() {
 
   ChunkManager* chunk_manager = vs_list()->chunk_manager();
 
-  chunk_manager->locked_verify();
+  chunk_manager->slow_locked_verify();
 
   if (TraceMetadataChunkAllocation && Verbose) {
     gclog_or_tty->print_cr("~SpaceManager(): " PTR_FORMAT, this);
     locked_print_chunks_in_use_on(gclog_or_tty);
   }
 
+  // Mangle freed memory.
+  NOT_PRODUCT(mangle_freed_chunks();)
+
   // Have to update before the chunks_in_use lists are emptied
   // below.
   chunk_manager->inc_free_chunks_total(sum_capacity_in_chunks_in_use(),
                                        sum_count_in_chunks_in_use());
-
-#ifdef ASSERT
-  // Mangle freed memory.
-  mangle_freed_chunks();
-#endif // ASSERT
 
   // Add all the chunks in use by this space manager
   // to the global list of free chunks.
@@ -2262,22 +1912,24 @@ SpaceManager::~SpaceManager() {
   // Humongous chunks are never the current chunk.
   Metachunk* humongous_chunks = chunks_in_use(HumongousIndex);
 
-  if (humongous_chunks != NULL) {
-    chunk_manager->free_humongous_chunks()->add_at_head(humongous_chunks);
-    set_chunks_in_use(HumongousIndex, NULL);
+  while (humongous_chunks != NULL) {
+#ifdef ASSERT
+    humongous_chunks->set_is_free(true);
+#endif
+    Metachunk* next_humongous_chunks = humongous_chunks->next();
+    chunk_manager->humongous_dictionary()->return_chunk(humongous_chunks);
+    humongous_chunks = next_humongous_chunks;
   }
-  chunk_manager->locked_verify();
+  set_chunks_in_use(HumongousIndex, NULL);
+  chunk_manager->slow_locked_verify();
 }
 
-void SpaceManager::deallocate(MetaWord* p) {
+void SpaceManager::deallocate(MetaWord* p, size_t word_size) {
   assert_lock_strong(_lock);
-  ShouldNotReachHere();  // Where is this needed.
-#ifdef DEALLOCATE_BLOCKS
-  Metablock* block = Metablock::metablock_from_data(p);
-  // This is expense but kept it until integration JJJ
-  assert(contains((address)block), "Block does not belong to this metaspace");
-  block_freelists()->return_block(block, word_size);
-#endif
+  size_t min_size = TreeChunk<Metablock, FreeList>::min_size();
+  assert(word_size >= min_size,
+    err_msg("Should not deallocate dark matter " SIZE_FORMAT, word_size));
+  block_freelists()->return_block(p, word_size);
 }
 
 // Adds a chunk to the list of chunks in use.
@@ -2366,50 +2018,40 @@ void SpaceManager::add_chunk(Metachunk* new_chunk, bool make_current) {
 MetaWord* SpaceManager::allocate(size_t word_size) {
   MutexLockerEx cl(lock(), Mutex::_no_safepoint_check_flag);
 
-  size_t block_overhead = Metablock::overhead();
   // If only the dictionary is going to be used (i.e., no
   // indexed free list), then there is a minimum size requirement.
   // MinChunkSize is a placeholder for the real minimum size JJJ
-  size_t byte_size_with_overhead = (word_size + block_overhead) * BytesPerWord;
-#ifdef DEALLOCATE_BLOCKS
-  size_t raw_bytes_size = MAX2(ARENA_ALIGN(byte_size_with_overhead),
-                               MinChunkSize * BytesPerWord);
-#else
-  size_t raw_bytes_size = ARENA_ALIGN(byte_size_with_overhead);
-#endif
+  size_t byte_size = word_size * BytesPerWord;
+
+  size_t byte_size_with_overhead = byte_size + Metablock::overhead();
+
+  size_t raw_bytes_size = MAX2(byte_size_with_overhead,
+                               Metablock::min_block_byte_size());
+  raw_bytes_size = ARENA_ALIGN(raw_bytes_size);
   size_t raw_word_size = raw_bytes_size / BytesPerWord;
   assert(raw_word_size * BytesPerWord == raw_bytes_size, "Size problem");
 
   BlockFreelist* fl =  block_freelists();
-  Metablock* block = NULL;
+  MetaWord* p = NULL;
   // Allocation from the dictionary is expensive in the sense that
   // the dictionary has to be searched for a size.  Don't allocate
   // from the dictionary until it starts to get fat.  Is this
   // a reasonable policy?  Maybe an skinny dictionary is fast enough
   // for allocations.  Do some profiling.  JJJ
-  if (fl->totalSize() > allocation_from_dictionary_limit) {
-    block = fl->get_block(raw_word_size);
+  if (fl->total_size() > allocation_from_dictionary_limit) {
+    p = fl->get_block(raw_word_size);
   }
-  if (block == NULL) {
-    block = allocate_work(raw_word_size);
-    if (block == NULL) {
-      return NULL;
-    }
+  if (p == NULL) {
+    p = allocate_work(raw_word_size);
   }
   Metadebug::deallocate_block_a_lot(this, raw_word_size);
 
-  // Push the allocation past the word containing the size and leader.
-#ifdef ASSERT
-  MetaWord* result =  block->data();
-  return result;
-#else
-  return (MetaWord*) block;
-#endif
+  return p;
 }
 
 // Returns the address of spaced allocated for "word_size".
 // This methods does not know about blocks (Metablocks)
-Metablock* SpaceManager::allocate_work(size_t word_size) {
+MetaWord* SpaceManager::allocate_work(size_t word_size) {
   assert_lock_strong(_lock);
 #ifdef ASSERT
   if (Metadebug::test_metadata_failure()) {
@@ -2417,7 +2059,7 @@ Metablock* SpaceManager::allocate_work(size_t word_size) {
   }
 #endif
   // Is there space in the current chunk?
-  Metablock* result = NULL;
+  MetaWord* result = NULL;
 
   // For DumpSharedSpaces, only allocate out of the current chunk which is
   // never null because we gave it the size we wanted.   Caller reports out
@@ -2436,8 +2078,8 @@ Metablock* SpaceManager::allocate_work(size_t word_size) {
   }
   if (result > 0) {
     inc_allocation_total(word_size);
-    assert(result != (Metablock*) chunks_in_use(MediumIndex), "Head of the list is being allocated");
-    assert(result->word_size() == word_size, "Size not set correctly");
+    assert(result != (MetaWord*) chunks_in_use(MediumIndex),
+           "Head of the list is being allocated");
   }
 
   return result;
@@ -2447,20 +2089,29 @@ void SpaceManager::verify() {
   // If there are blocks in the dictionary, then
   // verfication of chunks does not work since
   // being in the dictionary alters a chunk.
-  if (block_freelists()->totalSize() == 0) {
+  if (block_freelists()->total_size() == 0) {
     // Skip the small chunks because their next link points to
     // medium chunks.  This is because the small chunk is the
     // current chunk (for allocations) until it is full and the
     // the addition of the next chunk does not NULL the next
     // like of the small chunk.
-    for (ChunkIndex i = MediumIndex; i < NumberOfFreeLists; i = next_chunk_index(i)) {
+    for (ChunkIndex i = MediumIndex; i < NumberOfInUseLists; i = next_chunk_index(i)) {
       Metachunk* curr = chunks_in_use(i);
       while (curr != NULL) {
         curr->verify();
+        verify_chunk_size(curr);
         curr = curr->next();
       }
     }
   }
+}
+
+void SpaceManager::verify_chunk_size(Metachunk* chunk) {
+  assert(is_humongous(chunk->word_size()) ||
+         chunk->word_size() == MediumChunk ||
+         chunk->word_size() == SmallChunk,
+         "Chunk size is wrong");
+  return;
 }
 
 #ifdef ASSERT
@@ -2492,7 +2143,7 @@ void SpaceManager::dump(outputStream* const out) const {
 
   // Add up statistics for all chunks in this SpaceManager.
   for (ChunkIndex index = SmallIndex;
-       index < NumberOfFreeLists;
+       index < NumberOfInUseLists;
        index = next_chunk_index(index)) {
     for (Metachunk* curr = chunks_in_use(index);
          curr != NULL;
@@ -2521,7 +2172,7 @@ void SpaceManager::dump(outputStream* const out) const {
 #ifndef PRODUCT
 void SpaceManager::mangle_freed_chunks() {
   for (ChunkIndex index = SmallIndex;
-       index < NumberOfFreeLists;
+       index < NumberOfInUseLists;
        index = next_chunk_index(index)) {
     for (Metachunk* curr = chunks_in_use(index);
          curr != NULL;
@@ -2566,9 +2217,6 @@ size_t MetaspaceAux::free_in_bytes(Metaspace::MetadataType mdtype) {
   return free * BytesPerWord;
 }
 
-// The total words available for metadata allocation.  This
-// uses Metaspace capacity_words() which is the total words
-// in chunks allocated for a Metaspace.
 size_t MetaspaceAux::capacity_in_bytes(Metaspace::MetadataType mdtype) {
   size_t capacity = free_chunks_total(mdtype);
   ClassLoaderDataGraphMetaspaceIterator iter;
@@ -2594,8 +2242,7 @@ size_t MetaspaceAux::free_chunks_total(Metaspace::MetadataType mdtype) {
   ChunkManager* chunk = (mdtype == Metaspace::ClassType) ?
                             Metaspace::class_space_list()->chunk_manager() :
                             Metaspace::space_list()->chunk_manager();
-
-  chunk->verify_free_chunks_total();
+  chunk->slow_verify();
   return chunk->free_chunks_total();
 }
 
@@ -2697,6 +2344,11 @@ void MetaspaceAux::dump(outputStream* out) {
   out->print("data space: "); print_on(out, Metaspace::NonClassType);
   out->print("class space: "); print_on(out, Metaspace::ClassType);
   print_waste(out);
+}
+
+void MetaspaceAux::verify_free_chunks() {
+  Metaspace::space_list()->chunk_manager()->verify();
+  Metaspace::class_space_list()->chunk_manager()->verify();
 }
 
 // Metaspace methods
@@ -2833,13 +2485,12 @@ void Metaspace::initialize(Mutex* lock, size_t initial_size) {
   }
 }
 
-
 MetaWord* Metaspace::allocate(size_t word_size, MetadataType mdtype) {
   // DumpSharedSpaces doesn't use class metadata area (yet)
   if (mdtype == ClassType && !DumpSharedSpaces) {
-    return class_vsm()->allocate(word_size);
+    return  class_vsm()->allocate(word_size);
   } else {
-    return vsm()->allocate(word_size);
+    return  vsm()->allocate(word_size);
   }
 }
 
@@ -2853,6 +2504,7 @@ MetaWord* Metaspace::expand_and_allocate(size_t word_size, MetadataType mdtype) 
     gclog_or_tty->print_cr("Increase capacity to GC from " SIZE_FORMAT
       " to " SIZE_FORMAT, before_inc, MetaspaceGC::capacity_until_GC());
   }
+
   result = allocate(word_size, mdtype);
 
   return result;
@@ -2889,37 +2541,39 @@ size_t Metaspace::capacity_words(MetadataType mdtype) const {
 void Metaspace::deallocate(MetaWord* ptr, size_t word_size, bool is_class) {
   if (SafepointSynchronize::is_at_safepoint()) {
     assert(Thread::current()->is_VM_thread(), "should be the VM thread");
-    // Don't take lock
-#ifdef DEALLOCATE_BLOCKS
-    if (is_class) {
-      class_vsm()->deallocate(ptr);
-    } else {
-      vsm()->deallocate(ptr);
-    }
-#else
+    // Don't take Heap_lock
+    MutexLocker ml(vsm()->lock());
+    if (word_size < TreeChunk<Metablock, FreeList>::min_size()) {
+      // Dark matter.  Too small for dictionary.
 #ifdef ASSERT
-    Copy::fill_to_words((HeapWord*)ptr, word_size, metadata_deallocate);
+      Copy::fill_to_words((HeapWord*)ptr, word_size, 0xf5f5f5f5);
 #endif
-#endif
-
+      return;
+    }
+    if (is_class) {
+       class_vsm()->deallocate(ptr, word_size);
+    } else {
+      vsm()->deallocate(ptr, word_size);
+    }
   } else {
     MutexLocker ml(vsm()->lock());
 
-#ifdef DEALLOCATE_BLOCKS
-    if (is_class) {
-      class_vsm()->deallocate(ptr);
-    } else {
-      vsm()->deallocate(ptr);
-    }
-#else
+    if (word_size < TreeChunk<Metablock, FreeList>::min_size()) {
+      // Dark matter.  Too small for dictionary.
 #ifdef ASSERT
-    Copy::fill_to_words((HeapWord*)ptr, word_size, metadata_deallocate);
+      Copy::fill_to_words((HeapWord*)ptr, word_size, 0xf5f5f5f5);
 #endif
-#endif
+      return;
+    }
+    if (is_class) {
+      class_vsm()->deallocate(ptr, word_size);
+    } else {
+      vsm()->deallocate(ptr, word_size);
+    }
   }
 }
 
-MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
+Metablock* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
                               bool read_only, MetadataType mdtype, TRAPS) {
   if (HAS_PENDING_EXCEPTION) {
     assert(false, "Should not allocate with exception pending");
@@ -2943,7 +2597,7 @@ MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
     if (result == NULL) {
       report_out_of_shared_space(read_only ? SharedReadOnly : SharedReadWrite);
     }
-    return result;
+    return Metablock::initialize(result, word_size);
   }
 
   result = loader_data->metaspace_non_null()->allocate(word_size, mdtype);
@@ -2951,7 +2605,7 @@ MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
   if (result == NULL) {
     // Try to clean out some memory and retry.
     result =
-    Universe::heap()->collector_policy()->satisfy_failed_metadata_allocation(
+      Universe::heap()->collector_policy()->satisfy_failed_metadata_allocation(
         loader_data, word_size, mdtype);
 
     // If result is still null, we are out of memory.
@@ -2967,7 +2621,7 @@ MetaWord* Metaspace::allocate(ClassLoaderData* loader_data, size_t word_size,
       THROW_OOP_0(Universe::out_of_memory_error_perm_gen());
     }
   }
-  return result;
+  return Metablock::initialize(result, word_size);
 }
 
 void Metaspace::print_on(outputStream* out) const {
@@ -2978,15 +2632,17 @@ void Metaspace::print_on(outputStream* out) const {
   }
 }
 
-#ifndef PRODUCT
-bool Metaspace::contains(const void * ptr) const {
+bool Metaspace::contains(const void * ptr) {
   if (MetaspaceShared::is_in_shared_space(ptr)) {
     return true;
   }
-  MutexLockerEx cl(SpaceManager::expand_lock(), Mutex::_no_safepoint_check_flag);
+  // This is checked while unlocked.  As long as the virtualspaces are added
+  // at the end, the pointer will be in one of them.  The virtual spaces
+  // aren't deleted presently.  When they are, some sort of locking might
+  // be needed.  Note, locking this can cause inversion problems with the
+  // caller in MetaspaceObj::is_metadata() function.
   return space_list()->contains(ptr) || class_space_list()->contains(ptr);
 }
-#endif
 
 void Metaspace::verify() {
   vsm()->verify();

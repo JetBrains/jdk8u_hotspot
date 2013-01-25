@@ -1286,7 +1286,7 @@ void LIRGenerator::do_getClass(Intrinsic* x) {
   if (x->needs_null_check()) {
     info = state_for(x);
   }
-  __ move(new LIR_Address(rcvr.result(), oopDesc::klass_offset_in_bytes(), UseCompressedKlassPointers ? T_OBJECT : T_ADDRESS), result, info);
+  __ move(new LIR_Address(rcvr.result(), oopDesc::klass_offset_in_bytes(), T_ADDRESS), result, info);
   __ move_wide(new LIR_Address(result, in_bytes(Klass::java_mirror_offset()), T_OBJECT), result);
 }
 
@@ -2975,6 +2975,16 @@ void LIRGenerator::do_Intrinsic(Intrinsic* x) {
     break;
   case vmIntrinsics::_compareAndSwapLong:
     do_CompareAndSwap(x, longType);
+    break;
+
+  case vmIntrinsics::_loadFence :
+    if (os::is_MP()) __ membar_acquire();
+    break;
+  case vmIntrinsics::_storeFence:
+    if (os::is_MP()) __ membar_release();
+    break;
+  case vmIntrinsics::_fullFence :
+    if (os::is_MP()) __ membar();
     break;
 
   case vmIntrinsics::_Reference_get:

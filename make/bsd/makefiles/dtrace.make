@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -38,12 +38,10 @@ DtraceOutDir = $(GENERATED)/dtracefiles
 # Bsd does not build libjvm_db, does not compile on macosx
 # disabled in build: rule in vm.make
 JVM_DB = libjvm_db
-#LIBJVM_DB = libjvm_db.dylib
-LIBJVM_DB = libjvm$(G_SUFFIX)_db.dylib
+LIBJVM_DB = libjvm_db.dylib
 
 JVM_DTRACE = jvm_dtrace
-#LIBJVM_DTRACE = libjvm_dtrace.dylib
-LIBJVM_DTRACE = libjvm$(G_SUFFIX)_dtrace.dylib
+LIBJVM_DTRACE = libjvm_dtrace.dylib
 
 JVMOFFS = JvmOffsets
 JVMOFFS.o = $(JVMOFFS).o
@@ -80,9 +78,7 @@ ISA = $(subst i386,i486,$(BUILDARCH))
 ifneq ("${ISA}","${BUILDARCH}")
 
 XLIBJVM_DB = 64/$(LIBJVM_DB)
-XLIBJVM_DB_G = 64/$(LIBJVM_DB_G)
 XLIBJVM_DTRACE = 64/$(LIBJVM_DTRACE)
-XLIBJVM_DTRACE_G = 64/$(LIBJVM_DTRACE_G)
 XARCH = $(subst sparcv9,v9,$(shell echo $(ISA)))
 
 $(XLIBJVM_DB): $(DTRACE_SRCDIR)/$(JVM_DB).c $(JVMOFFS).h $(LIBJVM_DB_MAPFILE)
@@ -90,14 +86,12 @@ $(XLIBJVM_DB): $(DTRACE_SRCDIR)/$(JVM_DB).c $(JVMOFFS).h $(LIBJVM_DB_MAPFILE)
 	$(QUIETLY) mkdir -p 64/ ; \
 	$(CC) $(SYMFLAG) -xarch=$(XARCH) -D$(TYPE) -I. -I$(GENERATED) \
 		$(SHARED_FLAG) $(LFLAGS_JVM_DB) -o $@ $(DTRACE_SRCDIR)/$(JVM_DB).c #-lc
-#	[ -f $(XLIBJVM_DB_G) ] || { ln -s $(LIBJVM_DB) $(XLIBJVM_DB_G); }
 
 $(XLIBJVM_DTRACE): $(DTRACE_SRCDIR)/$(JVM_DTRACE).c $(DTRACE_SRCDIR)/$(JVM_DTRACE).h $(LIBJVM_DTRACE_MAPFILE)
 	@echo Making $@
 	$(QUIETLY) mkdir -p 64/ ; \
 	$(CC) $(SYMFLAG) -xarch=$(XARCH) -D$(TYPE) -I. \
 		$(SHARED_FLAG) $(LFLAGS_JVM_DTRACE) -o $@ $(DTRACE_SRCDIR)/$(JVM_DTRACE).c #-lc -lthread -ldoor
-#	[ -f $(XLIBJVM_DTRACE_G) ] || { ln -s $(LIBJVM_DTRACE) $(XLIBJVM_DTRACE_G); }
 
 endif # ifneq ("${ISA}","${BUILDARCH}")
 
@@ -114,21 +108,21 @@ $(GENOFFS): $(DTRACE_SRCDIR)/$(GENOFFS)Main.c lib$(GENOFFS).dylib
 
 # $@.tmp is created first to avoid an empty $(JVMOFFS).h if an error occurs.
 $(JVMOFFS).h: $(GENOFFS)
-	$(QUIETLY) DYLD_LIBRARY_PATH=. ./$(GENOFFS) -header > $@.tmp; touch $@; \
+	$(QUIETLY) DYLD_LIBRARY_PATH=.:$(DYLD_LIBRARY_PATH) ./$(GENOFFS) -header > $@.tmp; touch $@; \
 	if [ `diff $@.tmp $@ > /dev/null 2>&1; echo $$?` -ne 0 ] ; \
 	then rm -f $@; mv $@.tmp $@; \
 	else rm -f $@.tmp; \
 	fi
 
 $(JVMOFFS)Index.h: $(GENOFFS)
-	$(QUIETLY) DYLD_LIBRARY_PATH=. ./$(GENOFFS) -index > $@.tmp; touch $@; \
+	$(QUIETLY) DYLD_LIBRARY_PATH=.:$(DYLD_LIBRARY_PATH) ./$(GENOFFS) -index > $@.tmp; touch $@; \
 	if [ `diff $@.tmp $@ > /dev/null 2>&1; echo $$?` -ne 0 ] ; \
 	then rm -f $@; mv $@.tmp $@; \
 	else rm -f $@.tmp; \
 	fi
 
 $(JVMOFFS).cpp: $(GENOFFS) $(JVMOFFS).h $(JVMOFFS)Index.h
-	$(QUIETLY) DYLD_LIBRARY_PATH=. ./$(GENOFFS) -table > $@.tmp; touch $@; \
+	$(QUIETLY) DYLD_LIBRARY_PATH=.:$(DYLD_LIBRARY_PATH) ./$(GENOFFS) -table > $@.tmp; touch $@; \
 	if [ `diff $@.tmp $@ > /dev/null 2>&1; echo $$?` -ne 0 ] ; \
 	then rm -f $@; mv $@.tmp $@; \
 	else rm -f $@.tmp; \
@@ -141,13 +135,11 @@ $(LIBJVM_DB): $(DTRACE_SRCDIR)/$(JVM_DB).c $(JVMOFFS.o) $(XLIBJVM_DB) $(LIBJVM_D
 	@echo Making $@
 	$(QUIETLY) $(CC) $(SYMFLAG) $(ARCHFLAG) -D$(TYPE) -I. -I$(GENERATED) \
 		$(SHARED_FLAG) $(LFLAGS_JVM_DB) -o $@ $(DTRACE_SRCDIR)/$(JVM_DB).c -Wall # -lc
-#	[ -f $(LIBJVM_DB_G) ] || { ln -s $@ $(LIBJVM_DB_G); }
 
 $(LIBJVM_DTRACE): $(DTRACE_SRCDIR)/$(JVM_DTRACE).c $(XLIBJVM_DTRACE) $(DTRACE_SRCDIR)/$(JVM_DTRACE).h $(LIBJVM_DTRACE_MAPFILE)
 	@echo Making $@
 	$(QUIETLY) $(CC) $(SYMFLAG) $(ARCHFLAG) -D$(TYPE) -I.  \
 		$(SHARED_FLAG) $(LFLAGS_JVM_DTRACE) -o $@ $(DTRACE_SRCDIR)/$(JVM_DTRACE).c #-lc -lthread -ldoor
-#	[ -f $(LIBJVM_DTRACE_G) ] || { ln -s $@ $(LIBJVM_DTRACE_G); }
 
 #$(DTRACE).d: $(DTRACE_SRCDIR)/hotspot.d $(DTRACE_SRCDIR)/hotspot_jni.d \
 #             $(DTRACE_SRCDIR)/hs_private.d $(DTRACE_SRCDIR)/jhelper.d

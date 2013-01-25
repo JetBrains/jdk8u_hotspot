@@ -43,21 +43,10 @@
 #include "runtime/fprofiler.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/synchronizer.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/vmThread.hpp"
 #include "utilities/copy.hpp"
 #include "utilities/events.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_bsd
-# include "thread_bsd.inline.hpp"
-#endif
 
 void GenMarkSweep::invoke_at_safepoint(int level, ReferenceProcessor* rp,
   bool clear_all_softrefs) {
@@ -291,7 +280,7 @@ void GenMarkSweep::mark_sweep_phase1(int level,
   bool purged_class = SystemDictionary::do_unloading(&is_alive);
 
   // Follow code cache roots
-  CodeCache::do_unloading(&is_alive, &keep_alive, purged_class);
+  CodeCache::do_unloading(&is_alive, purged_class);
   follow_stack(); // Flush marking stack
 
   // Update subklass/sibling/implementor links of live klasses

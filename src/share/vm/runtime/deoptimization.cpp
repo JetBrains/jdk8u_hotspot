@@ -239,6 +239,7 @@ Deoptimization::UnrollBlock* Deoptimization::fetch_unroll_info_helper(JavaThread
         return_value = Handle(thread, result);
         assert(Universe::heap()->is_in_or_null(result), "must be heap pointer");
         if (TraceDeoptimization) {
+          ttyLocker ttyl;
           tty->print_cr("SAVED OOP RESULT " INTPTR_FORMAT " in thread " INTPTR_FORMAT, result, thread);
         }
       }
@@ -499,6 +500,7 @@ Deoptimization::UnrollBlock* Deoptimization::fetch_unroll_info_helper(JavaThread
 
   if (array->frames() > 1) {
     if (VerifyStack && TraceDeoptimization) {
+      ttyLocker ttyl;
       tty->print_cr("Deoptimizing method containing inlining");
     }
   }
@@ -579,6 +581,7 @@ JRT_LEAF(BasicType, Deoptimization::unpack_frames(JavaThread* thread, int exec_m
 
 #ifndef PRODUCT
   if (TraceDeoptimization) {
+    ttyLocker ttyl;
     tty->print_cr("DEOPT UNPACKING thread " INTPTR_FORMAT " vframeArray " INTPTR_FORMAT " mode %d", thread, array, exec_mode);
   }
 #endif
@@ -724,7 +727,7 @@ JRT_LEAF(BasicType, Deoptimization::unpack_frames(JavaThread* thread, int exec_m
         guarantee(false, "wrong number of expression stack elements during deopt");
       }
       VerifyOopClosure verify;
-      iframe->oops_interpreted_do(&verify, &rm, false);
+      iframe->oops_interpreted_do(&verify, NULL, &rm, false);
       callee_size_of_parameters = mh->size_of_parameters();
       callee_max_locals = mh->max_locals();
       is_top_frame = false;
@@ -761,12 +764,12 @@ bool Deoptimization::realloc_objects(JavaThread* thread, frame* fr, GrowableArra
       InstanceKlass* ik = InstanceKlass::cast(k());
       obj = ik->allocate_instance(CHECK_(false));
     } else if (k->oop_is_typeArray()) {
-      typeArrayKlass* ak = typeArrayKlass::cast(k());
+      TypeArrayKlass* ak = TypeArrayKlass::cast(k());
       assert(sv->field_size() % type2size[ak->element_type()] == 0, "non-integral array length");
       int len = sv->field_size() / type2size[ak->element_type()];
       obj = ak->allocate(len, CHECK_(false));
     } else if (k->oop_is_objArray()) {
-      objArrayKlass* ak = objArrayKlass::cast(k());
+      ObjArrayKlass* ak = ObjArrayKlass::cast(k());
       obj = ak->allocate(sv->field_size(), CHECK_(false));
     }
 
@@ -929,7 +932,7 @@ void Deoptimization::reassign_fields(frame* fr, RegisterMap* reg_map, GrowableAr
       FieldReassigner reassign(fr, reg_map, sv, obj());
       ik->do_nonstatic_fields(&reassign);
     } else if (k->oop_is_typeArray()) {
-      typeArrayKlass* ak = typeArrayKlass::cast(k());
+      TypeArrayKlass* ak = TypeArrayKlass::cast(k());
       reassign_type_array_elements(fr, reg_map, sv, (typeArrayOop) obj(), ak->element_type());
     } else if (k->oop_is_objArray()) {
       reassign_object_array_elements(fr, reg_map, sv, (objArrayOop) obj());
@@ -1194,12 +1197,12 @@ void Deoptimization::load_class_by_index(constantPoolHandle constant_pool, int i
 
   if (!constant_pool->tag_at(index).is_symbol()) return;
 
-  Handle class_loader (THREAD, InstanceKlass::cast(constant_pool->pool_holder())->class_loader());
+  Handle class_loader (THREAD, constant_pool->pool_holder()->class_loader());
   Symbol*  symbol  = constant_pool->symbol_at(index);
 
   // class name?
   if (symbol->byte_at(0) != '(') {
-    Handle protection_domain (THREAD, Klass::cast(constant_pool->pool_holder())->protection_domain());
+    Handle protection_domain (THREAD, constant_pool->pool_holder()->protection_domain());
     SystemDictionary::resolve_or_null(symbol, class_loader, protection_domain, CHECK);
     return;
   }
@@ -1209,7 +1212,7 @@ void Deoptimization::load_class_by_index(constantPoolHandle constant_pool, int i
   for (SignatureStream ss(symbol); !ss.is_done(); ss.next()) {
     if (ss.is_object()) {
       Symbol* class_name = ss.as_symbol(CHECK);
-      Handle protection_domain (THREAD, Klass::cast(constant_pool->pool_holder())->protection_domain());
+      Handle protection_domain (THREAD, constant_pool->pool_holder()->protection_domain());
       SystemDictionary::resolve_or_null(class_name, class_loader, protection_domain, CHECK);
     }
   }
@@ -1245,8 +1248,8 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* thread, jint tra
   nmethodLocker nl(fr.pc());
 
   // Log a message
-  Events::log_deopt_message(thread, "Uncommon trap %d fr.pc " INTPTR_FORMAT,
-                            trap_request, fr.pc());
+  Events::log(thread, "Uncommon trap: trap_request=" PTR32_FORMAT " fr.pc=" INTPTR_FORMAT,
+              trap_request, fr.pc());
 
   {
     ResourceMark rm;
@@ -1276,6 +1279,11 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* thread, jint tra
 
     MethodData* trap_mdo =
       get_method_data(thread, trap_method, create_if_missing);
+
+    // Log a message
+    Events::log_deopt_message(thread, "Uncommon trap: reason=%s action=%s pc=" INTPTR_FORMAT " method=%s @ %d",
+                              trap_reason_name(reason), trap_action_name(action), fr.pc(),
+                              trap_method->name_and_sig_as_C_string(), trap_bci);
 
     // Print a bunch of diagnostics, if requested.
     if (TraceDeoptimization || LogCompilation) {
@@ -1328,9 +1336,9 @@ JRT_ENTRY(void, Deoptimization::uncommon_trap_inner(JavaThread* thread, jint tra
       if (TraceDeoptimization) {  // make noise on the tty
         tty->print("Uncommon trap occurred in");
         nm->method()->print_short_name(tty);
-        tty->print(" (@" INTPTR_FORMAT ") thread=%d reason=%s action=%s unloaded_class_index=%d",
+        tty->print(" (@" INTPTR_FORMAT ") thread=" UINTX_FORMAT " reason=%s action=%s unloaded_class_index=%d",
                    fr.pc(),
-                   (int) os::current_thread_id(),
+                   os::current_thread_id(),
                    trap_reason_name(reason),
                    trap_action_name(action),
                    unloaded_class_index);

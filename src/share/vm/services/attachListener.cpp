@@ -88,7 +88,7 @@ static jint get_properties(AttachOperation* op, outputStream* out, Symbol* seria
   // The result should be a [B
   oop res = (oop)result.get_jobject();
   assert(res->is_typeArray(), "just checking");
-  assert(typeArrayKlass::cast(res->klass())->element_type() == T_BYTE, "just checking");
+  assert(TypeArrayKlass::cast(res->klass())->element_type() == T_BYTE, "just checking");
 
   // copy the bytes to the output stream
   typeArrayOop ba = typeArrayOop(res);
@@ -403,6 +403,8 @@ static AttachOperationFunctionInfo funcs[] = {
 
 static void attach_listener_thread_entry(JavaThread* thread, TRAPS) {
   os::set_priority(thread, NearMaxPriority);
+
+  thread->record_stack_base_and_size();
 
   if (AttachListener::pd_init() != 0) {
     return;

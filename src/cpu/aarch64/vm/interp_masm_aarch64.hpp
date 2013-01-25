@@ -25,8 +25,10 @@
 #ifndef CPU_AARCH64_VM_INTERP_MASM_AARCH64_64_HPP
 #define CPU_AARCH64_VM_INTERP_MASM_AARCH64_64_HPP
 
-#include "assembler_aarch64.inline.hpp"
+#include "asm/macroAssembler.hpp"
+#include "asm/macroAssembler.inline.hpp"
 #include "interpreter/invocationCounter.hpp"
+#include "runtime/frame.hpp"
 
 // This file specializes the assember with interpreter-specific macros
 

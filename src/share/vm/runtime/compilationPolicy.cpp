@@ -97,6 +97,9 @@ void CompilationPolicy::completed_vm_startup() {
 // This is intended to force compiles for methods (usually for
 // debugging) that would otherwise be interpreted for some reason.
 bool CompilationPolicy::must_be_compiled(methodHandle m, int comp_level) {
+  // Don't allow Xcomp to cause compiles in replay mode
+  if (ReplayCompiles) return false;
+
   if (m->has_compiled_code()) return false;       // already compiled
   if (!can_be_compiled(m, comp_level)) return false;
 
@@ -322,6 +325,16 @@ nmethod* NonTieredCompPolicy::event(methodHandle method, methodHandle inlinee, i
       return NULL;
     }
   }
+  if (CompileTheWorld || ReplayCompiles) {
+    // Don't trigger other compiles in testing mode
+    if (bci == InvocationEntryBci) {
+      reset_counter_for_invocation_event(method);
+    } else {
+      reset_counter_for_back_branch_event(method);
+    }
+    return NULL;
+  }
+
   if (bci == InvocationEntryBci) {
     // when code cache is full, compilation gets switched off, UseCompiler
     // is set to false
@@ -394,28 +407,27 @@ void NonTieredCompPolicy::trace_osr_request(methodHandle method, nmethod* osr, i
 // SimpleCompPolicy - compile current method
 
 void SimpleCompPolicy::method_invocation_event(methodHandle m, JavaThread* thread) {
-  int hot_count = m->invocation_count();
+  const int comp_level = CompLevel_highest_tier;
+  const int hot_count = m->invocation_count();
   reset_counter_for_invocation_event(m);
   const char* comment = "count";
 
   if (is_compilation_enabled() && can_be_compiled(m)) {
     nmethod* nm = m->code();
     if (nm == NULL ) {
-      const char* comment = "count";
-      CompileBroker::compile_method(m, InvocationEntryBci, CompLevel_highest_tier,
-                                    m, hot_count, comment, thread);
+      CompileBroker::compile_method(m, InvocationEntryBci, comp_level, m, hot_count, comment, thread);
     }
   }
 }
 
 void SimpleCompPolicy::method_back_branch_event(methodHandle m, int bci, JavaThread* thread) {
-  int hot_count = m->backedge_count();
+  const int comp_level = CompLevel_highest_tier;
+  const int hot_count = m->backedge_count();
   const char* comment = "backedge_count";
 
-  if (is_compilation_enabled() && !m->is_not_osr_compilable() && can_be_compiled(m)) {
-    CompileBroker::compile_method(m, bci, CompLevel_highest_tier,
-                                  m, hot_count, comment, thread);
-    NOT_PRODUCT(trace_osr_completion(m->lookup_osr_nmethod_for(bci, CompLevel_highest_tier, true));)
+  if (is_compilation_enabled() && !m->is_not_osr_compilable(comp_level) && can_be_compiled(m)) {
+    CompileBroker::compile_method(m, bci, comp_level, m, hot_count, comment, thread);
+    NOT_PRODUCT(trace_osr_completion(m->lookup_osr_nmethod_for(bci, comp_level, true));)
   }
 }
 // StackWalkCompPolicy - walk up stack to find a suitable method to compile
@@ -426,7 +438,8 @@ const char* StackWalkCompPolicy::_msg = NULL;
 
 // Consider m for compilation
 void StackWalkCompPolicy::method_invocation_event(methodHandle m, JavaThread* thread) {
-  int hot_count = m->invocation_count();
+  const int comp_level = CompLevel_highest_tier;
+  const int hot_count = m->invocation_count();
   reset_counter_for_invocation_event(m);
   const char* comment = "count";
 
@@ -457,20 +470,20 @@ void StackWalkCompPolicy::method_invocation_event(methodHandle m, JavaThread* th
       if (TimeCompilationPolicy) accumulated_time()->stop();
       assert(top != NULL, "findTopInlinableFrame returned null");
       if (TraceCompilationPolicy) top->print();
-      CompileBroker::compile_method(top->top_method(), InvocationEntryBci, CompLevel_highest_tier,
+      CompileBroker::compile_method(top->top_method(), InvocationEntryBci, comp_level,
                                     m, hot_count, comment, thread);
     }
   }
 }
 
 void StackWalkCompPolicy::method_back_branch_event(methodHandle m, int bci, JavaThread* thread) {
-  int hot_count = m->backedge_count();
+  const int comp_level = CompLevel_highest_tier;
+  const int hot_count = m->backedge_count();
   const char* comment = "backedge_count";
 
-  if (is_compilation_enabled() && !m->is_not_osr_compilable() && can_be_compiled(m)) {
-    CompileBroker::compile_method(m, bci, CompLevel_highest_tier, m, hot_count, comment, thread);
-
-    NOT_PRODUCT(trace_osr_completion(m->lookup_osr_nmethod_for(bci, CompLevel_highest_tier, true));)
+  if (is_compilation_enabled() && !m->is_not_osr_compilable(comp_level) && can_be_compiled(m)) {
+    CompileBroker::compile_method(m, bci, comp_level, m, hot_count, comment, thread);
+    NOT_PRODUCT(trace_osr_completion(m->lookup_osr_nmethod_for(bci, comp_level, true));)
   }
 }
 
@@ -627,7 +640,7 @@ const char* StackWalkCompPolicy::shouldNotInline(methodHandle m) {
   // negative filter: should send NOT be inlined?  returns NULL (--> inline) or rejection msg
   if (m->is_abstract()) return (_msg = "abstract method");
   // note: we allow ik->is_abstract()
-  if (!InstanceKlass::cast(m->method_holder())->is_initialized()) return (_msg = "method holder not initialized");
+  if (!m->method_holder()->is_initialized()) return (_msg = "method holder not initialized");
   if (m->is_native()) return (_msg = "native method");
   nmethod* m_code = m->code();
   if (m_code != NULL && m_code->code_size() > InlineSmallCode)

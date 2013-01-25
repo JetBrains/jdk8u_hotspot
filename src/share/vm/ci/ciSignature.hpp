@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,6 +47,7 @@ private:
   friend class ciObjectFactory;
 
   ciSignature(ciKlass* accessing_klass, constantPoolHandle cpool, ciSymbol* signature);
+  ciSignature(ciKlass* accessing_klass,                           ciSymbol* signature, ciMethodType* method_type);
 
   void get_all_klasses();
 
@@ -56,11 +57,13 @@ public:
   ciSymbol* as_symbol() const                    { return _symbol; }
   ciKlass*  accessing_klass() const              { return _accessing_klass; }
 
-  ciType* return_type() const;
-  ciType* type_at(int index) const;
+  ciType*   return_type() const;
+  ciType*   type_at(int index) const;
 
   int       size() const                         { return _size; }
   int       count() const                        { return _count; }
+
+  int       arg_size_for_bc(Bytecodes::Code bc)  { return size() + (Bytecodes::has_receiver(bc) ? 1 : 0); }
 
   bool equals(ciSignature* that);
 

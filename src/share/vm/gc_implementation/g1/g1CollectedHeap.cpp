@@ -2079,7 +2079,11 @@ jint G1CollectedHeap::initialize() {
 
   // Create the ConcurrentMark data structure and thread.
   // (Must do this late, so that "max_regions" is defined.)
-  _cm       = new ConcurrentMark(heap_rs, max_regions());
+  _cm = new ConcurrentMark(this, heap_rs);
+  if (_cm == NULL || !_cm->completed_initialization()) {
+    vm_shutdown_during_initialization("Could not create/initialize ConcurrentMark");
+    return JNI_ENOMEM;
+  }
   _cmThread = _cm->cmThread();
 
   // Initialize the from_card cache structure of HeapRegionRemSet.
@@ -2087,7 +2091,7 @@ jint G1CollectedHeap::initialize() {
 
   // Now expand into the initial heap size.
   if (!expand(init_byte_size)) {
-    vm_exit_during_initialization("Failed to allocate initial heap.");
+    vm_shutdown_during_initialization("Failed to allocate initial heap.");
     return JNI_ENOMEM;
   }
 
@@ -3388,6 +3392,7 @@ void G1CollectedHeap::print_on(outputStream* st) const {
   st->print("%u survivors (" SIZE_FORMAT "K)", survivor_regions,
             (size_t) survivor_regions * HeapRegion::GrainBytes / K);
   st->cr();
+  MetaspaceAux::print_on(st);
 }
 
 void G1CollectedHeap::print_extended_on(outputStream* st) const {
@@ -3412,7 +3417,6 @@ void G1CollectedHeap::print_gc_threads_on(outputStream* st) const {
   st->cr();
   _cm->print_worker_threads_on(st);
   _cg1r->print_worker_threads_on(st);
-  st->cr();
 }
 
 void G1CollectedHeap::gc_threads_do(ThreadClosure* tc) const {
@@ -3690,6 +3694,7 @@ void G1CollectedHeap::log_gc_footer(double pause_time_sec) {
     g1_policy()->print_heap_transition();
     gclog_or_tty->print_cr(", %3.7f secs]", pause_time_sec);
   }
+  gclog_or_tty->flush();
 }
 
 bool
@@ -4036,9 +4041,10 @@ G1CollectedHeap::do_collection_pause_at_safepoint(double target_pause_time_ms) {
 #endif
 
       gc_epilogue(false);
-
-      log_gc_footer(os::elapsedTime() - pause_start_sec);
     }
+
+    // Print the remainder of the GC log output.
+    log_gc_footer(os::elapsedTime() - pause_start_sec);
 
     // It is not yet to safe to tell the concurrent mark to
     // start as we have some optional output below. We don't want the
@@ -4152,7 +4158,7 @@ void G1CollectedHeap::init_gc_alloc_regions() {
   }
 }
 
-void G1CollectedHeap::release_gc_alloc_regions() {
+void G1CollectedHeap::release_gc_alloc_regions(uint no_of_gc_workers) {
   _survivor_gc_alloc_region.release();
   // If we have an old GC alloc region to release, we'll save it in
   // _retained_old_gc_alloc_region. If we don't
@@ -4162,8 +4168,8 @@ void G1CollectedHeap::release_gc_alloc_regions() {
   _retained_old_gc_alloc_region = _old_gc_alloc_region.release();
 
   if (ResizePLAB) {
-    _survivor_plab_stats.adjust_desired_plab_sz();
-    _old_plab_stats.adjust_desired_plab_sz();
+    _survivor_plab_stats.adjust_desired_plab_sz(no_of_gc_workers);
+    _old_plab_stats.adjust_desired_plab_sz(no_of_gc_workers);
   }
 }
 
@@ -5428,7 +5434,7 @@ public:
 };
 
 // Weak Reference processing during an evacuation pause (part 1).
-void G1CollectedHeap::process_discovered_references() {
+void G1CollectedHeap::process_discovered_references(uint no_of_gc_workers) {
   double ref_proc_start = os::elapsedTime();
 
   ReferenceProcessor* rp = _ref_processor_stw;
@@ -5455,15 +5461,14 @@ void G1CollectedHeap::process_discovered_references() {
   // referents points to another object which is also referenced by an
   // object discovered by the STW ref processor.
 
-  uint active_workers = (G1CollectedHeap::use_parallel_gc_threads() ?
-                        workers()->active_workers() : 1);
-
   assert(!G1CollectedHeap::use_parallel_gc_threads() ||
-           active_workers == workers()->active_workers(),
-           "Need to reset active_workers");
+           no_of_gc_workers == workers()->active_workers(),
+           "Need to reset active GC workers");
 
-  set_par_threads(active_workers);
-  G1ParPreserveCMReferentsTask keep_cm_referents(this, active_workers, _task_queues);
+  set_par_threads(no_of_gc_workers);
+  G1ParPreserveCMReferentsTask keep_cm_referents(this,
+                                                 no_of_gc_workers,
+                                                 _task_queues);
 
   if (G1CollectedHeap::use_parallel_gc_threads()) {
     workers()->run_task(&keep_cm_referents);
@@ -5529,10 +5534,10 @@ void G1CollectedHeap::process_discovered_references() {
                                       NULL);
   } else {
     // Parallel reference processing
-    assert(rp->num_q() == active_workers, "sanity");
-    assert(active_workers <= rp->max_num_q(), "sanity");
+    assert(rp->num_q() == no_of_gc_workers, "sanity");
+    assert(no_of_gc_workers <= rp->max_num_q(), "sanity");
 
-    G1STWRefProcTaskExecutor par_task_executor(this, workers(), _task_queues, active_workers);
+    G1STWRefProcTaskExecutor par_task_executor(this, workers(), _task_queues, no_of_gc_workers);
     rp->process_discovered_references(&is_alive, &keep_alive, &drain_queue, &par_task_executor);
   }
 
@@ -5547,7 +5552,7 @@ void G1CollectedHeap::process_discovered_references() {
 }
 
 // Weak Reference processing during an evacuation pause (part 2).
-void G1CollectedHeap::enqueue_discovered_references() {
+void G1CollectedHeap::enqueue_discovered_references(uint no_of_gc_workers) {
   double ref_enq_start = os::elapsedTime();
 
   ReferenceProcessor* rp = _ref_processor_stw;
@@ -5561,13 +5566,12 @@ void G1CollectedHeap::enqueue_discovered_references() {
   } else {
     // Parallel reference enqueuing
 
-    uint active_workers = (ParallelGCThreads > 0 ? workers()->active_workers() : 1);
-    assert(active_workers == workers()->active_workers(),
-           "Need to reset active_workers");
-    assert(rp->num_q() == active_workers, "sanity");
-    assert(active_workers <= rp->max_num_q(), "sanity");
+    assert(no_of_gc_workers == workers()->active_workers(),
+           "Need to reset active workers");
+    assert(rp->num_q() == no_of_gc_workers, "sanity");
+    assert(no_of_gc_workers <= rp->max_num_q(), "sanity");
 
-    G1STWRefProcTaskExecutor par_task_executor(this, workers(), _task_queues, active_workers);
+    G1STWRefProcTaskExecutor par_task_executor(this, workers(), _task_queues, no_of_gc_workers);
     rp->enqueue_discovered_references(&par_task_executor);
   }
 
@@ -5659,7 +5663,7 @@ void G1CollectedHeap::evacuate_collection_set() {
   // as we may have to copy some 'reachable' referent
   // objects (and their reachable sub-graphs) that were
   // not copied during the pause.
-  process_discovered_references();
+  process_discovered_references(n_workers);
 
   // Weak root processing.
   // Note: when JSR 292 is enabled and code blobs can contain
@@ -5671,7 +5675,7 @@ void G1CollectedHeap::evacuate_collection_set() {
     JNIHandles::weak_oops_do(&is_alive, &keep_alive);
   }
 
-  release_gc_alloc_regions();
+  release_gc_alloc_regions(n_workers);
   g1_rem_set()->cleanup_after_oops_into_collection_set_do();
 
   concurrent_g1_refine()->clear_hot_cache();
@@ -5695,7 +5699,7 @@ void G1CollectedHeap::evacuate_collection_set() {
   // will log these updates (and dirty their associated
   // cards). We need these updates logged to update any
   // RSets.
-  enqueue_discovered_references();
+  enqueue_discovered_references(n_workers);
 
   if (G1DeferredRSUpdate) {
     RedirtyLoggedCardTableEntryFastClosure redirty;

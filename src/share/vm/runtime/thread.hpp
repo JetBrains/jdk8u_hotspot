@@ -41,7 +41,11 @@
 #include "runtime/stubRoutines.hpp"
 #include "runtime/threadLocalStorage.hpp"
 #include "runtime/unhandledOops.hpp"
+
+#if INCLUDE_NMT
 #include "services/memRecorder.hpp"
+#endif // INCLUDE_NMT
+
 #include "trace/tracing.hpp"
 #include "utilities/exceptions.hpp"
 #include "utilities/top.hpp"
@@ -106,7 +110,7 @@ class Thread: public ThreadShadow {
   void*       _real_malloc_address;
  public:
   void* operator new(size_t size) { return allocate(size, true); }
-  void* operator new(size_t size, std::nothrow_t& nothrow_constant) { return allocate(size, false); }
+  void* operator new(size_t size, const std::nothrow_t& nothrow_constant) { return allocate(size, false); }
   void  operator delete(void* p);
 
  protected:
@@ -476,8 +480,10 @@ class Thread: public ThreadShadow {
 
   // GC support
   // Apply "f->do_oop" to all root oops in "this".
+  // Apply "cld_f->do_cld" to CLDs that are otherwise not kept alive.
+  //   Used by JavaThread::oops_do.
   // Apply "cf->do_code_blob" (if !NULL) to all code blobs active in frames
-  virtual void oops_do(OopClosure* f, CodeBlobClosure* cf);
+  virtual void oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf);
 
   // Handles the parallel case for the method below.
 private:
@@ -718,6 +724,7 @@ class WatcherThread: public Thread {
  private:
   static WatcherThread* _watcher_thread;
 
+  static bool _startable;
   volatile static bool _should_terminate; // updated without holding lock
  public:
   enum SomeConstants {
@@ -734,6 +741,7 @@ class WatcherThread: public Thread {
   char* name() const { return (char*)"VM Periodic Task Thread"; }
   void print_on(outputStream* st) const;
   void print() const { print_on(tty); }
+  void unpark();
 
   // Returns the single instance of WatcherThread
   static WatcherThread* watcher_thread()         { return _watcher_thread; }
@@ -741,6 +749,12 @@ class WatcherThread: public Thread {
   // Create and start the single instance of WatcherThread, or stop it on shutdown
   static void start();
   static void stop();
+  // Only allow start once the VM is sufficiently initialized
+  // Otherwise the first task to enroll will trigger the start
+  static void make_startable();
+
+ private:
+  int sleep() const;
 };
 
 
@@ -1038,6 +1052,7 @@ class JavaThread: public Thread {
   bool do_not_unlock_if_synchronized()             { return _do_not_unlock_if_synchronized; }
   void set_do_not_unlock_if_synchronized(bool val) { _do_not_unlock_if_synchronized = val; }
 
+#if INCLUDE_NMT
   // native memory tracking
   inline MemRecorder* get_recorder() const          { return (MemRecorder*)_recorder; }
   inline void         set_recorder(MemRecorder* rc) { _recorder = (volatile MemRecorder*)rc; }
@@ -1045,6 +1060,7 @@ class JavaThread: public Thread {
  private:
   // per-thread memory recorder
   volatile MemRecorder* _recorder;
+#endif // INCLUDE_NMT
 
   // Suspend/resume support for JavaThread
  private:
@@ -1391,7 +1407,7 @@ class JavaThread: public Thread {
   void frames_do(void f(frame*, const RegisterMap*));
 
   // Memory operations
-  void oops_do(OopClosure* f, CodeBlobClosure* cf);
+  void oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf);
 
   // Sweeper operations
   void nmethods_do(CodeBlobClosure* cf);
@@ -1814,7 +1830,7 @@ class CompilerThread : public JavaThread {
   // GC support
   // Apply "f->do_oop" to all root oops in "this".
   // Apply "cf->do_code_blob" (if !NULL) to all code blobs active in frames
-  void oops_do(OopClosure* f, CodeBlobClosure* cf);
+  void oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf);
 
 #ifndef PRODUCT
 private:
@@ -1881,9 +1897,9 @@ class Threads: AllStatic {
 
   // Apply "f->do_oop" to all root oops in all threads.
   // This version may only be called by sequential code.
-  static void oops_do(OopClosure* f, CodeBlobClosure* cf);
+  static void oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf);
   // This version may be called by sequential or parallel code.
-  static void possibly_parallel_oops_do(OopClosure* f, CodeBlobClosure* cf);
+  static void possibly_parallel_oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf);
   // This creates a list of GCTasks, one per thread.
   static void create_thread_roots_tasks(GCTaskQueue* q);
   // This creates a list of GCTasks, one per thread, for marking objects.

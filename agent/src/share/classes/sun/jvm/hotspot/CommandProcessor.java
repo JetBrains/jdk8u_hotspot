@@ -33,6 +33,7 @@ import sun.jvm.hotspot.types.Type;
 import sun.jvm.hotspot.types.Field;
 import sun.jvm.hotspot.HotSpotTypeDataBase;
 import sun.jvm.hotspot.types.basic.BasicType;
+import sun.jvm.hotspot.types.basic.BasicTypeDataBase;
 import sun.jvm.hotspot.types.CIntegerType;
 import sun.jvm.hotspot.code.*;
 import sun.jvm.hotspot.compiler.*;
@@ -42,6 +43,7 @@ import sun.jvm.hotspot.memory.*;
 import sun.jvm.hotspot.oops.*;
 import sun.jvm.hotspot.opto.*;
 import sun.jvm.hotspot.ci.*;
+import sun.jvm.hotspot.asm.*;
 import sun.jvm.hotspot.runtime.*;
 import sun.jvm.hotspot.utilities.*;
 import sun.jvm.hotspot.utilities.soql.*;
@@ -447,6 +449,112 @@ public class CommandProcessor {
                 }
             }
         },
+        new Command("dumpreplaydata", "dumpreplaydata { <address > | -a | <thread_id> }", false) {
+            // This is used to dump replay data from ciInstanceKlass, ciMethodData etc
+            // default file name is replay.txt, also if java crashes in compiler
+            // thread, this file will be dumped in error processing.
+            public void doit(Tokens t) {
+                if (t.countTokens() != 1) {
+                    usage();
+                    return;
+                }
+                String name = t.nextToken();
+                Address a = null;
+                try {
+                    a = VM.getVM().getDebugger().parseAddress(name);
+                } catch (NumberFormatException e) { }
+                if (a != null) {
+                    // only nmethod, Method, MethodData and InstanceKlass needed to
+                    // dump replay data
+
+                    CodeBlob cb = VM.getVM().getCodeCache().findBlob(a);
+                    if (cb != null && (cb instanceof NMethod)) {
+                        ((NMethod)cb).dumpReplayData(out);
+                        return;
+                    }
+                    // assume it is Metadata
+                    Metadata meta = Metadata.instantiateWrapperFor(a);
+                    if (meta != null) {
+                        meta.dumpReplayData(out);
+                    } else {
+                        usage();
+                        return;
+                    }
+                }
+                // Not an address
+                boolean all = name.equals("-a");
+                Threads threads = VM.getVM().getThreads();
+                for (JavaThread thread = threads.first(); thread != null; thread = thread.next()) {
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    thread.printThreadIDOn(new PrintStream(bos));
+                    if (all || bos.toString().equals(name)) {
+                        if (thread instanceof CompilerThread) {
+                            CompilerThread ct = (CompilerThread)thread;
+                            ciEnv env = ct.env();
+                            if (env != null) {
+                               env.dumpReplayData(out);
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        new Command("buildreplayjars", "buildreplayjars [ all | app | boot ]  | [ prefix ]", false) {
+            // This is used to dump jar files of all the classes
+            // loaded in the core.  Everything on the bootclasspath
+            // will go in boot.jar and everything else will go in
+            // app.jar.  Then the classes can be loaded by the replay
+            // jvm using -Xbootclasspath/p:boot.jar -cp app.jar. boot.jar usually
+            // not needed, unless changed by jvmti.
+            public void doit(Tokens t) {
+                int tcount = t.countTokens();
+                if (tcount > 2) {
+                    usage();
+                    return;
+                }
+                try {
+                   String prefix = "";
+                   String option = "all"; // default
+                   switch(tcount) {
+                       case 0:
+                           break;
+                       case 1:
+                           option = t.nextToken();
+                           if (!option.equalsIgnoreCase("all") && !option.equalsIgnoreCase("app") &&
+                               !option.equalsIgnoreCase("root")) {
+                              prefix = option;
+                              option = "all";
+                           }
+                           break;
+                       case 2:
+                           option = t.nextToken();
+                           prefix = t.nextToken();
+                           break;
+                       default:
+                           usage();
+                           return;
+                   }
+                   if (!option.equalsIgnoreCase("all") && !option.equalsIgnoreCase("app") &&
+                               !option.equalsIgnoreCase("boot")) {
+                       usage();
+                       return;
+                   }
+                   ClassDump cd = new ClassDump();
+                   if (option.equalsIgnoreCase("all") || option.equalsIgnoreCase("boot")) {
+                     cd.setClassFilter(new BootFilter());
+                     cd.setJarOutput(prefix + "boot.jar");
+                     cd.run();
+                   }
+                   if (option.equalsIgnoreCase("all") || option.equalsIgnoreCase("app")) {
+                     cd.setClassFilter(new NonBootFilter());
+                     cd.setJarOutput(prefix + "app.jar");
+                     cd.run();
+                   }
+                } catch (IOException ioe) {
+                   ioe.printStackTrace();
+                }
+            }
+        },
         new Command("findpc", "findpc address", false) {
             public void doit(Tokens t) {
                 if (t.countTokens() != 1) {
@@ -562,6 +670,71 @@ public class CommandProcessor {
                     if (printIndex) out.print(i + " ");
                     out.println(history.get(i));
                 }
+            }
+        },
+        // decode raw address
+        new Command("dis", "dis address [length]", false) {
+            public void doit(Tokens t) {
+                int tokens = t.countTokens();
+                if (tokens != 1 && tokens != 2) {
+                    usage();
+                    return;
+                }
+                String name = t.nextToken();
+                Address addr = null;
+                int len = 0x10; // default length
+                try {
+                    addr = VM.getVM().getDebugger().parseAddress(name);
+                } catch (NumberFormatException e) {
+                   out.println(e);
+                   return;
+                }
+                if (tokens == 2) {
+                    try {
+                        len = Integer.parseInt(t.nextToken());
+                    } catch (NumberFormatException e) {
+                        out.println(e);
+                        return;
+                    }
+                }
+                HTMLGenerator generator = new HTMLGenerator(false);
+                out.println(generator.genHTMLForRawDisassembly(addr, len));
+            }
+
+        },
+        // decode codeblob or nmethod
+        new Command("disassemble", "disassemble address", false) {
+            public void doit(Tokens t) {
+                int tokens = t.countTokens();
+                if (tokens != 1) {
+                    usage();
+                    return;
+                }
+                String name = t.nextToken();
+                Address addr = null;
+                try {
+                    addr = VM.getVM().getDebugger().parseAddress(name);
+                } catch (NumberFormatException e) {
+                   out.println(e);
+                   return;
+                }
+
+                HTMLGenerator generator = new HTMLGenerator(false);
+                out.println(generator.genHTML(addr));
+            }
+        },
+        // print Java bytecode disassembly
+        new Command("jdis", "jdis address", false) {
+            public void doit(Tokens t) {
+                int tokens = t.countTokens();
+                if (tokens != 1) {
+                    usage();
+                    return;
+                }
+                Address a = VM.getVM().getDebugger().parseAddress(t.nextToken());
+                Method m = (Method)Metadata.instantiateWrapperFor(a);
+                HTMLGenerator html = new HTMLGenerator(false);
+                out.println(html.genHTML(m));
             }
         },
         new Command("revptrs", "revptrs address", false) {

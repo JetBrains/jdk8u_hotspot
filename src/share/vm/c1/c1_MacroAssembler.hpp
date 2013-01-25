@@ -25,24 +25,10 @@
 #ifndef SHARE_VM_C1_C1_MACROASSEMBLER_HPP
 #define SHARE_VM_C1_C1_MACROASSEMBLER_HPP
 
-#include "asm/assembler.hpp"
-#ifdef TARGET_ARCH_x86
-# include "assembler_x86.inline.hpp"
-#endif
+#include "asm/macroAssembler.hpp"
+#include "asm/macroAssembler.inline.hpp"
 #ifdef TARGET_ARCH_aarch64
 # include "assembler_aarch64.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_sparc
-# include "assembler_sparc.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_zero
-# include "assembler_zero.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_arm
-# include "assembler_arm.inline.hpp"
-#endif
-#ifdef TARGET_ARCH_ppc
-# include "assembler_ppc.inline.hpp"
 #endif
 
 class CodeEmitInfo;

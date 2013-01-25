@@ -327,7 +327,7 @@ JRT_ENTRY(void, Runtime1::new_type_array(JavaThread* thread, Klass* klass, jint 
   //       anymore after new_typeArray() and no GC can happen before.
   //       (This may have to change if this code changes!)
   assert(klass->is_klass(), "not a class");
-  BasicType elt_type = typeArrayKlass::cast(klass)->element_type();
+  BasicType elt_type = TypeArrayKlass::cast(klass)->element_type();
   oop obj = oopFactory::new_typeArray(elt_type, length, CHECK);
   thread->set_vm_result(obj);
   // This is pretty rare but this runtime patch is stressful to deoptimization
@@ -346,7 +346,7 @@ JRT_ENTRY(void, Runtime1::new_object_array(JavaThread* thread, Klass* array_klas
   //       anymore after new_objArray() and no GC can happen before.
   //       (This may have to change if this code changes!)
   assert(array_klass->is_klass(), "not a class");
-  Klass* elem_klass = objArrayKlass::cast(array_klass)->element_klass();
+  Klass* elem_klass = ObjArrayKlass::cast(array_klass)->element_klass();
   objArrayOop obj = oopFactory::new_objArray(elem_klass, length, CHECK);
   thread->set_vm_result(obj);
   // This is pretty rare but this runtime patch is stressful to deoptimization
@@ -362,7 +362,7 @@ JRT_ENTRY(void, Runtime1::new_multi_array(JavaThread* thread, Klass* klass, int 
 
   assert(klass->is_klass(), "not a class");
   assert(rank >= 1, "rank must be nonzero");
-  oop obj = arrayKlass::cast(klass)->multi_allocate(rank, dims, CHECK);
+  oop obj = ArrayKlass::cast(klass)->multi_allocate(rank, dims, CHECK);
   thread->set_vm_result(obj);
 JRT_END
 
@@ -374,7 +374,7 @@ JRT_END
 
 JRT_ENTRY(void, Runtime1::throw_array_store_exception(JavaThread* thread, oopDesc* obj))
   ResourceMark rm(thread);
-  const char* klass_name = Klass::cast(obj->klass())->external_name();
+  const char* klass_name = obj->klass()->external_name();
   SharedRuntime::throw_and_post_jvmti_exception(thread, vmSymbols::java_lang_ArrayStoreException(), klass_name);
 JRT_END
 
@@ -631,7 +631,7 @@ JRT_ENTRY(void, Runtime1::throw_class_cast_exception(JavaThread* thread, oopDesc
   NOT_PRODUCT(_throw_class_cast_exception_count++;)
   ResourceMark rm(thread);
   char* message = SharedRuntime::generate_class_cast_message(
-    thread, Klass::cast(object->klass())->external_name());
+    thread, object->klass()->external_name());
   SharedRuntime::throw_and_post_jvmti_exception(
     thread, vmSymbols::java_lang_ClassCastException(), message);
 JRT_END
@@ -876,7 +876,7 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
       case Bytecodes::_anewarray:
         { Bytecode_anewarray anew(caller_method(), caller_method->bcp_from(bci));
           Klass* ek = caller_method->constants()->klass_at(anew.index(), CHECK);
-          k = Klass::cast(ek)->array_klass(CHECK);
+          k = ek->array_klass(CHECK);
         }
         break;
       case Bytecodes::_ldc:
@@ -1234,9 +1234,9 @@ template <class T> int obj_arraycopy_work(oopDesc* src, T* src_addr,
     bs->write_ref_array((HeapWord*)dst_addr, length);
     return ac_ok;
   } else {
-    Klass* bound = objArrayKlass::cast(dst->klass())->element_klass();
-    Klass* stype = objArrayKlass::cast(src->klass())->element_klass();
-    if (stype == bound || Klass::cast(stype)->is_subtype_of(bound)) {
+    Klass* bound = ObjArrayKlass::cast(dst->klass())->element_klass();
+    Klass* stype = ObjArrayKlass::cast(src->klass())->element_klass();
+    if (stype == bound || stype->is_subtype_of(bound)) {
       // Elements are guaranteed to be subtypes, so no check necessary
       bs->write_ref_array_pre(dst_addr, length);
       Copy::conjoint_oops_atomic(src_addr, dst_addr, length);
@@ -1263,7 +1263,7 @@ JRT_LEAF(int, Runtime1::arraycopy(oopDesc* src, int src_pos, oopDesc* dst, int d
   if (src->is_typeArray()) {
     Klass* const klass_oop = src->klass();
     if (klass_oop != dst->klass()) return ac_failed;
-    typeArrayKlass* klass = typeArrayKlass::cast(klass_oop);
+    TypeArrayKlass* klass = TypeArrayKlass::cast(klass_oop);
     const int l2es = klass->log2_element_size();
     const int ihs = klass->array_header_in_bytes() / wordSize;
     char* src_addr = (char*) ((oopDesc**)src + ihs) + (src_pos << l2es);

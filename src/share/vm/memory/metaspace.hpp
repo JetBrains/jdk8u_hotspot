@@ -57,12 +57,10 @@
 //
 
 class ClassLoaderData;
+class Metablock;
 class MetaWord;
 class Mutex;
 class outputStream;
-class FreeChunk;
-template <class Chunk_t> class FreeList;
-template <class Chunk_t> class BinaryTreeDictionary;
 class SpaceManager;
 
 // Metaspaces each have a  SpaceManager and allocations
@@ -128,18 +126,16 @@ class Metaspace : public CHeapObj<mtClass> {
   size_t capacity_words(MetadataType mdtype) const;
   size_t waste_words(MetadataType mdtype) const;
 
-  static MetaWord* allocate(ClassLoaderData* loader_data, size_t size,
+  static Metablock* allocate(ClassLoaderData* loader_data, size_t size,
                             bool read_only, MetadataType mdtype, TRAPS);
   void deallocate(MetaWord* ptr, size_t byte_size, bool is_class);
 
   MetaWord* expand_and_allocate(size_t size,
                                 MetadataType mdtype);
 
-#ifndef PRODUCT
-  bool contains(const void *ptr) const;
-  bool contains_class(const void *ptr) const;
-#endif
+  static bool is_initialized() { return _class_space_list != NULL; }
 
+  static bool contains(const void *ptr);
   void dump(outputStream* const out) const;
 
   void print_on(outputStream* st) const;
@@ -189,6 +185,7 @@ class MetaspaceAux : AllStatic {
 
   static void print_waste(outputStream* out);
   static void dump(outputStream* out);
+  static void verify_free_chunks();
 };
 
 // Metaspace are deallocated when their class loader are GC'ed.

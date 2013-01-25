@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,20 +25,16 @@
 #ifndef SHARE_VM_ASM_ASSEMBLER_HPP
 #define SHARE_VM_ASM_ASSEMBLER_HPP
 
+#include "asm/codeBuffer.hpp"
 #include "code/oopRecorder.hpp"
 #include "code/relocInfo.hpp"
 #include "memory/allocation.hpp"
 #include "utilities/debug.hpp"
 #include "utilities/growableArray.hpp"
 #include "utilities/top.hpp"
-#ifdef TARGET_ARCH_aarch64
-# include "register_aarch64.hpp"
-# include "vm_version_aarch64.hpp"
-#else
 #ifdef TARGET_ARCH_x86
 # include "register_x86.hpp"
 # include "vm_version_x86.hpp"
-#endif
 #endif
 #ifdef TARGET_ARCH_sparc
 # include "register_sparc.hpp"
@@ -56,10 +52,13 @@
 # include "register_ppc.hpp"
 # include "vm_version_ppc.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "register_aarch64.hpp"
+# include "vm_version_aarch64.hpp"
+#endif
 
 // This file contains platform-independent assembler declarations.
 
-class CodeBuffer;
 class MacroAssembler;
 class AbstractAssembler;
 class Label;
@@ -127,7 +126,7 @@ class Label VALUE_OBJ_CLASS_SPEC {
     assert(_loc == -1, "already bound");
     _loc = loc;
   }
-  void bind_loc(int pos, int sect);  // = bind_loc(locator(pos, sect))
+  void bind_loc(int pos, int sect) { bind_loc(CodeBuffer::locator(pos, sect)); }
 
 #ifndef PRODUCT
   // Iterates over all unresolved instructions for printing
@@ -142,8 +141,8 @@ class Label VALUE_OBJ_CLASS_SPEC {
     assert(_loc >= 0, "unbound label");
     return _loc;
   }
-  int loc_pos() const;   // == locator_pos(loc())
-  int loc_sect() const;  // == locator_sect(loc())
+  int loc_pos()  const { return CodeBuffer::locator_pos(loc()); }
+  int loc_sect() const { return CodeBuffer::locator_sect(loc()); }
 
   bool is_bound() const    { return _loc >=  0; }
   bool is_unbound() const  { return _loc == -1 && _patch_index > 0; }
@@ -206,26 +205,21 @@ class AbstractAssembler : public ResourceObj  {
 
  protected:
   CodeSection* _code_section;          // section within the code buffer
-  address      _code_begin;            // first byte of code buffer
-  address      _code_limit;            // first byte after code buffer
-  address      _code_pos;              // current code generation position
   OopRecorder* _oop_recorder;          // support for relocInfo::oop_type
 
   // Code emission & accessing
-  address addr_at(int pos) const       { return _code_begin + pos; }
+  address addr_at(int pos) const { return code_section()->start() + pos; }
+
 
   // This routine is called with a label is used for an address.
   // Labels and displacements truck in offsets, but target must return a PC.
-  address target(Label& L);            // return _code_section->target(L)
+  address target(Label& L)             { return code_section()->target(L, pc()); }
 
   bool is8bit(int x) const             { return -0x80 <= x && x < 0x80; }
   bool isByte(int x) const             { return 0 <= x && x < 0x100; }
   bool isShiftCount(int x) const       { return 0 <= x && x < 32; }
 
-  void emit_byte(int x);  // emit a single byte
-  void emit_word(int x);  // emit a 16-bit word (not a wordSize word!)
-  void emit_long(jint x); // emit a 32-bit word (not a longSize word!)
-  void emit_address(address x); // emit an address (not a longSize word!)
+  void emit_long(jint x) { emit_int32(x); }  // deprecated
 
   // Instruction boundaries (required when emitting relocatable values).
   class InstructionMark: public StackObj {
@@ -242,10 +236,10 @@ class AbstractAssembler : public ResourceObj  {
     }
   };
   friend class InstructionMark;
-  #ifdef ASSERT
+#ifdef ASSERT
   // Make it return true on platforms which need to verify
   // instruction boundaries for some operations.
-  inline static bool pd_check_instruction_mark();
+  static bool pd_check_instruction_mark();
 
   // Add delta to short branch distance to verify that it still fit into imm8.
   int _short_branch_delta;
@@ -267,27 +261,30 @@ class AbstractAssembler : public ResourceObj  {
       _assm->clear_short_branch_delta();
     }
   };
-  #else
+#else
   // Dummy in product.
   class ShortBranchVerifier: public StackObj {
    public:
     ShortBranchVerifier(AbstractAssembler* assm) {}
   };
-  #endif
-
-  // Label functions
-  void print(Label& L);
+#endif
 
  public:
 
   // Creation
   AbstractAssembler(CodeBuffer* code);
 
-  // save end pointer back to code buf.
-  void sync();
-
   // ensure buf contains all code (call this before using/copying the code)
   void flush();
+
+  void emit_int8(   int8_t  x) { code_section()->emit_int8(   x); }
+  void emit_int16(  int16_t x) { code_section()->emit_int16(  x); }
+  void emit_int32(  int32_t x) { code_section()->emit_int32(  x); }
+  void emit_int64(  int64_t x) { code_section()->emit_int64(  x); }
+
+  void emit_float(  jfloat  x) { code_section()->emit_float(  x); }
+  void emit_double( jdouble x) { code_section()->emit_double( x); }
+  void emit_address(address x) { code_section()->emit_address(x); }
 
   // min and max values for signed immediate ranges
   static int min_simm(int nbits) { return -(intptr_t(1) << (nbits - 1))    ; }
@@ -313,26 +310,29 @@ class AbstractAssembler : public ResourceObj  {
   static bool is_simm32(intptr_t x) { return is_simm(x, 32); }
 
   // Accessors
-  CodeBuffer*   code() const;          // _code_section->outer()
   CodeSection*  code_section() const   { return _code_section; }
-  int           sect() const;          // return _code_section->index()
-  address       pc() const             { return _code_pos; }
-  int           offset() const         { return _code_pos - _code_begin; }
-  int           locator() const;       // CodeBuffer::locator(offset(), sect())
+  CodeBuffer*   code()         const   { return code_section()->outer(); }
+  int           sect()         const   { return code_section()->index(); }
+  address       pc()           const   { return code_section()->end();   }
+  int           offset()       const   { return code_section()->size();  }
+  int           locator()      const   { return CodeBuffer::locator(offset(), sect()); }
+
   OopRecorder*  oop_recorder() const   { return _oop_recorder; }
   void      set_oop_recorder(OopRecorder* r) { _oop_recorder = r; }
 
-  address  inst_mark() const;
-  void set_inst_mark();
-  void clear_inst_mark();
+  address       inst_mark() const { return code_section()->mark();       }
+  void      set_inst_mark()       {        code_section()->set_mark();   }
+  void    clear_inst_mark()       {        code_section()->clear_mark(); }
 
   // Constants in code
-  void a_byte(int x);
-  void a_long(jint x);
-  void relocate(RelocationHolder const& rspec, int format = 0);
+  void relocate(RelocationHolder const& rspec, int format = 0) {
+    assert(!pd_check_instruction_mark()
+        || inst_mark() == NULL || inst_mark() == code_section()->end(),
+        "call relocate() between instructions");
+    code_section()->relocate(code_section()->end(), rspec, format);
+  }
   void relocate(   relocInfo::relocType rtype, int format = 0) {
-    if (rtype != relocInfo::none)
-      relocate(Relocation::spec_simple(rtype), format);
+    code_section()->relocate(code_section()->end(), rtype, format);
   }
 
   static int code_fill_byte();         // used to pad out odd-sized code buffers
@@ -353,52 +353,55 @@ class AbstractAssembler : public ResourceObj  {
   void       end_a_stub();
   // Ditto for constants.
   address    start_a_const(int required_space, int required_align = sizeof(double));
-  void       end_a_const();
+  void       end_a_const(CodeSection* cs);  // Pass the codesection to continue in (insts or stubs?).
 
   // constants support
+  //
+  // We must remember the code section (insts or stubs) in c1
+  // so we can reset to the proper section in end_a_const().
   address long_constant(jlong c) {
+    CodeSection* c1 = _code_section;
     address ptr = start_a_const(sizeof(c), sizeof(c));
     if (ptr != NULL) {
-      *(jlong*)ptr = c;
-      _code_pos = ptr + sizeof(c);
-      end_a_const();
+      emit_int64(c);
+      end_a_const(c1);
     }
     return ptr;
   }
   address double_constant(jdouble c) {
+    CodeSection* c1 = _code_section;
     address ptr = start_a_const(sizeof(c), sizeof(c));
     if (ptr != NULL) {
-      *(jdouble*)ptr = c;
-      _code_pos = ptr + sizeof(c);
-      end_a_const();
+      emit_double(c);
+      end_a_const(c1);
     }
     return ptr;
   }
   address float_constant(jfloat c) {
+    CodeSection* c1 = _code_section;
     address ptr = start_a_const(sizeof(c), sizeof(c));
     if (ptr != NULL) {
-      *(jfloat*)ptr = c;
-      _code_pos = ptr + sizeof(c);
-      end_a_const();
+      emit_float(c);
+      end_a_const(c1);
     }
     return ptr;
   }
   address address_constant(address c) {
+    CodeSection* c1 = _code_section;
     address ptr = start_a_const(sizeof(c), sizeof(c));
     if (ptr != NULL) {
-      *(address*)ptr = c;
-      _code_pos = ptr + sizeof(c);
-      end_a_const();
+      emit_address(c);
+      end_a_const(c1);
     }
     return ptr;
   }
   address address_constant(address c, RelocationHolder const& rspec) {
+    CodeSection* c1 = _code_section;
     address ptr = start_a_const(sizeof(c), sizeof(c));
     if (ptr != NULL) {
       relocate(rspec);
-      *(address*)ptr = c;
-      _code_pos = ptr + sizeof(c);
-      end_a_const();
+      emit_address(c);
+      end_a_const(c1);
     }
     return ptr;
   }
@@ -434,15 +437,6 @@ class AbstractAssembler : public ResourceObj  {
    */
   void pd_patch_instruction(address branch, address target);
 
-#ifndef PRODUCT
-  /**
-   * Platform-dependent method of printing an instruction that needs to be
-   * patched.
-   *
-   * @param branch the instruction to be patched in the buffer.
-   */
-  static void pd_print_patched_instruction(address branch);
-#endif // PRODUCT
 };
 
 #ifdef TARGET_ARCH_x86

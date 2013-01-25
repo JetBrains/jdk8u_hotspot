@@ -26,6 +26,7 @@
 #include "classfile/systemDictionary.hpp"
 #include "classfile/vmSymbols.hpp"
 #include "compiler/compileBroker.hpp"
+#include "compiler/disassembler.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "interpreter/interpreter.hpp"
 #include "interpreter/interpreterRuntime.hpp"
@@ -211,7 +212,7 @@ IRT_ENTRY(void, InterpreterRuntime::multianewarray(JavaThread* thread, jint* fir
     int n = Interpreter::local_offset_in_bytes(index)/jintSize;
     dims[index] = first_size_address[n];
   }
-  oop obj = arrayKlass::cast(klass)->multi_allocate(nof_dims, dims, CHECK);
+  oop obj = ArrayKlass::cast(klass)->multi_allocate(nof_dims, dims, CHECK);
   thread->set_vm_result(obj);
 IRT_END
 
@@ -312,7 +313,7 @@ IRT_END
 
 IRT_ENTRY(void, InterpreterRuntime::create_klass_exception(JavaThread* thread, char* name, oopDesc* obj))
   ResourceMark rm(thread);
-  const char* klass_name = Klass::cast(obj->klass())->external_name();
+  const char* klass_name = obj->klass()->external_name();
   // lookup exception klass
   TempNewSymbol s = SymbolTable::new_symbol(name, CHECK);
   if (ProfileTraps) {
@@ -341,7 +342,7 @@ IRT_ENTRY(void, InterpreterRuntime::throw_ClassCastException(
 
   ResourceMark rm(thread);
   char* message = SharedRuntime::generate_class_cast_message(
-    thread, Klass::cast(obj->klass())->external_name());
+    thread, obj->klass()->external_name());
 
   if (ProfileTraps) {
     note_trap(thread, Deoptimization::Reason_class_check, CHECK);
@@ -733,11 +734,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invokehandle(JavaThread* thread)) {
                                  get_index_u2_cpcache(thread, bytecode), bytecode, CHECK);
   } // end JvmtiHideSingleStepping
 
-  cache_entry(thread)->set_method_handle(
-      pool,
-      info.resolved_method(),
-      info.resolved_appendix(),
-      pool->resolved_references());
+  cache_entry(thread)->set_method_handle(pool, info);
 }
 IRT_END
 
@@ -761,11 +758,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invokedynamic(JavaThread* thread)) {
   } // end JvmtiHideSingleStepping
 
   ConstantPoolCacheEntry* cp_cache_entry = pool->invokedynamic_cp_cache_entry_at(index);
-  cp_cache_entry->set_dynamic_call(
-      pool,
-      info.resolved_method(),
-      info.resolved_appendix(),
-      pool->resolved_references());
+  cp_cache_entry->set_dynamic_call(pool, info);
 }
 IRT_END
 

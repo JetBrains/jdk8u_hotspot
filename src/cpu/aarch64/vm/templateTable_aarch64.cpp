@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "asm/macroAssembler.hpp"
 #include "interpreter/interpreter.hpp"
 #include "interpreter/interpreterRuntime.hpp"
 #include "interpreter/templateTable.hpp"
@@ -918,7 +919,7 @@ void TemplateTable::aastore() {
   // Move superklass into r0
   __ load_klass(r0, r3);
   __ ldr(r0, Address(r0,
-		     objArrayKlass::element_klass_offset()));
+		     ObjArrayKlass::element_klass_offset()));
   // Compress array + index*oopSize + 12 into a single register.  Frees r2.
 
   // Generate subtype check.  Blows r2, r5
@@ -2621,6 +2622,7 @@ void TemplateTable::prepare_invoke(int byte_no,
     // since the parameter_size includes it.
     __ push(r19);
     __ mov(r19, index);
+    assert(ConstantPoolCacheEntry::_indy_resolved_references_appendix_offset == 0, "appendix expected at index+0");
     __ load_resolved_reference_at_index(index, r19);
     __ pop(r19);
     __ push(index);  // push appendix (MethodType, CallSite, etc.)
@@ -2841,9 +2843,7 @@ void TemplateTable::invokehandle(int byte_no) {
     return;
   }
 
-  prepare_invoke(byte_no,
-                 rmethod, r0,  // get f2 Method*, f1 MethodType
-                 r2);
+  prepare_invoke(byte_no, rmethod, r0, r2);
   __ verify_method_ptr(r2);
   __ verify_oop(r2);
   __ null_check(r2);

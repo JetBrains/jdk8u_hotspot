@@ -59,7 +59,7 @@ int                        PSScavenge::_consecutive_skipped_scavenges = 0;
 ReferenceProcessor*        PSScavenge::_ref_processor = NULL;
 CardTableExtension*        PSScavenge::_card_table = NULL;
 bool                       PSScavenge::_survivor_overflow = false;
-int                        PSScavenge::_tenuring_threshold = 0;
+uint                       PSScavenge::_tenuring_threshold = 0;
 HeapWord*                  PSScavenge::_young_generation_boundary = NULL;
 elapsedTimer               PSScavenge::_accumulated_time;
 Stack<markOop, mtGC>       PSScavenge::_preserved_mark_stack;
@@ -315,7 +315,7 @@ bool PSScavenge::invoke_no_policy() {
   if (VerifyBeforeGC && heap->total_collections() >= VerifyGCStartAt) {
     HandleMark hm;  // Discard invalid handles created during verification
     gclog_or_tty->print(" VerifyBeforeGC:");
-    Universe::verify(true);
+    Universe::verify();
   }
 
   {
@@ -395,9 +395,13 @@ bool PSScavenge::invoke_no_policy() {
 
       GCTaskQueue* q = GCTaskQueue::create();
 
-      uint stripe_total = active_workers;
-      for(uint i=0; i < stripe_total; i++) {
-        q->enqueue(new OldToYoungRootsTask(old_gen, old_top, i, stripe_total));
+      if (!old_gen->object_space()->is_empty()) {
+        // There are only old-to-young pointers if there are objects
+        // in the old gen.
+        uint stripe_total = active_workers;
+        for(uint i=0; i < stripe_total; i++) {
+          q->enqueue(new OldToYoungRootsTask(old_gen, old_top, i, stripe_total));
+        }
       }
 
       q->enqueue(new ScavengeRootsTask(ScavengeRootsTask::universe));
@@ -525,7 +529,7 @@ bool PSScavenge::invoke_no_policy() {
 
        if (PrintTenuringDistribution) {
          gclog_or_tty->cr();
-         gclog_or_tty->print_cr("Desired survivor size %ld bytes, new threshold %d (max %d)",
+         gclog_or_tty->print_cr("Desired survivor size %ld bytes, new threshold %u (max %u)",
                                 size_policy->calculated_survivor_size_in_bytes(),
                                 _tenuring_threshold, MaxTenuringThreshold);
        }
@@ -635,7 +639,7 @@ bool PSScavenge::invoke_no_policy() {
   if (VerifyAfterGC && heap->total_collections() >= VerifyGCStartAt) {
     HandleMark hm;  // Discard invalid handles created during verification
     gclog_or_tty->print(" VerifyAfterGC:");
-    Universe::verify(false);
+    Universe::verify();
   }
 
   heap->print_heap_after_gc();

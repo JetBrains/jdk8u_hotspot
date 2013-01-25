@@ -29,6 +29,7 @@
 #include "code/icBuffer.hpp"
 #include "code/vtableStubs.hpp"
 #include "compiler/compileBroker.hpp"
+#include "compiler/disassembler.hpp"
 #include "interpreter/interpreter.hpp"
 #include "jvm_solaris.h"
 #include "memory/allocation.inline.hpp"
@@ -52,30 +53,17 @@
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/statSampler.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/threadCritical.hpp"
 #include "runtime/timer.hpp"
 #include "services/attachListener.hpp"
+#include "services/memTracker.hpp"
 #include "services/runtimeService.hpp"
-#include "thread_solaris.inline.hpp"
 #include "utilities/decoder.hpp"
 #include "utilities/defaultStream.hpp"
 #include "utilities/events.hpp"
 #include "utilities/growableArray.hpp"
 #include "utilities/vmError.hpp"
-#ifdef TARGET_ARCH_x86
-# include "assembler_x86.inline.hpp"
-# include "nativeInst_x86.hpp"
-#endif
-#ifdef TARGET_ARCH_sparc
-# include "assembler_sparc.inline.hpp"
-# include "nativeInst_sparc.hpp"
-#endif
-#ifdef COMPILER1
-#include "c1/c1_Runtime1.hpp"
-#endif
-#ifdef COMPILER2
-#include "opto/runtime.hpp"
-#endif
 
 // put OS-includes here
 # include <dlfcn.h>
@@ -1488,11 +1476,11 @@ void _handle_uncaught_cxx_exception() {
 
 
 // First crack at OS-specific initialization, from inside the new thread.
-void os::initialize_thread() {
+void os::initialize_thread(Thread* thr) {
   int r = thr_main() ;
   guarantee (r == 0 || r == 1, "CR6501650 or CR6493689") ;
   if (r) {
-    JavaThread* jt = (JavaThread *)Thread::current();
+    JavaThread* jt = (JavaThread *)thr;
     assert(jt != NULL,"Sanity check");
     size_t stack_size;
     address base = jt->stack_base();
@@ -1899,18 +1887,19 @@ static bool file_exists(const char* filename) {
   return os::stat(filename, &statbuf) == 0;
 }
 
-void os::dll_build_name(char* buffer, size_t buflen,
+bool os::dll_build_name(char* buffer, size_t buflen,
                         const char* pname, const char* fname) {
+  bool retval = false;
   const size_t pnamelen = pname ? strlen(pname) : 0;
 
-  // Quietly truncate on buffer overflow.  Should be an error.
+  // Return error on buffer overflow.
   if (pnamelen + strlen(fname) + 10 > (size_t) buflen) {
-    *buffer = '\0';
-    return;
+    return retval;
   }
 
   if (pnamelen == 0) {
     snprintf(buffer, buflen, "lib%s.so", fname);
+    retval = true;
   } else if (strchr(pname, *os::path_separator()) != NULL) {
     int n;
     char** pelements = split_path(pname, &n);
@@ -1921,6 +1910,7 @@ void os::dll_build_name(char* buffer, size_t buflen,
       }
       snprintf(buffer, buflen, "%s/lib%s.so", pelements[i], fname);
       if (file_exists(buffer)) {
+        retval = true;
         break;
       }
     }
@@ -1935,7 +1925,9 @@ void os::dll_build_name(char* buffer, size_t buflen,
     }
   } else {
     snprintf(buffer, buflen, "%s/lib%s.so", pname, fname);
+    retval = true;
   }
+  return retval;
 }
 
 const char* os::get_current_directory(char *buf, int buflen) {
@@ -3078,11 +3070,12 @@ char* os::pd_attempt_reserve_memory_at(size_t bytes, char* requested_addr) {
   // Since snv_84, Solaris attempts to honor the address hint - see 5003415.
   // Give it a try, if the kernel honors the hint we can return immediately.
   char* addr = Solaris::anon_mmap(requested_addr, bytes, 0, false);
+
   volatile int err = errno;
   if (addr == requested_addr) {
     return addr;
   } else if (addr != NULL) {
-    unmap_memory(addr, bytes);
+    pd_unmap_memory(addr, bytes);
   }
 
   if (PrintMiscellaneous && Verbose) {
@@ -5875,15 +5868,6 @@ extern "C" {
     return ((intptr_t)&stack_top - stack_top - STACK_SLACK);
   }
 }
-
-// Just to get the Kernel build to link on solaris for testing.
-
-extern "C" {
-class ASGCT_CallTrace;
-void AsyncGetCallTrace(ASGCT_CallTrace *trace, jint depth, void* ucontext)
-  KERNEL_RETURN;
-}
-
 
 // ObjectMonitor park-unpark infrastructure ...
 //

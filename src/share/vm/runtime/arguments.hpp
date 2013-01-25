@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -409,6 +409,8 @@ class Arguments : AllStatic {
  public:
   // Parses the arguments
   static jint parse(const JavaVMInitArgs* args);
+  // Adjusts the arguments after the OS have adjusted the arguments
+  static jint adjust_after_os();
   // Check for consistency in the selection of the garbage collector.
   static bool check_gc_consistency();
   // Check consistecy or otherwise of VM argument settings

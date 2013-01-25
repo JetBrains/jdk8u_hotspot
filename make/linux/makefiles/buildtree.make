@@ -57,6 +57,7 @@
 
 -include $(SPEC)
 include $(GAMMADIR)/make/scm.make
+include $(GAMMADIR)/make/defs.make
 include $(GAMMADIR)/make/altsrc.make
 
 
@@ -156,6 +157,13 @@ ifndef HOTSPOT_VM_DISTRO
   endif
 endif
 
+# if hotspot-only build and/or OPENJDK isn't passed down, need to set OPENJDK
+ifndef OPENJDK
+  ifneq ($(call if-has-altsrc,$(HS_COMMON_SRC)/,true,false),true)
+    OPENJDK=true
+  endif
+endif
+
 BUILDTREE_VARS += HOTSPOT_RELEASE_VERSION=$(HS_BUILD_VER) HOTSPOT_BUILD_VERSION=  JRE_RELEASE_VERSION=$(JRE_RELEASE_VERSION)
 
 BUILDTREE	= \
@@ -188,6 +196,8 @@ flags.make: $(BUILDTREE_MAKE) ../shared_dirs.lst
 	sed -n '/=/s/^ */Platform_/p' < $(PLATFORM_FILE); \
 	echo; \
 	echo "GAMMADIR = $(GAMMADIR)"; \
+	echo "HS_ALT_MAKE = $(HS_ALT_MAKE)"; \
+	echo "OSNAME = $(OSNAME)"; \
 	echo "SYSDEFS = \$$(Platform_sysdefs)"; \
 	echo "SRCARCH = $(SRCARCH)"; \
 	echo "BUILDARCH = $(BUILDARCH)"; \
@@ -198,6 +208,7 @@ flags.make: $(BUILDTREE_MAKE) ../shared_dirs.lst
 	echo "SA_BUILD_VERSION = $(HS_BUILD_VER)"; \
 	echo "HOTSPOT_BUILD_USER = $(HOTSPOT_BUILD_USER)"; \
 	echo "HOTSPOT_VM_DISTRO = $(HOTSPOT_VM_DISTRO)"; \
+	echo "OPENJDK = $(OPENJDK)"; \
 	echo; \
 	echo "# Used for platform dispatching"; \
 	echo "TARGET_DEFINES  = -DTARGET_OS_FAMILY_\$$(Platform_os_family)"; \
@@ -254,6 +265,7 @@ flags.make: $(BUILDTREE_MAKE) ../shared_dirs.lst
 	[ -n "$(SPEC)" ] && \
 	    echo "include $(SPEC)"; \
 	echo "include \$$(GAMMADIR)/make/$(OS_FAMILY)/makefiles/$(VARIANT).make"; \
+	echo "include \$$(GAMMADIR)/make/excludeSrc.make"; \
 	echo "include \$$(GAMMADIR)/make/$(OS_FAMILY)/makefiles/$(COMPILER).make"; \
 	) > $@
 
@@ -429,12 +441,7 @@ test_gamma:  $(BUILDTREE_MAKE) $(GAMMADIR)/make/test/Queens.java
 	echo "  exit 0"; \
 	echo "fi"; \
 	echo ""; \
-	echo "# Use gamma_g if it exists"; \
-	echo ""; \
 	echo "GAMMA_PROG=gamma"; \
-	echo "if [ -f gamma_g ]; then "; \
-	echo "  GAMMA_PROG=gamma_g"; \
-	echo "fi"; \
 	echo ""; \
 	echo "if [ \"$(OS_VENDOR)\" = \"Darwin\" ]; then "; \
 	echo "  # Ensure architecture for gamma and JAVA_HOME is the same."; \

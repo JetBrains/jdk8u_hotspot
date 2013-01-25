@@ -23,7 +23,7 @@
  */
 
 #include "precompiled.hpp"
-#include "asm/assembler.hpp"
+#include "asm/macroAssembler.hpp"
 #include "interpreter/bytecodeHistogram.hpp"
 #include "interpreter/interpreter.hpp"
 #include "interpreter/interpreterGenerator.hpp"
@@ -512,7 +512,8 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call, Regist
 
   // Move SP out of the way
   if (! native_call) {
-    __ ldrh(rscratch1, Address(rmethod, Method::max_stack_offset()));
+    __ ldr(rscratch1, Address(rmethod, Method::const_offset()));
+    __ ldrh(rscratch1, Address(rscratch1, ConstMethod::max_stack_offset()));
     __ add(rscratch1, rscratch1, frame::interpreter_frame_monitor_size()
 	   + (EnableInvokeDynamic ? 2 : 0));
     __ sub(rscratch1, sp, rscratch1, ext::uxtw, 3);
@@ -567,14 +568,16 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
 
   address entry_point = __ pc();
 
-  const Address size_of_parameters(rmethod, Method::
-                                        size_of_parameters_offset());
+  const Address constMethod       (rmethod, Method::const_offset());
   const Address invocation_counter(rmethod, Method::
                                         invocation_counter_offset() +
                                         InvocationCounter::counter_offset());
   const Address access_flags      (rmethod, Method::access_flags_offset());
+  const Address size_of_parameters(r2, ConstMethod::
+				       size_of_parameters_offset());
 
   // get parameter size (always needed)
+  __ ldr(r2, constMethod);
   __ load_unsigned_short(r2, size_of_parameters);
 
   // native calls don't need the stack size check since they have no
@@ -693,9 +696,8 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   const Register result_handler = r19;
 
   // allocate space for parameters
-  __ load_unsigned_short(t,
-                         Address(rmethod,
-                                 Method::size_of_parameters_offset()));
+  __ ldr(t, Address(rmethod, Method::const_offset()));
+  __ load_unsigned_short(t, Address(t, ConstMethod::size_of_parameters_offset()));
 
   __ sub(rscratch1, esp, t, ext::uxtx, Interpreter::logStackElementSize);
   __ andr(sp, rscratch1, -16);
@@ -1008,15 +1010,18 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
   // rscratch1: sender sp
   address entry_point = __ pc();
 
-  const Address size_of_parameters(rmethod,
-                                   Method::size_of_parameters_offset());
-  const Address size_of_locals(rmethod, Method::size_of_locals_offset());
+  const Address constMethod(rmethod, Method::const_offset());
   const Address invocation_counter(rmethod,
                                    Method::invocation_counter_offset() +
                                    InvocationCounter::counter_offset());
   const Address access_flags(rmethod, Method::access_flags_offset());
+  const Address size_of_parameters(r3,
+                                   ConstMethod::size_of_parameters_offset());
+  const Address size_of_locals(r3, ConstMethod::size_of_locals_offset());
 
   // get parameter size (always needed)
+  // need to load the const method first
+  __ ldr(r3, constMethod);
   __ load_unsigned_short(r2, size_of_parameters);
 
   // r2: size of parameters
@@ -1402,7 +1407,8 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
     // Compute size of arguments for saving when returning to
     // deoptimized caller
     __ get_method(r0);
-    __ load_unsigned_short(r0, Address(r0, in_bytes(Method::
+    __ ldr(r0, Address(r0, Method::const_offset()));
+    __ load_unsigned_short(r0, Address(r0, in_bytes(ConstMethod::
 						    size_of_parameters_offset())));
     __ lsl(r0, r0, Interpreter::logStackElementSize);
     __ restore_locals(); // XXX do we need this?

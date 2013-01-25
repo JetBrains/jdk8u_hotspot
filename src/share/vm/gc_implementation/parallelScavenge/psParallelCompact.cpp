@@ -983,7 +983,7 @@ void PSParallelCompact::pre_compact(PreGCValues* pre_gc_values)
   if (VerifyBeforeGC && heap->total_collections() >= VerifyGCStartAt) {
     HandleMark hm;  // Discard invalid handles created during verification
     gclog_or_tty->print(" VerifyBeforeGC:");
-    Universe::verify(true);
+    Universe::verify();
   }
 
   // Verify object start arrays
@@ -2184,7 +2184,7 @@ bool PSParallelCompact::invoke_no_policy(bool maximum_heap_compaction) {
   if (VerifyAfterGC && heap->total_collections() >= VerifyGCStartAt) {
     HandleMark hm;  // Discard invalid handles created during verification
     gclog_or_tty->print(" VerifyAfterGC:");
-    Universe::verify(false);
+    Universe::verify();
   }
 
   // Re-verify object start arrays
@@ -2375,8 +2375,7 @@ void PSParallelCompact::marking_phase(ParCompactionManager* cm,
   bool purged_class = SystemDictionary::do_unloading(is_alive_closure());
 
   // Follow code cache roots.
-  CodeCache::do_unloading(is_alive_closure(), &mark_and_push_closure,
-                          purged_class);
+  CodeCache::do_unloading(is_alive_closure(), purged_class);
   cm->follow_marking_stacks(); // Flush marking stack.
 
   // Update subklass/sibling/implementor links of live klasses
@@ -2437,7 +2436,8 @@ void PSParallelCompact::adjust_roots() {
   // General strong roots.
   Universe::oops_do(adjust_root_pointer_closure());
   JNIHandles::oops_do(adjust_root_pointer_closure());   // Global (strong) JNI handles
-  Threads::oops_do(adjust_root_pointer_closure(), NULL);
+  CLDToOopClosure adjust_from_cld(adjust_root_pointer_closure());
+  Threads::oops_do(adjust_root_pointer_closure(), &adjust_from_cld, NULL);
   ObjectSynchronizer::oops_do(adjust_root_pointer_closure());
   FlatProfiler::oops_do(adjust_root_pointer_closure());
   Management::oops_do(adjust_root_pointer_closure());

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -48,6 +48,10 @@
 const char* Abstract_VM_Version::_s_vm_release = Abstract_VM_Version::vm_release();
 const char* Abstract_VM_Version::_s_internal_vm_info_string = Abstract_VM_Version::internal_vm_info_string();
 bool Abstract_VM_Version::_supports_cx8 = false;
+bool Abstract_VM_Version::_supports_atomic_getset4 = false;
+bool Abstract_VM_Version::_supports_atomic_getset8 = false;
+bool Abstract_VM_Version::_supports_atomic_getadd4 = false;
+bool Abstract_VM_Version::_supports_atomic_getadd8 = false;
 unsigned int Abstract_VM_Version::_logical_processors_per_package = 1U;
 int Abstract_VM_Version::_reserve_for_allocation_prefetch = 0;
 
@@ -109,24 +113,26 @@ void Abstract_VM_Version::initialize() {
   #define VMLP ""
 #endif
 
-#ifdef KERNEL
-  #define VMTYPE "Kernel"
-#else // KERNEL
-#ifdef TIERED
-  #define VMTYPE "Server"
-#else // TIERED
-#ifdef ZERO
-#ifdef SHARK
-  #define VMTYPE "Shark"
-#else // SHARK
-  #define VMTYPE "Zero"
-#endif // SHARK
-#else // ZERO
-   #define VMTYPE COMPILER1_PRESENT("Client")   \
-                  COMPILER2_PRESENT("Server")
-#endif // ZERO
-#endif // TIERED
-#endif // KERNEL
+#ifndef VMTYPE
+  #ifdef KERNEL
+    #define VMTYPE "Kernel"
+  #else // KERNEL
+  #ifdef TIERED
+    #define VMTYPE "Server"
+  #else // TIERED
+  #ifdef ZERO
+  #ifdef SHARK
+    #define VMTYPE "Shark"
+  #else // SHARK
+    #define VMTYPE "Zero"
+  #endif // SHARK
+  #else // ZERO
+     #define VMTYPE COMPILER1_PRESENT("Client")   \
+                    COMPILER2_PRESENT("Server")
+  #endif // ZERO
+  #endif // TIERED
+  #endif // KERNEL
+#endif
 
 #ifndef HOTSPOT_VM_DISTRO
   #error HOTSPOT_VM_DISTRO must be defined
@@ -244,19 +250,21 @@ const char* Abstract_VM_Version::internal_vm_info_string() {
 
   #ifndef FLOAT_ARCH
     #if defined(__SOFTFP__)
-      #define FLOAT_ARCH "-sflt"
+      #define FLOAT_ARCH_STR "-sflt"
     #elif defined(E500V2)
-      #define FLOAT_ARCH "-e500v2"
+      #define FLOAT_ARCH_STR "-e500v2"
     #elif defined(ARM)
-      #define FLOAT_ARCH "-vfp"
+      #define FLOAT_ARCH_STR "-vfp"
     #elif defined(PPC)
-      #define FLOAT_ARCH "-hflt"
+      #define FLOAT_ARCH_STR "-hflt"
     #else
-      #define FLOAT_ARCH ""
+      #define FLOAT_ARCH_STR ""
     #endif
+  #else
+    #define FLOAT_ARCH_STR XSTR(FLOAT_ARCH)
   #endif
 
-  return VMNAME " (" VM_RELEASE ") for " OS "-" CPU FLOAT_ARCH
+  return VMNAME " (" VM_RELEASE ") for " OS "-" CPU FLOAT_ARCH_STR
          " JRE (" JRE_RELEASE_VERSION "), built on " __DATE__ " " __TIME__
          " by " XSTR(HOTSPOT_BUILD_USER) " with " HOTSPOT_BUILD_COMPILER;
 }

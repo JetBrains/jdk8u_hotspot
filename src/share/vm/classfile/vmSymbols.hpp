@@ -110,10 +110,12 @@
   template(sun_jkernel_DownloadManager,               "sun/jkernel/DownloadManager")              \
   template(getBootClassPathEntryForClass_name,        "getBootClassPathEntryForClass")            \
   template(sun_misc_PostVMInitHook,                   "sun/misc/PostVMInitHook")                  \
+  template(sun_misc_Launcher_ExtClassLoader,          "sun/misc/Launcher$ExtClassLoader")         \
                                                                                                   \
   /* Java runtime version access */                                                               \
   template(sun_misc_Version,                          "sun/misc/Version")                         \
   template(java_runtime_name_name,                    "java_runtime_name")                        \
+  template(java_runtime_version_name,                 "java_runtime_version")                     \
                                                                                                   \
   /* class file format tags */                                                                    \
   template(tag_source_file,                           "SourceFile")                               \
@@ -257,6 +259,7 @@
   template(java_lang_invoke_DontInline_signature,     "Ljava/lang/invoke/DontInline;")            \
   template(java_lang_invoke_LambdaForm_Compiled_signature, "Ljava/lang/invoke/LambdaForm$Compiled;") \
   template(java_lang_invoke_LambdaForm_Hidden_signature, "Ljava/lang/invoke/LambdaForm$Hidden;")  \
+  template(java_lang_invoke_MagicLambdaImpl,          "java/lang/invoke/MagicLambdaImpl")         \
   /* internal up-calls made only by the JVM, via class sun.invoke.MethodHandleNatives: */         \
   template(findMethodHandleType_name,                 "findMethodHandleType")                     \
   template(findMethodHandleType_signature,       "(Ljava/lang/Class;[Ljava/lang/Class;)Ljava/lang/invoke/MethodType;") \
@@ -723,6 +726,21 @@
   /* java/lang/ref/Reference */                                                                                         \
   do_intrinsic(_Reference_get,            java_lang_ref_Reference, get_name,    void_object_signature, F_R)             \
                                                                                                                         \
+  /* support for com.sum.crypto.provider.AESCrypt and some of its callers */                                            \
+  do_class(com_sun_crypto_provider_aescrypt,      "com/sun/crypto/provider/AESCrypt")                                   \
+  do_intrinsic(_aescrypt_encryptBlock, com_sun_crypto_provider_aescrypt, encryptBlock_name, byteArray_int_byteArray_int_signature, F_R)   \
+  do_intrinsic(_aescrypt_decryptBlock, com_sun_crypto_provider_aescrypt, decryptBlock_name, byteArray_int_byteArray_int_signature, F_R)   \
+   do_name(     encryptBlock_name,                                 "encryptBlock")                                      \
+   do_name(     decryptBlock_name,                                 "decryptBlock")                                      \
+   do_signature(byteArray_int_byteArray_int_signature,             "([BI[BI)V")                                         \
+                                                                                                                        \
+  do_class(com_sun_crypto_provider_cipherBlockChaining,            "com/sun/crypto/provider/CipherBlockChaining")       \
+   do_intrinsic(_cipherBlockChaining_encryptAESCrypt, com_sun_crypto_provider_cipherBlockChaining, encrypt_name, byteArray_int_int_byteArray_int_signature, F_R)   \
+   do_intrinsic(_cipherBlockChaining_decryptAESCrypt, com_sun_crypto_provider_cipherBlockChaining, decrypt_name, byteArray_int_int_byteArray_int_signature, F_R)   \
+   do_name(     encrypt_name,                                      "encrypt")                                           \
+   do_name(     decrypt_name,                                      "decrypt")                                           \
+   do_signature(byteArray_int_int_byteArray_int_signature,         "([BII[BI)V")                                        \
+                                                                                                                        \
   /* support for sun.misc.Unsafe */                                                                                     \
   do_class(sun_misc_Unsafe,               "sun/misc/Unsafe")                                                            \
                                                                                                                         \
@@ -738,6 +756,15 @@
   do_intrinsic(_unpark,                   sun_misc_Unsafe,        unpark_name, unpark_signature,                 F_RN)  \
    do_name(     unpark_name,                                     "unpark")                                              \
    do_alias(    unpark_signature,                               /*(LObject;)V*/ object_void_signature)                  \
+  do_intrinsic(_loadFence,                sun_misc_Unsafe,        loadFence_name, loadFence_signature,           F_RN)  \
+   do_name(     loadFence_name,                                  "loadFence")                                           \
+   do_alias(    loadFence_signature,                              void_method_signature)                                \
+  do_intrinsic(_storeFence,               sun_misc_Unsafe,        storeFence_name, storeFence_signature,         F_RN)  \
+   do_name(     storeFence_name,                                 "storeFence")                                          \
+   do_alias(    storeFence_signature,                             void_method_signature)                                \
+  do_intrinsic(_fullFence,                sun_misc_Unsafe,        fullFence_name, fullFence_signature,           F_RN)  \
+   do_name(     fullFence_name,                                  "fullFence")                                           \
+   do_alias(    fullFence_signature,                              void_method_signature)                                \
                                                                                                                         \
   /* unsafe memory references (there are a lot of them...) */                                                           \
   do_signature(getObject_signature,       "(Ljava/lang/Object;J)Ljava/lang/Object;")                                    \
@@ -872,6 +899,22 @@
   do_intrinsic(_putOrderedInt,            sun_misc_Unsafe,        putOrderedInt_name, putOrderedInt_signature,   F_RN)  \
    do_name(     putOrderedInt_name,                              "putOrderedInt")                                       \
    do_alias(    putOrderedInt_signature,                        /*(Ljava/lang/Object;JI)V*/ putInt_signature)           \
+                                                                                                                        \
+  do_intrinsic(_getAndAddInt,             sun_misc_Unsafe,        getAndAddInt_name, getAndAddInt_signature, F_R)       \
+   do_name(     getAndAddInt_name,                                "getAndAddInt")                                       \
+   do_signature(getAndAddInt_signature,                           "(Ljava/lang/Object;JI)I" )                           \
+  do_intrinsic(_getAndAddLong,            sun_misc_Unsafe,        getAndAddLong_name, getAndAddLong_signature, F_R)     \
+   do_name(     getAndAddLong_name,                               "getAndAddLong")                                      \
+   do_signature(getAndAddLong_signature,                          "(Ljava/lang/Object;JJ)J" )                           \
+  do_intrinsic(_getAndSetInt,             sun_misc_Unsafe,        getAndSetInt_name, getAndSetInt_signature, F_R)       \
+   do_name(     getAndSetInt_name,                                "getAndSetInt")                                       \
+   do_alias(    getAndSetInt_signature,                         /*"(Ljava/lang/Object;JI)I"*/ getAndAddInt_signature)   \
+  do_intrinsic(_getAndSetLong,            sun_misc_Unsafe,        getAndSetLong_name, getAndSetLong_signature, F_R)     \
+   do_name(     getAndSetLong_name,                               "getAndSetLong")                                      \
+   do_alias(    getAndSetLong_signature,                        /*"(Ljava/lang/Object;JJ)J"*/ getAndAddLong_signature)  \
+  do_intrinsic(_getAndSetObject,          sun_misc_Unsafe,        getAndSetObject_name, getAndSetObject_signature,  F_R)\
+   do_name(     getAndSetObject_name,                             "getAndSetObject")                                    \
+   do_signature(getAndSetObject_signature,                        "(Ljava/lang/Object;JLjava/lang/Object;)Ljava/lang/Object;" ) \
                                                                                                                         \
   /* prefetch_signature is shared by all prefetch variants */                                                           \
   do_signature( prefetch_signature,        "(Ljava/lang/Object;J)V")                                                    \
@@ -1123,9 +1166,6 @@ public:
   static Flags              flags_for(ID id);
 
   static const char* short_name_as_C_string(ID id, char* buf, int size);
-
-  // Access to intrinsic methods:
-  static Method* method_for(ID id);
 
   // Wrapper object methods:
   static ID for_boxing(BasicType type);

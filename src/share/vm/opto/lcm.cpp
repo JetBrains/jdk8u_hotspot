@@ -167,6 +167,7 @@ void Block::implicit_null_check(PhaseCFG *cfg, Node *proj, Node *val, int allowe
     case Op_StoreL:
     case Op_StoreP:
     case Op_StoreN:
+    case Op_StoreNKlass:
       was_store = true;         // Memory op is a store op
       // Stores will have their address in slot 2 (memory in slot 1).
       // If the value being nul-checked is in another slot, it means we
@@ -372,7 +373,7 @@ void Block::implicit_null_check(PhaseCFG *cfg, Node *proj, Node *val, int allowe
     Node *tmp2 = _nodes[end_idx()+2];
     _nodes.map(end_idx()+1, tmp2);
     _nodes.map(end_idx()+2, tmp1);
-    Node *tmp = new (C, 1) Node(C->top()); // Use not NULL input
+    Node *tmp = new (C) Node(C->top()); // Use not NULL input
     tmp1->replace_by(tmp);
     tmp2->replace_by(tmp1);
     tmp->replace_by(tmp2);
@@ -615,7 +616,7 @@ uint Block::sched_call( Matcher &matcher, Block_Array &bbs, uint node_cnt, Node_
   // Set all registers killed and not already defined by the call.
   uint r_cnt = mcall->tf()->range()->cnt();
   int op = mcall->ideal_Opcode();
-  MachProjNode *proj = new (matcher.C, 1) MachProjNode( mcall, r_cnt+1, RegMask::Empty, MachProjNode::fat_proj );
+  MachProjNode *proj = new (matcher.C) MachProjNode( mcall, r_cnt+1, RegMask::Empty, MachProjNode::fat_proj );
   bbs.map(proj->_idx,this);
   _nodes.insert(node_cnt++, proj);
 
@@ -842,7 +843,7 @@ bool Block::schedule_local(PhaseCFG *cfg, Matcher &matcher, GrowableArray<int> &
       regs.Insert(matcher.c_frame_pointer());
       regs.OR(n->out_RegMask());
 
-      MachProjNode *proj = new (matcher.C, 1) MachProjNode( n, 1, RegMask::Empty, MachProjNode::fat_proj );
+      MachProjNode *proj = new (matcher.C) MachProjNode( n, 1, RegMask::Empty, MachProjNode::fat_proj );
       cfg->_bbs.map(proj->_idx,this);
       _nodes.insert(phi_cnt++, proj);
 
@@ -1008,7 +1009,7 @@ static void catch_cleanup_inter_block(Node *use, Block *use_blk, Node *def, Bloc
 //------------------------------call_catch_cleanup-----------------------------
 // If we inserted any instructions between a Call and his CatchNode,
 // clone the instructions on all paths below the Catch.
-void Block::call_catch_cleanup(Block_Array &bbs) {
+void Block::call_catch_cleanup(Block_Array &bbs, Compile* C) {
 
   // End of region to clone
   uint end = end_idx();
@@ -1070,7 +1071,7 @@ void Block::call_catch_cleanup(Block_Array &bbs) {
 
   // Remove the now-dead cloned ops
   for(uint i3 = beg; i3 < end; i3++ ) {
-    _nodes[beg]->disconnect_inputs(NULL);
+    _nodes[beg]->disconnect_inputs(NULL, C);
     _nodes.remove(beg);
   }
 
@@ -1083,7 +1084,7 @@ void Block::call_catch_cleanup(Block_Array &bbs) {
       Node *n = sb->_nodes[j];
       if (n->outcnt() == 0 &&
           (!n->is_Proj() || n->as_Proj()->in(0)->outcnt() == 1) ){
-        n->disconnect_inputs(NULL);
+        n->disconnect_inputs(NULL, C);
         sb->_nodes.remove(j);
         new_cnt--;
       }

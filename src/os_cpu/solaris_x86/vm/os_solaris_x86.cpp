@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -23,7 +23,7 @@
  */
 
 // no precompiled headers
-#include "assembler_x86.inline.hpp"
+#include "asm/macroAssembler.hpp"
 #include "classfile/classLoader.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "classfile/vmSymbols.hpp"
@@ -33,7 +33,6 @@
 #include "jvm_solaris.h"
 #include "memory/allocation.inline.hpp"
 #include "mutex_solaris.inline.hpp"
-#include "nativeInst_x86.hpp"
 #include "os_share_solaris.hpp"
 #include "prims/jniFastGetField.hpp"
 #include "prims/jvm.h"
@@ -48,16 +47,10 @@
 #include "runtime/osThread.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/timer.hpp"
-#include "thread_solaris.inline.hpp"
 #include "utilities/events.hpp"
 #include "utilities/vmError.hpp"
-#ifdef COMPILER1
-#include "c1/c1_Runtime1.hpp"
-#endif
-#ifdef COMPILER2
-#include "opto/runtime.hpp"
-#endif
 
 // put OS-includes here
 # include <sys/types.h>

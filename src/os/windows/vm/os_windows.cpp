@@ -22,7 +22,7 @@
  *
  */
 
-// Must be at least Windows 2000 or XP to use VectoredExceptions and IsDebuggerPresent
+// Must be at least Windows 2000 or XP to use IsDebuggerPresent
 #define _WIN32_WINNT 0x500
 
 // no precompiled headers
@@ -32,6 +32,7 @@
 #include "code/icBuffer.hpp"
 #include "code/vtableStubs.hpp"
 #include "compiler/compileBroker.hpp"
+#include "compiler/disassembler.hpp"
 #include "interpreter/interpreter.hpp"
 #include "jvm_windows.h"
 #include "memory/allocation.inline.hpp"
@@ -55,26 +56,16 @@
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/statSampler.hpp"
 #include "runtime/stubRoutines.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/threadCritical.hpp"
 #include "runtime/timer.hpp"
 #include "services/attachListener.hpp"
 #include "services/runtimeService.hpp"
-#include "thread_windows.inline.hpp"
 #include "utilities/decoder.hpp"
 #include "utilities/defaultStream.hpp"
 #include "utilities/events.hpp"
 #include "utilities/growableArray.hpp"
 #include "utilities/vmError.hpp"
-#ifdef TARGET_ARCH_x86
-# include "assembler_x86.inline.hpp"
-# include "nativeInst_x86.hpp"
-#endif
-#ifdef COMPILER1
-#include "c1/c1_Runtime1.hpp"
-#endif
-#ifdef COMPILER2
-#include "opto/runtime.hpp"
-#endif
 
 #ifdef _DEBUG
 #include <crtdbg.h>
@@ -116,10 +107,6 @@ static FILETIME process_exit_time;
 static FILETIME process_user_time;
 static FILETIME process_kernel_time;
 
-#ifdef _WIN64
-PVOID  topLevelVectoredExceptionHandler = NULL;
-#endif
-
 #ifdef _M_IA64
 #define __CPU__ ia64
 #elif _M_AMD64
@@ -142,12 +129,6 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved) {
     case DLL_PROCESS_DETACH:
       if(ForceTimeHighResolution)
         timeEndPeriod(1L);
-#ifdef _WIN64
-      if (topLevelVectoredExceptionHandler != NULL) {
-        RemoveVectoredExceptionHandler(topLevelVectoredExceptionHandler);
-        topLevelVectoredExceptionHandler = NULL;
-      }
-#endif
       break;
     default:
       break;
@@ -414,20 +395,14 @@ static unsigned __stdcall java_start(Thread* thread) {
   }
 
 
-  if (UseVectoredExceptions) {
-    // If we are using vectored exception we don't need to set a SEH
-    thread->run();
-  }
-  else {
-    // Install a win32 structured exception handler around every thread created
-    // by VM, so VM can genrate error dump when an exception occurred in non-
-    // Java thread (e.g. VM thread).
-    __try {
-       thread->run();
-    } __except(topLevelExceptionFilter(
-               (_EXCEPTION_POINTERS*)_exception_info())) {
-        // Nothing to do.
-    }
+  // Install a win32 structured exception handler around every thread created
+  // by VM, so VM can genrate error dump when an exception occurred in non-
+  // Java thread (e.g. VM thread).
+  __try {
+     thread->run();
+  } __except(topLevelExceptionFilter(
+             (_EXCEPTION_POINTERS*)_exception_info())) {
+      // Nothing to do.
   }
 
   // One less thread is executing
@@ -1154,21 +1129,23 @@ static bool file_exists(const char* filename) {
   return GetFileAttributes(filename) != INVALID_FILE_ATTRIBUTES;
 }
 
-void os::dll_build_name(char *buffer, size_t buflen,
+bool os::dll_build_name(char *buffer, size_t buflen,
                         const char* pname, const char* fname) {
+  bool retval = false;
   const size_t pnamelen = pname ? strlen(pname) : 0;
   const char c = (pnamelen > 0) ? pname[pnamelen-1] : 0;
 
-  // Quietly truncates on buffer overflow. Should be an error.
+  // Return error on buffer overflow.
   if (pnamelen + strlen(fname) + 10 > buflen) {
-    *buffer = '\0';
-    return;
+    return retval;
   }
 
   if (pnamelen == 0) {
     jio_snprintf(buffer, buflen, "%s.dll", fname);
+    retval = true;
   } else if (c == ':' || c == '\\') {
     jio_snprintf(buffer, buflen, "%s%s.dll", pname, fname);
+    retval = true;
   } else if (strchr(pname, *os::path_separator()) != NULL) {
     int n;
     char** pelements = split_path(pname, &n);
@@ -1186,6 +1163,7 @@ void os::dll_build_name(char *buffer, size_t buflen,
         jio_snprintf(buffer, buflen, "%s\\%s.dll", path, fname);
       }
       if (file_exists(buffer)) {
+        retval = true;
         break;
       }
     }
@@ -1200,7 +1178,9 @@ void os::dll_build_name(char *buffer, size_t buflen,
     }
   } else {
     jio_snprintf(buffer, buflen, "%s\\%s.dll", pname, fname);
+    retval = true;
   }
+  return retval;
 }
 
 // Needs to be in os specific directory because windows requires another
@@ -2495,16 +2475,6 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
       }
 #endif
 
-#ifdef _WIN64
-      // Windows will sometimes generate an access violation
-      // when we call malloc.  Since we use VectoredExceptions
-      // on 64 bit platforms, we see this exception.  We must
-      // pass this exception on so Windows can recover.
-      // We check to see if the pc of the fault is in NTDLL.DLL
-      // if so, we pass control on to Windows for handling.
-      if (UseVectoredExceptions && _addr_in_ntdll(pc)) return EXCEPTION_CONTINUE_SEARCH;
-#endif
-
       // Stack overflow or null pointer exception in native code.
       report_error(t, exception_code, pc, exceptionInfo->ExceptionRecord,
                    exceptionInfo->ContextRecord);
@@ -2533,30 +2503,8 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
   }
 
   if (exception_code != EXCEPTION_BREAKPOINT) {
-#ifndef _WIN64
     report_error(t, exception_code, pc, exceptionInfo->ExceptionRecord,
                  exceptionInfo->ContextRecord);
-#else
-    // Itanium Windows uses a VectoredExceptionHandler
-    // Which means that C++ programatic exception handlers (try/except)
-    // will get here.  Continue the search for the right except block if
-    // the exception code is not a fatal code.
-    switch ( exception_code ) {
-      case EXCEPTION_ACCESS_VIOLATION:
-      case EXCEPTION_STACK_OVERFLOW:
-      case EXCEPTION_ILLEGAL_INSTRUCTION:
-      case EXCEPTION_ILLEGAL_INSTRUCTION_2:
-      case EXCEPTION_INT_OVERFLOW:
-      case EXCEPTION_INT_DIVIDE_BY_ZERO:
-      case EXCEPTION_UNCAUGHT_CXX_EXCEPTION:
-      {  report_error(t, exception_code, pc, exceptionInfo->ExceptionRecord,
-                       exceptionInfo->ContextRecord);
-      }
-        break;
-      default:
-        break;
-    }
-#endif
   }
   return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -2945,6 +2893,36 @@ void os::pd_split_reserved_memory(char *base, size_t size, size_t split,
       reserve_memory(size - split, base + split);
     }
   }
+}
+
+// Multiple threads can race in this code but it's not possible to unmap small sections of
+// virtual space to get requested alignment, like posix-like os's.
+// Windows prevents multiple thread from remapping over each other so this loop is thread-safe.
+char* os::reserve_memory_aligned(size_t size, size_t alignment) {
+  assert((alignment & (os::vm_allocation_granularity() - 1)) == 0,
+      "Alignment must be a multiple of allocation granularity (page size)");
+  assert((size & (alignment -1)) == 0, "size must be 'alignment' aligned");
+
+  size_t extra_size = size + alignment;
+  assert(extra_size >= size, "overflow, size is too large to allow alignment");
+
+  char* aligned_base = NULL;
+
+  do {
+    char* extra_base = os::reserve_memory(extra_size, NULL, alignment);
+    if (extra_base == NULL) {
+      return NULL;
+    }
+    // Do manual alignment
+    aligned_base = (char*) align_size_up((uintptr_t) extra_base, alignment);
+
+    os::release_memory(extra_base, extra_size);
+
+    aligned_base = os::reserve_memory(size, aligned_base);
+
+  } while (aligned_base == NULL);
+
+  return aligned_base;
 }
 
 char* os::pd_reserve_memory(size_t bytes, char* addr, size_t alignment_hint) {
@@ -3711,18 +3689,6 @@ jint os::init_2(void) {
   os::large_page_init();
 
   // Setup Windows Exceptions
-
-  // On Itanium systems, Structured Exception Handling does not
-  // work since stack frames must be walkable by the OS.  Since
-  // much of our code is dynamically generated, and we do not have
-  // proper unwind .xdata sections, the system simply exits
-  // rather than delivering the exception.  To work around
-  // this we use VectorExceptions instead.
-#ifdef _WIN64
-  if (UseVectoredExceptions) {
-    topLevelVectoredExceptionHandler = AddVectoredExceptionHandler( 1, topLevelExceptionFilter);
-  }
-#endif
 
   // for debugging float code generation bugs
   if (ForceFloatExceptions) {

@@ -88,7 +88,7 @@
           "Max vector size in bytes, "                                      \
           "actual size could be less depending on elements type")           \
                                                                             \
-  product(bool, AlignVector, false,                                         \
+  product(bool, AlignVector, true,                                          \
           "Perform vector store/load alignment in loop")                    \
                                                                             \
   product(intx, NumberOfLoopInstrToAlign, 4,                                \
@@ -117,6 +117,12 @@
                                                                             \
   notproduct(bool, VerifyOpto, false,                                       \
           "Apply more time consuming verification during compilation")      \
+                                                                            \
+  notproduct(bool, VerifyIdealNodeCount, false,                             \
+          "Verify that tracked dead ideal node count is accurate")          \
+                                                                            \
+  notproduct(bool, PrintIdealNodeCount, false,                              \
+          "Print liveness counts of ideal nodes")                           \
                                                                             \
   notproduct(bool, VerifyOptoOopOffsets, false,                             \
           "Check types of base addresses in field references")              \
@@ -442,6 +448,9 @@
   product(bool, DoEscapeAnalysis, true,                                     \
           "Perform escape analysis")                                        \
                                                                             \
+  develop(bool, ExitEscapeAnalysisOnTimeout, true,                          \
+          "Exit or throw assert in EA when it reaches time limit")          \
+                                                                            \
   notproduct(bool, PrintEscapeAnalysis, false,                              \
           "Print the results of escape analysis")                           \
                                                                             \
@@ -538,7 +547,7 @@
   notproduct(bool, TraceSpilling, false,                                    \
           "Trace spilling")                                                 \
                                                                             \
-  notproduct(bool, TraceTypeProfile, false,                                 \
+  diagnostic(bool, TraceTypeProfile, false,                                 \
           "Trace type profile")                                             \
                                                                             \
   develop(bool, PoisonOSREntry, true,                                       \

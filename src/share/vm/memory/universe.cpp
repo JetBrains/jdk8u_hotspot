@@ -62,6 +62,7 @@
 #include "runtime/javaCalls.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/synchronizer.hpp"
+#include "runtime/thread.inline.hpp"
 #include "runtime/timer.hpp"
 #include "runtime/vm_operations.hpp"
 #include "services/memoryService.hpp"
@@ -69,18 +70,6 @@
 #include "utilities/events.hpp"
 #include "utilities/hashtable.inline.hpp"
 #include "utilities/preserveException.hpp"
-#ifdef TARGET_OS_FAMILY_linux
-# include "thread_linux.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_solaris
-# include "thread_solaris.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_windows
-# include "thread_windows.inline.hpp"
-#endif
-#ifdef TARGET_OS_FAMILY_bsd
-# include "thread_bsd.inline.hpp"
-#endif
 #ifndef SERIALGC
 #include "gc_implementation/concurrentMarkSweep/cmsAdaptiveSizePolicy.hpp"
 #include "gc_implementation/concurrentMarkSweep/cmsCollectorPolicy.hpp"
@@ -151,7 +140,9 @@ size_t          Universe::_heap_used_at_last_gc = 0;
 
 CollectedHeap*  Universe::_collectedHeap = NULL;
 
-NarrowOopStruct Universe::_narrow_oop = { NULL, 0, true };
+NarrowPtrStruct Universe::_narrow_oop = { NULL, 0, true };
+NarrowPtrStruct Universe::_narrow_klass = { NULL, 0, true };
+address Universe::_narrow_ptrs_base;
 
 
 void Universe::basic_type_classes_do(void f(Klass*)) {
@@ -265,14 +256,14 @@ void Universe::genesis(TRAPS) {
       compute_base_vtable_size();
 
       if (!UseSharedSpaces) {
-        _boolArrayKlassObj      = typeArrayKlass::create_klass(T_BOOLEAN, sizeof(jboolean), CHECK);
-        _charArrayKlassObj      = typeArrayKlass::create_klass(T_CHAR,    sizeof(jchar),    CHECK);
-        _singleArrayKlassObj    = typeArrayKlass::create_klass(T_FLOAT,   sizeof(jfloat),   CHECK);
-        _doubleArrayKlassObj    = typeArrayKlass::create_klass(T_DOUBLE,  sizeof(jdouble),  CHECK);
-        _byteArrayKlassObj      = typeArrayKlass::create_klass(T_BYTE,    sizeof(jbyte),    CHECK);
-        _shortArrayKlassObj     = typeArrayKlass::create_klass(T_SHORT,   sizeof(jshort),   CHECK);
-        _intArrayKlassObj       = typeArrayKlass::create_klass(T_INT,     sizeof(jint),     CHECK);
-        _longArrayKlassObj      = typeArrayKlass::create_klass(T_LONG,    sizeof(jlong),    CHECK);
+        _boolArrayKlassObj      = TypeArrayKlass::create_klass(T_BOOLEAN, sizeof(jboolean), CHECK);
+        _charArrayKlassObj      = TypeArrayKlass::create_klass(T_CHAR,    sizeof(jchar),    CHECK);
+        _singleArrayKlassObj    = TypeArrayKlass::create_klass(T_FLOAT,   sizeof(jfloat),   CHECK);
+        _doubleArrayKlassObj    = TypeArrayKlass::create_klass(T_DOUBLE,  sizeof(jdouble),  CHECK);
+        _byteArrayKlassObj      = TypeArrayKlass::create_klass(T_BYTE,    sizeof(jbyte),    CHECK);
+        _shortArrayKlassObj     = TypeArrayKlass::create_klass(T_SHORT,   sizeof(jshort),   CHECK);
+        _intArrayKlassObj       = TypeArrayKlass::create_klass(T_INT,     sizeof(jint),     CHECK);
+        _longArrayKlassObj      = TypeArrayKlass::create_klass(T_LONG,    sizeof(jlong),    CHECK);
 
         _typeArrayKlassObjs[T_BOOLEAN] = _boolArrayKlassObj;
         _typeArrayKlassObjs[T_CHAR]    = _charArrayKlassObj;
@@ -344,7 +335,7 @@ void Universe::genesis(TRAPS) {
   // ---
   // New
   // Have already been initialized.
-  Klass::cast(_objectArrayKlassObj)->append_to_sibling_list();
+  _objectArrayKlassObj->append_to_sibling_list();
 
   // Compute is_jdk version flags.
   // Only 1.3 or later has the java.lang.Shutdown class.
@@ -416,6 +407,10 @@ void Universe::genesis(TRAPS) {
     assert(i == _fullgc_alot_dummy_array->length(), "just checking");
   }
   #endif
+
+  // Initialize dependency array for null class loader
+  ClassLoaderData::the_null_class_loader_data()->init_dependencies(CHECK);
+
 }
 
 // CDS support for patching vtables in metadata in the shared archive.
@@ -423,14 +418,10 @@ void Universe::genesis(TRAPS) {
 // from MetaspaceObj, because the latter does not have virtual functions.
 // If the metadata type has a vtable, it cannot be shared in the read-only
 // section of the CDS archive, because the vtable pointer is patched.
-static inline void* dereference(void* addr) {
-  return *(void**)addr;
-}
-
 static inline void add_vtable(void** list, int* n, void* o, int count) {
   guarantee((*n) < count, "vtable list too small");
-  void* vtable = dereference(o);
-  assert(dereference(vtable) != NULL, "invalid vtable");
+  void* vtable = dereference_vptr(o);
+  assert(*(void**)(vtable) != NULL, "invalid vtable");
   list[(*n)++] = vtable;
 }
 
@@ -440,8 +431,8 @@ void Universe::init_self_patching_vtbl_list(void** list, int count) {
   { InstanceClassLoaderKlass o; add_vtable(list, &n, &o, count); }
   { InstanceMirrorKlass o;    add_vtable(list, &n, &o, count); }
   { InstanceRefKlass o;       add_vtable(list, &n, &o, count); }
-  { typeArrayKlass o;         add_vtable(list, &n, &o, count); }
-  { objArrayKlass o;          add_vtable(list, &n, &o, count); }
+  { TypeArrayKlass o;         add_vtable(list, &n, &o, count); }
+  { ObjArrayKlass o;          add_vtable(list, &n, &o, count); }
   { Method o;                 add_vtable(list, &n, &o, count); }
   { ConstantPool o;           add_vtable(list, &n, &o, count); }
 }
@@ -752,7 +743,7 @@ jint Universe::initialize_heap() {
 #ifndef SERIALGC
     Universe::_collectedHeap = new ParallelScavengeHeap();
 #else  // SERIALGC
-    fatal("UseParallelGC not supported in java kernel vm.");
+    fatal("UseParallelGC not supported in this VM.");
 #endif // SERIALGC
 
   } else if (UseG1GC) {
@@ -777,7 +768,7 @@ jint Universe::initialize_heap() {
         gc_policy = new ConcurrentMarkSweepPolicy();
       }
 #else   // SERIALGC
-    fatal("UseConcMarkSweepGC not supported in java kernel vm.");
+    fatal("UseConcMarkSweepGC not supported in this VM.");
 #endif // SERIALGC
     } else { // default old generation
       gc_policy = new MarkSweepPolicy();
@@ -807,7 +798,7 @@ jint Universe::initialize_heap() {
     }
     if ((uint64_t)Universe::heap()->reserved_region().end() > OopEncodingHeapMax) {
       // Can't reserve heap below 32Gb.
-      Universe::set_narrow_oop_base(Universe::heap()->base() - os::vm_page_size());
+      // keep the Universe::narrow_oop_base() set in Universe::reserve_heap()
       Universe::set_narrow_oop_shift(LogMinObjAlignmentInBytes);
       if (verbose) {
         tty->print(", Compressed Oops with base: "PTR_FORMAT, Universe::narrow_oop_base());
@@ -838,8 +829,16 @@ jint Universe::initialize_heap() {
       tty->cr();
       tty->cr();
     }
+    if (UseCompressedKlassPointers) {
+      Universe::set_narrow_klass_base(Universe::narrow_oop_base());
+      Universe::set_narrow_klass_shift(MIN2(Universe::narrow_oop_shift(), LogKlassAlignmentInBytes));
+    }
+    Universe::set_narrow_ptrs_base(Universe::narrow_oop_base());
   }
-  assert(Universe::narrow_oop_base() == (Universe::heap()->base() - os::vm_page_size()) ||
+  // Universe::narrow_oop_base() is one page below the metaspace
+  // base. The actual metaspace base depends on alignment constraints
+  // so we don't know its exact location here.
+  assert((intptr_t)Universe::narrow_oop_base() <= (intptr_t)(Universe::heap()->base() - os::vm_page_size() - ClassMetaspaceSize) ||
          Universe::narrow_oop_base() == NULL, "invalid value");
   assert(Universe::narrow_oop_shift() == LogMinObjAlignmentInBytes ||
          Universe::narrow_oop_shift() == 0, "invalid value");
@@ -861,7 +860,10 @@ jint Universe::initialize_heap() {
 ReservedSpace Universe::reserve_heap(size_t heap_size, size_t alignment) {
   // Add in the class metaspace area so the classes in the headers can
   // be compressed the same as instances.
-  size_t total_reserved = align_size_up(heap_size + ClassMetaspaceSize, alignment);
+  // Need to round class space size up because it's below the heap and
+  // the actual alignment depends on its size.
+  size_t metaspace_size = align_size_up(ClassMetaspaceSize, alignment);
+  size_t total_reserved = align_size_up(heap_size + metaspace_size, alignment);
   char* addr = Universe::preferred_heap_base(total_reserved, Universe::UnscaledNarrowOop);
 
   ReservedHeapSpace total_rs(total_reserved, alignment, UseLargePages, addr);
@@ -895,11 +897,23 @@ ReservedSpace Universe::reserve_heap(size_t heap_size, size_t alignment) {
     return total_rs;
   }
 
-  // Split the reserved space into main Java heap and a space for classes
-  // so that they can be compressed using the same algorithm as compressed oops
-  ReservedSpace heap_rs = total_rs.first_part(heap_size);
-  ReservedSpace class_rs = total_rs.last_part(heap_size, alignment);
+  // Split the reserved space into main Java heap and a space for
+  // classes so that they can be compressed using the same algorithm
+  // as compressed oops. If compress oops and compress klass ptrs are
+  // used we need the meta space first: if the alignment used for
+  // compressed oops is greater than the one used for compressed klass
+  // ptrs, a metadata space on top of the heap could become
+  // unreachable.
+  ReservedSpace class_rs = total_rs.first_part(metaspace_size);
+  ReservedSpace heap_rs = total_rs.last_part(metaspace_size, alignment);
   Metaspace::initialize_class_space(class_rs);
+
+  if (UseCompressedOops) {
+    // Universe::initialize_heap() will reset this to NULL if unscaled
+    // or zero-based narrow oops are actually used.
+    address base = (address)(total_rs.base() - os::vm_page_size());
+    Universe::set_narrow_oop_base(base);
+  }
   return heap_rs;
 }
 
@@ -1243,10 +1257,6 @@ void Universe::print_heap_after_gc(outputStream* st, bool ignore_extended) {
 }
 
 void Universe::verify(bool silent, VerifyOption option) {
-  if (SharedSkipVerify) {
-    return;
-  }
-
   // The use of _verify_in_progress is a temporary work around for
   // 6320749.  Don't bother with a creating a class to set and clear
   // it since it is only used in this method and the control flow is
@@ -1283,6 +1293,8 @@ void Universe::verify(bool silent, VerifyOption option) {
   if (!silent) gclog_or_tty->print("cldg ");
   ClassLoaderDataGraph::verify();
 #endif
+  if (!silent) gclog_or_tty->print("metaspace chunks ");
+  MetaspaceAux::verify_free_chunks();
   if (!silent) gclog_or_tty->print("hand ");
   JNIHandles::verify();
   if (!silent) gclog_or_tty->print("C-heap ");
