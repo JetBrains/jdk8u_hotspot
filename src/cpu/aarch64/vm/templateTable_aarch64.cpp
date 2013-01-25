@@ -514,8 +514,9 @@ void TemplateTable::fast_iload()
 void TemplateTable::lload()
 {
   transition(vtos, ltos);
-  locals_index(r1);
-  __ ldr(r0, laddress(r1, rscratch1, _masm));
+  __ ldrb(r1, at_bcp(1));
+  __ sub(r1, rlocals, r1, ext::uxtw, LogBytesPerWord);
+  __ ldr(r0, Address(r1, Interpreter::local_offset_in_bytes(1)));
 }
 
 void TemplateTable::fload()
@@ -530,8 +531,9 @@ void TemplateTable::fload()
 void TemplateTable::dload()
 {
   transition(vtos, dtos);
-  locals_index(r1);
-  __ ldrd(v0, daddress(r1, rscratch1, _masm));
+  __ ldrb(r1, at_bcp(1));
+  __ sub(r1, rlocals, r1, ext::uxtw, LogBytesPerWord);
+  __ ldrd(v0, Address(r1, Interpreter::local_offset_in_bytes(1)));
 }
 
 void TemplateTable::aload()
@@ -556,8 +558,10 @@ void TemplateTable::wide_iload() {
 void TemplateTable::wide_lload()
 {
   transition(vtos, ltos);
-  locals_index_wide(r1);
-  __ ldr(r0, laddress(r1, rscratch1, _masm));
+  __ ldrh(r1, at_bcp(2));
+  __ rev16w(r1, r1);
+  __ sub(r1, rlocals, r1, ext::uxtw, LogBytesPerWord);
+  __ ldr(r0, Address(r1, Interpreter::local_offset_in_bytes(1)));
 }
 
 void TemplateTable::wide_fload()
@@ -572,8 +576,10 @@ void TemplateTable::wide_fload()
 void TemplateTable::wide_dload()
 {
   transition(vtos, dtos);
-  locals_index_wide(r1);
-  __ ldrd(v0, daddress(r1, rscratch1, _masm));
+  __ ldrh(r1, at_bcp(2));
+  __ rev16w(r1, r1);
+  __ sub(r1, rlocals, r1, ext::uxtw, LogBytesPerWord);
+  __ ldrd(v0, Address(r1, Interpreter::local_offset_in_bytes(1)));
 }
 
 void TemplateTable::wide_aload()
