@@ -96,6 +96,12 @@ COMMON_VM_PRODUCT_TARGETS=product product1 docs export_product
 COMMON_VM_FASTDEBUG_TARGETS=fastdebug fastdebug1 docs export_fastdebug
 COMMON_VM_DEBUG_TARGETS=jvmg jvmg1 docs export_debug
 
+# extra targets used to drive aarch64 build
+# nb we only build debug c1 (via target jvmg1aarch64)
+# at some point we will need to be able to build c1 and/or c2 +/- debug
+AARCH64_C1_VM_TARGETS=jvmg1aarch64
+AARCH64_C2_VM_TARGETS=jvmgaarch64
+
 # JDK directory list
 JDK_DIRS=bin include jre lib demo
 
@@ -117,10 +123,14 @@ all_product:   universal_product
 all_fastdebug: universal_fastdebug
 all_debug:     universal_debug
 else
-ifeq ($(SRCARCH),aarch64)
-all_debug:     jvmg1 docs export_debug
-all_product:   $(COMMON_VM_PRODUCT_TARGETS)
+ifeq ($(BUILD_AARCH64), true)
+ifeq ($(BUILD_AARCH64_C2), true)
+all_debug:     $(AARCH64_C2_VM_TARGETS) docs export_debug
 else
+all_debug:     $(AARCH64_C1_VM_TARGETS) docs export_debug
+endif
+else
+all_product:   $(COMMON_VM_PRODUCT_TARGETS)
 all_fastdebug: $(COMMON_VM_FASTDEBUG_TARGETS)
 all_debug:     $(COMMON_VM_DEBUG_TARGETS)
 endif
@@ -185,6 +195,16 @@ $(MINIMAL1_VM_TARGETS):
 	$(MAKE) BUILD_FLAVOR=$(@:%minimal1=%) VM_TARGET=$@ \
 	  generic_buildminimal1 $(ALT_OUT)
 
+$(AARCH64_C1_VM_TARGETS):
+	$(CD) $(GAMMADIR)/make; \
+	$(MAKE) BUILD_FLAVOR=$(@:%1aarch64=%) VM_TARGET=$(@:%aarch64=%) \
+	  BUILD_AARCH64=true generic_build1 $(ALT_OUT)
+
+$(AARCH64_C2_VM_TARGETS):
+	$(CD) $(GAMMADIR)/make; \
+	$(MAKE) BUILD_FLAVOR=$(@:%aarch64=%) VM_TARGET=$(@:%aarch64=%) \
+	  BUILD_AARCH64=true generic_build1 $(ALT_OUT)
+
 # Build compiler1 (client) rule, different for platforms
 generic_build1:
 	$(MKDIR) -p $(OUTPUTDIR)
@@ -206,10 +226,10 @@ else
 	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
 		      $(MAKE_ARGS) $(VM_TARGET)
   else
-    ifeq ($(SRCARCH),aarch64)
+    ifeq ($(BUILD_AARCH64), true)
 	$(CD) $(OUTPUTDIR); \
 	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
-		      $(MAKE_ARGS) $(VM_TARGET)
+		      BUILD_AARCH64=true $(MAKE_ARGS) $(VM_TARGET)
     else
 
 	@$(ECHO) "No compiler1 ($(VM_TARGET)) for ARCH_DATA_MODEL=$(ARCH_DATA_MODEL)"
@@ -488,6 +508,10 @@ ifneq ($(OSNAME),windows)
 		$(install-file)
         $(EXPORT_SERVER_DIR)/%.$(LIBRARY_SUFFIX):       $(ZERO_DIR)/%.$(LIBRARY_SUFFIX)
 		$(install-file)
+        $(EXPORT_SERVER_DIR)/%.debuginfo:		$(ZERO_DIR)/%.debuginfo
+		$(install-file)
+        $(EXPORT_SERVER_DIR)/%.diz:			$(ZERO_DIR)/%.diz
+		$(install-file)
     endif
     ifeq ($(SRCARCH), aarch64)
         $(EXPORT_JRE_LIB_ARCH_DIR)/%.$(LIBRARY_SUFFIX): $(C1_DIR)/%.$(LIBRARY_SUFFIX)
@@ -502,9 +526,9 @@ ifneq ($(OSNAME),windows)
 		$(install-file)
         $(EXPORT_SERVER_DIR)/%.diz:       			$(C1_DIR)/%.diz
 		$(install-file)
-        $(EXPORT_SERVER_DIR)/%.debuginfo:		$(ZERO_DIR)/%.debuginfo
+        $(EXPORT_SERVER_DIR)/%.debuginfo:		$(C1_DIR)/%.debuginfo
 		$(install-file)
-        $(EXPORT_SERVER_DIR)/%.diz:			$(ZERO_DIR)/%.diz
+        $(EXPORT_SERVER_DIR)/%.diz:			$(C1_DIR)/%.diz
 		$(install-file)
     endif
     ifeq ($(JVM_VARIANT_MINIMAL1), true)

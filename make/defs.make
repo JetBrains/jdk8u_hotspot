@@ -259,19 +259,35 @@ ifneq ($(OSNAME),windows)
 
   # Use uname output for SRCARCH, but deal with platform differences. If ARCH
   # is not explicitly listed below, it is treated as x86.
-  # !!! also -- treat amd64 and x86_64 as aarch64
   SRCARCH     = $(ARCH/$(filter sparc sparc64 ia64 amd64 x86_64 arm ppc zero aarch64,$(ARCH)))
   ARCH/       = x86
   ARCH/sparc  = sparc
   ARCH/sparc64= sparc
   ARCH/ia64   = ia64
-  ARCH/amd64  = aarch64
-  ARCH/x86_64 = aarch64
+  ARCH/amd64  = x86
+  ARCH/x86_64 = x86
   ARCH/ppc64  = ppc
   ARCH/ppc    = ppc
   ARCH/arm    = arm
   ARCH/zero   = zero
   ARCH/aarch64 = aarch64
+
+  # special case -- if BUILD_AARCH64 is true and ARCH setting returned
+  # by uname is amd64 or x86_64 then we build for the AARCH64
+  # simulator and use the architecture-specific sources obtained by
+  # setting SRCARCH = aarch64.
+  # n.b. in this case BUILDARCH will also be aarch64 but libarch will
+  # be retained as amd64. the latter will need to change when we move
+  # to real hardware
+
+ifeq ($(BUILD_AARCH64), true)
+  ifeq ($(ARCH), amd64)
+    SRCARCH=aarch64
+  endif
+  ifeq ($(ARCH), x86_64)
+    SRCARCH=aarch64
+  endif
+endif
 
   # BUILDARCH is usually the same as SRCARCH, except for sparcv9
   BUILDARCH = $(SRCARCH)

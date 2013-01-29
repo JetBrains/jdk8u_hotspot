@@ -122,9 +122,14 @@ LFLAGS += $(EXTRA_CFLAGS)
 # the same could be done by separate execstack command
 LFLAGS += -Xlinker -z -Xlinker noexecstack
 
-ARMSIM_DIR = $(shell cd ../../../../../../../simulator/ && pwd)
+LIBS += -lm -ldl -lpthread
 
-LIBS += -lm -ldl -lpthread -L $(ARMSIM_DIR) -larmsim -Wl,-rpath,$(ARMSIM_DIR)
+# aarch64 needs to link to the simulator
+ifeq ($(SRCARCH), aarch64)
+  ARMSIM_DIR = $(shell cd ../../../../../../../simulator/ && pwd)
+  LIBS += -L $(ARMSIM_DIR) -larmsim -Wl,-rpath,$(ARMSIM_DIR)
+else
+endif
 
 # By default, link the *.o into the library, not the executable.
 LINK_INTO$(LINK_INTO) = LIBJVM
@@ -151,8 +156,8 @@ SOURCE_PATHS=\
       \( -name DUMMY $(foreach dir,$(SPECIAL_PATHS),-o -name $(dir)) \))
 SOURCE_PATHS+=$(HS_COMMON_SRC)/os/$(Platform_os_family)/vm
 SOURCE_PATHS+=$(HS_COMMON_SRC)/os/posix/vm
-SOURCE_PATHS+=$(HS_COMMON_SRC)/cpu/aarch64/vm
-SOURCE_PATHS+=$(HS_COMMON_SRC)/os_cpu/linux_aarch64/vm
+SOURCE_PATHS+=$(HS_COMMON_SRC)/cpu/$(Platform_arch)/vm
+SOURCE_PATHS+=$(HS_COMMON_SRC)/os_cpu/$(Platform_os_arch)/vm
 
 ifndef JAVASE_EMBEDDED 
 ifneq (${ARCH},arm)
@@ -212,14 +217,14 @@ Src_Files_EXCLUDE += \*x86_32\*
 endif
 
 # For AArch64
-# ifeq ($(SRCARCH), aarch64)
-Src_Files_EXCLUDE += $(COMPILER1_SPECIFIC_FILES) $(COMPILER2_SPECIFIC_FILES) $(ZERO_SPECIFIC_FILES)
-# endif
+ifeq ($(SRCARCH), aarch64)
+  Src_Files_EXCLUDE += $(COMPILER1_SPECIFIC_FILES) $(COMPILER2_SPECIFIC_FILES) $(ZERO_SPECIFIC_FILES)
+endif
 
 # Locate all source files in the given directory, excluding files in Src_Files_EXCLUDE.
 define findsrc
 	$(notdir $(shell find $(1)/. ! -name . -prune \
-		-a \( -name \*.c -o -name \*.cpp -o -name \*.s -o -name \*.S \) \
+		-a \( -name \*.c -o -name \*.cpp -o -name \*.s \) \
 		-a ! \( -name DUMMY $(addprefix -o -name ,$(Src_Files_EXCLUDE)) \)))
 endef
 
@@ -231,6 +236,19 @@ JVM_OBJ_FILES = $(Obj_Files)
 
 vm_version.o: $(filter-out vm_version.o,$(JVM_OBJ_FILES))
 
+# current aarch64 build has to export extra symbols to the simulator
+ifeq ($(SRCARCH), aarch64)
+mapfile : $(MAPFILE) vm.def
+	rm -f $@
+	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
+                 { system ("cat vm.def");		\
+                   print "	# aarch64 sim support";	\
+                   print "	das1;";			\
+                   print "	bccheck;"; }		\
+               else					\
+                 { print $$0 }				\
+             }' > $@ < $(MAPFILE)
+else
 mapfile : $(MAPFILE) vm.def
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
@@ -238,6 +256,7 @@ mapfile : $(MAPFILE) vm.def
                else					\
                  { print $$0 }				\
              }' > $@ < $(MAPFILE)
+endif
 
 mapfile_reorder : mapfile $(REORDERFILE)
 	rm -f $@
@@ -314,7 +333,9 @@ $(LD_SCRIPT): $(LIBJVM_MAPFILE)
 LD_SCRIPT_FLAG = -Wl,-T,$(LD_SCRIPT)
 endif
 
-STRIP_POLICY=no_strip
+ifeq ($(SRCARCH), aarch64)
+  STRIP_POLICY=no_strip
+endif
 
 # With more recent Redhat releases (or the cutting edge version Fedora), if
 # SELinux is configured to be enabled, the runtime linker will fail to apply

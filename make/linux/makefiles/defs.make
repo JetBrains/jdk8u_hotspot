@@ -80,6 +80,14 @@ endif
 
 # amd64/x86_64
 ifneq (,$(findstring $(ARCH), amd64 x86_64))
+  # force aarch64 if BUILD_AARCH64 is set
+  ifeq ($(BUILD_AARCH64), true)
+    ARCH_DATA_MODEL = 64
+    MAKE_ARGS       += LP64=1
+    PLATFORM        = linux-aarch64
+    VM_PLATFORM     = linux_aarch64
+    HS_ARCH         = x86
+  else
   ifeq ($(ARCH_DATA_MODEL), 64)
     ARCH_DATA_MODEL = 64
     MAKE_ARGS       += LP64=1
@@ -93,6 +101,7 @@ ifneq (,$(findstring $(ARCH), amd64 x86_64))
     HS_ARCH         = x86
     # We have to reset ARCH to i686 since SRCARCH relies on it
     ARCH            = i686   
+  endif
   endif
 endif
 
@@ -118,17 +127,6 @@ ifeq ($(ARCH), ppc)
   PLATFORM         = linux-ppc
   VM_PLATFORM      = linux_ppc
   HS_ARCH          = ppc
-endif
-
-# aarch64
-# force aarch64 build on x86_64
-#ifeq ($(ARCH), aarch64)
-ifeq ($(ARCH), x86_64)
-    ARCH_DATA_MODEL = 64
-    MAKE_ARGS       += LP64=1
-    PLATFORM        = linux-aarch64
-    VM_PLATFORM     = linux_aarch64
-    HS_ARCH         = x86
 endif
 
 # On 32 bit linux we build server and client, on 64 bit just server.
@@ -157,7 +155,9 @@ else
   endif
 endif
 
+ifeq ($(SRCARCH), aarch64)
 STRIP_POLICY=no_strip
+endif
 
 ifeq ($(JDK6_OR_EARLIER),0)
   # Full Debug Symbols is supported on JDK7 or newer.
