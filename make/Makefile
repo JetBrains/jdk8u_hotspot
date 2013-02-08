@@ -127,6 +127,7 @@ ifeq ($(BUILD_AARCH64), true)
 ifeq ($(BUILD_AARCH64_C2), true)
 all_debug:     $(AARCH64_C2_VM_TARGETS) docs export_debug
 else
+all_product:   $(AARCH64_C1_VM_TARGETS) docs export_debug
 all_debug:     $(AARCH64_C1_VM_TARGETS) docs export_debug
 endif
 else
