@@ -32,7 +32,7 @@
 #include "interpreter/interpreter.hpp"
 
 #ifndef PRODUCT
-const unsigned long Assembler::asm_bp = 0x00007fffee089300;
+const unsigned long Assembler::asm_bp = 0x00007fffee091d10;
 #endif
 
 #include "compiler/disassembler.hpp"
@@ -81,7 +81,7 @@ void entry(CodeBuffer *cb) {
   //   printf("\n");
   // }
 
-  MacroAssembler _masm(cb);
+  Assembler _masm(cb);
   address entry = __ pc();
 
   // Smoke test for assembler
@@ -162,7 +162,7 @@ void entry(CodeBuffer *cb) {
     __ adr(r6, __ pc());                               //	adr	x6, .
     __ adr(r6, back);                                  //	adr	x6, back
     __ adr(r6, forth);                                 //	adr	x6, forth
-    __ adrp(r21, __ pc());                             //	adrp	x21, .
+    __ _adrp(r21, __ pc());                             //	adrp	x21, .
 
 // RegImmAbsOp
     __ tbz(r1, 1, __ pc());                            //	tbz	x1, #1, .
@@ -1188,7 +1188,6 @@ Disassembly of section .text:
     Label l, loop, empty;
     address a = __ pc();
     __ adr(r3, l);
-    __ adrp(r4, l);
     __ bl(empty);
     __ movz(r0, 0);
     __ BIND(loop);
@@ -1202,20 +1201,6 @@ Disassembly of section .text:
     __ ret(lr);
   }
 
-  // Test LEA
-  __ lea(r0, Address(sp, 120));
-  __ lea(r0, Address(sp, -120));
-  __ lea(r1, Address(sp, r1, Address::lsl(3)));
-  __ lea(r1, Address(sp, r2, Address::sxtw(3)));
-
-  __ add(r1, r0, 0xff000);
-  __ add(r1, r0, -0xff000);
-
-  __ push(1, sp);
-  __ pop(1, sp);
-
-  __ push(3, sp);
-  __ pop(3, sp);
 
 #endif // PRODUCT
 #endif // ASSERT
@@ -1239,8 +1224,9 @@ extern "C" {
 
 #define gas_assert(ARG1) assert(ARG1, #ARG1)
 
-void Address::lea(MacroAssembler *as, Register r) const {
 #define __ as->
+
+void Address::lea(MacroAssembler *as, Register r) const {
   switch(_mode) {
   case base_plus_offset: {
     if (_offset > 0)
@@ -1260,9 +1246,16 @@ void Address::lea(MacroAssembler *as, Register r) const {
   default:
     ShouldNotReachHere();
   }
-#undef __
 }
 
+void Assembler::adrp(Register reg1, const Address &dest, unsigned long &byte_offset) {
+  InstructionMark im(this);
+  code_section()->relocate(inst_mark(), dest.rspec());
+  byte_offset = (int64_t)dest.target() & 0xfff;
+  _adrp(reg1, dest.target());
+}
+
+#undef __
 // ------------- Stolen from binutils begin -------------------------------------
 
 /* Build the accepted values for immediate logical SIMD instructions.
@@ -1594,6 +1587,16 @@ void Assembler::add_sub_immediate(Register Rd, Register Rn, unsigned uimm, int o
 
 bool Assembler::operand_valid_for_logical_immdiate(int is32, uint64_t imm) {
   return encode_immediate_v2(is32, imm) != 0xffffffff;
+}
+
+bool Assembler::operand_valid_for_float_immediate(double imm) {
+  union {
+    unsigned ival;
+    float val;
+  };
+  val = (float)imm;
+  unsigned result = encode_v2_imm_float_bits(ival);
+  return unpack(result) == imm;
 }
 
 int AbstractAssembler::code_fill_byte() {
