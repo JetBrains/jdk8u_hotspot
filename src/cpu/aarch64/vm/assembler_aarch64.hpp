@@ -1817,6 +1817,7 @@ public:
   virtual void bang_stack_with_offset(int offset);
 
   bool operand_valid_for_logical_immdiate(int is32, uint64_t imm);
+  bool operand_valid_for_add_sub_immediate(long imm);
   bool operand_valid_for_float_immediate(double imm);
 };
 
