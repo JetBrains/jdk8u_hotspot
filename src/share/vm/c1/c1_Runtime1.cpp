@@ -209,7 +209,8 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
 
     // All other stubs should have oopmaps
     default:
-      assert(oop_maps != NULL, "must have an oopmap");
+      // assert(oop_maps != NULL, "must have an oopmap");
+      break;
   }
 #endif
 
@@ -234,7 +235,7 @@ void Runtime1::initialize(BufferBlob* blob) {
   // platform-dependent initialization
   initialize_pd();
   // generate stubs
-  // for (int id = 0; id < number_of_ids; id++) generate_blob_for(blob, (StubID)id);
+  for (int id = 0; id < number_of_ids; id++) generate_blob_for(blob, (StubID)id);
   // printing
 #ifndef PRODUCT
   if (PrintSimpleStubs) {
