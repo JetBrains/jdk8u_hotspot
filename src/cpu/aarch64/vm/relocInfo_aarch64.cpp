@@ -36,7 +36,10 @@ void Relocation::pd_set_data_value(address x, intptr_t o, bool verify_only) {
 
 
 address Relocation::pd_call_destination(address orig_addr) {
-  return MacroAssembler::pd_call_destination(orig_addr);
+  if (orig_addr != NULL) {
+    return MacroAssembler::pd_call_destination(orig_addr);
+  }
+  return MacroAssembler::pd_call_destination(addr());
 }
 
 

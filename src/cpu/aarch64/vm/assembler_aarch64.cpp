@@ -32,7 +32,7 @@
 #include "interpreter/interpreter.hpp"
 
 #ifndef PRODUCT
-const unsigned long Assembler::asm_bp = 0x00007fffee091d10;
+const unsigned long Assembler::asm_bp = 0x00007fffee1f2664;
 #endif
 
 #include "compiler/disassembler.hpp"
@@ -1262,6 +1262,30 @@ void Assembler::adrp(Register reg1, const Address &dest, unsigned long &byte_off
 }
 
 #undef __
+
+#define starti Instruction_aarch64 do_not_use(this); set_current(&do_not_use)
+
+  void Assembler::adr(Register Rd, address adr) {
+    long offset = adr - pc();
+    int offset_lo = offset & 3;
+    offset >>= 2;
+    starti;
+    f(0, 31), f(offset_lo, 30, 29), f(0b10000, 28, 24), sf(offset, 23, 5);
+    rf(Rd, 0);
+  }
+
+  void Assembler::_adrp(Register Rd, address adr) {
+    uint64_t pc_page = (uint64_t)pc() >> 12;
+    uint64_t adr_page = (uint64_t)adr >> 12;
+    long offset = adr_page - pc_page;
+    int offset_lo = offset & 3;
+    offset >>= 2;
+    starti;
+    f(1, 31), f(offset_lo, 30, 29), f(0b10000, 28, 24), sf(offset, 23, 5);
+    rf(Rd, 0);
+  }
+
+#undef starti
 
 Address::Address(address target, relocInfo::relocType rtype) : _mode(literal){
   _is_lval = false;

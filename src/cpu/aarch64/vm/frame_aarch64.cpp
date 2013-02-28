@@ -444,7 +444,7 @@ frame frame::sender_for_compiled_frame(RegisterMap* map) const {
   intptr_t* sender_sp = unextended_sp() + _cb->frame_size();
   intptr_t* unextended_sp = sender_sp;
 
-  // On Intel the return_address is always the word on the stack
+  // The return_address is always the word on the stack
   address sender_pc = (address) *(sender_sp-1);
 
   // This is the saved value of fp which may or may not really be an FP.

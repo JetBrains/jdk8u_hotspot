@@ -213,6 +213,7 @@ address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, 
     __ notify(Assembler::method_reentry);
   }
 #endif
+  __ get_dispatch();
   __ dispatch_next(state, step);
 
   // out of the main line of code...
@@ -874,7 +875,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
 
   // It is enough that the pc() points into the right code
   // segment. It does not have to be the correct return pc.
-  __ set_last_Java_frame(esp, rfp, (address) __ pc());
+  __ set_last_Java_frame(esp, rfp, (address)NULL, rscratch1);
 
   // change thread state
 #ifdef ASSERT
@@ -1163,7 +1164,7 @@ address InterpreterGenerator::generate_normal_entry(bool synchronized) {
   }
 
   // And the base dispatch table
-  __ mov(rdispatch, (intptr_t)Interpreter::dispatch_table());
+  __ get_dispatch();
 
   // initialize fixed part of activation frame
   generate_fixed_frame(false, r10);
@@ -1570,7 +1571,7 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
   __ mov(c_rarg1, sp);
   __ ldr(c_rarg2, Address(rfp, frame::interpreter_frame_last_sp_offset * wordSize));
   // PC must point into interpreter here
-  __ set_last_Java_frame(noreg, rfp, __ pc());
+  __ set_last_Java_frame(noreg, rfp, (address)NULL, rscratch1);
   __ super_call_VM_leaf(CAST_FROM_FN_PTR(address, InterpreterRuntime::popframe_move_outgoing_args), rthread, c_rarg1, c_rarg2);
   __ reset_last_Java_frame(true, true);
   // Restore the last_sp and null it out
