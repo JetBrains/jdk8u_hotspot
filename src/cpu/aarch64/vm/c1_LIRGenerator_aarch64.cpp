@@ -334,14 +334,19 @@ void LIRGenerator::do_NegateOp(NegateOp* x) { Unimplemented(); }
 //      _dadd, _dmul, _dsub, _ddiv, _drem
 void LIRGenerator::do_ArithmeticOp_FPU(ArithmeticOp* x) {
 
-  if (x->op() == Bytecodes::_frem ) {
+  if (x->op() == Bytecodes::_frem || x->op() == Bytecodes::_drem) {
     // float remainder is implemented as a direct call into the runtime
     LIRItem right(x->x(), this);
     LIRItem left(x->y(), this);
 
     BasicTypeList signature(2);
-    signature.append(T_FLOAT);
-    signature.append(T_FLOAT);
+    if (x->op() == Bytecodes::_frem) {
+      signature.append(T_FLOAT);
+      signature.append(T_FLOAT);
+    } else {
+      signature.append(T_DOUBLE);
+      signature.append(T_DOUBLE);
+    }
     CallingConvention* cc = frame_map()->c_calling_convention(&signature);
 
     const LIR_Opr result_reg = result_register_for(x->type());
@@ -350,7 +355,12 @@ void LIRGenerator::do_ArithmeticOp_FPU(ArithmeticOp* x) {
 
     __ move(right.result(), cc->at(0));
 
-    address entry = CAST_FROM_FN_PTR(address, SharedRuntime::frem);
+    address entry;
+    if (x->op() == Bytecodes::_frem) {
+      entry = CAST_FROM_FN_PTR(address, SharedRuntime::frem);
+    } else {
+      entry = CAST_FROM_FN_PTR(address, SharedRuntime::drem);
+    }
 
     LIR_Opr result = rlock_result(x);
     __ call_runtime_leaf(entry, getThreadTemp(), result_reg, cc->args());
