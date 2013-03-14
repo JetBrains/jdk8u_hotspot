@@ -88,38 +88,14 @@ class RegisterSaver {
   enum layout {
                 fpu_state_off = 0,
                 fpu_state_end = fpu_state_off+FPUStateSizeInWords-1,
-                st0_off, st0H_off,
-                st1_off, st1H_off,
-                st2_off, st2H_off,
-                st3_off, st3H_off,
-                st4_off, st4H_off,
-                st5_off, st5H_off,
-                st6_off, st6H_off,
-                st7_off, st7H_off,
-
-                xmm0_off, xmm0H_off,
-                xmm1_off, xmm1H_off,
-                xmm2_off, xmm2H_off,
-                xmm3_off, xmm3H_off,
-                xmm4_off, xmm4H_off,
-                xmm5_off, xmm5H_off,
-                xmm6_off, xmm6H_off,
-                xmm7_off, xmm7H_off,
-                flags_off,
-                rdi_off,
-                rsi_off,
-                ignore_off,  // extra copy of rbp,
-                rsp_off,
-                rbx_off,
-                rdx_off,
-                rcx_off,
-                rax_off,
-                // The frame sender code expects that rbp will be in the "natural" place and
-                // will override any oopMap setting for it. We must therefore force the layout
+                // The frame sender code expects that rfp will be in
+                // the "natural" place and will override any oopMap
+                // setting for it. We must therefore force the layout
                 // so that it agrees with the frame sender code.
-                rbp_off,
-                return_off,      // slot for return address
-                reg_save_size };
+		r0_off = fpu_state_off+FPUStateSizeInWords,
+                rfp_off = r0_off + 30 * 2,
+                return_off = rfp_off + 2,      // slot for return address
+                reg_save_size = return_off + 2};
 
 };
 
@@ -142,10 +118,6 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
 
   __ enter();
   __ push_CPU_state();
-  if (frame::arg_reg_save_area_bytes != 0) {
-    // Allocate argument register save area
-    __ sub(sp, sp, frame::arg_reg_save_area_bytes);
-  }
 
   // if (save_fpu_registers) {
     // for (int i = 30; i >= 0; i -= 2)
@@ -165,8 +137,11 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
 
   for (int i = 0; i < FrameMap::nof_cpu_regs; i++) {
     Register r = as_Register(i);
-    if (i >= 19 && i <= 28) {
-      int sp_offset = i;
+    if (r < rheapbase && r != rscratch1 && r != rscratch2) {
+      int sp_offset = 2 * (i + 32); // SP offsets are in 4-byte words,
+				    // register slots are 8 bytes
+				    // wide, 32 floating-point
+				    // registers
       oop_map->set_callee_saved(VMRegImpl::stack2reg(sp_offset),
                                 r->as_VMReg());
     }
@@ -1781,12 +1756,16 @@ RuntimeStub* SharedRuntime::generate_resolve_blob(address destination, const cha
 
   int frame_complete = __ offset();
 
-  __ set_last_Java_frame(sp, rfp, address(NULL), rscratch1);
+  {
+    Label retaddr;
+    __ set_last_Java_frame(sp, rfp, retaddr, rscratch1);
 
-  __ mov(c_rarg0, rthread);
-  __ mov(rscratch1, RuntimeAddress(destination));
+    __ mov(c_rarg0, rthread);
+    __ mov(rscratch1, RuntimeAddress(destination));
 
-  __ brx86(rscratch1, 1, 0, 1);
+    __ brx86(rscratch1, 1, 0, 1);
+    __ bind(retaddr);
+  }
 
   // Set an oopmap for the call site.
   // We need this not only for callee-saved registers, but also for volatile
