@@ -397,8 +397,8 @@ void LIR_Assembler::const2reg(LIR_Opr src, LIR_Opr dest, LIR_PatchCode patch_cod
       if (__ operand_valid_for_float_immediate(c->as_jfloat())) {
 	__ fmovs(dest->as_float_reg(), (c->as_jfloat()));
       } else {
-	__ ldrs(dest->as_float_reg(),
-		InternalAddress(float_constant(c->as_jfloat())));
+	__ adr(rscratch1, InternalAddress(float_constant(c->as_jfloat())));
+	__ ldrs(dest->as_float_reg(), Address(rscratch1));
       }
       break;
     }
@@ -961,6 +961,8 @@ void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr
       case lir_add: __ add (dest->as_register_lo(), lreg_lo, rreg_lo); break;
       case lir_sub: __ sub (dest->as_register_lo(), lreg_lo, rreg_lo); break;
       case lir_mul: __ mul (dest->as_register_lo(), lreg_lo, rreg_lo); break;
+      case lir_div: __ corrected_idivq(dest->as_register_lo(), lreg_lo, rreg_lo, false, rscratch1); break;
+      case lir_rem: __ corrected_idivq(dest->as_register_lo(), lreg_lo, rreg_lo, true, rscratch1); break;
       default:
 	ShouldNotReachHere();
       }
@@ -968,29 +970,8 @@ void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr
     } else if (right->is_constant()) {
       jlong c = right->as_constant_ptr()->as_jlong_bits();
       switch (code) {
-        case lir_add:
-	  if (__ operand_valid_for_add_sub_immediate(c))
-	    __ add(dest->as_register_lo(), lreg_lo, c);
-	  else {
-	    __ mov(rscratch1, c);
-	    __ add(dest->as_register_lo(), lreg_lo, rscratch1);
-	  }
-	  break;
-
-      case lir_rem:
-	{
-	  Label no_div0;
-	  __ cbnz(lreg_lo, no_div0);
-	  __ call_Unimplemented();
-	  __ bind(no_div0);
-	  // r0 <== r1 lrem r0
-	  __ mov(rscratch2, c);
-	  __ corrected_idivq(dest->as_register_lo(), lreg_lo, rscratch2,
-			     /* want_remainder */ true, rscratch1);
-	}
-	break;
-
-        case lir_sub:
+        case lir_add: __ add(dest->as_register_lo(), lreg_lo, c); break;
+        case lir_sub: __ sub(dest->as_register_lo(), lreg_lo, c); break;
         default:
           ShouldNotReachHere();
       }
@@ -998,20 +979,23 @@ void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr
       ShouldNotReachHere();
     }
   } else if (left->is_single_fpu()) {
-      switch (code) {
-      case lir_add: __ fadds (dest->as_float_reg(), left->as_float_reg(), right->as_float_reg()); break;
-      case lir_sub:
-      case lir_mul:
-      default:
-	ShouldNotReachHere();
-      }
+    assert(right->is_single_fpu(), "right hand side of float arithmetics needs to be float register");
+    switch (code) {
+    case lir_add: __ fadds (dest->as_float_reg(), left->as_float_reg(), right->as_float_reg()); break;
+    case lir_sub: __ fsubs (dest->as_float_reg(), left->as_float_reg(), right->as_float_reg()); break;
+    case lir_mul: __ fmuls (dest->as_float_reg(), left->as_float_reg(), right->as_float_reg()); break;
+    case lir_div: __ fdivs (dest->as_float_reg(), left->as_float_reg(), right->as_float_reg()); break;
+    default:
+      ShouldNotReachHere();
+    }
   } else if (left->is_double_fpu()) {
     if (right->is_double_fpu()) {
       // cpu register - cpu register
       switch (code) {
       case lir_add: __ faddd (dest->as_double_reg(), left->as_double_reg(), right->as_double_reg()); break;
-      case lir_sub:
+      case lir_sub: __ fsubd (dest->as_double_reg(), left->as_double_reg(), right->as_double_reg()); break;
       case lir_mul: __ fmuld (dest->as_double_reg(), left->as_double_reg(), right->as_double_reg()); break;
+      case lir_div: __ fdivd (dest->as_double_reg(), left->as_double_reg(), right->as_double_reg()); break;
       default:
 	ShouldNotReachHere();
       }
@@ -1183,7 +1167,37 @@ void LIR_Assembler::rt_call(LIR_Opr result, address dest, const LIR_OprList* arg
   assert(!tmp->is_valid(), "don't need temporary");
   __ mov(rscratch1, RuntimeAddress(dest));
   int len = args->length();
-  __ brx86(rscratch1, len, 0, 1);
+  int type;
+  switch (result->type()) {
+  case T_VOID:
+    type = 0;
+    break;
+  case T_INT:
+  case T_LONG:
+  case T_OBJECT:
+    type = 1;
+    break;
+  case T_FLOAT:
+    type = 2;
+    break;
+  case T_DOUBLE:
+    type = 3;
+    break;
+  default:
+    ShouldNotReachHere();
+    break;
+  }
+  int num_gpargs = 0;
+  int num_fpargs = 0;
+  for (int i = 0; i < args->length(); i++) {
+    LIR_Opr arg = args->at(i);
+    if (arg->type() == T_FLOAT || arg->type() == T_DOUBLE) {
+      num_fpargs++;
+    } else {
+      num_gpargs++;
+    }
+  }
+  __ brx86(rscratch1, num_gpargs, num_fpargs, type);
   if (info != NULL) {
     add_call_info_here(info);
   }
