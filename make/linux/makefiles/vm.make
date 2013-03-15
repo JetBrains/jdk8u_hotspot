@@ -127,8 +127,7 @@ LIBS += -lm -ldl -lpthread
 # aarch64 needs to link to the simulator
 ifeq ($(SRCARCH), aarch64)
   # Only needed when we get nothing from configure.
-  ARMSIM_DIR = $(shell cd ../../../../../../simulator/ && pwd)
-
+  ARMSIM_DIR = $(shell cd $(GAMMADIR)/../../simulator && pwd)
   ifeq ($(strip $(AARCH64_LIBS)),)
     LIBS += -L $(ARMSIM_DIR) -larmsim -Wl,-rpath,$(ARMSIM_DIR)
   else
