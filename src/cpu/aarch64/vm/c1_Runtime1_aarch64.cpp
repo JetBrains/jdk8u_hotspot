@@ -586,7 +586,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
 
         if (UseTLAB && FastTLABRefill) {
           Register arr_size = r4;
-          Register t1       = r1;
+          Register t1       = r2;
           Register t2       = r5;
           Label slow_path;
           assert_different_registers(length, klass, obj, arr_size, t1, t2);
@@ -625,6 +625,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
           __ add(t1, t1, obj);       // body start
           __ initialize_body(t1, arr_size, 0, t2);
           __ verify_oop(obj);
+
           __ ret(lr);
 
           __ bind(try_eden);
@@ -652,6 +653,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
           __ add(t1, t1, obj);       // body start
           __ initialize_body(t1, arr_size, 0, t2);
           __ verify_oop(obj);
+
           __ ret(lr);
 
           __ bind(slow_path);
