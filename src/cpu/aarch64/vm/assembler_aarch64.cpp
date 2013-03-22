@@ -1429,7 +1429,7 @@ void Assembler::add_sub_immediate(Register Rd, Register Rn, unsigned uimm, int o
 bool Assembler::operand_valid_for_add_sub_immediate(long imm) {
   bool shift = false;
   imm = abs(imm);
-  if (imm < (1 << 11))
+  if (imm < (1 << 12))
     return true;
   if (imm < (1 << 24)
       && ((imm >> 12) << 12 == imm)) {
@@ -1438,7 +1438,7 @@ bool Assembler::operand_valid_for_add_sub_immediate(long imm) {
   return false;
 }
 
-bool Assembler::operand_valid_for_logical_immdiate(int is32, uint64_t imm) {
+bool Assembler::operand_valid_for_logical_immediate(bool is32, uint64_t imm) {
   return encode_logical_immediate(is32, imm) != 0xffffffff;
 }
 
@@ -1479,7 +1479,7 @@ void Assembler::bang_stack_with_offset(int offset) { Unimplemented(); }
 // above encode and decode functions
 
 uint32_t
-asm_util::encode_logical_immediate(int is32, uint64_t imm)
+asm_util::encode_logical_immediate(bool is32, uint64_t imm)
 {
   if (is32) {
     /* Allow all zeros or all ones in top 32-bits, so that

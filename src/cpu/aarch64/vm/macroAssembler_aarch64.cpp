@@ -987,7 +987,7 @@ void MacroAssembler::mov(Register r, Address dest) {
 
 void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
 {
-  if (operand_valid_for_logical_immdiate(0, imm64)) {
+  if (operand_valid_for_logical_immediate(false, imm64)) {
     orr(dst, zr, imm64);
   } else {
     // we can use a combination of MOVZ or MOVN with
@@ -1093,7 +1093,7 @@ void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
 
 void MacroAssembler::mov_immediate32(Register dst, u_int32_t imm32)
 {
-  if (operand_valid_for_logical_immdiate(1, imm32)) {
+  if (operand_valid_for_logical_immediate(true, imm32)) {
     orrw(dst, zr, imm32);
   } else {
     // we can use MOVZ, MOVN or two calls to MOVK to build up the
@@ -1144,7 +1144,7 @@ int MacroAssembler::corrected_idivl(Register result, Register ra, Register rb,
   cmpw(ra, scratch);
   br(Assembler::NE, normal_case);
   // check for -1 in rb
-  cmn(rb, 1);
+  cmnw(rb, 1);
   br(Assembler::NE, normal_case);
   if (! want_remainder)
     mov(result, ra);

@@ -245,8 +245,20 @@ void LIRGenerator::cmp_reg_mem(LIR_Condition condition, LIR_Opr reg, LIR_Opr bas
 }
 
 
-bool LIRGenerator::strength_reduce_multiply(LIR_Opr left, int c, LIR_Opr result, LIR_Opr tmp) { Unimplemented(); return false; }
+bool LIRGenerator::strength_reduce_multiply(LIR_Opr left, int c, LIR_Opr result, LIR_Opr tmp) {
 
+  if (is_power_of_2(c - 1)) {
+    __ shift_left(left, exact_log2(c - 1), tmp);
+    __ add(tmp, left, result);
+    return true;
+  } else if (is_power_of_2(c + 1)) {
+    __ shift_left(left, exact_log2(c + 1), tmp);
+    __ sub(tmp, left, result);
+    return true;
+  } else {
+    return false;
+  }
+}
 
 void LIRGenerator::store_stack_parameter (LIR_Opr item, ByteSize offset_from_sp) { Unimplemented(); }
 
@@ -337,7 +349,14 @@ void LIRGenerator::do_MonitorEnter(MonitorEnter* x) { Unimplemented(); }
 void LIRGenerator::do_MonitorExit(MonitorExit* x) { Unimplemented(); }
 
 // _ineg, _lneg, _fneg, _dneg
-void LIRGenerator::do_NegateOp(NegateOp* x) { Unimplemented(); }
+void LIRGenerator::do_NegateOp(NegateOp* x) {
+  
+  LIRItem from(x->x(), this);
+  from.load_item();
+  LIR_Opr result = rlock_result(x);
+  __ negate (from.result(), result);
+
+}
 
 // for  _fadd, _fmul, _fsub, _fdiv, _frem
 //      _dadd, _dmul, _dsub, _ddiv, _drem
@@ -442,6 +461,7 @@ void LIRGenerator::do_ArithmeticOp_Long(ArithmeticOp* x) {
     left.load_item();
     if (! right.is_register()) {
       if (x->op() == Bytecodes::_lmul
+          || ! right.is_constant()
 	  || ! Assembler::operand_valid_for_add_sub_immediate(right.get_jlong_constant())) {
 	right.load_item();
       } else { // add, sub
@@ -458,7 +478,7 @@ void LIRGenerator::do_ArithmeticOp_Long(ArithmeticOp* x) {
 // for: _iadd, _imul, _isub, _idiv, _irem
 void LIRGenerator::do_ArithmeticOp_Int(ArithmeticOp* x) {
 
-  // missing test if instr is commutative and if we should swap
+  // Test if instr is commutative and if we should swap
   LIRItem left(x->x(),  this);
   LIRItem right(x->y(), this);
   LIRItem* left_arg = &left;
@@ -472,53 +492,48 @@ void LIRGenerator::do_ArithmeticOp_Int(ArithmeticOp* x) {
   left_arg->load_item();
 
   // do not need to load right, as we can handle stack and constants
-  if (x->op() == Bytecodes::_imul ) {
-    // check if we can use shift instead
-    bool use_constant = false;
-    bool use_tmp = false;
-    if (right_arg->is_constant()) {
-      int iconst = right_arg->get_jint_constant();
-      if (iconst > 0) {
-	if (is_power_of_2(iconst)) {
-	  use_constant = true;
-	} else if (is_power_of_2(iconst - 1) || is_power_of_2(iconst + 1)) {
-	  use_constant = true;
-	  use_tmp = true;
-	}
-      }
-    }
-    if (use_constant) {
-      right_arg->dont_load_item();
-    } else {
-      right_arg->load_item();
-    }
-    LIR_Opr tmp = LIR_OprFact::illegalOpr;
-    if (use_tmp) {
-      tmp = new_register(T_INT);
-    }
+  if (x->op() == Bytecodes::_idiv || x->op() == Bytecodes::_irem) {
+
+    right_arg->load_item();
     rlock_result(x);
 
-    arithmetic_op_int(x->op(), x->operand(), left_arg->result(), right_arg->result(), tmp);
-  } else {
-    bool is_div_rem = x->op() == Bytecodes::_idiv || x->op() == Bytecodes::_irem;
-    right_arg->dont_load_item();
+    CodeEmitInfo* info = state_for(x);
+    LIR_Opr tmp = new_register(T_INT);
+    __ cmp(lir_cond_equal, right_arg->result(), LIR_OprFact::longConst(0));
+    __ branch(lir_cond_equal, T_INT, new DivByZeroStub(info));
+    info = state_for(x);
+
+    if (x->op() == Bytecodes::_irem) {
+      __ irem(left_arg->result(), right_arg->result(), x->operand(), tmp, info);
+    } else if (x->op() == Bytecodes::_idiv) {
+      __ idiv(left_arg->result(), right_arg->result(), x->operand(), tmp, info);
+    }
+
+  } else if (x->op() == Bytecodes::_iadd || x->op() == Bytecodes::_isub) {
+    if (right.is_constant()
+	&& Assembler::operand_valid_for_add_sub_immediate(right.get_jint_constant())) {
+      right.load_nonconstant();
+    } else {
+      right.load_item();
+    }
     rlock_result(x);
-    if (is_div_rem) {
-      right_arg->load_item();
-      CodeEmitInfo* info = state_for(x);
-      LIR_Opr tmp = new_register(T_INT);
-      __ cmp(lir_cond_equal, right_arg->result(), LIR_OprFact::longConst(0));
-      __ branch(lir_cond_equal, T_INT, new DivByZeroStub(info));
-      info = state_for(x);
-      if (x->op() == Bytecodes::_irem) {
-	__ irem(left_arg->result(), right_arg->result(), x->operand(), tmp, info);
-      } else if (x->op() == Bytecodes::_idiv) {
-	__ idiv(left_arg->result(), right_arg->result(), x->operand(), tmp, info);
+    arithmetic_op_int(x->op(), x->operand(), left_arg->result(), right_arg->result(), LIR_OprFact::illegalOpr);
+  } else {
+    assert (x->op() == Bytecodes::_imul, "expect imul");
+    if (right.is_constant()) {
+      int c = right.get_jint_constant();
+      if (! is_power_of_2(c) && ! is_power_of_2(c + 1) && ! is_power_of_2(c - 1)) {
+	// Cannot use constant op.
+	right.load_item();
+      } else {
+	right.dont_load_item();
       }
     } else {
-      arithmetic_op_int(x->op(), x->operand(), left_arg->result(), right_arg->result(), new_register(T_INT));
+      right.load_item();
     }
-  }
+    rlock_result(x);
+    arithmetic_op_int(x->op(), x->operand(), left_arg->result(), right_arg->result(), new_register(T_INT));
+  }      
 }
 
 void LIRGenerator::do_ArithmeticOp(ArithmeticOp* x) {
@@ -540,10 +555,122 @@ void LIRGenerator::do_ArithmeticOp(ArithmeticOp* x) {
 }
 
 // _ishl, _lshl, _ishr, _lshr, _iushr, _lushr
-void LIRGenerator::do_ShiftOp(ShiftOp* x) { Unimplemented(); }
+void LIRGenerator::do_ShiftOp(ShiftOp* x) {
+
+  LIRItem left(x->x(),  this);
+  LIRItem right(x->y(), this);
+
+  left.load_item();
+
+  rlock_result(x);
+  if (right.is_constant()) {
+    right.dont_load_item();
+    
+    switch (x->op()) {
+    case Bytecodes::_ishl: {
+      int c = right.get_jint_constant() & 0x1f;
+      __ shift_left(left.result(), c, x->operand());
+      break;
+    }
+    case Bytecodes::_ishr: {
+      int c = right.get_jint_constant() & 0x1f;
+      __ shift_right(left.result(), c, x->operand());
+      break;
+    }
+    case Bytecodes::_iushr: {
+      int c = right.get_jint_constant() & 0x1f;
+      __ unsigned_shift_right(left.result(), c, x->operand());
+      break;
+    }
+    case Bytecodes::_lshl: {
+      int c = right.get_jint_constant() & 0x3f;
+      __ shift_left(left.result(), c, x->operand());
+      break;
+    }
+    case Bytecodes::_lshr: {
+      int c = right.get_jint_constant() & 0x3f;
+      __ shift_right(left.result(), c, x->operand());
+      break;
+    }
+    case Bytecodes::_lushr: {
+      int c = right.get_jint_constant() & 0x3f;
+      __ unsigned_shift_right(left.result(), c, x->operand());
+      break;
+    }
+    default:
+      ShouldNotReachHere();
+    }
+  } else {
+    right.load_item();
+    LIR_Opr tmp = new_register(T_INT);
+    switch (x->op()) {
+    case Bytecodes::_ishl: {
+      __ logical_and(right.result(), LIR_OprFact::intConst(0x1f), tmp);
+      __ shift_left(left.result(), tmp, x->operand(), tmp);
+      break;
+    }
+    case Bytecodes::_ishr: {
+      __ logical_and(right.result(), LIR_OprFact::intConst(0x1f), tmp);
+      __ shift_right(left.result(), tmp, x->operand(), tmp);
+      break;
+    }
+    case Bytecodes::_iushr: {
+      __ logical_and(right.result(), LIR_OprFact::intConst(0x1f), tmp);
+      __ unsigned_shift_right(left.result(), tmp, x->operand(), tmp);
+      break;
+    }
+    case Bytecodes::_lshl: {
+      __ logical_and(right.result(), LIR_OprFact::intConst(0x3f), tmp);
+      __ shift_left(left.result(), tmp, x->operand(), tmp);
+      break;
+    }
+    case Bytecodes::_lshr: {
+      __ logical_and(right.result(), LIR_OprFact::intConst(0x3f), tmp);
+      __ shift_right(left.result(), tmp, x->operand(), tmp);
+      break;
+    }
+    case Bytecodes::_lushr: {
+      __ logical_and(right.result(), LIR_OprFact::intConst(0x3f), tmp);
+      __ unsigned_shift_right(left.result(), tmp, x->operand(), tmp);
+      break;
+    }
+    default:
+      ShouldNotReachHere();
+    }
+  }
+}
 
 // _iand, _land, _ior, _lor, _ixor, _lxor
-void LIRGenerator::do_LogicOp(LogicOp* x) { Unimplemented(); }
+void LIRGenerator::do_LogicOp(LogicOp* x) {
+
+  LIRItem left(x->x(),  this);
+  LIRItem right(x->y(), this);
+
+  left.load_item();
+
+  rlock_result(x);
+  if (right.is_constant()
+      && ((right.type()->tag() == intTag
+	   && Assembler::operand_valid_for_logical_immediate(true, right.get_jint_constant()))
+	  || (right.type()->tag() == longTag
+	      && Assembler::operand_valid_for_logical_immediate(false, right.get_jlong_constant()))))  {
+    right.dont_load_item();
+  } else {
+    right.load_item();
+  }
+  switch (x->op()) {
+  case Bytecodes::_iand:
+  case Bytecodes::_land:
+    __ logical_and(left.result(), right.result(), x->operand()); break;
+  case Bytecodes::_ior:
+  case Bytecodes::_lor:
+    __ logical_or (left.result(), right.result(), x->operand()); break;
+  case Bytecodes::_ixor:
+  case Bytecodes::_lxor:
+    __ logical_xor(left.result(), right.result(), x->operand()); break;
+  default: Unimplemented();
+  }
+}
 
 // _lcmp, _fcmpl, _fcmpg, _dcmpl, _dcmpg
 void LIRGenerator::do_CompareOp(CompareOp* x) { Unimplemented(); }

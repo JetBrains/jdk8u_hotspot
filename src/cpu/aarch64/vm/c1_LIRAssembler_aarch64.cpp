@@ -747,17 +747,24 @@ void LIR_Assembler::emit_op3(LIR_Op3* op) {
   Register Rresult   = op->result_opr()->as_register();
   int divisor = -1;
 
+  /*
+  TODO: For some reason, using the Rscratch that gets passed in is
+  not possible because the register allocator does not see the tmp reg
+  as used, and assignes it the same register as Rdividend. We use rscratch1
+   instead.
+
   assert(Rdividend != Rscratch, "");
   assert(Rdivisor  != Rscratch, "");
+  */
 
   if (Rdivisor == noreg && is_power_of_2(divisor)) {
     // convert division by a power of two into some shifts and logical operations
   }
 
   if (op->code() == lir_irem) {
-    __ corrected_idivl(Rresult, Rdividend, Rdivisor, true, Rscratch);
+    __ corrected_idivl(Rresult, Rdividend, Rdivisor, true, rscratch1);
    } else if (op->code() == lir_idiv) {
-    __ corrected_idivl(Rresult, Rdividend, Rdivisor, false, Rscratch);
+    __ corrected_idivl(Rresult, Rdividend, Rdivisor, false, rscratch1);
   } else
     ShouldNotReachHere();
 }
@@ -917,30 +924,17 @@ void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr
       Register rreg = right->as_register();
       switch (code) {
       case lir_add: __ addw (dest->as_register(), lreg, rreg); break;
-      case lir_sub:
-      case lir_mul:
+      case lir_sub: __ subw (dest->as_register(), lreg, rreg); break;
+      case lir_mul: __ mul (dest->as_register(), lreg, rreg); break;
       default:      ShouldNotReachHere();
-      }
-
-    } else if (right->is_stack()) {
-      // cpu register - stack
-      Address raddr = frame_map()->address_for_slot(right->single_stack_ix());
-      switch (code) {
-        case lir_add:
-        case lir_sub:
-        default:      ShouldNotReachHere();
       }
 
     } else if (right->is_constant()) {
       // cpu register - constant
       jint c = right->as_constant_ptr()->as_jint();
       switch (code) {
-        case lir_add: {
-	  __ add(dreg, lreg, c);
-	  break;
-        }
-        case lir_sub: {
-        }
+        case lir_add: __ add(dreg, lreg, c); break;
+        case lir_sub: __ sub(dreg, lreg, c); break;
         default: ShouldNotReachHere();
       }
 
@@ -1018,7 +1012,51 @@ void LIR_Assembler::arith_fpu_implementation(LIR_Code code, int left_index, int 
 
 void LIR_Assembler::intrinsic_op(LIR_Code code, LIR_Opr value, LIR_Opr unused, LIR_Opr dest, LIR_Op* op) { Unimplemented(); }
 
-void LIR_Assembler::logic_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr dst) { Unimplemented(); }
+void LIR_Assembler::logic_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr dst) {
+  
+  assert(left->is_single_cpu() || left->is_double_cpu(), "expect single or double register");
+  if (left->is_single_cpu()) {
+    assert (right->is_single_cpu() || right->is_constant(), "single register or constant expected");
+    if (right->is_constant()
+	&& Assembler::operand_valid_for_logical_immediate(true, right->as_jint())) {
+
+      switch (code) {
+      case lir_logic_and: __ andw (dst->as_register(), left->as_register(), right->as_jint()); break;
+      case lir_logic_or:  __ orrw (dst->as_register(), left->as_register(), right->as_jint()); break;
+      case lir_logic_xor: __ eorw (dst->as_register(), left->as_register(), right->as_jint()); break;
+      default: ShouldNotReachHere(); break;
+      }
+    } else {
+      switch (code) {
+      case lir_logic_and: __ andw (dst->as_register(), left->as_register(), right->as_register()); break;
+      case lir_logic_or:  __ orrw (dst->as_register(), left->as_register(), right->as_register()); break;
+      case lir_logic_xor: __ eorw (dst->as_register(), left->as_register(), right->as_register()); break;
+      default: ShouldNotReachHere(); break;
+      }
+    }
+  } else {
+    assert (right->is_double_cpu() || right->is_constant(), "single register or constant expected");
+    if (right->is_double_cpu()) {
+      switch (code) {
+      case lir_logic_and: __ andr(dst->as_register_lo(), left->as_register_lo(), right->as_register_lo()); break;
+      case lir_logic_or:  __ orr (dst->as_register_lo(), left->as_register_lo(), right->as_register_lo()); break;
+      case lir_logic_xor: __ eor (dst->as_register_lo(), left->as_register_lo(), right->as_register_lo()); break;
+      default:
+	ShouldNotReachHere();
+	break;
+      }
+    } else {
+      switch (code) {
+      case lir_logic_and: __ andr(dst->as_register_lo(), left->as_register_lo(), right->as_jlong()); break;
+      case lir_logic_or:  __ orr (dst->as_register_lo(), left->as_register_lo(), right->as_jlong()); break;
+      case lir_logic_xor: __ eor (dst->as_register_lo(), left->as_register_lo(), right->as_jlong()); break;
+      default:
+	ShouldNotReachHere();
+	break;
+      }
+    }
+  }
+}
 
 
 // we assume that rax, and rdx can be overwritten
@@ -1119,10 +1157,52 @@ void LIR_Assembler::unwind_op(LIR_Opr exceptionOop) {
 }
 
 
-void LIR_Assembler::shift_op(LIR_Code code, LIR_Opr left, LIR_Opr count, LIR_Opr dest, LIR_Opr tmp) { Unimplemented(); }
+void LIR_Assembler::shift_op(LIR_Code code, LIR_Opr left, LIR_Opr count, LIR_Opr dest, LIR_Opr tmp) {
+  if (left->is_single_cpu()) {
+    switch (code) {
+    case lir_shl:  __ lslvw (dest->as_register(), left->as_register(), count->as_register()); break;
+    case lir_shr:  __ asrvw (dest->as_register(), left->as_register(), count->as_register()); break;
+    case lir_ushr: __ lsrvw (dest->as_register(), left->as_register(), count->as_register()); break;
+    default:
+      ShouldNotReachHere();
+      break;
+    }
+  } else {
+    assert (left->is_double_cpu(), "single or double cpu register expected");
+    switch (code) {
+    case lir_shl:  __ lslv (dest->as_register_lo(), left->as_register_lo(), count->as_register()); break;
+    case lir_shr:  __ asrv (dest->as_register_lo(), left->as_register_lo(), count->as_register()); break;
+    case lir_ushr: __ lsrv (dest->as_register_lo(), left->as_register_lo(), count->as_register()); break;
+    default:
+      ShouldNotReachHere();
+      break;
+    }
+  }
+}
 
 
-void LIR_Assembler::shift_op(LIR_Code code, LIR_Opr left, jint count, LIR_Opr dest) { Unimplemented(); }
+void LIR_Assembler::shift_op(LIR_Code code, LIR_Opr left, jint count, LIR_Opr dest) {
+
+  if (left->is_single_cpu()) {
+    switch (code) {
+    case lir_shl:  __ lslw (dest->as_register(), left->as_register(), count); break;
+    case lir_shr:  __ asrw (dest->as_register(), left->as_register(), count); break;
+    case lir_ushr: __ lsrw (dest->as_register(), left->as_register(), count); break;
+    default:
+      ShouldNotReachHere();
+      break;
+    }
+  } else {
+    switch (code) {
+    case lir_shl:  __ lsl (dest->as_register_lo(), left->as_register_lo(), count); break;
+    case lir_shr:  __ asr (dest->as_register_lo(), left->as_register_lo(), count); break;
+    case lir_ushr: __ lsr (dest->as_register_lo(), left->as_register_lo(), count); break;
+    default:
+      ShouldNotReachHere();
+      break;
+    }
+  }
+}
 
 
 void LIR_Assembler::store_parameter(Register r, int offset_from_rsp_in_words) { Unimplemented(); }
@@ -1157,7 +1237,22 @@ void LIR_Assembler::align_backward_branch_target() {
 }
 
 
-void LIR_Assembler::negate(LIR_Opr left, LIR_Opr dest) { Unimplemented(); }
+void LIR_Assembler::negate(LIR_Opr left, LIR_Opr dest) {
+  if (left->is_single_cpu()) {
+    assert(dest->is_single_cpu(), "expect single result reg");
+    __ negw(dest->as_register(), left->as_register());
+  } else if (left->is_double_cpu()) {
+    assert(dest->is_double_cpu(), "expect double result reg");
+    __ neg(dest->as_register_lo(), left->as_register_lo());
+  } else if (left->is_single_fpu()) {
+    assert(dest->is_single_fpu(), "expect single float result reg");
+    __ fnegs(dest->as_float_reg(), left->as_float_reg());
+  } else {
+    assert(left->is_double_fpu(), "expect double float operand reg");
+    assert(dest->is_double_fpu(), "expect double float result reg");
+    __ fnegd(dest->as_double_reg(), left->as_double_reg());
+  }
+}
 
 
 void LIR_Assembler::leal(LIR_Opr addr, LIR_Opr dest) { Unimplemented(); }
