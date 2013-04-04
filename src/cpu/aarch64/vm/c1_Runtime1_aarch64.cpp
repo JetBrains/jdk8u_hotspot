@@ -716,8 +716,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
           // if we got here then the TLAB allocation failed, so try
           // refilling the TLAB or allocating directly from eden.
           Label retry_tlab, try_eden;
-          const Register thread =
-            __ tlab_refill(retry_tlab, try_eden, slow_path); // does not destroy r3 (klass), returns r5
+	  __ tlab_refill(retry_tlab, try_eden, slow_path); // does not destroy r3 (klass), returns r5
 
           __ bind(retry_tlab);
 
@@ -736,7 +735,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
           __ ldrw(obj_size, Address(klass, Klass::layout_helper_offset()));
 
           __ eden_allocate(obj, obj_size, 0, t1, slow_path);
-          __ incr_allocated_bytes(thread, obj_size, 0, rscratch1);
+          __ incr_allocated_bytes(rthread, obj_size, 0, rscratch1);
 
           __ initialize_object(obj, klass, obj_size, 0, t1, t2);
           __ verify_oop(obj);

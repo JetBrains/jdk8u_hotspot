@@ -46,6 +46,10 @@
 #include "shark/sharkCompiler.hpp"
 #endif
 
+#ifdef TARGET_ARCH_aarch64
+#include "../../../../../simulator/simulator.hpp"
+#endif
+
 #ifdef DTRACE_ENABLED
 
 // Only bother with this argument setup if dtrace is available
@@ -878,6 +882,14 @@ nmethod::nmethod(
       CodeCache::add_scavenge_root_nmethod(this);
     }
     debug_only(verify_scavenge_root_oops());
+
+#ifdef TARGET_ARCH_aarch64
+    if (NotifySimulator) {
+      unsigned char *base = code_buffer->insts()->start();
+      long delta = entry_point() - base;
+      AArch64Simulator::current()->notifyRelocate(base, delta);
+    }
+#endif
 
     CodeCache::commit(this);
 

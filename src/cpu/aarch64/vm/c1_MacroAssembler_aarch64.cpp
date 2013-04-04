@@ -46,9 +46,8 @@ void C1_MacroAssembler::try_allocate(Register obj, Register var_size_in_bytes, i
   if (UseTLAB) {
     tlab_allocate(obj, var_size_in_bytes, con_size_in_bytes, t1, t2, slow_case);
   } else {
-    ShouldNotReachHere();
-    // eden_allocate(obj, var_size_in_bytes, con_size_in_bytes, t1, slow_case);
-    // incr_allocated_bytes(noreg, var_size_in_bytes, con_size_in_bytes, t1);
+    eden_allocate(obj, var_size_in_bytes, con_size_in_bytes, t1, slow_case);
+    incr_allocated_bytes(noreg, var_size_in_bytes, con_size_in_bytes, t1);
   }
 }
 
@@ -225,11 +224,17 @@ void C1_MacroAssembler::build_frame(int frame_size_in_bytes) {
   generate_stack_overflow_check(frame_size_in_bytes);
   enter();
   sub(sp, sp, frame_size_in_bytes); // does not emit code for frame_size == 0
+  if (NotifySimulator) {
+    notify(Assembler::method_entry);
+  }
 }
 
 
 void C1_MacroAssembler::remove_frame(int frame_size_in_bytes) {
   leave();
+  if (NotifySimulator) {
+    notify(Assembler::method_reentry);
+  }
 }
 
 
