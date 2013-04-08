@@ -85,6 +85,10 @@
 #include "c1/c1_Runtime1.hpp"
 #endif
 
+#ifdef TARGET_ARCH_aarch64
+#include "../../../../../../simulator/simulator.hpp"
+#endif
+
 // Shared stub locations
 RuntimeStub*        SharedRuntime::_wrong_method_blob;
 RuntimeStub*        SharedRuntime::_ic_miss_blob;
@@ -2462,7 +2466,25 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
       CompileBroker::handle_full_code_cache();
       return NULL; // Out of CodeCache space
     }
+#ifdef TARGET_ARCH_aarch64
+    address old_i2c = entry->get_i2c_entry();
+    address old_c2i = entry->get_c2i_entry();
+    AArch64Simulator *sim =  (NotifySimulator ? AArch64Simulator::current() : NULL);
+#endif
+
     entry->relocate(B->content_begin());
+
+#ifdef TARGET_ARCH_aarch64
+    if (NotifySimulator) {
+      address new_i2c = entry->get_i2c_entry();
+      address new_c2i = entry->get_c2i_entry();
+      long offset = new_i2c - old_i2c;
+      sim->notifyRelocate(old_i2c, offset);
+      offset = new_c2i - old_c2i;
+      sim->notifyRelocate(old_c2i, offset);
+    }
+#endif
+
 #ifndef PRODUCT
     // debugging suppport
     if (PrintAdapterHandlers || PrintStubCode) {
