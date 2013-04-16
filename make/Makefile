@@ -125,6 +125,7 @@ all_debug:     universal_debug
 else
 ifeq ($(BUILD_AARCH64), true)
 ifeq ($(BUILD_AARCH64_C2), true)
+all_product:   $(AARCH64_C2_VM_TARGETS) docs export_debug
 all_debug:     $(AARCH64_C2_VM_TARGETS) docs export_debug
 else
 all_product:   $(AARCH64_C1_VM_TARGETS) docs export_debug
@@ -204,7 +205,7 @@ $(AARCH64_C1_VM_TARGETS):
 $(AARCH64_C2_VM_TARGETS):
 	$(CD) $(GAMMADIR)/make; \
 	$(MAKE) BUILD_FLAVOR=$(@:%aarch64=%) VM_TARGET=$(@:%aarch64=%) \
-	  BUILD_AARCH64=true generic_build1 $(ALT_OUT)
+	  BUILD_AARCH64=true BUILD_AARCH64_C2=true generic_build2 $(ALT_OUT)
 
 # Build compiler1 (client) rule, different for platforms
 generic_build1:
@@ -250,9 +251,15 @@ ifeq ($(OSNAME),windows)
                       BuildUser=$(USERNAME) \
 		      $(MAKE_ARGS) $(VM_TARGET)
 else
+    ifeq ($(BUILD_AARCH64), true)
+	$(CD) $(OUTPUTDIR); \
+	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
+		      BUILD_AARCH64=true BUILD_AARCH64_C2=true $(MAKE_ARGS) $(VM_TARGET)
+    else
 	$(CD) $(OUTPUTDIR); \
 	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
 		      $(MAKE_ARGS) $(VM_TARGET)
+    endif
 endif
 
 generic_buildkernel:
@@ -382,8 +389,13 @@ ifeq ($(JVM_VARIANT_MINIMAL1), true)
     GEN_DIR=$(MINIMAL1_BASE_DIR)/generated
 endif
 ifeq ($(SRCARCH), aarch64)
+ifeq ($(BUILD_AARCH64_C2), true)
+    MISC_DIR=$(C2_DIR)
+    GEN_DIR=$(C2_BASE_DIR)/generated
+else
     MISC_DIR=$(C1_DIR)
     GEN_DIR=$(C1_BASE_DIR)/generated
+endif
 endif
 
 # Bin files (windows)

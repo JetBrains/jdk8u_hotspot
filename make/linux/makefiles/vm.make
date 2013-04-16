@@ -218,7 +218,11 @@ endif
 
 # For AArch64
 ifeq ($(SRCARCH), aarch64)
-  Src_Files_EXCLUDE += $(COMPILER2_SPECIFIC_FILES) $(ZERO_SPECIFIC_FILES)
+  ifeq ($(BUILD_AARCH64_C2), true)
+    Src_Files_EXCLUDE += $(ZERO_SPECIFIC_FILES)
+  else
+    Src_Files_EXCLUDE += $(COMPILER2_SPECIFIC_FILES) $(ZERO_SPECIFIC_FILES)
+  endif
 endif
 
 # Locate all source files in the given directory, excluding files in Src_Files_EXCLUDE.
