@@ -1615,6 +1615,22 @@ void LIRGenerator::CardTableModRef_post_barrier(LIR_OprDesc* addr, LIR_OprDesc* 
     __ move(LIR_OprFact::intConst(0), tmp_zero);
     __ move(tmp_zero, card_addr);
   }
+#elsif defined(TARGET_ARCH_aarch64)
+  LIR_Opr tmp = new_pointer_register();
+  if (TwoOperandLIRForm) {
+    __ move(addr, tmp);
+    __ unsigned_shift_right(tmp, CardTableModRefBS::card_shift, tmp);
+  } else {
+    __ unsigned_shift_right(addr, CardTableModRefBS::card_shift, tmp);
+  }
+  if (can_inline_as_constant(card_table_base)) {
+    __ move(LIR_OprFact::intConst(0),
+              new LIR_Address(tmp, card_table_base->as_jint(), T_BYTE));
+  } else {
+    __ move(LIR_OprFact::intConst(0),
+              new LIR_Address(tmp, load_constant(card_table_base),
+                              T_BYTE));
+  }
 #else // ARM
   LIR_Opr tmp = new_pointer_register();
   if (TwoOperandLIRForm) {
