@@ -51,8 +51,16 @@ class MacroAssembler: public Assembler {
 
   VIRTUAL void call_VM_leaf_base(
     address entry_point,               // the entry point
-    int     number_of_arguments        // the number of arguments to pop after the call
+    int     number_of_arguments,        // the number of arguments to pop after the call
+    Label *retaddr = NULL
   );
+
+  VIRTUAL void call_VM_leaf_base(
+    address entry_point,               // the entry point
+    int     number_of_arguments,        // the number of arguments to pop after the call
+    Label &retaddr) {
+    call_VM_leaf_base(entry_point, number_of_arguments, &retaddr);
+  }
 
   // This is the base routine called by the different versions of call_VM. The interpreter
   // may customize this version by overriding it for its purposes (e.g., to save/restore
@@ -81,6 +89,25 @@ class MacroAssembler: public Assembler {
 
  public:
   MacroAssembler(CodeBuffer* code) : Assembler(code) {}
+
+  // Biased locking support
+  // lock_reg and obj_reg must be loaded up with the appropriate values.
+  // swap_reg must be rax, and is killed.
+  // tmp_reg is optional. If it is supplied (i.e., != noreg) it will
+  // be killed; if not supplied, push/pop will be used internally to
+  // allocate a temporary (inefficient, avoid if possible).
+  // Optional slow case is for implementations (interpreter and C1) which branch to
+  // slow case directly. Leaves condition codes set for C2's Fast_Lock node.
+  // Returns offset of first potentially-faulting instruction for null
+  // check info (currently consumed only by C1). If
+  // swap_reg_contains_mark is true then returns -1 as it is assumed
+  // the calling code has already passed any potential faults.
+  int biased_locking_enter(Register lock_reg, Register obj_reg,
+                           Register swap_reg, Register tmp_reg,
+                           bool swap_reg_contains_mark,
+                           Label& done, Label* slow_case = NULL,
+                           BiasedLockingCounters* counters = NULL);
+  void biased_locking_exit (Register obj_reg, Register temp_reg, Label& done);
 
   // Load Effective Address
   void lea(Register r, const Address &a) {
@@ -382,6 +409,7 @@ public:
   }
 
   void mov(Register dst, Address a);
+  void mov64(Register r, uintptr_t imm64);
 
   // macro instructions for accessing and updating floating point
   // status register
@@ -1142,10 +1170,13 @@ public:
 
   void mov_metadata(Register dst, Metadata* obj);
   Address allocate_metadata_address(Metadata* obj);
+  Address constant_oop_address(jobject obj);
   // unimplemented
 #if 0
   void pushoop(jobject obj);
 #endif
+
+  void movoop(Register dst, jobject obj);
 
   // sign extend as need a l to ptr sized element
   void movl2ptr(Register dst, Address src) { Unimplemented(); }
@@ -1199,7 +1230,8 @@ public:
     address  entry_point,             // the entry point
     int      number_of_gp_arguments,  // the number of gp reg arguments to pass
     int      number_of_fp_arguments,  // the number of fp reg arguments to pass
-    ret_type type		      // the return type for the call
+    ret_type type,		      // the return type for the call
+    Label*   retaddr = NULL
   );
 };
 

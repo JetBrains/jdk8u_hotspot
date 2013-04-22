@@ -230,6 +230,8 @@ void MacroAssembler::set_last_Java_frame(Register last_java_sp,
   // last_java_fp is optional
   if (last_java_fp->is_valid()) {
     str(last_java_fp, Address(rthread, JavaThread::last_Java_fp_offset()));
+  } else {
+    ShouldNotReachHere();
   }
 }
 
@@ -264,6 +266,21 @@ void MacroAssembler::set_last_Java_frame(Register last_java_sp,
     L.add_patch_at(code(), locator());
     set_last_Java_frame(last_java_sp, last_java_fp, (address)NULL, scratch);
   }
+}
+
+int MacroAssembler::biased_locking_enter(Register lock_reg,
+                                         Register obj_reg,
+                                         Register swap_reg,
+                                         Register tmp_reg,
+                                         bool swap_reg_contains_mark,
+                                         Label& done,
+                                         Label* slow_case,
+                                         BiasedLockingCounters* counters) {
+  Unimplemented();
+}
+
+void MacroAssembler::biased_locking_exit(Register obj_reg, Register temp_reg, Label& done) {
+  Unimplemented();
 }
 
 // added to make this compile
@@ -328,10 +345,11 @@ void MacroAssembler::call_VM_base(Register oop_result,
   // set last Java frame before call
   assert(last_java_sp != rfp, "can't use rfp");
 
-  set_last_Java_frame(last_java_sp, rfp, (address)NULL, rscratch1);
+  Label l;
+  set_last_Java_frame(last_java_sp, rfp, l, rscratch1);
 
   // do the call, remove parameters
-  MacroAssembler::call_VM_leaf_base(entry_point, number_of_arguments);
+  MacroAssembler::call_VM_leaf_base(entry_point, number_of_arguments, l);
 
   // reset last Java frame
   // Only interpreter should have to clear fp
@@ -877,14 +895,16 @@ Address MacroAssembler::argument_address(RegisterOrConstant arg_slot,
 }
 
 void MacroAssembler::call_VM_leaf_base(address entry_point,
-                                       int number_of_arguments) {
-  call_VM_leaf_base1(entry_point, number_of_arguments, 0, ret_type_integral);
+                                       int number_of_arguments,
+				       Label *retaddr) {
+  call_VM_leaf_base1(entry_point, number_of_arguments, 0, ret_type_integral, retaddr);
 }
 
 void MacroAssembler::call_VM_leaf_base1(address entry_point,
 					int number_of_gp_arguments,
 					int number_of_fp_arguments,
-					ret_type type) {
+					ret_type type,
+					Label *retaddr) {
   Label E, L;
 
   stp(rscratch1, rmethod, Address(pre(sp, -2 * wordSize)));
@@ -893,6 +913,8 @@ void MacroAssembler::call_VM_leaf_base1(address entry_point,
   // not counted
   mov(rscratch1, entry_point);
   brx86(rscratch1, number_of_gp_arguments + 1, number_of_fp_arguments, type);
+  if (retaddr)
+    bind(*retaddr);
 
   ldp(rscratch1, rmethod, Address(post(sp, 2 * wordSize)));
 }
@@ -960,7 +982,7 @@ void MacroAssembler::super_call_VM_leaf(address entry_point, Register arg_0, Reg
 void MacroAssembler::null_check(Register reg, int offset) {
   if (needs_explicit_null_check(offset)) {
     // provoke OS NULL exception if reg = NULL by
-    // accessing M[reg] w/o changing any (non-CC) registers
+    // accessing M[reg] w/o changing any registers
     // NOTE: this is plenty to provoke a segv
     ldr(zr, Address(reg));
   } else {
@@ -976,6 +998,17 @@ void MacroAssembler::mov(Register r, Address dest) {
   InstructionMark im(this);
   code_section()->relocate(inst_mark(), dest.rspec());
   u_int64_t imm64 = (u_int64_t)dest.target();
+  mov64(r, imm64);
+}
+
+void MacroAssembler::mov64(Register r, uintptr_t imm64) {
+#ifndef PRODUCT
+    {
+      char buffer[64];
+      snprintf(buffer, sizeof(buffer), "0x%"PRIX64, imm64);
+      block_comment(buffer);
+    }
+#endif
   movz(r, imm64 & 0xffff);
   imm64 >>= 16;
   movk(r, imm64 & 0xffff, 16);
@@ -987,6 +1020,13 @@ void MacroAssembler::mov(Register r, Address dest) {
 
 void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
 {
+#ifndef PRODUCT
+    {
+      char buffer[64];
+      snprintf(buffer, sizeof(buffer), "0x%"PRIX64, imm64);
+      block_comment(buffer);
+    }
+#endif
   if (operand_valid_for_logical_immediate(false, imm64)) {
     orr(dst, zr, imm64);
   } else {
@@ -1093,6 +1133,13 @@ void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
 
 void MacroAssembler::mov_immediate32(Register dst, u_int32_t imm32)
 {
+#ifndef PRODUCT
+    {
+      char buffer[64];
+      snprintf(buffer, sizeof(buffer), "0x%"PRIX32, imm32);
+      block_comment(buffer);
+    }
+#endif
   if (operand_valid_for_logical_immediate(true, imm32)) {
     orrw(dst, zr, imm32);
   } else {
@@ -1746,8 +1793,9 @@ SkipIfEqual::~SkipIfEqual() {
 }
 
 void MacroAssembler::cmpptr(Register src1, Address src2) {
-  lea(rscratch1, src2);
-  ldr(rscratch1, Address(rscratch1));
+  unsigned long offset;
+  adrp(rscratch1, src2, offset);
+  ldr(rscratch1, Address(rscratch1, offset));
   cmp(src1, rscratch1);
 }
 
@@ -2069,9 +2117,27 @@ Address MacroAssembler::allocate_metadata_address(Metadata* obj) {
   return Address((address)obj, rspec);
 }
 
+void MacroAssembler::movoop(Register dst, jobject obj) {
+  if (obj == NULL) {
+    mov(dst, zr);
+  } else {
+    int oop_index = oop_recorder()->find_index(obj);
+    assert(Universe::heap()->is_in_reserved(JNIHandles::resolve(obj)), "should be real oop");
+    RelocationHolder rspec = oop_Relocation::spec(oop_index);
+    mov(dst, Address((address)obj, rspec));
+  }
+}
+
 void MacroAssembler::mov_metadata(Register dst, Metadata* obj) {
   unsigned long offset;
   mov(dst, allocate_metadata_address(obj));
+}
+
+Address MacroAssembler::constant_oop_address(jobject obj) {
+  assert(oop_recorder() != NULL, "this assembler needs an OopRecorder");
+  assert(Universe::heap()->is_in_reserved(JNIHandles::resolve(obj)), "not an oop");
+  int oop_index = oop_recorder()->find_index(obj);
+  return Address((address)obj, oop_Relocation::spec(oop_index));
 }
 
 // Defines obj, preserves var_size_in_bytes, okay for t2 == var_size_in_bytes.
@@ -2235,40 +2301,42 @@ void MacroAssembler::eden_allocate(Register obj,
     b(slow_case);
   } else {
     Register end = t1;
+    Register heap_end = rscratch2;
     Label retry;
     bind(retry);
+    {
+      unsigned long offset;
+      adrp(rscratch1, ExternalAddress((address) Universe::heap()->end_addr()), offset);
+      ldr(heap_end, Address(rscratch1, offset));
+    }
+
     ExternalAddress heap_top((address) Universe::heap()->top_addr());
+
+    // Get the current top of the heap
     {
       unsigned long offset;
       adrp(rscratch1, heap_top, offset);
-      ldr(obj, Address(rscratch1, offset));
+      lea(rscratch1, Address(rscratch1, offset));
+      ldaxr(obj, rscratch1);
     }
+
+    // Adjust it my the size of our new object
     if (var_size_in_bytes == noreg) {
       lea(end, Address(obj, con_size_in_bytes));
     } else {
       lea(end, Address(obj, var_size_in_bytes));
     }
-    // if end < obj then we wrapped around => object too long => slow case
+
+    // if end < obj then we wrapped around high memory
     cmp(end, obj);
     br(Assembler::LO, slow_case);
-    {
-      unsigned long offset;
-      adrp(rscratch1, ExternalAddress((address) Universe::heap()->end_addr()), offset);
-      ldr(rscratch1, Address(rscratch1, offset));
-    }
-    cmp(end, rscratch1);
+
+    cmp(end, heap_end);
     br(Assembler::HI, slow_case);
-    // Compare obj with the top addr, and if still equal, store the new top addr in
-    // end at the address of the top addr pointer. Sets ZF if was equal, and clears
-    // it otherwise.
-    Label ok;
-    {
-      unsigned long offset;
-      adrp(rscratch2, heap_top, offset);
-      lea(rscratch2, Address(rscratch2, offset));
-    }
-    cmpxchgptr(obj, end, rscratch2, rscratch1, ok, retry);
-    bind(ok);
+
+    // If heap_top hasn't been changed by some other thread, update it.
+    stlxr(rscratch1, end, rscratch1);
+    cbnzw(rscratch1, retry);
   }
 }
 
@@ -2305,15 +2373,17 @@ void MacroAssembler::verify_tlab() {
 // Writes to stack successive pages until offset reached to check for
 // stack overflow + shadow pages.  This clobbers tmp.
 void MacroAssembler::bang_stack_size(Register size, Register tmp) {
+  assert_different_registers(tmp, size, rscratch1);
   mov(tmp, sp);
   // Bang stack for total size given plus shadow page size.
   // Bang one page at a time because large size can bang beyond yellow and
   // red zones.
   Label loop;
+  mov(rscratch1, os::vm_page_size());
   bind(loop);
   lea(tmp, Address(tmp, -os::vm_page_size()));
+  subsw(size, size, rscratch1);
   str(size, Address(tmp));
-  subw(size, size, os::vm_page_size());
   br(Assembler::GT, loop);
 
   // Bang down shadow pages too.

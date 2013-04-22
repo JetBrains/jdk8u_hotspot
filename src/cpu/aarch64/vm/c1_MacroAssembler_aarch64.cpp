@@ -46,9 +46,8 @@ void C1_MacroAssembler::try_allocate(Register obj, Register var_size_in_bytes, i
   if (UseTLAB) {
     tlab_allocate(obj, var_size_in_bytes, con_size_in_bytes, t1, t2, slow_case);
   } else {
-    ShouldNotReachHere();
-    // eden_allocate(obj, var_size_in_bytes, con_size_in_bytes, t1, slow_case);
-    // incr_allocated_bytes(noreg, var_size_in_bytes, con_size_in_bytes, t1);
+    eden_allocate(obj, var_size_in_bytes, con_size_in_bytes, t1, slow_case);
+    incr_allocated_bytes(noreg, var_size_in_bytes, con_size_in_bytes, t1);
   }
 }
 
@@ -77,6 +76,33 @@ void C1_MacroAssembler::initialize_header(Register obj, Register klass, Register
   }
 }
 
+// Zero words; len is in bytes
+void C1_MacroAssembler::zero_memory(Register addr, Register len, Register t1) {
+  assert_different_registers(addr, len, rscratch1, t1);
+  block_comment("zero memory");
+  Label finished;
+  // use loop to null out the fields
+  // initialize last object field first if odd number of fields
+  cmp(len, zr);
+  br(Assembler::LE, finished);
+  tst(len, BytesPerWord);
+  lsr(len, len, LogBytesPerWord + 1);
+  lea(rscratch1, Address(addr, len, Address::lsl(LogBytesPerWord + 1)));
+  Label is_even;
+  br(Assembler::EQ, is_even);
+  str(zr, Address(rscratch1));
+  bind(is_even);
+  cbz(len, finished);
+  mov(t1, zr);
+  {
+    Label loop;
+    bind(loop);
+    sub(len, len, 1);
+    stp(zr, t1, pre(rscratch1, -2 * BytesPerWord));
+    cbnz(len, loop);
+  }
+  bind(finished);
+}
 
 // preserves obj, destroys len_in_bytes
 void C1_MacroAssembler::initialize_body(Register obj, Register len_in_bytes, int hdr_size_in_bytes, Register t1) {
@@ -97,14 +123,8 @@ void C1_MacroAssembler::initialize_body(Register obj, Register len_in_bytes, int
   }
 #endif
 
-  lsr(index, index, LogBytesPerWord);
-  add(rscratch1, obj, hdr_size_in_bytes);
-  { Label loop;
-    bind(loop);
-    str(zr, Address(post(rscratch1, BytesPerWord)));
-    sub(index, index, 1);
-    cbnz(index, loop);
-  }
+  add(rscratch2, obj, hdr_size_in_bytes);
+  zero_memory(rscratch2, index, t1);
 
   // done
   bind(done);
@@ -132,19 +152,20 @@ void C1_MacroAssembler::initialize_object(Register obj, Register klass, Register
   const int threshold = 6 * BytesPerWord;   // approximate break even point for code size (see comments below)
   if (var_size_in_bytes != noreg) {
     mov(index, var_size_in_bytes);
-    initialize_body(obj, index, hdr_size_in_bytes, zr);
+    initialize_body(obj, index, hdr_size_in_bytes, t1);
   } else if (con_size_in_bytes <= threshold) {
     // use explicit null stores
     // code size = 2 + 3*n bytes (n = number of fields to clear)
     for (int i = hdr_size_in_bytes; i < con_size_in_bytes; i += BytesPerWord)
       str(zr, Address(obj, i));
   } else if (con_size_in_bytes > hdr_size_in_bytes) {
+    block_comment("zero memory");
     // use loop to null out the fields
-    // code size = 16 bytes for even n (n = number of fields to clear)
     // initialize last object field first if odd number of fields
-    mov(index, (con_size_in_bytes - hdr_size_in_bytes) >> 3);
+    mov(index, (con_size_in_bytes - hdr_size_in_bytes) / (2 * BytesPerWord));
+    lea(rscratch1, Address(obj, (con_size_in_bytes & - ((2 * BytesPerWord)-1))));
     // initialize last object field if constant size is odd
-    if (((con_size_in_bytes - hdr_size_in_bytes) & 4) != 0)
+    if (((con_size_in_bytes - hdr_size_in_bytes) % (2 * BytesPerWord)) != 0)
       str(zr, Address(obj, con_size_in_bytes - (1*BytesPerWord)));
     // initialize remaining object fields: index is a multiple of 2
     mov(t1, zr);
@@ -152,7 +173,7 @@ void C1_MacroAssembler::initialize_object(Register obj, Register klass, Register
       Label loop;
       bind(loop);
       sub(index, index, 1);
-      stp(zr, t1, Address(obj, index, Address::uxtw(LogBytesPerWord + 1)));
+      stp(zr, t1, pre(rscratch1, -2 * BytesPerWord));
       cbnz(index, loop);
     }
   }
@@ -246,8 +267,8 @@ void C1_MacroAssembler::verified_entry() {
 }
 
 address C1_MacroAssembler::read_polling_page(Register r, address page, relocInfo::relocType rtype) {
-  unsigned long off = (uint64_t)page & 0xfff;
-  _adrp(r, page);
+  unsigned long off;
+  adrp(r, Address(page, rtype), off);
   InstructionMark im(this);
   code_section()->relocate(inst_mark(), rtype);
   ldrw(zr, Address(r, off));
@@ -269,9 +290,10 @@ void C1_MacroAssembler::verify_not_null_oop(Register r) {
 
 void C1_MacroAssembler::invalidate_registers(bool inv_rax, bool inv_rbx, bool inv_rcx, bool inv_rdx, bool inv_rsi, bool inv_rdi) {
 #ifdef ASSERT
+  static int nn;
   if (inv_rax) mov(r0, 0xDEAD);
   if (inv_rbx) mov(r19, 0xDEAD);
-  if (inv_rcx) mov(r2, 0xDEAD);
+  if (inv_rcx) mov(r2, nn++);
   if (inv_rdx) mov(r3, 0xDEAD);
   if (inv_rsi) mov(r4, 0xDEAD);
   if (inv_rdi) mov(r5, 0xDEAD);

@@ -714,6 +714,7 @@ unsigned int Method::call_format() {
 
 void Method::print_made_not_compilable(int comp_level, bool is_osr, bool report) {
   if (PrintCompilation && report) {
+    ResourceMark rm;
     ttyLocker ttyl;
     tty->print("made not %scompilable on ", is_osr ? "OSR " : "");
     if (comp_level == CompLevel_all) {
@@ -731,6 +732,7 @@ void Method::print_made_not_compilable(int comp_level, bool is_osr, bool report)
     tty->cr();
   }
   if ((TraceDeoptimization || LogCompilation) && (xtty != NULL)) {
+    ResourceMark rm;
     ttyLocker ttyl;
     xtty->begin_elem("make_not_%scompilable thread='" UINTX_FORMAT "'",
                      is_osr ? "osr_" : "", os::current_thread_id());

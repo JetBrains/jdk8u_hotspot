@@ -47,7 +47,9 @@ void Relocation::pd_set_call_destination(address x) {
   MacroAssembler::pd_patch_instruction(addr(), x);
 }
 
-address* Relocation::pd_address_in_code() { Unimplemented(); return 0; }
+address* Relocation::pd_address_in_code() {
+  return (address*)(addr() + 8);
+}
 
 
 address Relocation::pd_get_address_from_code() { Unimplemented(); return 0; }
@@ -60,17 +62,17 @@ void Relocation::pd_swap_in_breakpoint(address x, short* instrs, int instrlen) {
 void Relocation::pd_swap_out_breakpoint(address x, short* instrs, int instrlen) { Unimplemented(); }
 
 void poll_Relocation::fix_relocation_after_move(const CodeBuffer* src, CodeBuffer* dest) {
-  // 4 bytes are subtracted because we need to patch the preceding
-  // address.
-  address old_addr = old_addr_for(addr(), src, dest) - 4;
-  MacroAssembler::pd_patch_instruction(addr() - 4, pd_call_destination(old_addr));
+  if (NativeInstruction::is_adrp_at(addr())) {
+    address old_addr = old_addr_for(addr(), src, dest);
+    MacroAssembler::pd_patch_instruction(addr(), pd_call_destination(old_addr));
+  }
 }
 
 void poll_return_Relocation::fix_relocation_after_move(const CodeBuffer* src, CodeBuffer* dest)  {
-  // 4 bytes are subtracted from both addresses because we need to
-  // patch the preceding address.
-  address old_addr = old_addr_for(addr(), src, dest) - 4;
-  MacroAssembler::pd_patch_instruction(addr() - 4, pd_call_destination(old_addr));
+  if (NativeInstruction::is_adrp_at(addr())) {
+    address old_addr = old_addr_for(addr(), src, dest);
+    MacroAssembler::pd_patch_instruction(addr(), pd_call_destination(old_addr));
+  }
 }
 
 void metadata_Relocation::pd_fix_value(address x) {
