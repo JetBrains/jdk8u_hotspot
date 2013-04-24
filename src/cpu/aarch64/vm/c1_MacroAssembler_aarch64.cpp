@@ -77,30 +77,74 @@ void C1_MacroAssembler::initialize_header(Register obj, Register klass, Register
 }
 
 // Zero words; len is in bytes
+// Destroys all registers except addr
+// len must be a nonzero multiple of wordSize
 void C1_MacroAssembler::zero_memory(Register addr, Register len, Register t1) {
-  assert_different_registers(addr, len, rscratch1, t1);
-  block_comment("zero memory");
-  Label finished;
-  // use loop to null out the fields
-  // initialize last object field first if odd number of fields
-  cmp(len, zr);
-  br(Assembler::LE, finished);
-  tst(len, BytesPerWord);
-  lsr(len, len, LogBytesPerWord + 1);
-  lea(rscratch1, Address(addr, len, Address::lsl(LogBytesPerWord + 1)));
-  Label is_even;
-  br(Assembler::EQ, is_even);
-  str(zr, Address(rscratch1));
-  bind(is_even);
-  cbz(len, finished);
-  mov(t1, zr);
-  {
-    Label loop;
-    bind(loop);
-    sub(len, len, 1);
-    stp(zr, t1, pre(rscratch1, -2 * BytesPerWord));
-    cbnz(len, loop);
+  assert_different_registers(addr, len, t1, rscratch1, rscratch2);
+
+#ifdef ASSERT
+  { Label L;
+    tst(len, BytesPerWord - 1);
+    br(Assembler::EQ, L);
+    stop("len is not a multiple of BytesPerWord");
+    bind(L);
   }
+#endif
+
+#ifndef PRODUCT
+  block_comment("zero memory");
+#endif
+
+  Label finished;
+
+  lsr(len, len, LogBytesPerWord);
+  mov(rscratch1, addr);
+
+  // The algorithm first zeroes words until the number of words
+  // remaining is a multiple of 8, then enters a loop that writes 8
+  // words at a time.  The idea is to get small arrays done quickly
+  // because these are the common case.  Also, we don't want to bloat
+  // the VM with a lot of code: it's a compromise between speed and
+  // size.  We should really emit the large block out of line.
+
+  Label is_even;
+  tst(len, 1);
+  br(Assembler::EQ, is_even);
+  str(zr, Address(post(rscratch1, wordSize)));
+  sub(len, len, 1);
+  bind(is_even);
+
+  // len is now a multiple of 2
+
+  {
+    // Initialize the first few words.  This loop iterates at most 3
+    // times.
+
+    Label bottom, loop;
+    mov(t1, zr);
+    b(bottom);
+
+    bind(loop);
+    stp(zr, t1, Address(post(rscratch1, 2 * wordSize)));
+    sub(len, len, 2);
+    bind(bottom);
+    tst(len, 7);
+    br(NE, loop);
+  }
+
+  // len is now a multiple of 8
+
+  cbz(len, finished);
+
+  Label top;
+  bind(top);
+  stp(zr, t1, Address(post(rscratch1, 2 * wordSize)));
+  stp(zr, t1, Address(post(rscratch1, 2 * wordSize)));
+  stp(zr, t1, Address(post(rscratch1, 2 * wordSize)));
+  stp(zr, t1, Address(post(rscratch1, 2 * wordSize)));
+  sub(len, len, 8);
+  cbnz(len, top);
+
   bind(finished);
 }
 
@@ -123,8 +167,12 @@ void C1_MacroAssembler::initialize_body(Register obj, Register len_in_bytes, int
   }
 #endif
 
-  add(rscratch2, obj, hdr_size_in_bytes);
-  zero_memory(rscratch2, index, t1);
+  // Preserve obj
+  if (hdr_size_in_bytes)
+    add(obj, obj, hdr_size_in_bytes);
+  zero_memory(obj, index, t1);
+  if (hdr_size_in_bytes)
+    sub(obj, obj, hdr_size_in_bytes);
 
   // done
   bind(done);
@@ -149,32 +197,54 @@ void C1_MacroAssembler::initialize_object(Register obj, Register klass, Register
 
   // clear rest of allocated space
   const Register index = t2;
-  const int threshold = 6 * BytesPerWord;   // approximate break even point for code size (see comments below)
+  const int threshold = 8 * BytesPerWord;   // approximate break even point for code size (see comments below)
   if (var_size_in_bytes != noreg) {
     mov(index, var_size_in_bytes);
     initialize_body(obj, index, hdr_size_in_bytes, t1);
   } else if (con_size_in_bytes <= threshold) {
     // use explicit null stores
-    // code size = 2 + 3*n bytes (n = number of fields to clear)
-    for (int i = hdr_size_in_bytes; i < con_size_in_bytes; i += BytesPerWord)
+    int i = hdr_size_in_bytes;
+    if (i < con_size_in_bytes && i % (2 * BytesPerWord)) {
       str(zr, Address(obj, i));
+      i += BytesPerWord;
+    }
+    if (i < con_size_in_bytes) {
+      mov(t1, zr);
+    }
+    for (; i < con_size_in_bytes; i += 2 * BytesPerWord)
+      stp(zr, t1, Address(obj, i));
   } else if (con_size_in_bytes > hdr_size_in_bytes) {
     block_comment("zero memory");
     // use loop to null out the fields
     // initialize last object field first if odd number of fields
-    mov(index, (con_size_in_bytes - hdr_size_in_bytes) / (2 * BytesPerWord));
+    int words = (con_size_in_bytes - hdr_size_in_bytes) / BytesPerWord;
+    mov(index,  words / 8);
     lea(rscratch1, Address(obj, (con_size_in_bytes & - ((2 * BytesPerWord)-1))));
     // initialize last object field if constant size is odd
-    if (((con_size_in_bytes - hdr_size_in_bytes) % (2 * BytesPerWord)) != 0)
+    if ((words % 2) != 0) {
       str(zr, Address(obj, con_size_in_bytes - (1*BytesPerWord)));
-    // initialize remaining object fields: index is a multiple of 2
+      words--;
+    }
+    // initialize remaining object fields
     mov(t1, zr);
     {
-      Label loop;
-      bind(loop);
+      Label top, entry_point;
+
+      int remainder = words % 8;
+      if (remainder != 0)
+	b(entry_point);
+
+      bind(top);
       sub(index, index, 1);
       stp(zr, t1, pre(rscratch1, -2 * BytesPerWord));
-      cbnz(index, loop);
+      if (remainder == 6) bind(entry_point);
+      stp(zr, t1, pre(rscratch1, -2 * BytesPerWord));
+      if (remainder == 4) bind(entry_point);
+      stp(zr, t1, pre(rscratch1, -2 * BytesPerWord));
+      if (remainder == 2) bind(entry_point);
+      stp(zr, t1, pre(rscratch1, -2 * BytesPerWord));
+
+      cbnz(index, top);
     }
   }
 
