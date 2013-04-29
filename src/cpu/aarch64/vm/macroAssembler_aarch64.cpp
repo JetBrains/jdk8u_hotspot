@@ -396,7 +396,7 @@ void MacroAssembler::call(Address entry) {
 
 void MacroAssembler::ic_call(address entry) {
   RelocationHolder rh = virtual_call_Relocation::spec(pc());
-  mov(r0, ExternalAddress((address)Universe::non_oop_word()));
+  mov(rscratch2, ExternalAddress((address)Universe::non_oop_word()));
   call(Address(entry, rh));
 }
 
@@ -1006,11 +1006,11 @@ void MacroAssembler::mov(Register r, Address dest) {
 
 void MacroAssembler::mov64(Register r, uintptr_t imm64) {
 #ifndef PRODUCT
-    {
-      char buffer[64];
-      snprintf(buffer, sizeof(buffer), "0x%"PRIX64, imm64);
-      block_comment(buffer);
-    }
+  {
+    char buffer[64];
+    snprintf(buffer, sizeof(buffer), "0x%"PRIX64, imm64);
+    block_comment(buffer);
+  }
 #endif
   movz(r, imm64 & 0xffff);
   imm64 >>= 16;
@@ -1024,11 +1024,11 @@ void MacroAssembler::mov64(Register r, uintptr_t imm64) {
 void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
 {
 #ifndef PRODUCT
-    {
-      char buffer[64];
-      snprintf(buffer, sizeof(buffer), "0x%"PRIX64, imm64);
-      block_comment(buffer);
-    }
+  {
+    char buffer[64];
+    snprintf(buffer, sizeof(buffer), "0x%"PRIX64, imm64);
+    block_comment(buffer);
+  }
 #endif
   if (operand_valid_for_logical_immediate(false, imm64)) {
     orr(dst, zr, imm64);

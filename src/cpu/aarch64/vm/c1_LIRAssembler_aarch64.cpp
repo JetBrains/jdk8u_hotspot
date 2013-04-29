@@ -47,7 +47,7 @@
 #endif
 
 NEEDS_CLEANUP // remove this definitions ?
-const Register IC_Klass    = r0;   // where the IC klass is cached
+const Register IC_Klass    = rscratch2;   // where the IC klass is cached
 const Register SYNC_header = r0;   // synchronization header
 const Register SHIFT_count = r0;   // where count for shift operations must be
 
@@ -76,7 +76,9 @@ LIR_Opr LIR_Assembler::receiverOpr() {
   return FrameMap::receiver_opr;
 }
 
-LIR_Opr LIR_Assembler::osrBufferPointer() { Unimplemented(); return 0; }
+LIR_Opr LIR_Assembler::osrBufferPointer() {
+  return FrameMap::as_pointer_opr(receiverOpr()->as_register());
+}
 
 //--------------fpu register translations-----------------------
 
@@ -170,7 +172,69 @@ Address LIR_Assembler::as_Address_lo(LIR_Address* addr) {
 }
 
 
-void LIR_Assembler::osr_entry() { Unimplemented(); }
+void LIR_Assembler::osr_entry() {
+  offsets()->set_value(CodeOffsets::OSR_Entry, code_offset());
+  BlockBegin* osr_entry = compilation()->hir()->osr_entry();
+  ValueStack* entry_state = osr_entry->state();
+  int number_of_locks = entry_state->locks_size();
+
+  // we jump here if osr happens with the interpreter
+  // state set up to continue at the beginning of the
+  // loop that triggered osr - in particular, we have
+  // the following registers setup:
+  //
+  // r2: osr buffer
+  //
+
+  // build frame
+  ciMethod* m = compilation()->method();
+  __ build_frame(initial_frame_size_in_bytes());
+
+  // OSR buffer is
+  //
+  // locals[nlocals-1..0]
+  // monitors[0..number_of_locks]
+  //
+  // locals is a direct copy of the interpreter frame so in the osr buffer
+  // so first slot in the local array is the last local from the interpreter
+  // and last slot is local[0] (receiver) from the interpreter
+  //
+  // Similarly with locks. The first lock slot in the osr buffer is the nth lock
+  // from the interpreter frame, the nth lock slot in the osr buffer is 0th lock
+  // in the interpreter frame (the method lock if a sync method)
+
+  // Initialize monitors in the compiled activation.
+  //   r2: pointer to osr buffer
+  //
+  // All other registers are dead at this point and the locals will be
+  // copied into place by code emitted in the IR.
+
+  Register OSR_buf = osrBufferPointer()->as_pointer_register();
+  { assert(frame::interpreter_frame_monitor_size() == BasicObjectLock::size(), "adjust code below");
+    int monitor_offset = BytesPerWord * method()->max_locals() +
+      (2 * BytesPerWord) * (number_of_locks - 1);
+    // SharedRuntime::OSR_migration_begin() packs BasicObjectLocks in
+    // the OSR buffer using 2 word entries: first the lock and then
+    // the oop.
+    for (int i = 0; i < number_of_locks; i++) {
+      int slot_offset = monitor_offset - ((i * 2) * BytesPerWord);
+#ifdef ASSERT
+      // verify the interpreter's monitor has a non-null object
+      {
+        Label L;
+        __ ldr(rscratch1, Address(OSR_buf, slot_offset + 1*BytesPerWord));
+        __ cbnz(rscratch1, L);
+        __ stop("locked object is NULL");
+        __ bind(L);
+      }
+#endif
+      __ ldr(r19, Address(OSR_buf, slot_offset + 0));
+      __ str(r19, frame_map()->address_for_monitor_lock(i));
+      __ ldr(r19, Address(OSR_buf, slot_offset + 1*BytesPerWord));
+      __ str(r19, frame_map()->address_for_monitor_object(i));
+    }
+  }
+}
 
 
 // inline cache check; done before the frame is built.
@@ -316,6 +380,7 @@ int LIR_Assembler::emit_unwind_handler() {
   }
 
   // remove the activation and dispatch to the unwind handler
+  __ block_comment("remove_frame and dispatch to the unwind handler");
   __ remove_frame(initial_frame_size_in_bytes());
   __ b(RuntimeAddress(Runtime1::entry_for(Runtime1::unwind_exception_id)));
 
@@ -1024,27 +1089,36 @@ void LIR_Assembler::cmove(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2, L
   default:                    ShouldNotReachHere();
   }
 
-  assert(opr1->is_constant(), "expect constant for opr1");
-  assert(opr2->is_constant(), "expect constant for opr2");
   assert(result->is_single_cpu(), "expect single register for result");
-
-  jint val1 = opr1->as_jint();
-  jint val2 = opr2->as_jint();
-  if (val1 == 0 && val2 == 1) {
-    __ cset(result->as_register(), ncond);
-  } else if (val1 = 1 && val2 == 0) {
-    __ cset(result->as_register(), acond);
-  } else {
-    Unimplemented();
-    /*
-    I think the below is correct, but since I don't know yet how this can be
-    triggered, and thus, how to verify correctness, I leave that Unimplemented() until we hit it.
-
-    __ mov(rscratch1, val1);
-    __ mov(rscratch2, val2);
-    __ csel(result->as_register(), rscratch1, rscratch2, acond);
-    */
+  if (opr1->is_constant() && opr2->is_constant()) {
+    jint val1 = opr1->as_jint();
+    jint val2 = opr2->as_jint();
+    if (val1 == 0 && val2 == 1) {
+      __ cset(result->as_register(), ncond);
+      return;
+    } else if (val1 = 1 && val2 == 0) {
+      __ cset(result->as_register(), acond);
+      return;
+    }
   }
+
+  if (opr1->is_stack()) {
+    stack2reg(opr1, FrameMap::r8_opr, result->type());
+    opr1 = FrameMap::r8_opr;
+  } else if (opr1->is_constant()) {
+    const2reg(opr1, FrameMap::r8_opr, lir_patch_none, NULL);
+    opr1 = FrameMap::r8_opr;
+  }
+
+  if (opr2->is_stack()) {
+    stack2reg(opr2, FrameMap::r9_opr, result->type());
+    opr2 = FrameMap::r9_opr;
+  } else if (opr2->is_constant()) {
+    const2reg(opr2, FrameMap::r9_opr, lir_patch_none, NULL);
+    opr2 = FrameMap::r9_opr;
+  }
+
+  __ csel(result->as_register(), opr1->as_register(), opr2->as_register(), acond);
 }
 
 void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr dest, CodeEmitInfo* info, bool pop_fpu_stack) {
@@ -1336,7 +1410,7 @@ void LIR_Assembler::throw_op(LIR_Opr exceptionPC, LIR_Opr exceptionOop, CodeEmit
   // pc is only needed if the method has an exception handler, the unwind code does not need it.
   int pc_for_athrow_offset = __ offset();
   InternalAddress pc_for_athrow(__ pc());
-  __ lea(exceptionPC->as_register(), pc_for_athrow);
+  __ adr(exceptionPC->as_register(), pc_for_athrow);
   add_call_info(pc_for_athrow_offset, info); // for exception handler
 
   __ verify_not_null_oop(r0);
@@ -1431,7 +1505,6 @@ void LIR_Assembler::shift_op(LIR_Code code, LIR_Opr left, jint count, LIR_Opr de
 
 
 void LIR_Assembler::store_parameter(Register r, int offset_from_rsp_in_words) {
-  ShouldNotReachHere();
   assert(offset_from_rsp_in_words >= 0, "invalid offset from rsp");
   int offset_from_rsp_in_bytes = offset_from_rsp_in_words * BytesPerWord;
   assert(offset_from_rsp_in_bytes < frame_map()->reserved_argument_area_size(), "invalid offset");
@@ -1806,7 +1879,34 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
 }
 
 
-void LIR_Assembler::emit_lock(LIR_OpLock* op) { Unimplemented(); }
+
+
+void LIR_Assembler::emit_lock(LIR_OpLock* op) {
+  Register obj = op->obj_opr()->as_register();  // may not be an oop
+  Register hdr = op->hdr_opr()->as_register();
+  Register lock = op->lock_opr()->as_register();
+  if (!UseFastLocking) {
+    __ b(*op->stub()->entry());
+  } else if (op->code() == lir_lock) {
+    Register scratch = noreg;
+    if (UseBiasedLocking) {
+      scratch = op->scratch_opr()->as_register();
+    }
+    assert(BasicLock::displaced_header_offset_in_bytes() == 0, "lock_reg must point to the displaced header");
+    // add debug info for NullPointerException only if one is possible
+    int null_check_offset = __ lock_object(hdr, obj, lock, scratch, *op->stub()->entry());
+    if (op->info() != NULL) {
+      add_debug_info_for_null_check(null_check_offset, op->info());
+    }
+    // done
+  } else if (op->code() == lir_unlock) {
+    assert(BasicLock::displaced_header_offset_in_bytes() == 0, "lock_reg must point to the displaced header");
+    __ unlock_object(hdr, obj, lock, *op->stub()->entry());
+  } else {
+    Unimplemented();
+  }
+  __ bind(*op->stub()->continuation());
+}
 
 
 void LIR_Assembler::emit_profile_call(LIR_OpProfileCall* op) { Unimplemented(); }
@@ -1816,7 +1916,9 @@ void LIR_Assembler::emit_delay(LIR_OpDelay*) {
 }
 
 
-void LIR_Assembler::monitor_address(int monitor_no, LIR_Opr dst) { Unimplemented(); }
+void LIR_Assembler::monitor_address(int monitor_no, LIR_Opr dst) {
+  __ lea(dst->as_register(), frame_map()->address_for_monitor_lock(monitor_no));
+}
 
 
 void LIR_Assembler::align_backward_branch_target() {

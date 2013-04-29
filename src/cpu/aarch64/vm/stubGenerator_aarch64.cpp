@@ -490,14 +490,15 @@ class StubGenerator: public StubCodeGenerator {
 
     // compute exception handler into r19
     __ mov(c_rarg1, lr);
+    __ mov(r19, lr); // LR is still live: it will become the throwing
+		     // PC.  Save it (callee-saved) R19
     BLOCK_COMMENT("call exception_handler_for_return_address");
     __ call_VM_leaf(CAST_FROM_FN_PTR(address,
                          SharedRuntime::exception_handler_for_return_address),
                     rthread, c_rarg1);
+    // setup r0 & r3 & clear pending exception
+    __ mov(r3, r19);
     __ mov(r19, r0);
-
-    // setup r0 & r3, remove return address & clear pending exception
-    __ mov(r3, lr);
     __ ldr(r0, Address(rthread, Thread::pending_exception_offset()));
     __ str(zr, Address(rthread, Thread::pending_exception_offset()));
 
@@ -511,7 +512,7 @@ class StubGenerator: public StubCodeGenerator {
     }
 #endif
 
-    // continue at exception handler (return address removed)
+    // continue at exception handler
     // r0: exception
     // r19: exception handler
     // r3: throwing pc
@@ -759,7 +760,9 @@ class StubGenerator: public StubCodeGenerator {
     __ ldr(c_rarg1, Address(sp, return_addr));  // pass return address
     __ mov(c_rarg2, sp);                          // pass address of regs on stack
     __ mov(r19, sp);                               // remember rsp
-    __ sub(sp, sp, frame::arg_reg_save_area_bytes); // windows  ????
+#ifndef PRODUCT
+    assert(frame::arg_reg_save_area_bytes == 0, "not expecting frame reg save area");
+#endif
     BLOCK_COMMENT("call MacroAssembler::debug");
     __ mov(rscratch1, CAST_FROM_FN_PTR(address, MacroAssembler::debug64));
     __ brx86(rscratch1, 3, 0, 1);
@@ -1158,8 +1161,9 @@ class StubGenerator: public StubCodeGenerator {
     // Note that we only have to preserve callee-saved registers since
     // the compilers are responsible for supplying a continuation point
     // if they expect all registers to be preserved.
+    // n.b. aarch64 asserts that frame::arg_reg_save_area_bytes == 0
     enum layout {
-      rfp_off = frame::arg_reg_save_area_bytes/BytesPerInt,
+      rfp_off = 0,
       rfp_off2,
       return_off,
       return_off2,
