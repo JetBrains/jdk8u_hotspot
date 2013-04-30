@@ -57,9 +57,7 @@ class SimpleRuntimeFrame {
     // The frame sender code expects that rbp will be in the "natural" place and
     // will override any oopMap setting for it. We must therefore force the layout
     // so that it agrees with the frame sender code.
-    // we don't expect any arg reg save area so aarch64 asserts that
-    // frame::arg_reg_save_area_bytes == 0
-    rbp_off = 0,
+    rbp_off = frame::arg_reg_save_area_bytes/BytesPerInt,
     rbp_off2,
     return_off, return_off2,
     framesize
@@ -299,15 +297,21 @@ static void patch_callers_callsite(MacroAssembler *masm) {
   // This needs to be a long call since we will relocate this adapter to
   // the codeBuffer and it may not reach
 
-#ifndef PRODUCT
-  assert(frame::arg_reg_save_area_bytes == 0, "not expecting frame reg save area");
-#endif
+  // Allocate argument register save area
+  if (frame::arg_reg_save_area_bytes != 0) {
+    __ sub(sp, sp, frame::arg_reg_save_area_bytes);
+  }
 
   __ mov(rscratch1, c_rarg1);
   __ mov(c_rarg1, r0);
   __ mov(c_rarg0, rscratch1);
   __ mov(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, SharedRuntime::fixup_callers_callsite)));
   __ brx86(rscratch1, 2, 0, 0);
+
+  // De-allocate argument register save area
+  if (frame::arg_reg_save_area_bytes != 0) {
+    __ add(sp, sp, frame::arg_reg_save_area_bytes);
+  }
 
   __ pop_CPU_state();
   // restore sp
@@ -954,7 +958,28 @@ static void object_move(MacroAssembler* masm,
 static void float_move(MacroAssembler* masm, VMRegPair src, VMRegPair dst) { Unimplemented(); }
 
 // A long move
-static void long_move(MacroAssembler* masm, VMRegPair src, VMRegPair dst) { Unimplemented(); }
+static void long_move(MacroAssembler* masm, VMRegPair src, VMRegPair dst) {
+  if (src.first()->is_stack()) {
+    if (dst.first()->is_stack()) {
+      // stack to stack
+      __ ldr(rscratch1, Address(rfp, reg2offset_in(src.first())));
+      __ str(rscratch1, Address(sp, reg2offset_out(dst.first())));
+    } else {
+      // stack to reg
+      __ ldr(dst.first()->as_Register(), Address(rfp, reg2offset_in(src.first())));
+    }
+  } else if (dst.first()->is_stack()) {
+    // reg to stack
+    // Do we really have to sign extend???
+    // __ movslq(src.first()->as_Register(), src.first()->as_Register());
+    __ str(src.first()->as_Register(), Address(sp, reg2offset_out(dst.first())));
+  } else {
+    if (dst.first() != src.first()) {
+      __ mov(dst.first()->as_Register(), src.first()->as_Register());
+    }
+  }
+}
+
 
 // A double move
 static void double_move(MacroAssembler* masm, VMRegPair src, VMRegPair dst) { Unimplemented(); }
@@ -994,12 +1019,12 @@ void SharedRuntime::restore_native_result(MacroAssembler *masm, BasicType ret_ty
   }
 }
 static void save_args(MacroAssembler *masm, int arg_count, int first_arg, VMRegPair *args) {
-  unsigned long x = 0;
+  unsigned long x = 0;  // Register bit vector
   for ( int i = first_arg ; i < arg_count ; i++ ) {
     if (args[i].first()->is_Register()) {
       x |= 1 << args[i].first()->as_Register()->encoding();
-    } else {
-      Unimplemented();
+    } else if (args[i].first()->is_FloatRegister()) {
+      __ strd(args[i].first()->as_FloatRegister(), Address(__ pre(sp, -2 * wordSize)));
     }
   }
   if (x)
@@ -1012,11 +1037,18 @@ static void restore_args(MacroAssembler *masm, int arg_count, int first_arg, VMR
     if (args[i].first()->is_Register()) {
       x |= 1 << args[i].first()->as_Register()->encoding();
     } else {
-      Unimplemented();
+      ;
     }
   }
   if (x)
     __ pop(x, sp);
+  for ( int i = first_arg ; i < arg_count ; i++ ) {
+    if (args[i].first()->is_Register()) {
+      ;
+    } else if (args[i].first()->is_FloatRegister()) {
+      __ ldrd(args[i].first()->as_FloatRegister(), Address(__ post(sp, 2 * wordSize)));
+    }
+  }
 }
 
 
@@ -1862,9 +1894,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     save_native_result(masm, ret_type, stack_slots);
     __ mov(c_rarg0, rthread);
     __ mov(r19, sp); // remember sp
-#ifndef PRODUCT
-  assert(frame::arg_reg_save_area_bytes == 0, "not expecting frame reg save area");
-#endif
+    __ sub(rscratch1, sp, frame::arg_reg_save_area_bytes);
     __ andr(sp, rscratch1, -16); // align stack as required by ABI
     if (!is_critical_native) {
       __ mov(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, JavaThread::check_special_condition_for_native_trans)));
@@ -2038,6 +2068,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
 
     __ mov(c_rarg0, obj_reg);
     __ mov(r20, sp); // remember sp
+    __ sub(rscratch1, sp, frame::arg_reg_save_area_bytes); // windows
     __ andr(sp, rscratch1, -16); // align stack as required by ABI
 
     // Save pending exception around call to VM (which contains an EXCEPTION_MARK)

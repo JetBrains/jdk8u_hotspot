@@ -351,13 +351,48 @@ void LIRGenerator::do_StoreIndexed(StoreIndexed* x) {
   }
 }
 
-void LIRGenerator::do_MonitorEnter(MonitorEnter* x) { ; }
+void LIRGenerator::do_MonitorEnter(MonitorEnter* x) {
+  assert(x->is_pinned(),"");
+  LIRItem obj(x->obj(), this);
+  obj.load_item();
 
-void LIRGenerator::do_MonitorExit(MonitorExit* x) { ; }
+  set_no_result(x);
 
-// _ineg, _lneg, _fneg, _dneg
+  // "lock" stores the address of the monitor stack slot, so this is not an oop
+  LIR_Opr lock = new_register(T_INT);
+  // Need a scratch register for biased locking
+  LIR_Opr scratch = LIR_OprFact::illegalOpr;
+  if (UseBiasedLocking) {
+    scratch = new_register(T_INT);
+  }
+
+  CodeEmitInfo* info_for_exception = NULL;
+  if (x->needs_null_check()) {
+    info_for_exception = state_for(x);
+  }
+  // this CodeEmitInfo must not have the xhandlers because here the
+  // object is already locked (xhandlers expect object to be unlocked)
+  CodeEmitInfo* info = state_for(x, x->state(), true);
+  monitor_enter(obj.result(), lock, syncTempOpr(), scratch,
+                        x->monitor_no(), info_for_exception, info);
+}
+
+
+void LIRGenerator::do_MonitorExit(MonitorExit* x) {
+  assert(x->is_pinned(),"");
+
+  LIRItem obj(x->obj(), this);
+  obj.dont_load_item();
+
+  LIR_Opr lock = new_register(T_INT);
+  LIR_Opr obj_temp = new_register(T_INT);
+  set_no_result(x);
+  monitor_exit(obj_temp, lock, syncTempOpr(), LIR_OprFact::illegalOpr, x->monitor_no());
+}
+
+
 void LIRGenerator::do_NegateOp(NegateOp* x) {
-  
+
   LIRItem from(x->x(), this);
   from.load_item();
   LIR_Opr result = rlock_result(x);
@@ -680,9 +715,99 @@ void LIRGenerator::do_LogicOp(LogicOp* x) {
 }
 
 // _lcmp, _fcmpl, _fcmpg, _dcmpl, _dcmpg
-void LIRGenerator::do_CompareOp(CompareOp* x) { Unimplemented(); }
+void LIRGenerator::do_CompareOp(CompareOp* x) {
+  LIRItem left(x->x(), this);
+  LIRItem right(x->y(), this);
+  ValueTag tag = x->x()->type()->tag();
+  if (tag == longTag) {
+    left.set_destroys_register();
+  }
+  left.load_item();
+  right.load_item();
+  LIR_Opr reg = rlock_result(x);
 
-void LIRGenerator::do_CompareAndSwap(Intrinsic* x, ValueType* type) { Unimplemented(); }
+  if (x->x()->type()->is_float_kind()) {
+    Bytecodes::Code code = x->op();
+    __ fcmp2int(left.result(), right.result(), reg, (code == Bytecodes::_fcmpl || code == Bytecodes::_dcmpl));
+  } else if (x->x()->type()->tag() == longTag) {
+    __ lcmp2int(left.result(), right.result(), reg);
+  } else {
+    Unimplemented();
+  }
+}
+
+void LIRGenerator::do_CompareAndSwap(Intrinsic* x, ValueType* type) {
+  assert(x->number_of_arguments() == 4, "wrong type");
+  LIRItem obj   (x->argument_at(0), this);  // object
+  LIRItem offset(x->argument_at(1), this);  // offset of field
+  LIRItem cmp   (x->argument_at(2), this);  // value to compare with field
+  LIRItem val   (x->argument_at(3), this);  // replace field with val if matches cmp
+
+  assert(obj.type()->tag() == objectTag, "invalid type");
+
+  // In 64bit the type can be long, sparc doesn't have this assert
+  // assert(offset.type()->tag() == intTag, "invalid type");
+
+  assert(cmp.type()->tag() == type->tag(), "invalid type");
+  assert(val.type()->tag() == type->tag(), "invalid type");
+
+  // get address of field
+  obj.load_item();
+  offset.load_nonconstant();
+  val.load_item();
+  cmp.load_item();
+
+  LIR_Address* a;
+  if(offset.result()->is_constant()) {
+    jlong c = offset.result()->as_jlong();
+    if ((jlong)((jint)c) == c) {
+      a = new LIR_Address(obj.result(),
+                          (jint)c,
+                          as_BasicType(type));
+    } else {
+      LIR_Opr tmp = new_register(T_LONG);
+      __ move(offset.result(), tmp);
+      a = new LIR_Address(obj.result(),
+                          tmp,
+                          as_BasicType(type));
+    }
+  } else {
+    a = new LIR_Address(obj.result(),
+                        offset.result(),
+                        LIR_Address::times_1,
+                        0,
+                        as_BasicType(type));
+  }
+  LIR_Opr addr = new_pointer_register();
+  __ leal(LIR_OprFact::address(a), addr);
+
+  if (type == objectType) {  // Write-barrier needed for Object fields.
+    // Do the pre-write barrier, if any.
+    pre_barrier(addr, LIR_OprFact::illegalOpr /* pre_val */,
+                true /* do_load */, false /* patch */, NULL);
+  }
+
+  LIR_Opr result = rlock_result(x);
+
+  LIR_Opr ill = LIR_OprFact::illegalOpr;  // for convenience
+  if (type == objectType)
+    __ cas_obj(addr, cmp.result(), val.result(), new_register(T_INT), new_register(T_INT),
+	       result);
+  else if (type == intType)
+    __ cas_int(addr, cmp.result(), val.result(), ill, ill);
+  else if (type == longType)
+    __ cas_long(addr, cmp.result(), val.result(), ill, ill);
+  else {
+    ShouldNotReachHere();
+  }
+
+  __ logical_xor(FrameMap::r8_opr, LIR_OprFact::intConst(1), result);
+
+  if (type == objectType) {   // Write-barrier needed for Object fields.
+    // Seems to be precise
+    post_barrier(addr, val.result());
+  }
+}
 
 void LIRGenerator::do_MathIntrinsic(Intrinsic* x) { Unimplemented(); }
 
@@ -952,7 +1077,7 @@ void LIRGenerator::do_If(If* x) {
   if (tag == longTag && yin->is_constant()
       &&  Assembler::operand_valid_for_add_sub_immediate(yin->get_jlong_constant())) {
     yin->dont_load_item();
-  } else if (tag == longTag || tag == floatTag || tag == doubleTag) {
+  } else if (tag == longTag || tag == floatTag || tag == doubleTag || tag == objectTag) {
     yin->load_item();
   } else {
     yin->dont_load_item();
@@ -1006,9 +1131,27 @@ void LIRGenerator::volatile_field_load(LIR_Address* address, LIR_Opr result,
 }
 
 void LIRGenerator::get_Object_unsafe(LIR_Opr dst, LIR_Opr src, LIR_Opr offset,
-                                     BasicType type, bool is_volatile) { Unimplemented(); }
+                                     BasicType type, bool is_volatile) {
+  LIR_Address* addr = new LIR_Address(src, offset, type);
+  __ load(addr, dst);
+}
+
 
 void LIRGenerator::put_Object_unsafe(LIR_Opr src, LIR_Opr offset, LIR_Opr data,
-                                     BasicType type, bool is_volatile) { Unimplemented(); }
+                                     BasicType type, bool is_volatile) {
+  LIR_Address* addr = new LIR_Address(src, offset, type);
+  bool is_obj = (type == T_ARRAY || type == T_OBJECT);
+  if (is_obj) {
+    // Do the pre-write barrier, if any.
+    pre_barrier(LIR_OprFact::address(addr), LIR_OprFact::illegalOpr /* pre_val */,
+		true /* do_load */, false /* patch */, NULL);
+    __ move(data, addr);
+    assert(src->is_register(), "must be register");
+    // Seems to be a precise address
+    post_barrier(LIR_OprFact::address(addr), data);
+  } else {
+    __ move(data, addr);
+  }
+}
 
 void LIRGenerator::do_UnsafeGetAndSetObject(UnsafeGetAndSetObject* x) { Unimplemented(); }
