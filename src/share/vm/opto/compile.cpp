@@ -72,6 +72,7 @@
 #endif
 #ifdef TARGET_ARCH_MODEL_aarch64
 # include "adfiles/ad_aarch64.hpp"
+# include "../../../../../../simulator/simulator.hpp"
 #endif
 #ifdef TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
@@ -849,6 +850,21 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       _code_offsets.set_value(CodeOffsets::Verified_Entry, _first_block_size);
       _code_offsets.set_value(CodeOffsets::OSR_Entry, 0);
     }
+
+#ifdef TARGET_ARCH_aarch64
+    char method_name[400];
+    unsigned char *entry = code_buffer()->insts_begin();
+    stringStream st(method_name, 400);
+    if (_entry_bci != InvocationEntryBci) {
+      st.print("osr:");
+    }
+    _method->holder()->name()->print_symbol_on(&st);
+    st.print(".");
+    _method->name()->print_symbol_on(&st);
+    _method->signature()->as_symbol()->print_symbol_on(&st);
+    AArch64Simulator::current()->notifyCompile(method_name, entry);
+    AArch64Simulator::current()->notifyRelocate(entry, 0);
+#endif
 
     env()->register_method(_method, _entry_bci,
                            &_code_offsets,
