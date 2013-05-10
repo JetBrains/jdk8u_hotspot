@@ -1054,7 +1054,7 @@ void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
       // one MOVN will do
       movn(dst, 0);
     } else if (zero_count == 3) {
-      for (i = 0; i < 3; i++) {
+      for (i = 0; i < 4; i++) {
 	if (imm_h[i] != 0L) {
 	  movz(dst, (u_int32_t)imm_h[i], (i << 4));
 	  break;
@@ -1062,7 +1062,7 @@ void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
       }
     } else if (neg_count == 3) {
       // one MOVN will do
-      for (int i = 0; i < 3; i++) {
+      for (int i = 0; i < 4; i++) {
 	if (imm_h[i] != 0xffffL) {
 	  movn(dst, (u_int32_t)imm_h[i], (i << 4));
 	  break;
@@ -1077,49 +1077,49 @@ void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
 	  break;
 	}
       }
-      for (;i < 3; i++) {
+      for (;i < 4; i++) {
 	if (imm_h[i] != 0L) {
 	  movk(dst, (u_int32_t)imm_h[i], (i << 4));
 	}
       }
     } else if (neg_count == 2) {
       // one MOVN and one MOVK will do
-      for (i = 0; i < 3; i++) {
+      for (i = 0; i < 4; i++) {
 	if (imm_h[i] != 0xffffL) {
 	  movn(dst, (u_int32_t)imm_h[i] ^ 0xffffL, (i << 4));
 	  i++;
 	  break;
 	}
       }
-      for (;i < 3; i++) {
+      for (;i < 4; i++) {
 	if (imm_h[i] != 0xffffL) {
 	  movk(dst, (u_int32_t)imm_h[i], (i << 4));
 	}
       }
     } else if (zero_count == 1) {
       // one MOVZ and two MOVKs will do
-      for (i = 0; i < 3; i++) {
+      for (i = 0; i < 4; i++) {
 	if (imm_h[i] != 0L) {
 	  movz(dst, (u_int32_t)imm_h[i], (i << 4));
 	  i++;
 	  break;
 	}
       }
-      for (;i < 3; i++) {
+      for (;i < 4; i++) {
 	if (imm_h[i] != 0x0L) {
 	  movk(dst, (u_int32_t)imm_h[i], (i << 4));
 	}
       }
     } else if (neg_count == 1) {
       // one MOVN and two MOVKs will do
-      for (i = 0; i < 3; i++) {
+      for (i = 0; i < 4; i++) {
 	if (imm_h[i] != 0xffffL) {
 	  movn(dst, (u_int32_t)imm_h[i] ^ 0xffffL, (i << 4));
 	  i++;
 	  break;
 	}
       }
-      for (;i < 3; i++) {
+      for (;i < 4; i++) {
 	if (imm_h[i] != 0xffffL) {
 	  movk(dst, (u_int32_t)imm_h[i], (i << 4));
 	}
@@ -1154,11 +1154,11 @@ void MacroAssembler::mov_immediate32(Register dst, u_int32_t imm32)
     if (imm_h[0] == 0) {
       movzw(dst, imm_h[1], 16);
     } else if (imm_h[0] == 0xffff) {
-      movnw(dst, imm_h[1], 16);
+      movnw(dst, imm_h[1] ^ 0xffff, 16);
     } else if (imm_h[1] == 0) {
       movzw(dst, imm_h[0], 0);
     } else if (imm_h[1] == 0xffff) {
-      movnw(dst, imm_h[0], 0);
+      movnw(dst, imm_h[0] ^ 0xffff, 0);
     } else {
       // use a MOVZ and MOVK (makes it easier to debug)
       movzw(dst, imm_h[0], 0);
