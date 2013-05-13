@@ -81,7 +81,7 @@ class RegisterSaver {
   static int rmethod_offset_in_bytes(void)    { return reg_offset_in_bytes(rmethod); }
   static int rscratch1_offset_in_bytes(void)    { return (32 + rscratch1->encoding()) * wordSize; }
   static int v0_offset_in_bytes(void)   { return 0; }
-  static int return_offset_in_bytes(void) { return (32 /* floats*/ + 32 /* gregs*/ + 1) * wordSize; }
+  static int return_offset_in_bytes(void) { return (32 /* floats*/ + 31 /* gregs*/) * wordSize; }
 
   // During deoptimization only the result registers need to be restored,
   // all the other values have already been extracted.
@@ -287,11 +287,7 @@ static void patch_callers_callsite(MacroAssembler *masm) {
   __ ldr(rscratch1, Address(rmethod, in_bytes(Method::code_offset())));
   __ cbz(rscratch1, L);
 
-  // Schedule the branch target address early.
-  // Call into the VM to patch the caller, then jump to compiled callee
-  // rax isn't live so capture return address while we easily can
-  __ mov(r0, lr);
-
+  __ enter();
   __ push_CPU_state();
 
   // VM needs caller's callsite
@@ -303,14 +299,14 @@ static void patch_callers_callsite(MacroAssembler *masm) {
   assert(frame::arg_reg_save_area_bytes == 0, "not expecting frame reg save area");
 #endif
 
-  __ mov(rscratch1, c_rarg1);
-  __ mov(c_rarg1, r0);
-  __ mov(c_rarg0, rscratch1);
+  __ mov(c_rarg0, rmethod);
+  __ mov(c_rarg1, lr);
   __ mov(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, SharedRuntime::fixup_callers_callsite)));
   __ brx86(rscratch1, 2, 0, 0);
 
   __ pop_CPU_state();
   // restore sp
+  __ leave();
   __ bind(L);
 }
 
@@ -456,22 +452,24 @@ static void gen_i2c_adapter(MacroAssembler *masm,
   // Note: r13 contains the senderSP on entry. We must preserve it since
   // we may do a i2c -> c2i transition if we lose a race where compiled
   // code goes non-entrant while we get args ready.
-  // In addition we use r13 to locate all the interpreter args as
-  // we must align the stack to 16 bytes on an i2c entry else we
-  // lose alignment we expect in all compiled code and register
-  // save code can segv when fxsave instructions find improperly
-  // aligned stack pointer.
 
-  // Adapters can be frameless because they do not require the caller
-  // to perform additional cleanup work, such as correcting the stack pointer.
-  // An i2c adapter is frameless because the *caller* frame, which is interpreted,
-  // routinely repairs its own stack pointer (from interpreter_frame_last_sp),
-  // even if a callee has modified the stack pointer.
-  // A c2i adapter is frameless because the *callee* frame, which is interpreted,
-  // routinely repairs its caller's stack pointer (from sender_sp, which is set
-  // up via the senderSP register).
+  // In addition we use r13 to locate all the interpreter args because
+  // we must align the stack to 16 bytes.
+
+  // Adapters are frameless.
+
+  // An i2c adapter is frameless because the *caller* frame, which is
+  // interpreted, routinely repairs its own esp (from
+  // interpreter_frame_last_sp), even if a callee has modified the
+  // stack pointer.  It also recalculates and aligns sp.
+
+  // A c2i adapter is frameless because the *callee* frame, which is
+  // interpreted, routinely repairs its caller's es (from sender_sp,
+  // which is set up via the senderSP register).
+
   // In other words, if *either* the caller or callee is interpreted, we can
   // get the stack pointer repaired after a call.
+
   // This is why c2i and i2c adapters cannot be indefinitely composed.
   // In particular, if a c2i adapter were to somehow call an i2c adapter,
   // both caller and callee would be compiled methods, and neither would
@@ -696,8 +694,9 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
 
   Label ok;
 
-  Register holder = r0;
+  Register holder = rscratch2;
   Register receiver = j_rarg0;
+  Register tmp = r10;  // A call-clobbered register not used for arg passing
 
   // -------------------------------------------------------------------------
   // Generate a C2I adapter.  On entry we know rmethod holds the Method* during calls
@@ -711,8 +710,8 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
   {
     __ block_comment("c2i_unverified_entry {");
     __ load_klass(rscratch1, receiver);
-    __ ldr(rscratch2, Address(holder, CompiledICHolder::holder_klass_offset()));
-    __ cmp(rscratch1, rscratch2);
+    __ ldr(tmp, Address(holder, CompiledICHolder::holder_klass_offset()));
+    __ cmp(rscratch1, tmp);
     __ ldr(rmethod, Address(holder, CompiledICHolder::holder_method_offset()));
     __ br(Assembler::EQ, ok);
     __ b(RuntimeAddress(SharedRuntime::get_ic_miss_stub()));
@@ -978,7 +977,12 @@ static void long_move(MacroAssembler* masm, VMRegPair src, VMRegPair dst) {
 
 
 // A double move
-static void double_move(MacroAssembler* masm, VMRegPair src, VMRegPair dst) { Unimplemented(); }
+static void double_move(MacroAssembler* masm, VMRegPair src, VMRegPair dst) { 
+  if (src.is_single_phys_reg() && dst.is_single_phys_reg())
+    __ fmovd(dst.first()->as_FloatRegister(), src.first()->as_FloatRegister());
+  else
+    ShouldNotReachHere();
+}
 
 
 void SharedRuntime::save_native_result(MacroAssembler *masm, BasicType ret_type, int frame_slots) {
@@ -1557,6 +1561,9 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
   // All inbound args are referenced based on rfp and all outbound args via sp.
 
 
+  int float_args = 0;
+  int int_args = 0;
+
 #ifdef ASSERT
   bool reg_destroyed[RegisterImpl::number_of_registers];
   bool freg_destroyed[FloatRegisterImpl::number_of_registers];
@@ -1630,6 +1637,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
             freg_destroyed[out_regs[c_arg].first()->as_FloatRegister()->encoding()] = true;
           }
 #endif
+	  int_args++;
           break;
         }
       case T_OBJECT:
@@ -1637,29 +1645,35 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
         object_move(masm, map, oop_handle_offset, stack_slots, in_regs[i], out_regs[c_arg],
                     ((i == 0) && (!is_static)),
                     &receiver_offset);
+	int_args++;
         break;
       case T_VOID:
+	int_args++;
         break;
 
       case T_FLOAT:
         float_move(masm, in_regs[i], out_regs[c_arg]);
-          break;
+	float_args++;
+	break;
 
       case T_DOUBLE:
         assert( i + 1 < total_in_args &&
                 in_sig_bt[i + 1] == T_VOID &&
                 out_sig_bt[c_arg+1] == T_VOID, "bad arg list");
         double_move(masm, in_regs[i], out_regs[c_arg]);
+	float_args++;
         break;
 
       case T_LONG :
         long_move(masm, in_regs[i], out_regs[c_arg]);
+	int_args++;
         break;
 
       case T_ADDRESS: assert(false, "found T_ADDRESS in java args");
 
       default:
         move32_64(masm, in_regs[i], out_regs[c_arg]);
+	int_args++;
     }
   }
 
@@ -1681,7 +1695,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     // Now get the handle
     __ lea(oop_handle_reg, Address(sp, klass_offset));
     // store the klass handle as second argument
-    __ ldr(c_rarg1, oop_handle_reg);
+    __ mov(c_rarg1, oop_handle_reg);
     // and protect the arg if we must spill
     c_arg--;
   }
@@ -1825,7 +1839,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     default:
       ShouldNotReachHere();
     }
-    rt_call(masm, native_func, 8, 8, return_type);
+    rt_call(masm, native_func, int_args + 2, float_args, return_type);
   }
 
   // Unpack native results.
@@ -2164,9 +2178,13 @@ nmethod *SharedRuntime::generate_dtrace_nmethod(MacroAssembler *masm,
 
 // this function returns the adjust size (in number of words) to a c2i adapter
 // activation for use during deoptimization
-int Deoptimization::last_frame_adjust(int callee_parameters, int callee_locals ) {
-  // FIXME: This is a guess
-  return (callee_locals - callee_parameters) * Interpreter::stackElementWords;
+int Deoptimization::last_frame_adjust(int callee_parameters, int callee_locals) {
+  assert(callee_locals >= callee_parameters,
+          "test and remove; got more parms than locals");
+  if (callee_locals < callee_parameters)
+    return 0;                   // No adjustment for negative locals
+  int diff = (callee_locals - callee_parameters) * Interpreter::stackElementWords;
+  return round_to(diff, 2 * wordSize);
 }
 
 
@@ -2410,29 +2428,13 @@ void SharedRuntime::generate_deopt_blob() {
   Label loop;
   __ bind(loop);
   __ ldr(r19, Address(__ post(r4, wordSize)));          // Load frame size
-#ifdef CC_INTERP
-  __ subptr(rbx, 4*wordSize);           // we'll push pc and ebp by hand and
-#ifdef ASSERT
-  __ push(0xDEADDEAD);                  // Make a recognizable pattern
-  __ push(0xDEADDEAD);
-#else /* ASSERT */
-  __ subptr(sp, 2*wordSize);           // skip the "static long no_param"
-#endif /* ASSERT */
-#else
   __ sub(r19, r19, 2*wordSize);           // We'll push pc and fp by hand
-#endif // CC_INTERP
   __ ldr(lr, Address(__ post(r2, wordSize)));  // Load pc
   __ enter();                           // Save old & set new fp
   __ sub(sp, sp, r19);                  // Prolog
-#ifdef CC_INTERP
-  __ movptr(Address(rfp,
-                  -(sizeof(BytecodeInterpreter)) + in_bytes(byte_offset_of(BytecodeInterpreter, _sender_sp))),
-            sender_sp); // Make it walkable
-#else /* CC_INTERP */
   // This value is corrected by layout_activation_impl
   __ str(zr, Address(rfp, frame::interpreter_frame_last_sp_offset * wordSize));
   __ str(sender_sp, Address(rfp, frame::interpreter_frame_sender_sp_offset * wordSize)); // Make it walkable
-#endif /* CC_INTERP */
   __ mov(sender_sp, sp);               // Pass sender_sp to next frame
   __ sub(r3, r3, 1);                   // Decrement counter
   __ cbnz(r3, loop);
