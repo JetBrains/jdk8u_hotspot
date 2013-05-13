@@ -124,7 +124,6 @@ bool frame::safe_for_sender(JavaThread *thread) {
       // fp does not have to be safe (although it could be check for c1?)
 
       sender_sp = _unextended_sp + _cb->frame_size();
-      // On Intel the return_address is always the word on the stack
       sender_pc = (address) *(sender_sp-1);
     }
 
@@ -441,7 +440,7 @@ frame frame::sender_for_compiled_frame(RegisterMap* map) const {
   // in C2 code but it will have been pushed onto the stack. so we
   // have to find it relative to the unextended sp
 
-  assert(_cb->frame_size() >= 0, "must have non-zero frame size");
+  assert(_cb->frame_size() > 0, "must have non-zero frame size");
   intptr_t* sender_sp = unextended_sp() + _cb->frame_size();
   intptr_t* unextended_sp = sender_sp;
 
@@ -468,6 +467,26 @@ frame frame::sender_for_compiled_frame(RegisterMap* map) const {
   return frame(sender_sp, unextended_sp, *saved_fp_addr, sender_pc);
 }
 
+frame frame::sender_for_stub_frame(RegisterMap* map) const {
+  if (map->update_map()) {
+    // Tell GC to use argument oopmaps for some runtime stubs that need it.
+    // For C1, the runtime stub might not have oop maps, so set this flag
+    // outside of update_register_map.
+    map->set_include_argument_oops(_cb->caller_must_gc_arguments(map->thread()));
+    if (_cb->oop_maps() != NULL) {
+      OopMapSet::update_register_map(this, map);
+    }
+
+    // Since the prolog does the save and restore of EBP there is no oopmap
+    // for it so we must fill in its location as if there was an oopmap entry
+    // since if our caller was compiled code there could be live jvm state in it.
+
+    intptr_t** saved_fp_addr = (intptr_t**)fp();
+    update_map_with_saved_link(map, saved_fp_addr);
+  }
+
+  return frame(sender_sp(), link(), sender_pc());
+}
 
 //------------------------------------------------------------------------------
 // frame::sender
@@ -476,12 +495,19 @@ frame frame::zsender(RegisterMap* map) const {
   // update it accordingly
    map->set_include_argument_oops(false);
 
-  if (is_entry_frame())       return sender_for_entry_frame(map);
-  if (is_interpreted_frame()) return sender_for_interpreter_frame(map);
+  if (is_entry_frame())
+    return sender_for_entry_frame(map);
+  if (is_interpreted_frame())
+    return sender_for_interpreter_frame(map);
   assert(_cb == CodeCache::find_blob(pc()),"Must be the same");
 
+  // This test looks odd: why is it not is_compiled_frame() ?  That's
+  // because stubs also have OOP maps.
   if (_cb != NULL) {
-    return sender_for_compiled_frame(map);
+    if (_cb->is_nmethod())
+      return sender_for_compiled_frame(map);
+    else
+      return sender_for_stub_frame(map);
   }
 
   // Must be native-compiled frame, i.e. the marshaling code for native
@@ -703,6 +729,9 @@ extern "C" void pf(unsigned long fp, unsigned long pc) {
   DESCRIBE_FP_OFFSET(interpreter_frame_initial_sp);
   unsigned long *p = (unsigned long *)fp;
 
+  nextfp = p[frame::link_offset];
+  nextpc = p[frame::return_addr_offset];
+
   if (Interpreter::contains((address)pc)) {
     Method* m = (Method*)p[frame::interpreter_frame_method_offset];
     if(m && m->is_method()) {
@@ -718,9 +747,6 @@ extern "C" void pf(unsigned long fp, unsigned long pc) {
       printf("nmethod %s\n", nm->method()->name_and_sig_as_C_string());
     }
   }
-
-  nextfp = p[frame::link_offset];
-  nextpc = p[frame::return_addr_offset];
 }
 
 extern "C" void npf() {

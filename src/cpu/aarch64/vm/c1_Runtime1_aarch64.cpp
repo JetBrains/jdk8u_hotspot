@@ -908,6 +908,26 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
       }
       break;
 
+    case new_multi_array_id:
+      { StubFrame f(sasm, "new_multi_array", dont_gc_arguments);
+        // r0,: klass
+        // r19,: rank
+        // r2: address of 1st dimension
+        OopMap* map = save_live_registers(sasm, 4);
+	__ mov(c_rarg1, r0);
+	__ mov(c_rarg3, r2);
+	__ mov(c_rarg2, r19);
+        int call_offset = __ call_RT(r0, noreg, CAST_FROM_FN_PTR(address, new_multi_array), r1, r2, r3);
+
+        oop_maps = new OopMapSet();
+        oop_maps->add_gc_map(call_offset, map);
+        restore_live_registers_except_r0(sasm);
+
+        // rax,: new multi array
+        __ verify_oop(r0);
+      }
+      break;
+
     case register_finalizer_id:
       {
         __ set_info("register_finalizer", dont_gc_arguments);
@@ -937,6 +957,61 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         restore_live_registers(sasm);
 
         __ leave();
+        __ ret(lr);
+      }
+      break;
+
+    case throw_class_cast_exception_id:
+      { StubFrame f(sasm, "throw_class_cast_exception", dont_gc_arguments);
+        oop_maps = generate_exception_throw(sasm, CAST_FROM_FN_PTR(address, throw_class_cast_exception), true);
+      }
+      break;
+
+    case throw_incompatible_class_change_error_id:
+      { StubFrame f(sasm, "throw_incompatible_class_cast_exception", dont_gc_arguments);
+        oop_maps = generate_exception_throw(sasm, CAST_FROM_FN_PTR(address, throw_incompatible_class_change_error), false);
+      }
+      break;
+
+    case slow_subtype_check_id:
+      {
+        // Typical calling sequence:
+        // __ push(klass_RInfo);  // object klass or other subclass
+        // __ push(sup_k_RInfo);  // array element klass or other superclass
+        // __ bl(slow_subtype_check);
+        // Note that the subclass is pushed first, and is therefore deepest.
+        enum layout {
+	  r0_off, r0_off_hi,
+          r2_off, r2_off_hi,
+          r4_off, r4_off_hi,
+          r5_off, r5_off_hi,
+          sup_k_off, sup_k_off_hi,
+          klass_off, klass_off_hi,
+          framesize,
+          result_off = sup_k_off
+        };
+
+        __ set_info("slow_subtype_check", dont_gc_arguments);
+	__ push((1 << 0) | (1 <<2) | (1 << 4) | (1 << 5), sp);
+
+        // This is called by pushing args and not with C abi
+        // __ ldr(r4, Address(sp, (klass_off) * VMRegImpl::stack_slot_size)); // subclass
+        // __ ldr(r0, Address(sp, (sup_k_off) * VMRegImpl::stack_slot_size)); // superclass
+
+	__ ldp(r4, r0, Address(sp, (sup_k_off) * VMRegImpl::stack_slot_size));
+
+        Label miss;
+        __ check_klass_subtype_slow_path(r4, r0, r2, r5, NULL, &miss);
+
+        // fallthrough on success:
+	__ mov(rscratch1, 1);
+        __ str(rscratch1, Address(sp, (result_off) * VMRegImpl::stack_slot_size)); // result
+	__ pop((1 << 0) | (1 <<2) | (1 << 4) | (1 << 5), sp);
+        __ ret(lr);
+
+        __ bind(miss);
+        __ str(zr, Address(sp, (result_off) * VMRegImpl::stack_slot_size)); // result
+	__ pop((1 << 0) | (1 <<2) | (1 << 4) | (1 << 5), sp);
         __ ret(lr);
       }
       break;
