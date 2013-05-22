@@ -51,7 +51,7 @@
 #include "oops/method.hpp"
 #endif // !PRODUCT
 
-#include "simulator.hpp"
+#include "../../../../../../simulator/simulator.hpp"
 
 #define __ _masm->
 
