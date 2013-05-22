@@ -1098,7 +1098,7 @@ IntervalUseKind LinearScan::use_kind_of_input_operand(LIR_Op* op, LIR_Opr opr) {
   }
 
 
-#ifdef X86
+#if defined(X86) && !defined(TARGET_ARCH_aarch64)
   if (op->code() == lir_cmove) {
     // conditional moves can handle stack operands
     assert(op->result_opr()->is_register(), "result must always be in a register");
@@ -2633,12 +2633,14 @@ int LinearScan::append_scope_value_for_operand(LIR_Opr opr, GrowableArray<ScopeV
 
   } else if (opr->is_single_fpu()) {
 #ifdef X86
+#ifndef TARGET_ARCH_aarch64
     // the exact location of fpu stack values is only known
     // during fpu stack allocation, so the stack allocator object
     // must be present
     assert(use_fpu_stack_allocation(), "should not have float stack values without fpu stack allocation (all floats must be SSE2)");
     assert(_fpu_stack_allocator != NULL, "must be present");
     opr = _fpu_stack_allocator->to_fpu_stack(opr);
+#endif
 #endif
 
     Location::Type loc_type = float_saved_as_double ? Location::float_in_dbl : Location::normal;
@@ -2740,6 +2742,7 @@ int LinearScan::append_scope_value_for_operand(LIR_Opr opr, GrowableArray<ScopeV
       // least and most significant words, respectively.
 
 #ifdef X86
+#ifndef TARGET_ARCH_aarch64
       // the exact location of fpu stack values is only known
       // during fpu stack allocation, so the stack allocator object
       // must be present
@@ -2748,6 +2751,7 @@ int LinearScan::append_scope_value_for_operand(LIR_Opr opr, GrowableArray<ScopeV
       opr = _fpu_stack_allocator->to_fpu_stack(opr);
 
       assert(opr->fpu_regnrLo() == opr->fpu_regnrHi(), "assumed in calculation (only fpu_regnrLo is used)");
+#endif
 #endif
 #ifdef SPARC
       assert(opr->fpu_regnrLo() == opr->fpu_regnrHi() + 1, "assumed in calculation (only fpu_regnrHi is used)");
@@ -4567,7 +4571,7 @@ void Interval::print(outputStream* out) const {
 #endif
 #endif
     } else {
-      ShouldNotReachHere();
+      // ShouldNotReachHere();
     }
   } else {
     type_name = type2name(type());
@@ -5433,6 +5437,7 @@ bool LinearScanWalker::alloc_free_reg(Interval* cur) {
 
   } else {
     reg = find_free_reg(reg_needed_until, interval_to, hint_reg, any_reg, &need_split);
+    reg = find_free_reg(reg_needed_until, interval_to, hint_reg, any_reg, &need_split);
     if (reg == any_reg) {
       return false;
     }
@@ -5641,7 +5646,7 @@ void LinearScanWalker::alloc_locked_reg(Interval* cur) {
 }
 
 bool LinearScanWalker::no_allocation_possible(Interval* cur) {
-#ifdef X86
+#if defined(X86) && !defined(TARGET_ARCH_aarch64)
   // fast calculation of intervals that can never get a register because the
   // the next instruction is a call that blocks all registers
   // Note: this does not work if callee-saved registers are available (e.g. on Sparc)
