@@ -388,7 +388,7 @@ ifeq ($(JVM_VARIANT_MINIMAL1), true)
     MISC_DIR=$(MINIMAL1_DIR)
     GEN_DIR=$(MINIMAL1_BASE_DIR)/generated
 endif
-ifeq ($(SRCARCH), aarch64)
+ifeq ($(BUILD_AARCH64), true)
 ifeq ($(BUILD_AARCH64_C2), true)
     MISC_DIR=$(C2_DIR)
     GEN_DIR=$(C2_BASE_DIR)/generated
@@ -526,7 +526,7 @@ ifneq ($(OSNAME),windows)
         $(EXPORT_SERVER_DIR)/%.diz:			$(ZERO_DIR)/%.diz
 		$(install-file)
     endif
-    ifeq ($(SRCARCH), aarch64)
+    ifeq ($(BUILD_AARCH64), true)
         $(EXPORT_JRE_LIB_ARCH_DIR)/%.$(LIBRARY_SUFFIX): $(C1_DIR)/%.$(LIBRARY_SUFFIX)
 		$(install-file)
         $(EXPORT_SERVER_DIR)/%.$(LIBRARY_SUFFIX):       $(C1_DIR)/%.$(LIBRARY_SUFFIX)

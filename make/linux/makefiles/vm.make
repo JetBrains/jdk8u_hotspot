@@ -126,9 +126,8 @@ LIBS += -lm -ldl -lpthread
 
 # aarch64 needs to link to the simulator
 ifeq ($(SRCARCH), aarch64)
-  ARMSIM_DIR = $(shell cd ../../../../../../../simulator/ && pwd)
+  ARMSIM_DIR = $(shell cd $(GAMMADIR)/../../simulator && pwd)
   LIBS += -L $(ARMSIM_DIR) -larmsim -Wl,-rpath,$(ARMSIM_DIR)
-else
 endif
 
 # By default, link the *.o into the library, not the executable.
