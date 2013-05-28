@@ -4801,6 +4801,9 @@ instruct mulD_reg_reg(vRegD dst, vRegD src1, vRegD src2) %{
   ins_pipe(pipe_class_default);
 %}
 
+// TODO
+// be sure we can actually use these combined ops if we require strictfp
+
 instruct maddF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3) %{
   match(Set dst (AddF (MulF src1 src2) src3));
 
@@ -4816,7 +4819,7 @@ instruct maddF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3) %{
   ins_pipe(pipe_class_default);
 %}
 
-instruct maddD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegF src3) %{
+instruct maddD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegD src3) %{
   match(Set dst (AddD (MulD src1 src2) src3));
 
   format %{ "fmaddd   $dst, $src1, $src2, $src3" %}
@@ -4832,10 +4835,11 @@ instruct maddD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegF src3) %{
 %}
 
 // TODO
-// create a test to see if we can ever match these
+// check correctness of second match rule
 
-instruct msubF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3, immF0 zero) %{
-  match(Set dst (AddF (MulF (SubF zero src1) src2) src3));
+instruct msubF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3) %{
+  match(Set dst (AddF (MulF (NegF src1) src2) src3));
+  match(Set dst (AddF (NegF (MulF src1 src2)) src3));
 
   format %{ "fmsubs   $dst, $src1, $src2, $src3" %}
 
@@ -4849,8 +4853,9 @@ instruct msubF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3, immF0 zero
   ins_pipe(pipe_class_default);
 %}
 
-instruct msubD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegD src3, immD0 zero) %{
-  match(Set dst (AddD (MulD (SubD src1 zero) src2) src3));
+instruct msubD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegD src3) %{
+  match(Set dst (AddD (MulD (NegD src1) src2) src3));
+  match(Set dst (AddD (NegD (MulD src1 src2)) src3));
 
   format %{ "fmsubd   $dst, $src1, $src2, $src3" %}
 
@@ -4865,10 +4870,11 @@ instruct msubD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegD src3, immD0 zero
 %}
 
 // TODO
-// create a test to see if we can ever match these
+// check correctness of second match rule
 
-instruct mnaddF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3, immF0 zero) %{
-  match(Set dst (SubF (MulF (SubF zero src1) src2) src3));
+instruct mnaddF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3) %{
+  match(Set dst (SubF (MulF (NegF src1) src2) src3));
+  match(Set dst (SubF (NegF (MulF src1 src2)) src3));
 
   format %{ "fnmadds  $dst, $src1, $src2, $src3" %}
 
@@ -4882,8 +4888,9 @@ instruct mnaddF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3, immF0 zer
   ins_pipe(pipe_class_default);
 %}
 
-instruct mnaddD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegD src3, immD0 zero) %{
-  match(Set dst (SubD (MulD (SubD src1 zero) src2) src3));
+instruct mnaddD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegD src3) %{
+  match(Set dst (SubD (MulD (NegD src1) src2) src3));
+  match(Set dst (SubD (NegD (MulD src1 src2)) src3));
 
   format %{ "fnmaddd   $dst, $src1, $src2, $src3" %}
 
@@ -4896,6 +4903,92 @@ instruct mnaddD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegD src3, immD0 zer
 
   ins_pipe(pipe_class_default);
 %}
+
+instruct mnsubF_reg_reg(vRegF dst, vRegF src1, vRegF src2, vRegF src3, immF0 zero) %{
+  match(Set dst (SubF (MulF src1 src2) src3));
+
+  format %{ "fnmsubs  $dst, $src1, $src2, $src3" %}
+
+  ins_encode %{
+    __ fnmsubs(as_FloatRegister($dst$$reg),
+               as_FloatRegister($src1$$reg),
+               as_FloatRegister($src2$$reg),
+               as_FloatRegister($src3$$reg));
+  %}
+
+  ins_pipe(pipe_class_default);
+%}
+
+instruct mnsubD_reg_reg(vRegD dst, vRegD src1, vRegD src2, vRegD src3, immD0 zero) %{
+  match(Set dst (SubD (MulD src1 src2) src3));
+
+  format %{ "fnmsubd   $dst, $src1, $src2, $src3" %}
+
+  ins_encode %{
+  // n.b. insn name should be fnmsubd
+    __ fnmsub(as_FloatRegister($dst$$reg),
+               as_FloatRegister($src1$$reg),
+               as_FloatRegister($src2$$reg),
+               as_FloatRegister($src3$$reg));
+  %}
+
+  ins_pipe(pipe_class_default);
+%}
+
+instruct divF_reg_reg(vRegF dst, vRegF src1, vRegF src2) %{
+  match(Set dst (DivF src1  src2));
+
+  format %{ "fdivs   $dst, $src1, $src2" %}
+
+  ins_encode %{
+    __ fdivs(as_FloatRegister($dst$$reg),
+             as_FloatRegister($src1$$reg),
+             as_FloatRegister($src2$$reg));
+  %}
+
+  ins_pipe(pipe_class_default);
+%}
+
+instruct divD_reg_reg(vRegD dst, vRegD src1, vRegD src2) %{
+  match(Set dst (DivD src1  src2));
+
+  format %{ "fdivd   $dst, $src1, $src2" %}
+
+  ins_encode %{
+    __ fdivd(as_FloatRegister($dst$$reg),
+             as_FloatRegister($src1$$reg),
+             as_FloatRegister($src2$$reg));
+  %}
+
+  ins_pipe(pipe_class_default);
+%}
+
+instruct negF_reg_reg(vRegF dst, vRegF src) %{
+  match(Set dst (NegF src));
+
+  format %{ "fneg   $dst, $src" %}
+
+  ins_encode %{
+    __ fnegs(as_FloatRegister($dst$$reg),
+             as_FloatRegister($src$$reg));
+  %}
+
+  ins_pipe(pipe_class_default);
+%}
+
+instruct negD_reg_reg(vRegD dst, vRegD src) %{
+  match(Set dst (NegD src));
+
+  format %{ "fnegd   $dst, $src" %}
+
+  ins_encode %{
+    __ fnegd(as_FloatRegister($dst$$reg),
+             as_FloatRegister($src$$reg));
+  %}
+
+  ins_pipe(pipe_class_default);
+%}
+
 
 // ============================================================================
 // Logical Instructions
@@ -5367,7 +5460,41 @@ instruct CallRuntimeDirect(method meth)
 
   ins_cost(CALL_COST);
 
-  format %{ "CALL, runtime" %}
+  format %{ "CALL, runtime $meth" %}
+
+  ins_encode( aarch64_enc_java_to_runtime(meth) );
+
+  ins_pipe(pipe_class_call);
+%}
+
+// Call Runtime Instruction
+
+instruct CallLeafDirect(method meth)
+%{
+  match(CallLeaf);
+
+  effect(USE meth);
+
+  ins_cost(CALL_COST);
+
+  format %{ "CALL, runtime leaf $meth" %}
+
+  ins_encode( aarch64_enc_java_to_runtime(meth) );
+
+  ins_pipe(pipe_class_call);
+%}
+
+// Call Runtime Instruction
+
+instruct CallLeafNoFPDirect(method meth)
+%{
+  match(CallLeafNoFP);
+
+  effect(USE meth);
+
+  ins_cost(CALL_COST);
+
+  format %{ "CALL, runtime leaf nofp $meth" %}
 
   ins_encode( aarch64_enc_java_to_runtime(meth) );
 
