@@ -1065,6 +1065,11 @@ void LIR_Assembler::emit_opConvert(LIR_OpConvert* op) {
 	__ scvtfd(dest->as_double_reg(), src->as_register_lo());
 	break;
       }
+    case Bytecodes::_l2f:
+      {
+	__ scvtfs(dest->as_float_reg(), src->as_register_lo());
+	break;
+      }
     case Bytecodes::_f2d:
       {
 	__ fcvts(dest->as_double_reg(), src->as_float_reg());
@@ -1103,23 +1108,34 @@ void LIR_Assembler::emit_opConvert(LIR_OpConvert* op) {
       }
     case Bytecodes::_d2l:
       {
-	Label L_Okay;
+	Register tmp = op->tmp1()->as_register();
 	__ clear_fpsr();
 	__ fcvtzd(dest->as_register_lo(), src->as_double_reg());
-	__ get_fpsr(rscratch1);
-	__ cbzw(rscratch1, L_Okay);
-	__ call_VM_leaf_base1(CAST_FROM_FN_PTR(address, SharedRuntime::d2l),
-			      0, 1, MacroAssembler::ret_type_integral);
-	__ bind(L_Okay);
+	__ get_fpsr(tmp);
+	__ tst(tmp, 1); // FPSCR.IOC
+	__ br(Assembler::NE, *(op->stub()->entry()));
+	__ bind(*op->stub()->continuation());
 	break;
       }
     case Bytecodes::_f2i:
       {
 	Register tmp = op->tmp1()->as_register();
 	__ clear_fpsr();
-	__ fcvtzs(dest->as_register(), src->as_float_reg());
+	__ fcvtzsw(dest->as_register(), src->as_float_reg());
 	__ get_fpsr(tmp);
-	__ cbnzw(tmp, *(op->stub()->entry()));
+	__ tst(tmp, 1); // FPSCR.IOC
+	__ br(Assembler::NE, *(op->stub()->entry()));
+	__ bind(*op->stub()->continuation());
+	break;
+      }
+    case Bytecodes::_f2l:
+      {
+	Register tmp = op->tmp1()->as_register();
+	__ clear_fpsr();
+	__ fcvtzs(dest->as_register_lo(), src->as_float_reg());
+	__ get_fpsr(tmp);
+	__ tst(tmp, 1); // FPSCR.IOC
+	__ br(Assembler::NE, *(op->stub()->entry()));
 	__ bind(*op->stub()->continuation());
 	break;
       }
@@ -1129,7 +1145,8 @@ void LIR_Assembler::emit_opConvert(LIR_OpConvert* op) {
 	__ clear_fpsr();
 	__ fcvtzdw(dest->as_register(), src->as_double_reg());
 	__ get_fpsr(tmp);
-	__ cbnzw(tmp, *(op->stub()->entry()));
+	__ tst(tmp, 1); // FPSCR.IOC
+	__ br(Assembler::NE, *(op->stub()->entry()));
 	__ bind(*op->stub()->continuation());
 	break;
       }
