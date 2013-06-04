@@ -922,7 +922,8 @@ void MachEpilogNode::emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const {
   }
 
   if (do_polling() && C->is_method_compilation()) {
-    __ mov(rscratch1, Address(os::get_polling_page(), relocInfo::poll_return_type));
+    address polling_page(os::get_polling_page() + (SafepointPollOffset % os::vm_page_size()));
+    __ mov(rscratch1, Address(polling_page, relocInfo::poll_return_type));
     __ ldr(zr, Address(rscratch1, 0));
   }
 }
