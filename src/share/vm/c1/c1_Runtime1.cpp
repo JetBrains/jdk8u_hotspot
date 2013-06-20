@@ -1105,11 +1105,18 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
           ICache::invalidate_range(instr_pc, *byte_count);
           NativeGeneralJump::replace_mt_safe(instr_pc, copy_buff);
 
-          if (load_klass_or_mirror_patch_id) {
-            relocInfo::relocType rtype =
-              (stub_id == Runtime1::load_klass_patching_id) ?
-                                   relocInfo::metadata_type :
-                                   relocInfo::oop_type;
+          if (load_klass_or_mirror_patch_id
+	      || stub_id == Runtime1::access_field_patching_id) {
+            relocInfo::relocType rtype;
+	    switch(stub_id) {
+	    case Runtime1::load_klass_patching_id:
+	      rtype = relocInfo::metadata_type; break;
+	    case Runtime1::access_field_patching_id:
+	      rtype = relocInfo::section_word_type; break;
+	    default:
+	      rtype = relocInfo::oop_type; break;
+	    }
+                                   ;
             // update relocInfo to metadata
             nmethod* nm = CodeCache::find_nmethod(instr_pc);
             assert(nm != NULL, "invalid nmethod_pc");
