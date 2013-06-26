@@ -1234,6 +1234,7 @@ int Runtime1::move_mirror_patching(JavaThread* thread) {
 // assembly code in the cpu directories.
 //
 
+#ifndef TARGET_ARCH_aarch64
 int Runtime1::access_field_patching(JavaThread* thread) {
 //
 // NOTE: we are still in Java
@@ -1252,7 +1253,7 @@ int Runtime1::access_field_patching(JavaThread* thread) {
 
   return caller_is_deopted();
 JRT_END
-
+#endif
 
 JRT_LEAF(void, Runtime1::trace_block_entry(jint block_id))
   // for now we just print out the block id
