@@ -1105,11 +1105,18 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
           ICache::invalidate_range(instr_pc, *byte_count);
           NativeGeneralJump::replace_mt_safe(instr_pc, copy_buff);
 
-          if (load_klass_or_mirror_patch_id) {
-            relocInfo::relocType rtype =
-              (stub_id == Runtime1::load_klass_patching_id) ?
-                                   relocInfo::metadata_type :
-                                   relocInfo::oop_type;
+          if (load_klass_or_mirror_patch_id
+	      || stub_id == Runtime1::access_field_patching_id) {
+            relocInfo::relocType rtype;
+	    switch(stub_id) {
+	    case Runtime1::load_klass_patching_id:
+	      rtype = relocInfo::metadata_type; break;
+	    case Runtime1::access_field_patching_id:
+	      rtype = relocInfo::section_word_type; break;
+	    default:
+	      rtype = relocInfo::oop_type; break;
+	    }
+                                   ;
             // update relocInfo to metadata
             nmethod* nm = CodeCache::find_nmethod(instr_pc);
             assert(nm != NULL, "invalid nmethod_pc");
@@ -1179,6 +1186,7 @@ JRT_END
 // completes we can check for deoptimization. This simplifies the
 // assembly code in the cpu directories.
 //
+#ifndef TARGET_ARCH_aarch64
 int Runtime1::move_klass_patching(JavaThread* thread) {
 //
 // NOTE: we are still in Java
@@ -1245,7 +1253,7 @@ int Runtime1::access_field_patching(JavaThread* thread) {
 
   return caller_is_deopted();
 JRT_END
-
+#endif
 
 JRT_LEAF(void, Runtime1::trace_block_entry(jint block_id))
   // for now we just print out the block id

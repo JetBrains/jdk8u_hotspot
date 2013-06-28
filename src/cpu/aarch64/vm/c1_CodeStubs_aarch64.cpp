@@ -299,32 +299,12 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   if (CommentedAssembly) {
     __ block_comment(" patch template");
   }
-  if (_id == load_klass_id) {
-    // produce a copy of the load klass instruction for use by the being initialized case
-#ifdef ASSERT
-    address start = __ pc();
-#endif
-    Metadata* o = NULL;
-    __ mov_metadata(_obj, o);
-#ifdef ASSERT
-    for (int i = 0; i < _bytes_to_copy; i++) {
-      address ptr = (address)(_pc_start + i);
-      int a_byte = (*ptr) & 0xFF;
-      assert(a_byte == *start++, "should be the same code");
-    }
-#endif
-  } else if (_id == load_mirror_id) {
-    // produce a copy of the load mirror instruction for use by the being
-    // initialized case
-    jobject o = NULL;
-    __ movoop(_obj, o);
-  } else {
-    // make a copy the code which is going to be patched.
-    for (int i = 0; i < _bytes_to_copy; i++) {
-      address ptr = (address)(_pc_start + i);
-      int a_byte = (*ptr) & 0xFF;
-      __ emit_int8(a_byte);
-    }
+
+  // make a copy the code which is going to be patched.
+  for (int i = 0; i < _bytes_to_copy; i++) {
+    address ptr = (address)(_pc_start + i);
+    int a_byte = (*ptr) & 0xFF;
+    __ emit_int8(a_byte);
   }
 
   address end_of_patch = __ pc();
@@ -365,13 +345,22 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   // emit the offsets needed to find the code to patch
   int being_initialized_entry_offset = __ pc() - being_initialized_entry + sizeof_patch_record;
 
+  // If this is a field access, the offset is held in the constant
+  // pool rather than embedded in the instruction, so we don't copy
+  // any instructions: we set the value in the constant pool and
+  // overwrite the NativeGeneralJump.
   {
     Label L;
     __ br(Assembler::AL, L);
     __ emit_int8(0);
     __ emit_int8(being_initialized_entry_offset);
-    __ emit_int8(bytes_to_skip);
-    __ emit_int8(_bytes_to_copy);
+    if (_id == access_field_id) {
+      __ emit_int8(bytes_to_skip + _bytes_to_copy);
+      __ emit_int8(0);
+    } else {
+      __ emit_int8(bytes_to_skip);
+      __ emit_int8(_bytes_to_copy);
+    }
     __ bind(L);
   }
 
@@ -382,12 +371,23 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   NativeGeneralJump::insert_unconditional((address)_pc_start, entry);
   address target = NULL;
   relocInfo::relocType reloc_type = relocInfo::none;
+
   switch (_id) {
-    case access_field_id:  target = Runtime1::entry_for(Runtime1::access_field_patching_id); break;
-    case load_klass_id:    target = Runtime1::entry_for(Runtime1::load_klass_patching_id); reloc_type = relocInfo::metadata_type; break;
-    case load_mirror_id:   target = Runtime1::entry_for(Runtime1::load_mirror_patching_id); reloc_type = relocInfo::oop_type; break;
-    default: ShouldNotReachHere();
+  case access_field_id:
+    target = Runtime1::entry_for(Runtime1::access_field_patching_id);
+    reloc_type = relocInfo::section_word_type;
+    break;
+  case load_klass_id:
+    target = Runtime1::entry_for(Runtime1::load_klass_patching_id);
+    reloc_type = relocInfo::metadata_type;
+    break;
+  case load_mirror_id:
+    target = Runtime1::entry_for(Runtime1::load_mirror_patching_id);
+    reloc_type = relocInfo::oop_type;
+    break;
+  default: ShouldNotReachHere();
   }
+
   __ bind(call_patch);
 
   if (CommentedAssembly) {
@@ -401,12 +401,15 @@ void PatchingStub::emit_code(LIR_Assembler* ce) {
   // Add enough nops so deoptimization can overwrite the jmp above with a call
   // and not destroy the world.
   // FIXME: AArch64 doesn't really need this
-  __ nop(); __ nop();
-  if (_id == load_klass_id || _id == load_mirror_id) {
-    CodeSection* cs = __ code_section();
-    RelocIterator iter(cs, (address)_pc_start, (address)(_pc_start + 1));
-    relocInfo::change_reloc_info_for_address(&iter, (address) _pc_start, reloc_type, relocInfo::none);
-  }
+  // __ nop(); __ nop();
+  // if (_id == load_klass_id 
+  //     || _id == load_mirror_id
+  //     || _id == access_field_id
+  //     ) {
+  //   CodeSection* cs = __ code_section();
+  //   RelocIterator iter(cs, (address)_pc_start, (address)(_pc_start + 1));
+  //   relocInfo::change_reloc_info_for_address(&iter, (address) _pc_start, reloc_type, relocInfo::none);
+  // }
 }
 
 

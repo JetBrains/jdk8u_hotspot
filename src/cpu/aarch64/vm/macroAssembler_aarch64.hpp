@@ -451,10 +451,15 @@ public:
   virtual void null_check(Register reg, int offset = -1);
   static bool needs_explicit_null_check(intptr_t offset);
 
+  static address target_addr_for_insn(address insn_addr, unsigned insn);
+
   // Required platform-specific helpers for Label::patch_instructions.
   // They _shadow_ the declarations in AbstractAssembler, which are undefined.
   static void pd_patch_instruction(address branch, address target);
-  static address pd_call_destination(address branch);
+  static address pd_call_destination(address branch) {
+    unsigned insn = *(unsigned*)branch;
+    return target_addr_for_insn(branch, insn);
+  }
 #ifndef PRODUCT
   static void pd_print_patched_instruction(address branch);
 #endif
@@ -1238,6 +1243,30 @@ public:
     ret_type type,		      // the return type for the call
     Label*   retaddr = NULL
   );
+
+  enum Membar_mask_bits {
+    StoreStore = 1 << 3,
+    LoadStore  = 1 << 2,
+    StoreLoad  = 1 << 1,
+    LoadLoad   = 1 << 0
+  };
+
+  void membar(Membar_mask_bits order_constraint) {
+    // LD     Load-Load, Load-Store
+    // ST     Store-Store
+    // SY     Any-Any
+
+    // Handle simple cases first
+    if (order_constraint == StoreStore) {
+      dmb(ST);
+    } else if (order_constraint == LoadLoad
+	|| order_constraint == LoadStore
+	|| order_constraint == (LoadLoad | LoadStore)) {
+      dmb(LD);
+    } else {
+      dmb(SY);
+    }
+  }
 };
 
 #ifdef ASSERT

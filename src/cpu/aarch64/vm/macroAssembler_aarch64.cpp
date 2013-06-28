@@ -127,9 +127,8 @@ void MacroAssembler::pd_patch_instruction(address branch, address target) {
   }
 }
 
-address MacroAssembler::pd_call_destination(address branch) {
+address MacroAssembler::target_addr_for_insn(address insn_addr, unsigned insn) {
   long offset = 0;
-  unsigned insn = *(unsigned*)branch;
   if ((Instruction_aarch64::extract(insn, 29, 24) & 0b111011) == 0b011000) {
     // Load register (literal)
     offset = Instruction_aarch64::sextract(insn, 29, 24);
@@ -152,9 +151,9 @@ address MacroAssembler::pd_call_destination(address branch) {
     int shift = Instruction_aarch64::extract(insn, 31, 31) ? 12 : 0;
     if (shift) {
       offset <<= shift;
-      uint64_t target_page = ((uint64_t)branch) + offset;
+      uint64_t target_page = ((uint64_t)insn_addr) + offset;
       target_page &= ((uint64_t)-1) << shift;
-      unsigned insn2 = ((unsigned*)branch)[1];
+      unsigned insn2 = ((unsigned*)insn_addr)[1];
       if (Instruction_aarch64::extract(insn2, 29, 24) == 0b111001) {
 	// Load/store register (unsigned immediate)
 	unsigned int byte_offset = Instruction_aarch64::extract(insn2, 21, 10);
@@ -170,7 +169,7 @@ address MacroAssembler::pd_call_destination(address branch) {
     // Move wide constant
     // FIXME: We assume these instructions are movz, movk, movk, movk.
     // We don't assert this; we should.
-    u_int32_t *insns = (u_int32_t *)branch;
+    u_int32_t *insns = (u_int32_t *)insn_addr;
     return address(u_int64_t(Instruction_aarch64::extract(insns[0], 20, 5))
 		   + (u_int64_t(Instruction_aarch64::extract(insns[1], 20, 5)) << 16)
 		   + (u_int64_t(Instruction_aarch64::extract(insns[2], 20, 5)) << 32)
@@ -178,7 +177,7 @@ address MacroAssembler::pd_call_destination(address branch) {
   } else {
     ShouldNotReachHere();
   }
-  return address(((uint64_t)branch + (offset << 2)));
+  return address(((uint64_t)insn_addr + (offset << 2)));
 }
 
 void MacroAssembler::serialize_memory(Register thread, Register tmp) {
@@ -2160,8 +2159,23 @@ void MacroAssembler::movoop(Register dst, jobject obj) {
 }
 
 void MacroAssembler::mov_metadata(Register dst, Metadata* obj) {
+  int oop_index;
+  if (obj == NULL) {
+    oop_index = oop_recorder()->allocate_metadata_index(obj);
+  } else {
+    oop_index = oop_recorder()->find_index(obj);
+  }
+  RelocationHolder rspec = metadata_Relocation::spec(oop_index);
+  address const_ptr = long_constant((jlong)obj);
+  if (! const_ptr) {
+    code()->initialize_consts_size(20);
+    const_ptr = long_constant((jlong)obj);
+  }
+
+  code()->consts()->relocate(const_ptr, rspec);
   unsigned long offset;
-  mov(dst, allocate_metadata_address(obj));
+  adrp(dst, InternalAddress(const_ptr), offset);
+  ldr(dst, Address(dst, offset));
 }
 
 Address MacroAssembler::constant_oop_address(jobject obj) {
