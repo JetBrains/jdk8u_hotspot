@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -101,6 +101,7 @@
 #include "utilities/array.hpp"
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/hashtable.hpp"
+#include "utilities/macros.hpp"
 #ifdef TARGET_ARCH_x86
 # include "vmStructs_x86.hpp"
 #endif
@@ -152,7 +153,7 @@
 #ifdef TARGET_OS_ARCH_bsd_zero
 # include "vmStructs_bsd_zero.hpp"
 #endif
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/concurrentMarkSweep/compactibleFreeListSpace.hpp"
 #include "gc_implementation/concurrentMarkSweep/concurrentMarkSweepGeneration.hpp"
 #include "gc_implementation/concurrentMarkSweep/concurrentMarkSweepThread.hpp"
@@ -167,7 +168,7 @@
 #include "gc_implementation/parallelScavenge/psYoungGen.hpp"
 #include "gc_implementation/parallelScavenge/vmStructs_parallelgc.hpp"
 #include "gc_implementation/g1/vmStructs_g1.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 #ifdef COMPILER2
 #include "opto/addnode.hpp"
 #include "opto/block.hpp"
@@ -266,8 +267,7 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
                    c1_nonstatic_field, \
                    c2_nonstatic_field, \
                    unchecked_c1_static_field, \
-                   unchecked_c2_static_field, \
-                   last_entry) \
+                   unchecked_c2_static_field) \
                                                                                                                                      \
   /******************************************************************/                                                               \
   /* OopDesc and Klass hierarchies (NOTE: MethodData* incomplete) */                                                               \
@@ -375,11 +375,10 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   volatile_nonstatic_field(Method,      _from_compiled_entry,                          address)                               \
   volatile_nonstatic_field(Method,      _from_interpreted_entry,                       address)                               \
   volatile_nonstatic_field(ConstMethod, _fingerprint,                                  uint64_t)                              \
-  nonstatic_field(ConstMethod,          _constants,                                    ConstantPool*)                  \
+  nonstatic_field(ConstMethod,          _constants,                                    ConstantPool*)                         \
   nonstatic_field(ConstMethod,          _stackmap_data,                                Array<u1>*)                            \
   nonstatic_field(ConstMethod,          _constMethod_size,                             int)                                   \
-  nonstatic_field(ConstMethod,          _interpreter_kind,                             jbyte)                                 \
-  nonstatic_field(ConstMethod,          _flags,                                        jbyte)                                 \
+  nonstatic_field(ConstMethod,          _flags,                                        u2)                                    \
   nonstatic_field(ConstMethod,          _code_size,                                    u2)                                    \
   nonstatic_field(ConstMethod,          _name_index,                                   u2)                                    \
   nonstatic_field(ConstMethod,          _signature_index,                              u2)                                    \
@@ -727,7 +726,6 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   nonstatic_field(ClassLoaderData,             _next,                                         ClassLoaderData*)                      \
                                                                                                                                      \
   static_field(ClassLoaderDataGraph,           _head,                                         ClassLoaderData*)                      \
-  nonstatic_field(ClassLoaderDataGraph,        _unloading,                                    ClassLoaderData*)                      \
                                                                                                                                      \
   /*******************/                                                                                                              \
   /* GrowableArrays  */                                                                                                              \
@@ -1172,6 +1170,7 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   static_field(Abstract_VM_Version,            _vm_major_version,                             int)                                   \
   static_field(Abstract_VM_Version,            _vm_minor_version,                             int)                                   \
   static_field(Abstract_VM_Version,            _vm_build_number,                              int)                                   \
+  static_field(Abstract_VM_Version,            _reserve_for_allocation_prefetch,              int)                                   \
                                                                                                                                      \
   static_field(JDK_Version,                    _current,                                      JDK_Version)                           \
   nonstatic_field(JDK_Version,                 _partially_initialized,                        bool)                                  \
@@ -1209,7 +1208,6 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   /*********************************/                                                                                                \
                                                                                                                                      \
   static_field(java_lang_Class,                _klass_offset,                                 int)                                   \
-  static_field(java_lang_Class,                _resolved_constructor_offset,                  int)                                   \
   static_field(java_lang_Class,                _array_klass_offset,                           int)                                   \
   static_field(java_lang_Class,                _oop_size_offset,                              int)                                   \
   static_field(java_lang_Class,                _static_oop_field_count_offset,                int)                                   \
@@ -1247,9 +1245,6 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   nonstatic_field(FreeList<Metablock>,         _count,                                       ssize_t)                                \
   nonstatic_field(MetablockTreeDictionary,     _total_size,                                  size_t)
 
-  /* NOTE that we do not use the last_entry() macro here; it is used  */
-  /* in vmStructs_<os>_<cpu>.hpp's VM_STRUCTS_OS_CPU macro (and must  */
-  /* be present there)                                                */
 
 //--------------------------------------------------------------------------------
 // VM_TYPES
@@ -1289,8 +1284,7 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
                  declare_unsigned_integer_type,                           \
                  declare_c1_toplevel_type,                                \
                  declare_c2_type,                                         \
-                 declare_c2_toplevel_type,                                \
-                 last_entry)                                              \
+                 declare_c2_toplevel_type)                                \
                                                                           \
   /*************************************************************/         \
   /* Java primitive types -- required by the SA implementation */         \
@@ -2103,13 +2097,8 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   declare_toplevel_type(FreeBlockDictionary<Metablock>*)                  \
   declare_toplevel_type(FreeList<Metablock>*)                             \
   declare_toplevel_type(FreeList<Metablock>)                              \
-  declare_toplevel_type(MetablockTreeDictionary*)                         \
-           declare_type(MetablockTreeDictionary, FreeBlockDictionary<Metablock>)
+  declare_type(MetablockTreeDictionary, FreeBlockDictionary<Metablock>)
 
-
-  /* NOTE that we do not use the last_entry() macro here; it is used  */
-  /* in vmStructs_<os>_<cpu>.hpp's VM_TYPES_OS_CPU macro (and must be */
-  /* present there)                                                   */
 
 //--------------------------------------------------------------------------------
 // VM_INT_CONSTANTS
@@ -2123,15 +2112,12 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
                          declare_preprocessor_constant,                   \
                          declare_c1_constant,                             \
                          declare_c2_constant,                             \
-                         declare_c2_preprocessor_constant,                \
-                         last_entry)                                      \
+                         declare_c2_preprocessor_constant)                \
                                                                           \
   /******************/                                                    \
   /* Useful globals */                                                    \
   /******************/                                                    \
                                                                           \
-  declare_constant(UseTLAB)                                               \
-  declare_constant(EnableInvokeDynamic)                                   \
                                                                           \
   /**************/                                                        \
   /* Stack bias */                                                        \
@@ -2281,14 +2267,18 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   declare_constant(Klass::_lh_array_tag_obj_value)                        \
                                                                           \
   /********************************/                                      \
-  /* ConstMethod anon-enum */                                      \
+  /* ConstMethod anon-enum */                                             \
   /********************************/                                      \
                                                                           \
-  declare_constant(ConstMethod::_has_linenumber_table)             \
-  declare_constant(ConstMethod::_has_checked_exceptions)           \
-  declare_constant(ConstMethod::_has_localvariable_table)          \
-  declare_constant(ConstMethod::_has_exception_table)              \
-  declare_constant(ConstMethod::_has_generic_signature)            \
+  declare_constant(ConstMethod::_has_linenumber_table)                    \
+  declare_constant(ConstMethod::_has_checked_exceptions)                  \
+  declare_constant(ConstMethod::_has_localvariable_table)                 \
+  declare_constant(ConstMethod::_has_exception_table)                     \
+  declare_constant(ConstMethod::_has_generic_signature)                   \
+  declare_constant(ConstMethod::_has_method_annotations)                  \
+  declare_constant(ConstMethod::_has_parameter_annotations)               \
+  declare_constant(ConstMethod::_has_default_annotations)                 \
+  declare_constant(ConstMethod::_has_type_annotations)                    \
                                                                           \
   /*************************************/                                 \
   /* InstanceKlass enum                */                                 \
@@ -2303,9 +2293,17 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   declare_constant(FieldInfo::name_index_offset)                          \
   declare_constant(FieldInfo::signature_index_offset)                     \
   declare_constant(FieldInfo::initval_index_offset)                       \
-  declare_constant(FieldInfo::low_offset)                                 \
-  declare_constant(FieldInfo::high_offset)                                \
+  declare_constant(FieldInfo::low_packed_offset)                          \
+  declare_constant(FieldInfo::high_packed_offset)                         \
   declare_constant(FieldInfo::field_slots)                                \
+                                                                          \
+  /*************************************/                                 \
+  /* FieldInfo tag constants           */                                 \
+  /*************************************/                                 \
+                                                                          \
+  declare_preprocessor_constant("FIELDINFO_TAG_SIZE", FIELDINFO_TAG_SIZE) \
+  declare_preprocessor_constant("FIELDINFO_TAG_MASK", FIELDINFO_TAG_MASK) \
+  declare_preprocessor_constant("FIELDINFO_TAG_OFFSET", FIELDINFO_TAG_OFFSET) \
                                                                           \
   /************************************************/                      \
   /* InstanceKlass InnerClassAttributeOffset enum */                      \
@@ -2492,9 +2490,6 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   declare_c2_preprocessor_constant("SAVED_ON_ENTRY_REG_COUNT", SAVED_ON_ENTRY_REG_COUNT) \
   declare_c2_preprocessor_constant("C_SAVED_ON_ENTRY_REG_COUNT", C_SAVED_ON_ENTRY_REG_COUNT)
 
-  /* NOTE that we do not use the last_entry() macro here; it is used  */
-  /* in vmStructs_<os>_<cpu>.hpp's VM_INT_CONSTANTS_OS_CPU macro (and */
-  /* must be present there)                                           */
 
 //--------------------------------------------------------------------------------
 // VM_LONG_CONSTANTS
@@ -2504,7 +2499,7 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
 // enums, etc., while "declare_preprocessor_constant" must be used for
 // all #defined constants.
 
-#define VM_LONG_CONSTANTS(declare_constant, declare_preprocessor_constant, declare_c1_constant, declare_c2_constant, declare_c2_preprocessor_constant, last_entry) \
+#define VM_LONG_CONSTANTS(declare_constant, declare_preprocessor_constant, declare_c1_constant, declare_c2_constant, declare_c2_preprocessor_constant) \
                                                                           \
   /*********************/                                                 \
   /* MarkOop constants */                                                 \
@@ -2550,11 +2545,7 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   /* Constants in markOop used by CMS. */                                 \
   declare_constant(markOopDesc::cms_shift)                                \
   declare_constant(markOopDesc::cms_mask)                                 \
-  declare_constant(markOopDesc::size_shift)                               \
-
-  /* NOTE that we do not use the last_entry() macro here; it is used   */
-  /* in vmStructs_<os>_<cpu>.hpp's VM_LONG_CONSTANTS_OS_CPU macro (and */
-  /* must be present there)                                            */
+  declare_constant(markOopDesc::size_shift)
 
 
 //--------------------------------------------------------------------------------
@@ -2594,7 +2585,8 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
 
 // This macro checks the type of a VMStructEntry by comparing pointer types
 #define CHECK_NONSTATIC_VM_STRUCT_ENTRY(typeName, fieldName, type)                 \
- {typeName *dummyObj = NULL; type* dummy = &dummyObj->fieldName; }
+ {typeName *dummyObj = NULL; type* dummy = &dummyObj->fieldName;                   \
+  assert(offset_of(typeName, fieldName) < sizeof(typeName), "Illegal nonstatic struct entry, field offset too large"); }
 
 // This macro checks the type of a volatile VMStructEntry by comparing pointer types
 #define CHECK_VOLATILE_NONSTATIC_VM_STRUCT_ENTRY(typeName, fieldName, type)        \
@@ -2616,9 +2608,6 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
 
 // This is a no-op macro for unchecked fields
 #define CHECK_NO_OP(a, b, c)
-
-// This is a no-op macro for the sentinel value
-#define CHECK_SENTINEL()
 
 //
 // Build-specific macros:
@@ -2798,48 +2787,47 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
 // as long as class VMStructs is a friend
 VMStructEntry VMStructs::localHotSpotVMStructs[] = {
 
-  VM_STRUCTS(GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
-             GENERATE_STATIC_VM_STRUCT_ENTRY, \
-             GENERATE_UNCHECKED_NONSTATIC_VM_STRUCT_ENTRY, \
-             GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
-             GENERATE_NONPRODUCT_NONSTATIC_VM_STRUCT_ENTRY, \
-             GENERATE_C1_NONSTATIC_VM_STRUCT_ENTRY, \
-             GENERATE_C2_NONSTATIC_VM_STRUCT_ENTRY, \
-             GENERATE_C1_UNCHECKED_STATIC_VM_STRUCT_ENTRY, \
-             GENERATE_C2_UNCHECKED_STATIC_VM_STRUCT_ENTRY, \
-             GENERATE_VM_STRUCT_LAST_ENTRY)
+  VM_STRUCTS(GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+             GENERATE_STATIC_VM_STRUCT_ENTRY,
+             GENERATE_UNCHECKED_NONSTATIC_VM_STRUCT_ENTRY,
+             GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+             GENERATE_NONPRODUCT_NONSTATIC_VM_STRUCT_ENTRY,
+             GENERATE_C1_NONSTATIC_VM_STRUCT_ENTRY,
+             GENERATE_C2_NONSTATIC_VM_STRUCT_ENTRY,
+             GENERATE_C1_UNCHECKED_STATIC_VM_STRUCT_ENTRY,
+             GENERATE_C2_UNCHECKED_STATIC_VM_STRUCT_ENTRY)
 
-#ifndef SERIALGC
-  VM_STRUCTS_PARALLELGC(GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
+#if INCLUDE_ALL_GCS
+  VM_STRUCTS_PARALLELGC(GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
                         GENERATE_STATIC_VM_STRUCT_ENTRY)
 
-  VM_STRUCTS_CMS(GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
+  VM_STRUCTS_CMS(GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+                 GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
                  GENERATE_STATIC_VM_STRUCT_ENTRY)
 
-  VM_STRUCTS_G1(GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
+  VM_STRUCTS_G1(GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
                 GENERATE_STATIC_VM_STRUCT_ENTRY)
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
-  VM_STRUCTS_CPU(GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_STATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_UNCHECKED_NONSTATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_NONPRODUCT_NONSTATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_C2_NONSTATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_C1_UNCHECKED_STATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_C2_UNCHECKED_STATIC_VM_STRUCT_ENTRY, \
-                 GENERATE_VM_STRUCT_LAST_ENTRY)
+  VM_STRUCTS_CPU(GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+                 GENERATE_STATIC_VM_STRUCT_ENTRY,
+                 GENERATE_UNCHECKED_NONSTATIC_VM_STRUCT_ENTRY,
+                 GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+                 GENERATE_NONPRODUCT_NONSTATIC_VM_STRUCT_ENTRY,
+                 GENERATE_C2_NONSTATIC_VM_STRUCT_ENTRY,
+                 GENERATE_C1_UNCHECKED_STATIC_VM_STRUCT_ENTRY,
+                 GENERATE_C2_UNCHECKED_STATIC_VM_STRUCT_ENTRY)
 
-  VM_STRUCTS_OS_CPU(GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
-                    GENERATE_STATIC_VM_STRUCT_ENTRY, \
-                    GENERATE_UNCHECKED_NONSTATIC_VM_STRUCT_ENTRY, \
-                    GENERATE_NONSTATIC_VM_STRUCT_ENTRY, \
-                    GENERATE_NONPRODUCT_NONSTATIC_VM_STRUCT_ENTRY, \
-                    GENERATE_C2_NONSTATIC_VM_STRUCT_ENTRY, \
-                    GENERATE_C1_UNCHECKED_STATIC_VM_STRUCT_ENTRY, \
-                    GENERATE_C2_UNCHECKED_STATIC_VM_STRUCT_ENTRY, \
-                    GENERATE_VM_STRUCT_LAST_ENTRY)
+  VM_STRUCTS_OS_CPU(GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+                    GENERATE_STATIC_VM_STRUCT_ENTRY,
+                    GENERATE_UNCHECKED_NONSTATIC_VM_STRUCT_ENTRY,
+                    GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+                    GENERATE_NONPRODUCT_NONSTATIC_VM_STRUCT_ENTRY,
+                    GENERATE_C2_NONSTATIC_VM_STRUCT_ENTRY,
+                    GENERATE_C1_UNCHECKED_STATIC_VM_STRUCT_ENTRY,
+                    GENERATE_C2_UNCHECKED_STATIC_VM_STRUCT_ENTRY)
+
+  GENERATE_VM_STRUCT_LAST_ENTRY()
 };
 
 VMTypeEntry VMStructs::localHotSpotVMTypes[] = {
@@ -2851,10 +2839,9 @@ VMTypeEntry VMStructs::localHotSpotVMTypes[] = {
            GENERATE_UNSIGNED_INTEGER_VM_TYPE_ENTRY,
            GENERATE_C1_TOPLEVEL_VM_TYPE_ENTRY,
            GENERATE_C2_VM_TYPE_ENTRY,
-           GENERATE_C2_TOPLEVEL_VM_TYPE_ENTRY,
-           GENERATE_VM_TYPE_LAST_ENTRY)
+           GENERATE_C2_TOPLEVEL_VM_TYPE_ENTRY)
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   VM_TYPES_PARALLELGC(GENERATE_VM_TYPE_ENTRY,
                       GENERATE_TOPLEVEL_VM_TYPE_ENTRY)
 
@@ -2865,7 +2852,7 @@ VMTypeEntry VMStructs::localHotSpotVMTypes[] = {
 
   VM_TYPES_G1(GENERATE_VM_TYPE_ENTRY,
               GENERATE_TOPLEVEL_VM_TYPE_ENTRY)
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   VM_TYPES_CPU(GENERATE_VM_TYPE_ENTRY,
                GENERATE_TOPLEVEL_VM_TYPE_ENTRY,
@@ -2874,8 +2861,7 @@ VMTypeEntry VMStructs::localHotSpotVMTypes[] = {
                GENERATE_UNSIGNED_INTEGER_VM_TYPE_ENTRY,
                GENERATE_C1_TOPLEVEL_VM_TYPE_ENTRY,
                GENERATE_C2_VM_TYPE_ENTRY,
-               GENERATE_C2_TOPLEVEL_VM_TYPE_ENTRY,
-               GENERATE_VM_TYPE_LAST_ENTRY)
+               GENERATE_C2_TOPLEVEL_VM_TYPE_ENTRY)
 
   VM_TYPES_OS_CPU(GENERATE_VM_TYPE_ENTRY,
                   GENERATE_TOPLEVEL_VM_TYPE_ENTRY,
@@ -2884,8 +2870,9 @@ VMTypeEntry VMStructs::localHotSpotVMTypes[] = {
                   GENERATE_UNSIGNED_INTEGER_VM_TYPE_ENTRY,
                   GENERATE_C1_TOPLEVEL_VM_TYPE_ENTRY,
                   GENERATE_C2_VM_TYPE_ENTRY,
-                  GENERATE_C2_TOPLEVEL_VM_TYPE_ENTRY,
-                  GENERATE_VM_TYPE_LAST_ENTRY)
+                  GENERATE_C2_TOPLEVEL_VM_TYPE_ENTRY)
+
+  GENERATE_VM_TYPE_LAST_ENTRY()
 };
 
 VMIntConstantEntry VMStructs::localHotSpotVMIntConstants[] = {
@@ -2894,28 +2881,27 @@ VMIntConstantEntry VMStructs::localHotSpotVMIntConstants[] = {
                    GENERATE_PREPROCESSOR_VM_INT_CONSTANT_ENTRY,
                    GENERATE_C1_VM_INT_CONSTANT_ENTRY,
                    GENERATE_C2_VM_INT_CONSTANT_ENTRY,
-                   GENERATE_C2_PREPROCESSOR_VM_INT_CONSTANT_ENTRY,
-                   GENERATE_VM_INT_CONSTANT_LAST_ENTRY)
+                   GENERATE_C2_PREPROCESSOR_VM_INT_CONSTANT_ENTRY)
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   VM_INT_CONSTANTS_CMS(GENERATE_VM_INT_CONSTANT_ENTRY)
 
   VM_INT_CONSTANTS_PARNEW(GENERATE_VM_INT_CONSTANT_ENTRY)
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   VM_INT_CONSTANTS_CPU(GENERATE_VM_INT_CONSTANT_ENTRY,
                        GENERATE_PREPROCESSOR_VM_INT_CONSTANT_ENTRY,
                        GENERATE_C1_VM_INT_CONSTANT_ENTRY,
                        GENERATE_C2_VM_INT_CONSTANT_ENTRY,
-                       GENERATE_C2_PREPROCESSOR_VM_INT_CONSTANT_ENTRY,
-                       GENERATE_VM_INT_CONSTANT_LAST_ENTRY)
+                       GENERATE_C2_PREPROCESSOR_VM_INT_CONSTANT_ENTRY)
 
   VM_INT_CONSTANTS_OS_CPU(GENERATE_VM_INT_CONSTANT_ENTRY,
                           GENERATE_PREPROCESSOR_VM_INT_CONSTANT_ENTRY,
                           GENERATE_C1_VM_INT_CONSTANT_ENTRY,
                           GENERATE_C2_VM_INT_CONSTANT_ENTRY,
-                          GENERATE_C2_PREPROCESSOR_VM_INT_CONSTANT_ENTRY,
-                          GENERATE_VM_INT_CONSTANT_LAST_ENTRY)
+                          GENERATE_C2_PREPROCESSOR_VM_INT_CONSTANT_ENTRY)
+
+  GENERATE_VM_INT_CONSTANT_LAST_ENTRY()
 };
 
 VMLongConstantEntry VMStructs::localHotSpotVMLongConstants[] = {
@@ -2924,22 +2910,21 @@ VMLongConstantEntry VMStructs::localHotSpotVMLongConstants[] = {
                     GENERATE_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY,
                     GENERATE_C1_VM_LONG_CONSTANT_ENTRY,
                     GENERATE_C2_VM_LONG_CONSTANT_ENTRY,
-                    GENERATE_C2_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY,
-                    GENERATE_VM_LONG_CONSTANT_LAST_ENTRY)
+                    GENERATE_C2_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY)
 
   VM_LONG_CONSTANTS_CPU(GENERATE_VM_LONG_CONSTANT_ENTRY,
                         GENERATE_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY,
                         GENERATE_C1_VM_LONG_CONSTANT_ENTRY,
                         GENERATE_C2_VM_LONG_CONSTANT_ENTRY,
-                        GENERATE_C2_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY,
-                        GENERATE_VM_LONG_CONSTANT_LAST_ENTRY)
+                        GENERATE_C2_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY)
 
   VM_LONG_CONSTANTS_OS_CPU(GENERATE_VM_LONG_CONSTANT_ENTRY,
                            GENERATE_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY,
                            GENERATE_C1_VM_LONG_CONSTANT_ENTRY,
                            GENERATE_C2_VM_LONG_CONSTANT_ENTRY,
-                           GENERATE_C2_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY,
-                           GENERATE_VM_LONG_CONSTANT_LAST_ENTRY)
+                           GENERATE_C2_PREPROCESSOR_VM_LONG_CONSTANT_ENTRY)
+
+  GENERATE_VM_LONG_CONSTANT_LAST_ENTRY()
 };
 
 // This is used both to check the types of referenced fields and, in
@@ -2954,10 +2939,9 @@ VMStructs::init() {
              CHECK_C1_NONSTATIC_VM_STRUCT_ENTRY,
              CHECK_C2_NONSTATIC_VM_STRUCT_ENTRY,
              CHECK_NO_OP,
-             CHECK_NO_OP,
-             CHECK_SENTINEL);
+             CHECK_NO_OP);
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   VM_STRUCTS_PARALLELGC(CHECK_NONSTATIC_VM_STRUCT_ENTRY,
              CHECK_STATIC_VM_STRUCT_ENTRY);
 
@@ -2967,7 +2951,7 @@ VMStructs::init() {
 
   VM_STRUCTS_G1(CHECK_NONSTATIC_VM_STRUCT_ENTRY,
                 CHECK_STATIC_VM_STRUCT_ENTRY);
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   VM_STRUCTS_CPU(CHECK_NONSTATIC_VM_STRUCT_ENTRY,
                  CHECK_STATIC_VM_STRUCT_ENTRY,
@@ -2976,8 +2960,7 @@ VMStructs::init() {
                  CHECK_NONPRODUCT_NONSTATIC_VM_STRUCT_ENTRY,
                  CHECK_C2_NONSTATIC_VM_STRUCT_ENTRY,
                  CHECK_NO_OP,
-                 CHECK_NO_OP,
-                 CHECK_SENTINEL);
+                 CHECK_NO_OP);
 
   VM_STRUCTS_OS_CPU(CHECK_NONSTATIC_VM_STRUCT_ENTRY,
                     CHECK_STATIC_VM_STRUCT_ENTRY,
@@ -2986,8 +2969,7 @@ VMStructs::init() {
                     CHECK_NONPRODUCT_NONSTATIC_VM_STRUCT_ENTRY,
                     CHECK_C2_NONSTATIC_VM_STRUCT_ENTRY,
                     CHECK_NO_OP,
-                    CHECK_NO_OP,
-                    CHECK_SENTINEL);
+                    CHECK_NO_OP);
 
   VM_TYPES(CHECK_VM_TYPE_ENTRY,
            CHECK_SINGLE_ARG_VM_TYPE_NO_OP,
@@ -2996,10 +2978,9 @@ VMStructs::init() {
            CHECK_SINGLE_ARG_VM_TYPE_NO_OP,
            CHECK_C1_TOPLEVEL_VM_TYPE_ENTRY,
            CHECK_C2_VM_TYPE_ENTRY,
-           CHECK_C2_TOPLEVEL_VM_TYPE_ENTRY,
-           CHECK_SENTINEL);
+           CHECK_C2_TOPLEVEL_VM_TYPE_ENTRY);
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   VM_TYPES_PARALLELGC(CHECK_VM_TYPE_ENTRY,
                       CHECK_SINGLE_ARG_VM_TYPE_NO_OP);
 
@@ -3010,7 +2991,7 @@ VMStructs::init() {
 
   VM_TYPES_G1(CHECK_VM_TYPE_ENTRY,
               CHECK_SINGLE_ARG_VM_TYPE_NO_OP);
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   VM_TYPES_CPU(CHECK_VM_TYPE_ENTRY,
                CHECK_SINGLE_ARG_VM_TYPE_NO_OP,
@@ -3019,8 +3000,7 @@ VMStructs::init() {
                CHECK_SINGLE_ARG_VM_TYPE_NO_OP,
                CHECK_C1_TOPLEVEL_VM_TYPE_ENTRY,
                CHECK_C2_VM_TYPE_ENTRY,
-               CHECK_C2_TOPLEVEL_VM_TYPE_ENTRY,
-               CHECK_SENTINEL);
+               CHECK_C2_TOPLEVEL_VM_TYPE_ENTRY);
 
   VM_TYPES_OS_CPU(CHECK_VM_TYPE_ENTRY,
                   CHECK_SINGLE_ARG_VM_TYPE_NO_OP,
@@ -3029,8 +3009,7 @@ VMStructs::init() {
                   CHECK_SINGLE_ARG_VM_TYPE_NO_OP,
                   CHECK_C1_TOPLEVEL_VM_TYPE_ENTRY,
                   CHECK_C2_VM_TYPE_ENTRY,
-                  CHECK_C2_TOPLEVEL_VM_TYPE_ENTRY,
-                  CHECK_SENTINEL);
+                  CHECK_C2_TOPLEVEL_VM_TYPE_ENTRY);
 
   //
   // Split VM_STRUCTS() invocation into two parts to allow MS VC++ 6.0
@@ -3049,53 +3028,49 @@ VMStructs::init() {
   // Solstice NFS setup. If everyone switches to local workspaces on
   // Win32, we can put this back in.
 #ifndef _WINDOWS
-  debug_only(VM_STRUCTS(ENSURE_FIELD_TYPE_PRESENT, \
-                        CHECK_NO_OP, \
-                        CHECK_NO_OP, \
-                        CHECK_NO_OP, \
-                        CHECK_NO_OP, \
-                        CHECK_NO_OP, \
-                        CHECK_NO_OP, \
-                        CHECK_NO_OP, \
-                        CHECK_NO_OP, \
-                        CHECK_SENTINEL));
-  debug_only(VM_STRUCTS(CHECK_NO_OP, \
-                        ENSURE_FIELD_TYPE_PRESENT, \
-                        CHECK_NO_OP, \
-                        ENSURE_FIELD_TYPE_PRESENT, \
-                        ENSURE_NONPRODUCT_FIELD_TYPE_PRESENT, \
-                        ENSURE_C1_FIELD_TYPE_PRESENT, \
-                        ENSURE_C2_FIELD_TYPE_PRESENT, \
-                        CHECK_NO_OP, \
-                        CHECK_NO_OP, \
-                        CHECK_SENTINEL));
-#ifndef SERIALGC
-  debug_only(VM_STRUCTS_PARALLELGC(ENSURE_FIELD_TYPE_PRESENT, \
+  debug_only(VM_STRUCTS(ENSURE_FIELD_TYPE_PRESENT,
+                        CHECK_NO_OP,
+                        CHECK_NO_OP,
+                        CHECK_NO_OP,
+                        CHECK_NO_OP,
+                        CHECK_NO_OP,
+                        CHECK_NO_OP,
+                        CHECK_NO_OP,
+                        CHECK_NO_OP));
+  debug_only(VM_STRUCTS(CHECK_NO_OP,
+                        ENSURE_FIELD_TYPE_PRESENT,
+                        CHECK_NO_OP,
+                        ENSURE_FIELD_TYPE_PRESENT,
+                        ENSURE_NONPRODUCT_FIELD_TYPE_PRESENT,
+                        ENSURE_C1_FIELD_TYPE_PRESENT,
+                        ENSURE_C2_FIELD_TYPE_PRESENT,
+                        CHECK_NO_OP,
+                        CHECK_NO_OP));
+#if INCLUDE_ALL_GCS
+  debug_only(VM_STRUCTS_PARALLELGC(ENSURE_FIELD_TYPE_PRESENT,
                                    ENSURE_FIELD_TYPE_PRESENT));
-  debug_only(VM_STRUCTS_CMS(ENSURE_FIELD_TYPE_PRESENT, \
-                            ENSURE_FIELD_TYPE_PRESENT, \
+  debug_only(VM_STRUCTS_CMS(ENSURE_FIELD_TYPE_PRESENT,
+                            ENSURE_FIELD_TYPE_PRESENT,
                             ENSURE_FIELD_TYPE_PRESENT));
-  debug_only(VM_STRUCTS_G1(ENSURE_FIELD_TYPE_PRESENT, \
+  debug_only(VM_STRUCTS_G1(ENSURE_FIELD_TYPE_PRESENT,
                            ENSURE_FIELD_TYPE_PRESENT));
-#endif // SERIALGC
-  debug_only(VM_STRUCTS_CPU(ENSURE_FIELD_TYPE_PRESENT, \
-                            ENSURE_FIELD_TYPE_PRESENT, \
-                            CHECK_NO_OP, \
-                            ENSURE_FIELD_TYPE_PRESENT, \
-                            ENSURE_NONPRODUCT_FIELD_TYPE_PRESENT, \
-                            ENSURE_C2_FIELD_TYPE_PRESENT, \
-                            CHECK_NO_OP, \
-                            CHECK_NO_OP, \
-                            CHECK_SENTINEL));
-  debug_only(VM_STRUCTS_OS_CPU(ENSURE_FIELD_TYPE_PRESENT, \
-                               ENSURE_FIELD_TYPE_PRESENT, \
-                               CHECK_NO_OP, \
-                               ENSURE_FIELD_TYPE_PRESENT, \
-                               ENSURE_NONPRODUCT_FIELD_TYPE_PRESENT, \
-                               ENSURE_C2_FIELD_TYPE_PRESENT, \
-                               CHECK_NO_OP, \
-                               CHECK_NO_OP, \
-                               CHECK_SENTINEL));
+#endif // INCLUDE_ALL_GCS
+  debug_only(VM_STRUCTS_CPU(ENSURE_FIELD_TYPE_PRESENT,
+                            ENSURE_FIELD_TYPE_PRESENT,
+                            CHECK_NO_OP,
+                            ENSURE_FIELD_TYPE_PRESENT,
+                            ENSURE_NONPRODUCT_FIELD_TYPE_PRESENT,
+                            ENSURE_C2_FIELD_TYPE_PRESENT,
+                            CHECK_NO_OP,
+                            CHECK_NO_OP));
+  debug_only(VM_STRUCTS_OS_CPU(ENSURE_FIELD_TYPE_PRESENT,
+                               ENSURE_FIELD_TYPE_PRESENT,
+                               CHECK_NO_OP,
+                               ENSURE_FIELD_TYPE_PRESENT,
+                               ENSURE_NONPRODUCT_FIELD_TYPE_PRESENT,
+                               ENSURE_C2_FIELD_TYPE_PRESENT,
+                               CHECK_NO_OP,
+                               CHECK_NO_OP));
 #endif
 }
 
@@ -3155,10 +3130,10 @@ static int recursiveFindType(VMTypeEntry* origtypes, const char* typeName, bool 
     s[len-1] = '\0';
     // tty->print_cr("checking \"%s\" for \"%s\"", s, typeName);
     if (recursiveFindType(origtypes, s, true) == 1) {
-      delete s;
+      delete [] s;
       return 1;
     }
-    delete s;
+    delete [] s;
   }
   const char* start = NULL;
   if (strstr(typeName, "GrowableArray<") == typeName) {
@@ -3174,10 +3149,10 @@ static int recursiveFindType(VMTypeEntry* origtypes, const char* typeName, bool 
     s[len-1] = '\0';
     // tty->print_cr("checking \"%s\" for \"%s\"", s, typeName);
     if (recursiveFindType(origtypes, s, true) == 1) {
-      delete s;
+      delete [] s;
       return 1;
     }
-    delete s;
+    delete [] s;
   }
   if (strstr(typeName, "const ") == typeName) {
     const char * s = typeName + strlen("const ");
@@ -3191,8 +3166,10 @@ static int recursiveFindType(VMTypeEntry* origtypes, const char* typeName, bool 
     s[len - 6] = '\0';
     // tty->print_cr("checking \"%s\" for \"%s\"", s, typeName);
     if (recursiveFindType(origtypes, s, true) == 1) {
+      free(s);
       return 1;
     }
+    free(s);
   }
   if (!isRecurse) {
     tty->print_cr("type \"%s\" not found", typeName);
@@ -3215,6 +3192,30 @@ void vmStructs_init() {
 
 #ifndef PRODUCT
 void VMStructs::test() {
+  // Make sure last entry in the each array is indeed the correct end marker.
+  // The reason why these are static is to make sure they are zero initialized.
+  // Putting them on the stack will leave some garbage in the padding of some fields.
+  static VMStructEntry struct_last_entry = GENERATE_VM_STRUCT_LAST_ENTRY();
+  assert(memcmp(&localHotSpotVMStructs[(sizeof(localHotSpotVMStructs) / sizeof(VMStructEntry)) - 1],
+                &struct_last_entry,
+                sizeof(VMStructEntry)) == 0, "Incorrect last entry in localHotSpotVMStructs");
+
+  static VMTypeEntry type_last_entry = GENERATE_VM_TYPE_LAST_ENTRY();
+  assert(memcmp(&localHotSpotVMTypes[sizeof(localHotSpotVMTypes) / sizeof(VMTypeEntry) - 1],
+                &type_last_entry,
+                sizeof(VMTypeEntry)) == 0, "Incorrect last entry in localHotSpotVMTypes");
+
+  static VMIntConstantEntry int_last_entry = GENERATE_VM_INT_CONSTANT_LAST_ENTRY();
+  assert(memcmp(&localHotSpotVMIntConstants[sizeof(localHotSpotVMIntConstants) / sizeof(VMIntConstantEntry) - 1],
+                &int_last_entry,
+                sizeof(VMIntConstantEntry)) == 0, "Incorrect last entry in localHotSpotVMIntConstants");
+
+  static VMLongConstantEntry long_last_entry = GENERATE_VM_LONG_CONSTANT_LAST_ENTRY();
+  assert(memcmp(&localHotSpotVMLongConstants[sizeof(localHotSpotVMLongConstants) / sizeof(VMLongConstantEntry) - 1],
+                &long_last_entry,
+                sizeof(VMLongConstantEntry)) == 0, "Incorrect last entry in localHotSpotVMLongConstants");
+
+
   // Check for duplicate entries in type array
   for (int i = 0; localHotSpotVMTypes[i].typeName != NULL; i++) {
     for (int j = i + 1; localHotSpotVMTypes[j].typeName != NULL; j++) {

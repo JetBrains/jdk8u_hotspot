@@ -36,11 +36,12 @@
 #include "runtime/os.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/stubRoutines.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/g1/heapRegion.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 
 #ifdef PRODUCT
 #define BLOCK_COMMENT(str) /* nothing */
@@ -1224,7 +1225,7 @@ void  MacroAssembler::set_narrow_oop(jobject obj, Register d) {
   // Relocation with special format (see relocInfo_sparc.hpp).
   relocate(rspec, 1);
   // Assembler::sethi(0x3fffff, d);
-  emit_long( op(branch_op) | rd(d) | op2(sethi_op2) | hi22(0x3fffff) );
+  emit_int32( op(branch_op) | rd(d) | op2(sethi_op2) | hi22(0x3fffff) );
   // Don't add relocation for 'add'. Do patching during 'sethi' processing.
   add(d, 0x3ff, d);
 
@@ -1240,7 +1241,7 @@ void  MacroAssembler::set_narrow_klass(Klass* k, Register d) {
   // Relocation with special format (see relocInfo_sparc.hpp).
   relocate(rspec, 1);
   // Assembler::sethi(encoded_k, d);
-  emit_long( op(branch_op) | rd(d) | op2(sethi_op2) | hi22(encoded_k) );
+  emit_int32( op(branch_op) | rd(d) | op2(sethi_op2) | hi22(encoded_k) );
   // Don't add relocation for 'add'. Do patching during 'sethi' processing.
   add(d, low10(encoded_k), d);
 
@@ -3867,7 +3868,7 @@ void MacroAssembler::bang_stack_size(Register Rsize, Register Rtsp,
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 
 static address satb_log_enqueue_with_frame = NULL;
 static u_char* satb_log_enqueue_with_frame_end = NULL;
@@ -4231,7 +4232,7 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr, Register new_val
   bind(filtered);
 }
 
-#endif  // SERIALGC
+#endif // INCLUDE_ALL_GCS
 ///////////////////////////////////////////////////////////////////////////////////
 
 void MacroAssembler::card_write_barrier_post(Register store_addr, Register new_val, Register tmp) {

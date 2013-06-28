@@ -26,6 +26,7 @@
 #define CPU_X86_VM_MACROASSEMBLER_X86_HPP
 
 #include "asm/assembler.hpp"
+#include "utilities/macros.hpp"
 
 
 // MacroAssembler extends Assembler by frequently used macros.
@@ -294,7 +295,7 @@ class MacroAssembler: public Assembler {
   void store_check(Register obj);                // store check for obj - register is destroyed afterwards
   void store_check(Register obj, Address dst);   // same as above, dst is exact store location (reg. is destroyed)
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 
   void g1_write_barrier_pre(Register obj,
                             Register pre_val,
@@ -309,7 +310,7 @@ class MacroAssembler: public Assembler {
                              Register tmp,
                              Register tmp2);
 
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   // split store_check(Register obj) to enhance instruction interleaving
   void store_check_part_1(Register obj);
@@ -1011,6 +1012,10 @@ public:
       Assembler::vxorpd(dst, nds, src, vector256);
   }
 
+  // Simple version for AVX2 256bit vectors
+  void vpxor(XMMRegister dst, XMMRegister src) { Assembler::vpxor(dst, dst, src, true); }
+  void vpxor(XMMRegister dst, Address src) { Assembler::vpxor(dst, dst, src, true); }
+
   // Move packed integer values from low 128 bit to hign 128 bit in 256 bit vector.
   void vinserti128h(XMMRegister dst, XMMRegister nds, XMMRegister src) {
     if (UseAVX > 1) // vinserti128h is available only in AVX2
@@ -1096,6 +1101,9 @@ public:
   // C2 compiled method's prolog code.
   void verified_entry(int framesize, bool stack_bang, bool fp_mode_24b);
 
+  // clear memory of size 'cnt' qwords, starting at 'base'.
+  void clear_mem(Register base, Register cnt, Register rtmp);
+
   // IndexOf strings.
   // Small strings are loaded through stack if they cross page boundary.
   void string_indexof(Register str1, Register str2,
@@ -1127,6 +1135,10 @@ public:
   void generate_fill(BasicType t, bool aligned,
                      Register to, Register value, Register count,
                      Register rtmp, XMMRegister xtmp);
+
+  void encode_iso_array(Register src, Register dst, Register len,
+                        XMMRegister tmp1, XMMRegister tmp2, XMMRegister tmp3,
+                        XMMRegister tmp4, Register tmp5, Register result);
 
 #undef VIRTUAL
 

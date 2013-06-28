@@ -55,7 +55,7 @@ volatile jint MemRecorder::_instance_count = 0;
 MemRecorder::MemRecorder() {
   assert(MemTracker::is_on(), "Native memory tracking is off");
   Atomic::inc(&_instance_count);
-  debug_only(set_generation();)
+  set_generation();
 
   if (MemTracker::track_callsite()) {
     _pointer_records = new (std::nothrow)FixedSizeMemPointerArray<SeqMemPointerRecordEx,
@@ -84,10 +84,13 @@ MemRecorder::~MemRecorder() {
     }
     delete _pointer_records;
   }
-  if (_next != NULL) {
-    delete _next;
+  // delete all linked recorders
+  while (_next != NULL) {
+    MemRecorder* tmp = _next;
+    _next = _next->next();
+    tmp->set_next(NULL);
+    delete tmp;
   }
-
   Atomic::dec(&_instance_count);
 }
 
@@ -148,10 +151,11 @@ SequencedRecordIterator MemRecorder::pointer_itr() {
 }
 
 
-#ifdef ASSERT
 void MemRecorder::set_generation() {
   _generation = SequenceGenerator::current_generation();
 }
+
+#ifdef ASSERT
 
 void MemRecorder::check_dup_seq(jint seq) const {
   MemPointerArrayIteratorImpl itr(_pointer_records);

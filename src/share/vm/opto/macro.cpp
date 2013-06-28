@@ -361,14 +361,21 @@ static Node *scan_mem_chain(Node *mem, int alias_idx, int offset, Node *start_me
       }
       // Otherwise skip it (the call updated 'mem' value).
     } else if (mem->Opcode() == Op_SCMemProj) {
-      assert(mem->in(0)->is_LoadStore(), "sanity");
-      const TypePtr* atype = mem->in(0)->in(MemNode::Address)->bottom_type()->is_ptr();
+      mem = mem->in(0);
+      Node* adr = NULL;
+      if (mem->is_LoadStore()) {
+        adr = mem->in(MemNode::Address);
+      } else {
+        assert(mem->Opcode() == Op_EncodeISOArray, "sanity");
+        adr = mem->in(3); // Destination array
+      }
+      const TypePtr* atype = adr->bottom_type()->is_ptr();
       int adr_idx = Compile::current()->get_alias_index(atype);
       if (adr_idx == alias_idx) {
         assert(false, "Object is not scalar replaceable if a LoadStore node access its field");
         return NULL;
       }
-      mem = mem->in(0)->in(MemNode::Memory);
+      mem = mem->in(MemNode::Memory);
     } else {
       return mem;
     }
@@ -445,7 +452,7 @@ Node *PhaseMacroExpand::value_from_mem_phi(Node *mem, BasicType ft, const Type *
         }
         values.at_put(j, val);
       } else if (val->Opcode() == Op_SCMemProj) {
-        assert(val->in(0)->is_LoadStore(), "sanity");
+        assert(val->in(0)->is_LoadStore() || val->in(0)->Opcode() == Op_EncodeISOArray, "sanity");
         assert(false, "Object is not scalar replaceable if a LoadStore node access its field");
         return NULL;
       } else {
@@ -1094,12 +1101,6 @@ void PhaseMacroExpand::expand_allocate_common(
   Node* klass_node        = alloc->in(AllocateNode::KlassNode);
   Node* initial_slow_test = alloc->in(AllocateNode::InitialTest);
 
-  Node* storestore = alloc->storestore();
-  if (storestore != NULL) {
-    // Break this link that is no longer useful and confuses register allocation
-    storestore->set_req(MemBarNode::Precedent, top());
-  }
-
   assert(ctrl != NULL, "must have control");
   // We need a Region and corresponding Phi's to merge the slow-path and fast-path results.
   // they will not be used if "always_slow" is set
@@ -1317,7 +1318,7 @@ void PhaseMacroExpand::expand_allocate_common(
         // No InitializeNode or no stores captured by zeroing
         // elimination. Simply add the MemBarStoreStore after object
         // initialization.
-        MemBarNode* mb = MemBarNode::make(C, Op_MemBarStoreStore, Compile::AliasIdxBot, fast_oop_rawmem);
+        MemBarNode* mb = MemBarNode::make(C, Op_MemBarStoreStore, Compile::AliasIdxBot);
         transform_later(mb);
 
         mb->init_req(TypeFunc::Memory, fast_oop_rawmem);

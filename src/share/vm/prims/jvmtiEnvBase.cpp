@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -74,10 +74,8 @@ JvmtiEnvBase::globally_initialize() {
 
   JvmtiManageCapabilities::initialize();
 
-#ifndef JVMTI_KERNEL
   // register extension functions and events
   JvmtiExtensions::register_extensions();
-#endif // !JVMTI_KERNEL
 
 #ifdef JVMTI_TRACE
   JvmtiTrace::initialize();
@@ -236,14 +234,12 @@ JvmtiEnvBase::env_dispose() {
   // Same situation as with events (see above)
   set_native_method_prefixes(0, NULL);
 
-#ifndef JVMTI_KERNEL
   JvmtiTagMap* tag_map_to_deallocate = _tag_map;
   set_tag_map(NULL);
   // A tag map can be big, deallocate it now
   if (tag_map_to_deallocate != NULL) {
     delete tag_map_to_deallocate;
   }
-#endif // !JVMTI_KERNEL
 
   _needs_clean_up = true;
 }
@@ -255,14 +251,12 @@ JvmtiEnvBase::~JvmtiEnvBase() {
   // There is a small window of time during which the tag map of a
   // disposed environment could have been reallocated.
   // Make sure it is gone.
-#ifndef JVMTI_KERNEL
   JvmtiTagMap* tag_map_to_deallocate = _tag_map;
   set_tag_map(NULL);
   // A tag map can be big, deallocate it now
   if (tag_map_to_deallocate != NULL) {
     delete tag_map_to_deallocate;
   }
-#endif // !JVMTI_KERNEL
 
   _magic = BAD_MAGIC;
 }
@@ -592,8 +586,6 @@ JvmtiEnvBase::get_jni_class_non_null(Klass* k) {
   assert(k != NULL, "k != NULL");
   return (jclass)jni_reference(k->java_mirror());
 }
-
-#ifndef JVMTI_KERNEL
 
 //
 // Field Information
@@ -1005,13 +997,19 @@ JvmtiEnvBase::get_object_monitor_usage(JavaThread* calling_thread, jobject objec
       // move our object at this point. However, our owner value is safe
       // since it is either the Lock word on a stack or a JavaThread *.
       owning_thread = Threads::owning_thread_from_monitor_owner(owner, !at_safepoint);
-      assert(owning_thread != NULL, "sanity check");
-      if (owning_thread != NULL) {  // robustness
+      // Cannot assume (owning_thread != NULL) here because this function
+      // may not have been called at a safepoint and the owning_thread
+      // might not be suspended.
+      if (owning_thread != NULL) {
         // The monitor's owner either has to be the current thread, at safepoint
         // or it has to be suspended. Any of these conditions will prevent both
         // contending and waiting threads from modifying the state of
         // the monitor.
         if (!at_safepoint && !JvmtiEnv::is_thread_fully_suspended(owning_thread, true, &debug_bits)) {
+          // Don't worry! This return of JVMTI_ERROR_THREAD_NOT_SUSPENDED
+          // will not make it back to the JVM/TI agent. The error code will
+          // get intercepted in JvmtiEnv::GetObjectMonitorUsage() which
+          // will retry the call via a VM_GetObjectMonitorUsage VM op.
           return JVMTI_ERROR_THREAD_NOT_SUSPENDED;
         }
         HandleMark hm;
@@ -1482,5 +1480,3 @@ JvmtiMonitorClosure::do_monitor(ObjectMonitor* mon) {
     }
   }
 }
-
-#endif // !JVMTI_KERNEL

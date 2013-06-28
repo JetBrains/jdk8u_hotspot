@@ -56,6 +56,7 @@
 #include "utilities/dtrace.hpp"
 #include "utilities/events.hpp"
 #include "utilities/hashtable.inline.hpp"
+#include "utilities/macros.hpp"
 #include "utilities/xmlstream.hpp"
 #ifdef TARGET_ARCH_x86
 # include "nativeInst_x86.hpp"
@@ -221,7 +222,7 @@ void SharedRuntime::print_ic_miss_histogram() {
 }
 #endif // PRODUCT
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 
 // G1 write-barrier pre: executed before a pointer store.
 JRT_LEAF(void, SharedRuntime::g1_wb_pre(oopDesc* orig, JavaThread *thread))
@@ -239,7 +240,7 @@ JRT_LEAF(void, SharedRuntime::g1_wb_post(void* card_addr, JavaThread* thread))
   thread->dirty_card_queue().enqueue(card_addr);
 JRT_END
 
-#endif // !SERIALGC
+#endif // INCLUDE_ALL_GCS
 
 
 JRT_LEAF(jlong, SharedRuntime::lmul(jlong y, jlong x))
@@ -652,7 +653,8 @@ address SharedRuntime::compute_compiled_exc_handler(nmethod* nm, address ret_pc,
       bool skip_scope_increment = false;
       // exception handler lookup
       KlassHandle ek (THREAD, exception->klass());
-      handler_bci = sd->method()->fast_exception_handler_bci_for(ek, bci, THREAD);
+      methodHandle mh(THREAD, sd->method());
+      handler_bci = Method::fast_exception_handler_bci_for(mh, ek, bci, THREAD);
       if (HAS_PENDING_EXCEPTION) {
         recursive_exception = true;
         // We threw an exception while trying to find the exception handler.
@@ -2842,10 +2844,6 @@ VMRegPair *SharedRuntime::find_callee_arguments(Symbol* sig, bool has_receiver, 
 // All of this is done NOT at any Safepoint, nor is any safepoint or GC allowed.
 
 JRT_LEAF(intptr_t*, SharedRuntime::OSR_migration_begin( JavaThread *thread) )
-
-#ifdef IA64
-  ShouldNotReachHere(); // NYI
-#endif /* IA64 */
 
   //
   // This code is dependent on the memory layout of the interpreter local

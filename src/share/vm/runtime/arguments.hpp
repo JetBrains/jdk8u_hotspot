@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -413,6 +413,7 @@ class Arguments : AllStatic {
   static jint adjust_after_os();
   // Check for consistency in the selection of the garbage collector.
   static bool check_gc_consistency();
+  static void check_deprecated_gcs();
   // Check consistecy or otherwise of VM argument settings
   static bool check_vm_args_consistency();
   // Check stack pages settings
@@ -539,11 +540,6 @@ class Arguments : AllStatic {
 
   // Utility: copies src into buf, replacing "%%" with "%" and "%p" with pid.
   static bool copy_expand_pid(const char* src, size_t srclen, char* buf, size_t buflen);
-
-#ifdef KERNEL
-  // For java kernel vm, return property string for kernel properties.
-  static char *get_kernel_properties();
-#endif // KERNEL
 };
 
 #endif // SHARE_VM_RUNTIME_ARGUMENTS_HPP

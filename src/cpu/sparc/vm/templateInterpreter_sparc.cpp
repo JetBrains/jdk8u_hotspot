@@ -44,6 +44,7 @@
 #include "runtime/timer.hpp"
 #include "runtime/vframeArray.hpp"
 #include "utilities/debug.hpp"
+#include "utilities/macros.hpp"
 
 #ifndef CC_INTERP
 #ifndef FAST_DISPATCH
@@ -259,7 +260,7 @@ address TemplateInterpreterGenerator::generate_result_handler_for(BasicType type
   }
   __ ret();                           // return from interpreter activation
   __ delayed()->restore(I5_savedSP, G0, SP);  // remove interpreter frame
-  NOT_PRODUCT(__ emit_long(0);)       // marker for disassembly
+  NOT_PRODUCT(__ emit_int32(0);)       // marker for disassembly
   return entry;
 }
 
@@ -734,7 +735,7 @@ address InterpreterGenerator::generate_accessor_entry(void) {
 
 // Method entry for java.lang.ref.Reference.get.
 address InterpreterGenerator::generate_Reference_get_entry(void) {
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   // Code: _aload_0, _getfield, _areturn
   // parameter size = 1
   //
@@ -805,7 +806,7 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
     (void) generate_normal_entry(false);
     return entry;
   }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   // If G1 is not enabled then attempt to go through the accessor entry point
   // Reference.get is an accessor

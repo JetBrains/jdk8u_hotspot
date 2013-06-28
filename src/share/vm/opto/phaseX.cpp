@@ -75,6 +75,13 @@ NodeHash::NodeHash(NodeHash *nh) {
   // nh->_sentinel must be in the current node space
 }
 
+void NodeHash::replace_with(NodeHash *nh) {
+  debug_only(_table = (Node**)badAddress);   // interact correctly w/ operator=
+  // just copy in all the fields
+  *this = *nh;
+  // nh->_sentinel must be in the current node space
+}
+
 //------------------------------hash_find--------------------------------------
 // Find in hash table
 Node *NodeHash::hash_find( const Node *n ) {
@@ -1190,11 +1197,26 @@ void PhaseIterGVN::remove_globally_dead_node( Node *dead ) {
                 assert(!(i < imax), "sanity");
               }
             }
+            if (ReduceFieldZeroing && dead->is_Load() && i == MemNode::Memory &&
+                in->is_Proj() && in->in(0) != NULL && in->in(0)->is_Initialize()) {
+              // A Load that directly follows an InitializeNode is
+              // going away. The Stores that follow are candidates
+              // again to be captured by the InitializeNode.
+              for (DUIterator_Fast jmax, j = in->fast_outs(jmax); j < jmax; j++) {
+                Node *n = in->fast_out(j);
+                if (n->is_Store()) {
+                  _worklist.push(n);
+                }
+              }
+            }
           }
         }
         C->record_dead_node(dead->_idx);
         if (dead->is_macro()) {
           C->remove_macro_node(dead);
+        }
+        if (dead->is_expensive()) {
+          C->remove_expensive_node(dead);
         }
 
         if (recurse) {

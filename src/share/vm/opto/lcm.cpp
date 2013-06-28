@@ -178,6 +178,7 @@ void Block::implicit_null_check(PhaseCFG *cfg, Node *proj, Node *val, int allowe
     case Op_StrEquals:
     case Op_StrIndexOf:
     case Op_AryEq:
+    case Op_EncodeISOArray:
       // Not a legit memory op for implicit null check regardless of
       // embedded loads
       continue;
@@ -423,6 +424,7 @@ Node *Block::select(PhaseCFG *cfg, Node_List &worklist, GrowableArray<int> &read
   uint latency = 0; // Bigger is scheduled first
   uint score   = 0; // Bigger is better
   int idx = -1;     // Index in worklist
+  int cand_cnt = 0; // Candidate count
 
   for( uint i=0; i<cnt; i++ ) { // Inspect entire worklist
     // Order in worklist is used to break ties.
@@ -505,11 +507,14 @@ Node *Block::select(PhaseCFG *cfg, Node_List &worklist, GrowableArray<int> &read
     uint n_score   = n->req();   // Many inputs get high score to break ties
 
     // Keep best latency found
-    if( choice < n_choice ||
-        ( choice == n_choice &&
-          ( latency < n_latency ||
-            ( latency == n_latency &&
-              ( score < n_score ))))) {
+    cand_cnt++;
+    if (choice < n_choice ||
+        (choice == n_choice &&
+         ((StressLCM && Compile::randomized_select(cand_cnt)) ||
+          (!StressLCM &&
+           (latency < n_latency ||
+            (latency == n_latency &&
+             (score < n_score))))))) {
       choice  = n_choice;
       latency = n_latency;
       score   = n_score;

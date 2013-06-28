@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,7 +25,6 @@
 #ifndef OS_BSD_VM_OS_BSD_INLINE_HPP
 #define OS_BSD_VM_OS_BSD_INLINE_HPP
 
-#include "runtime/atomic.hpp"
 #include "runtime/atomic.inline.hpp"
 #include "runtime/os.hpp"
 
@@ -57,14 +56,6 @@ inline const char* os::line_separator() {
 
 inline const char* os::path_separator() {
   return ":";
-}
-
-inline const char* os::jlong_format_specifier() {
-  return "%lld";
-}
-
-inline const char* os::julong_format_specifier() {
-  return "%llu";
 }
 
 // File names are case-sensitive on windows only
@@ -294,4 +285,21 @@ inline int os::set_sock_opt(int fd, int level, int optname,
                             const char* optval, socklen_t optlen) {
   return ::setsockopt(fd, level, optname, optval, optlen);
 }
+
+inline void os::Bsd::SuspendResume::set_suspended()           {
+  jint temp, temp2;
+  do {
+    temp = _state;
+    temp2 = Atomic::cmpxchg(temp | SR_SUSPENDED, &_state, temp);
+  } while (temp2 != temp);
+}
+
+inline void os::Bsd::SuspendResume::clear_suspended()        {
+  jint temp, temp2;
+  do {
+    temp = _state;
+    temp2 = Atomic::cmpxchg(temp & ~SR_SUSPENDED, &_state, temp);
+  } while (temp2 != temp);
+}
+
 #endif // OS_BSD_VM_OS_BSD_INLINE_HPP

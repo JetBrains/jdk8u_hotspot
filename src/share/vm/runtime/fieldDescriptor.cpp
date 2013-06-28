@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -63,6 +63,14 @@ AnnotationArray* fieldDescriptor::annotations() const {
   if (md == NULL)
     return NULL;
   return md->at(index());
+}
+
+AnnotationArray* fieldDescriptor::type_annotations() const {
+  InstanceKlass* ik = field_holder();
+  Array<AnnotationArray*>* type_annos = ik->fields_type_annotations();
+  if (type_annos == NULL)
+    return NULL;
+  return type_annos->at(index());
 }
 
 constantTag fieldDescriptor::initial_value_tag() const {

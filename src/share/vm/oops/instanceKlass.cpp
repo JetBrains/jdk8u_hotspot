@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,6 +34,7 @@
 #include "interpreter/rewriter.hpp"
 #include "jvmtifiles/jvmti.h"
 #include "memory/genOopClosures.inline.hpp"
+#include "memory/heapInspection.hpp"
 #include "memory/metadataFactory.hpp"
 #include "memory/oopFactory.hpp"
 #include "oops/fieldStreams.hpp"
@@ -47,6 +48,7 @@
 #include "oops/symbol.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiRedefineClassesTrace.hpp"
+#include "prims/methodComparator.hpp"
 #include "runtime/fieldDescriptor.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/javaCalls.hpp"
@@ -54,7 +56,8 @@
 #include "runtime/thread.inline.hpp"
 #include "services/threadService.hpp"
 #include "utilities/dtrace.hpp"
-#ifndef SERIALGC
+#include "utilities/macros.hpp"
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/concurrentMarkSweep/cmsOopClosures.inline.hpp"
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1OopClosures.inline.hpp"
@@ -65,7 +68,7 @@
 #include "gc_implementation/parallelScavenge/psPromotionManager.inline.hpp"
 #include "gc_implementation/parallelScavenge/psScavenge.inline.hpp"
 #include "oops/oop.pcgc.inline.hpp"
-#endif
+#endif // INCLUDE_ALL_GCS
 #ifdef COMPILER1
 #include "c1/c1_Compiler.hpp"
 #endif
@@ -160,21 +163,22 @@ HS_DTRACE_PROBE_DECL5(hotspot, class__initialization__end,
 
 #endif //  ndef DTRACE_ENABLED
 
+volatile int InstanceKlass::_total_instanceKlass_count = 0;
+
 Klass* InstanceKlass::allocate_instance_klass(ClassLoaderData* loader_data,
-                                                int vtable_len,
-                                                int itable_len,
-                                                int static_field_size,
-                                                int nonstatic_oop_map_size,
-                                                ReferenceType rt,
-                                                AccessFlags access_flags,
-                                                Symbol* name,
+                                              int vtable_len,
+                                              int itable_len,
+                                              int static_field_size,
+                                              int nonstatic_oop_map_size,
+                                              ReferenceType rt,
+                                              AccessFlags access_flags,
+                                              Symbol* name,
                                               Klass* super_klass,
-                                                KlassHandle host_klass,
-                                                TRAPS) {
+                                              bool is_anonymous,
+                                              TRAPS) {
 
   int size = InstanceKlass::size(vtable_len, itable_len, nonstatic_oop_map_size,
-                                 access_flags.is_interface(),
-                                 !host_klass.is_null());
+                                 access_flags.is_interface(), is_anonymous);
 
   // Allocation
   InstanceKlass* ik;
@@ -182,27 +186,28 @@ Klass* InstanceKlass::allocate_instance_klass(ClassLoaderData* loader_data,
     if (name == vmSymbols::java_lang_Class()) {
       ik = new (loader_data, size, THREAD) InstanceMirrorKlass(
         vtable_len, itable_len, static_field_size, nonstatic_oop_map_size, rt,
-        access_flags, !host_klass.is_null());
+        access_flags, is_anonymous);
     } else if (name == vmSymbols::java_lang_ClassLoader() ||
           (SystemDictionary::ClassLoader_klass_loaded() &&
           super_klass != NULL &&
           super_klass->is_subtype_of(SystemDictionary::ClassLoader_klass()))) {
       ik = new (loader_data, size, THREAD) InstanceClassLoaderKlass(
         vtable_len, itable_len, static_field_size, nonstatic_oop_map_size, rt,
-        access_flags, !host_klass.is_null());
+        access_flags, is_anonymous);
     } else {
       // normal class
       ik = new (loader_data, size, THREAD) InstanceKlass(
         vtable_len, itable_len, static_field_size, nonstatic_oop_map_size, rt,
-        access_flags, !host_klass.is_null());
+        access_flags, is_anonymous);
     }
   } else {
     // reference klass
     ik = new (loader_data, size, THREAD) InstanceRefKlass(
         vtable_len, itable_len, static_field_size, nonstatic_oop_map_size, rt,
-        access_flags, !host_klass.is_null());
+        access_flags, is_anonymous);
   }
 
+  Atomic::inc(&_total_instanceKlass_count);
   return ik;
 }
 
@@ -361,6 +366,9 @@ void InstanceKlass::deallocate_contents(ClassLoaderData* loader_data) {
   set_protection_domain(NULL);
   set_signers(NULL);
   set_init_lock(NULL);
+
+  // We should deallocate the Annotations instance
+  MetadataFactory::free_metadata(loader_data, annotations());
   set_annotations(NULL);
 }
 
@@ -599,7 +607,7 @@ bool InstanceKlass::link_class_impl(
       }
 
       // relocate jsrs and link methods after they are all rewritten
-      this_oop->relocate_and_link_methods(CHECK_false);
+      this_oop->link_methods(CHECK_false);
 
       // Initialize the vtable and interface table after
       // methods have been rewritten since rewrite may
@@ -647,10 +655,31 @@ void InstanceKlass::rewrite_class(TRAPS) {
 // Now relocate and link method entry points after class is rewritten.
 // This is outside is_rewritten flag. In case of an exception, it can be
 // executed more than once.
-void InstanceKlass::relocate_and_link_methods(TRAPS) {
-  assert(is_loaded(), "must be loaded");
-  instanceKlassHandle this_oop(THREAD, this);
-  Rewriter::relocate_and_link(this_oop, CHECK);
+void InstanceKlass::link_methods(TRAPS) {
+  int len = methods()->length();
+  for (int i = len-1; i >= 0; i--) {
+    methodHandle m(THREAD, methods()->at(i));
+
+    // Set up method entry points for compiler and interpreter    .
+    m->link_method(m, CHECK);
+
+    // This is for JVMTI and unrelated to relocator but the last thing we do
+#ifdef ASSERT
+    if (StressMethodComparator) {
+      ResourceMark rm(THREAD);
+      static int nmc = 0;
+      for (int j = i; j >= 0 && j >= i-4; j--) {
+        if ((++nmc % 1000) == 0)  tty->print_cr("Have run MethodComparator %d times...", nmc);
+        bool z = MethodComparator::methods_EMCP(m(),
+                   methods()->at(j));
+        if (j == i && !z) {
+          tty->print("MethodComparator FAIL: "); m->print(); m->print_codes();
+          assert(z, "method must compare equal to itself");
+        }
+      }
+    }
+#endif //ASSERT
+  }
 }
 
 
@@ -2014,7 +2043,7 @@ void InstanceKlass::oop_follow_contents(oop obj) {
     assert_is_in_closed_subset)
 }
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 void InstanceKlass::oop_follow_contents(ParCompactionManager* cm,
                                         oop obj) {
   assert(obj != NULL, "can't follow the content of NULL object");
@@ -2026,7 +2055,7 @@ void InstanceKlass::oop_follow_contents(ParCompactionManager* cm,
     PSParallelCompact::mark_and_push(cm, p), \
     assert_is_in)
 }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
 // closure's do_metadata() method dictates whether the given closure should be
 // applied to the klass ptr in the object header.
@@ -2054,7 +2083,7 @@ int InstanceKlass::oop_oop_iterate##nv_suffix(oop obj, OopClosureType* closure) 
   return size_helper();                                                 \
 }
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 #define InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN(OopClosureType, nv_suffix) \
                                                                                 \
 int InstanceKlass::oop_oop_iterate_backwards##nv_suffix(oop obj,                \
@@ -2072,7 +2101,7 @@ int InstanceKlass::oop_oop_iterate_backwards##nv_suffix(oop obj,                
     assert_is_in_closed_subset)                                                 \
    return size_helper();                                                        \
 }
-#endif // !SERIALGC
+#endif // INCLUDE_ALL_GCS
 
 #define InstanceKlass_OOP_OOP_ITERATE_DEFN_m(OopClosureType, nv_suffix) \
                                                                         \
@@ -2096,10 +2125,10 @@ ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceKlass_OOP_OOP_ITERATE_DEFN)
 ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceKlass_OOP_OOP_ITERATE_DEFN)
 ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceKlass_OOP_OOP_ITERATE_DEFN_m)
 ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceKlass_OOP_OOP_ITERATE_DEFN_m)
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN)
 ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN)
-#endif // !SERIALGC
+#endif // INCLUDE_ALL_GCS
 
 int InstanceKlass::oop_adjust_pointers(oop obj) {
   int size = size_helper();
@@ -2111,7 +2140,7 @@ int InstanceKlass::oop_adjust_pointers(oop obj) {
   return size;
 }
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 void InstanceKlass::oop_push_contents(PSPromotionManager* pm, oop obj) {
   InstanceKlass_OOP_MAP_REVERSE_ITERATE( \
     obj, \
@@ -2131,7 +2160,7 @@ int InstanceKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
   return size;
 }
 
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
 void InstanceKlass::clean_implementors_list(BoolObjectClosure* is_alive) {
   assert(is_loader_alive(is_alive), "this klass should be live");
@@ -2141,7 +2170,11 @@ void InstanceKlass::clean_implementors_list(BoolObjectClosure* is_alive) {
       if (impl != NULL) {
         if (!impl->is_loader_alive(is_alive)) {
           // remove this guy
-          *adr_implementor() = NULL;
+          Klass** klass = adr_implementor();
+          assert(klass != NULL, "null klass");
+          if (klass != NULL) {
+            *klass = NULL;
+          }
         }
       }
     }
@@ -2306,6 +2339,9 @@ void InstanceKlass::release_C_heap_structures() {
   if (_array_name != NULL)  _array_name->decrement_refcount();
   if (_source_file_name != NULL) _source_file_name->decrement_refcount();
   if (_source_debug_extension != NULL) FREE_C_HEAP_ARRAY(char, _source_debug_extension, mtClass);
+
+  assert(_total_instanceKlass_count >= 1, "Sanity check");
+  Atomic::dec(&_total_instanceKlass_count);
 }
 
 void InstanceKlass::set_source_file_name(Symbol* n) {
@@ -2777,7 +2813,10 @@ void InstanceKlass::print_on(outputStream* st) const {
     st->print("%s", source_debug_extension());
     st->cr();
   }
-  st->print(BULLET"annotations:       "); annotations()->print_value_on(st); st->cr();
+  st->print(BULLET"class annotations:       "); class_annotations()->print_value_on(st); st->cr();
+  st->print(BULLET"class type annotations:  "); class_type_annotations()->print_value_on(st); st->cr();
+  st->print(BULLET"field annotations:       "); fields_annotations()->print_value_on(st); st->cr();
+  st->print(BULLET"field type annotations:  "); fields_type_annotations()->print_value_on(st); st->cr();
   {
     ResourceMark rm;
     // PreviousVersionInfo objects returned via PreviousVersionWalker
@@ -2876,11 +2915,7 @@ void InstanceKlass::oop_print_on(oop obj, outputStream* st) {
     st->print(BULLET"fake entry for mirror: ");
     mirrored_klass->print_value_on_maybe_null(st);
     st->cr();
-    st->print(BULLET"fake entry resolved_constructor: ");
-    Method* ctor = java_lang_Class::resolved_constructor(obj);
-    ctor->print_value_on_maybe_null(st);
     Klass* array_klass = java_lang_Class::array_klass(obj);
-    st->cr();
     st->print(BULLET"fake entry for array: ");
     array_klass->print_value_on_maybe_null(st);
     st->cr();
@@ -2949,6 +2984,52 @@ void InstanceKlass::oop_print_value_on(oop obj, outputStream* st) {
 const char* InstanceKlass::internal_name() const {
   return external_name();
 }
+
+#if INCLUDE_SERVICES
+// Size Statistics
+void InstanceKlass::collect_statistics(KlassSizeStats *sz) const {
+  Klass::collect_statistics(sz);
+
+  sz->_inst_size  = HeapWordSize * size_helper();
+  sz->_vtab_bytes = HeapWordSize * align_object_offset(vtable_length());
+  sz->_itab_bytes = HeapWordSize * align_object_offset(itable_length());
+  sz->_nonstatic_oopmap_bytes = HeapWordSize *
+        ((is_interface() || is_anonymous()) ?
+         align_object_offset(nonstatic_oop_map_size()) :
+         nonstatic_oop_map_size());
+
+  int n = 0;
+  n += (sz->_methods_array_bytes         = sz->count_array(methods()));
+  n += (sz->_method_ordering_bytes       = sz->count_array(method_ordering()));
+  n += (sz->_local_interfaces_bytes      = sz->count_array(local_interfaces()));
+  n += (sz->_transitive_interfaces_bytes = sz->count_array(transitive_interfaces()));
+  n += (sz->_signers_bytes               = sz->count_array(signers()));
+  n += (sz->_fields_bytes                = sz->count_array(fields()));
+  n += (sz->_inner_classes_bytes         = sz->count_array(inner_classes()));
+  sz->_ro_bytes += n;
+
+  const ConstantPool* cp = constants();
+  if (cp) {
+    cp->collect_statistics(sz);
+  }
+
+  const Annotations* anno = annotations();
+  if (anno) {
+    anno->collect_statistics(sz);
+  }
+
+  const Array<Method*>* methods_array = methods();
+  if (methods()) {
+    for (int i = 0; i < methods_array->length(); i++) {
+      Method* method = methods_array->at(i);
+      if (method) {
+        sz->_method_count ++;
+        method->collect_statistics(sz);
+      }
+    }
+  }
+}
+#endif // INCLUDE_SERVICES
 
 // Verification
 
@@ -3091,9 +3172,10 @@ void InstanceKlass::verify_on(outputStream* st) {
   if (protection_domain() != NULL) {
     guarantee(protection_domain()->is_oop(), "should be oop");
   }
-  if (host_klass() != NULL) {
-    guarantee(host_klass()->is_metadata(), "should be in metaspace");
-    guarantee(host_klass()->is_klass(), "should be klass");
+  const Klass* host = host_klass();
+  if (host != NULL) {
+    guarantee(host->is_metadata(), "should be in metaspace");
+    guarantee(host->is_klass(), "should be klass");
   }
   if (signers() != NULL) {
     guarantee(signers()->is_objArray(), "should be obj array");
