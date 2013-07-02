@@ -41,7 +41,10 @@
 #include "opto/runtime.hpp"
 #endif
 
+#ifdef BUILTIN_SIM
 #include "../../../../../../simulator/simulator.hpp"
+#endif
+
 #define __ masm->
 
 const int StackAlignmentInSlots = StackAlignmentInBytes / VMRegImpl::stack_slot_size;
@@ -126,7 +129,7 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
   OopMapSet *oop_maps = new OopMapSet();
   OopMap* oop_map = new OopMap(frame_size_in_slots, 0);
 
-  for (int i = 0; i < FrameMap::nof_cpu_regs; i++) {
+  for (int i = 0; i < RegisterImpl::number_of_registers; i++) {
     Register r = as_Register(i);
     if (r < rheapbase && r != rscratch1 && r != rscratch2) {
       int sp_offset = 2 * (i + 32); // SP offsets are in 4-byte words,
@@ -138,7 +141,7 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
     }
   }
 
-  for (int i = 0; i < FrameMap::nof_fpu_regs; i++) {
+  for (int i = 0; i < FloatRegisterImpl::number_of_registers; i++) {
     FloatRegister r = as_FloatRegister(i);
     int sp_offset = 2 * i;
     oop_map->set_callee_saved(VMRegImpl::stack2reg(sp_offset),
@@ -691,12 +694,14 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
                                                             AdapterFingerPrint* fingerprint) {
   address i2c_entry = __ pc();
   char name[400];
+#ifdef BUILTIN_SIM
   AArch64Simulator *sim = NULL;
   if (NotifySimulator) {
     generate_i2c_adapter_name(name, total_args_passed, sig_bt);
     sim = AArch64Simulator::current();
     sim->notifyCompile(name, i2c_entry);
   }
+#endif
   gen_i2c_adapter(masm, total_args_passed, comp_args_on_stack, sig_bt, regs);
 
   address c2i_unverified_entry = __ pc();
@@ -738,11 +743,13 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
 
   address c2i_entry = __ pc();
 
+#ifdef BUILTIN_SIM
   if (NotifySimulator) {
     name[0] = 'c';
     name[2] = 'i';
     sim->notifyCompile(name, c2i_entry);
   }
+#endif
 
   gen_c2i_adapter(masm, total_args_passed, comp_args_on_stack, sig_bt, regs, skip_fixup);
 
@@ -1277,6 +1284,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
                                                 BasicType* in_sig_bt,
                                                 VMRegPair* in_regs,
                                                 BasicType ret_type) {
+#ifdef BUILTIN_SIM
   if (NotifySimulator) {
     char name[400];
     strcpy(name, method()->method_holder()->name()->as_utf8());
@@ -1285,6 +1293,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     strcat(name, method()->signature()->as_utf8());
     AArch64Simulator::current()->notifyCompile(name, __ pc());
   }
+#endif
 
   if (method->is_method_handle_intrinsic()) {
     vmIntrinsics::ID iid = method->intrinsic_id();

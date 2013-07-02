@@ -602,7 +602,11 @@ class Assembler : public AbstractAssembler {
   void emit_long(jint x) {
     if ((unsigned long)pc() == asm_bp)
       asm volatile ("nop");
-    AbstractAssembler::emit_long(x);
+    AbstractAssembler::emit_int32(x);
+  }
+#else
+  void emit_long(jint x) {
+    AbstractAssembler::emit_int32(x);
   }
 #endif
 
@@ -1824,36 +1828,42 @@ public:
   enum NotifyType { method_entry, method_reentry, method_exit, bytecode_start };
 
   virtual void notify(int type) {
-    starti;
-    //  109
-    f(0b101, 31, 29);
-    //  87654321098765
-    f(0b00000000000000, 28, 15);
-    f(type, 14, 0);
+    if (UseBuiltinSim) {
+      starti;
+      //  109
+      f(0b101, 31, 29);
+      //  87654321098765
+      f(0b00000000000000, 28, 15);
+      f(type, 14, 0);
+    }
   }
 
   void brx86(Register Rn, int gpargs, int fpargs, int type) {
-    starti;
-    f(0b110, 31 ,29);
-    f(0b00, 28, 25);
-    //  4321098765
-    f(0b0000000000, 24, 15);
-    f(gpargs, 14, 11);
-    f(fpargs, 10, 7);
-    f(type, 6, 5);
-    rf(Rn, 0);
+    if (UseBuiltinSim) {
+      starti;
+      f(0b110, 31 ,29);
+      f(0b00, 28, 25);
+      //  4321098765
+      f(0b0000000000, 24, 15);
+      f(gpargs, 14, 11);
+      f(fpargs, 10, 7);
+      f(type, 6, 5);
+      rf(Rn, 0);
+    }
   }
 
   void brx86(Register Rn, Register Rm) {
-    starti;
-    f(0b110, 31 ,29);
-    f(0b00, 28, 25);
-    //  4321098765
-    f(0b0000000001, 24, 15);
-    //  43210
-    f(0b00000, 14, 10);
-    rf(Rm, 5);
-    rf(Rn, 0);
+    if (UseBuiltinSim) {
+      starti;
+      f(0b110, 31 ,29);
+      f(0b00, 28, 25);
+      //  4321098765
+      f(0b0000000001, 24, 15);
+      //  43210
+      f(0b00000, 14, 10);
+      rf(Rm, 5);
+      rf(Rn, 0);
+    }
   }
 
   void haltsim() {
@@ -1899,6 +1909,5 @@ inline const Assembler::Condition operator~(const Assembler::Condition cond) {
 class BiasedLockingCounters;
 
 extern "C" void das(uint64_t start, int len);
-
 
 #endif // CPU_AARCH64_VM_ASSEMBLER_AARCH64_HPP

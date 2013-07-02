@@ -31,7 +31,7 @@
 #include "nativeInst_aarch64.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "vmreg_aarch64.inline.hpp"
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #endif
 
@@ -494,7 +494,7 @@ void ArrayCopyStub::emit_code(LIR_Assembler* ce) {
 
 
 /////////////////////////////////////////////////////////////////////////////
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 
 void G1PreBarrierStub::emit_code(LIR_Assembler* ce) { Unimplemented(); }
 
@@ -505,7 +505,7 @@ jbyte* G1PostBarrierStub::byte_map_base_slow() { Unimplemented(); return 0; }
 
 void G1PostBarrierStub::emit_code(LIR_Assembler* ce) { Unimplemented(); }
 
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 /////////////////////////////////////////////////////////////////////////////
 
 #undef __

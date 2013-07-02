@@ -58,7 +58,7 @@
 #include "utilities/copy.hpp"
 #include "utilities/events.hpp"
 
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
 #include "../../../../../../simulator/simulator.hpp"
 #endif
 
@@ -208,11 +208,16 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
 #if defined(SPARC) || defined(PPC)
     case handle_exception_nofpu_id:  // Unused on sparc
 #endif
+#ifdef TARGET_ARCH_aarch64
+    case throw_index_exception_id:
+    case throw_array_store_exception_id:
+    case deoptimize_id:
+#endif
       break;
 
     // All other stubs should have oopmaps
     default:
-      // assert(oop_maps != NULL, "must have an oopmap");
+      assert(oop_maps != NULL, "must have an oopmap");
       break;
   }
 #endif
@@ -228,7 +233,7 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
                                                  sasm->frame_size(),
                                                  oop_maps,
                                                  sasm->must_gc_arguments());
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
   if (NotifySimulator) {
     // tell the sim about the new stub code
     AArch64Simulator *simulator = AArch64Simulator::current();

@@ -44,7 +44,7 @@
 // #include "runtime/os.hpp"
 // #include "runtime/sharedRuntime.hpp"
 // #include "runtime/stubRoutines.hpp"
-// #ifndef SERIALGC
+// #if INCLUDE_ALL_GCS
 // #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 // #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 // #include "gc_implementation/g1/heapRegion.hpp"
@@ -1743,6 +1743,7 @@ void MacroAssembler::debug64(char* msg, int64_t pc, int64_t regs[])
   }
 }
 
+#ifdef BUILTIN_SIM
 // routine to generate an x86 prolog for a stub function which
 // bootstraps into the generated ARM code which directly follows the
 // stub
@@ -1782,6 +1783,7 @@ void MacroAssembler::c_stub_prolog(int gp_arg_count, int fp_arg_count, int ret_t
   patch_end[-2] = (u_int64_t)setup_arm_sim;
   patch_end[-1] = calltype;
 }
+#endif
 
 void MacroAssembler::push_CPU_state() {
     push(0x3fffffff, sp);         // integer registers except lr & sp
@@ -2123,6 +2125,7 @@ void MacroAssembler::store_heap_oop_null(Address dst) {
     str(zr, dst);
 }
 
+#if INCLUDE_ALL_GCS
 void MacroAssembler::g1_write_barrier_pre(Register obj,
                                           Register pre_val,
                                           Register thread,
@@ -2135,6 +2138,8 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
                                            Register thread,
                                            Register tmp,
                                            Register tmp2) { Unimplemented(); }
+
+#endif // INCLUDE_ALL_GCS
 
 Address MacroAssembler::allocate_metadata_address(Metadata* obj) {
   assert(oop_recorder() != NULL, "this assembler needs a Recorder");

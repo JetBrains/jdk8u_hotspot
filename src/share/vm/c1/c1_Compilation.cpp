@@ -34,7 +34,7 @@
 #include "code/debugInfoRec.hpp"
 #include "compiler/compileLog.hpp"
 
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
 #include "../../../../../../simulator/simulator.hpp"
 #endif
 
@@ -295,7 +295,7 @@ int Compilation::emit_code_body() {
     BAILOUT_("size requested greater than avail code buffer size", 0);
   }
 
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
   if (NotifySimulator) {
     char name[400];
     strcpy(name, _method->holder()->name()->as_utf8());

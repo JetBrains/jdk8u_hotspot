@@ -130,8 +130,7 @@ LFLAGS += -Xlinker -z -Xlinker noexecstack
 
 LIBS += -lm -ldl -lpthread
 
-# aarch64 needs to link to the simulator
-ifeq ($(SRCARCH), aarch64)
+ifeq ($(BUILTIN_SIM), true)
   ARMSIM_DIR = $(shell cd $(GAMMADIR)/../../simulator && pwd)
   LIBS += -L $(ARMSIM_DIR) -larmsim -Wl,-rpath,$(ARMSIM_DIR)
 endif
@@ -223,7 +222,7 @@ endif
 
 # For AArch64
 ifeq ($(SRCARCH), aarch64)
-  Src_Files_EXCLUDE += $(COMPILER2_SPECIFIC_FILES) $(ZERO_SPECIFIC_FILES)
+  Src_Files_EXCLUDE += $(COMPILER2_SPECIFIC_FILES)
 endif
 
 # Locate all source files in the given directory, excluding files in Src_Files_EXCLUDE.
@@ -242,7 +241,7 @@ JVM_OBJ_FILES = $(Obj_Files)
 vm_version.o: $(filter-out vm_version.o,$(JVM_OBJ_FILES))
 
 # current aarch64 build has to export extra symbols to the simulator
-ifeq ($(SRCARCH), aarch64)
+ifeq ($(BUILTIN_SIM), true)
 mapfile : $(MAPFILE) vm.def
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
@@ -336,10 +335,6 @@ $(LD_SCRIPT): $(LIBJVM_MAPFILE)
 		> $@;                                               \
 	}
 LD_SCRIPT_FLAG = -Wl,-T,$(LD_SCRIPT)
-endif
-
-ifeq ($(SRCARCH), aarch64)
-  STRIP_POLICY=no_strip
 endif
 
 # With more recent Redhat releases (or the cutting edge version Fedora), if

@@ -28,4 +28,6 @@ TYPE=TIERED
 
 VM_SUBDIR = server
 
+ifneq ($(SRCARCH), aarch64)
 CFLAGS += -DCOMPILER2 -DCOMPILER1
+endif

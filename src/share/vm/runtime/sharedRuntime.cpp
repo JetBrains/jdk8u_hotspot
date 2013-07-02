@@ -86,7 +86,7 @@
 #include "c1/c1_Runtime1.hpp"
 #endif
 
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
 #include "../../../../../../simulator/simulator.hpp"
 #endif
 
@@ -2468,7 +2468,7 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
       CompileBroker::handle_full_code_cache();
       return NULL; // Out of CodeCache space
     }
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
     address old_i2c = entry->get_i2c_entry();
     address old_c2i = entry->get_c2i_entry();
     AArch64Simulator *sim =  (NotifySimulator ? AArch64Simulator::current() : NULL);
@@ -2476,7 +2476,7 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
 
     entry->relocate(B->content_begin());
 
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
     if (NotifySimulator) {
       address new_i2c = entry->get_i2c_entry();
       address new_c2i = entry->get_c2i_entry();
@@ -2496,7 +2496,6 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
                     _adapters->number_of_entries(), (method->is_static() ? "static" : "receiver"),
                     method->signature()->as_C_string(), insts_size);
       tty->print_cr("c2i argument handler starts at %p",entry->get_c2i_entry());
-      address a = entry->get_c2i_entry();
       if (Verbose || PrintStubCode) {
         address first_pc = entry->base_address();
         if (first_pc != NULL) {

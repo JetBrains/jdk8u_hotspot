@@ -62,7 +62,8 @@ SA_PROPERTIES = $(SA_CLASSDIR)/sa.properties
 
 all: 
 	if [ -d $(AGENT_DIR) -a "$(SRCARCH)" != "ia64" \
-             -a "$(SRCARCH)" != "zero" ] ; then \
+             -a "$(SRCARCH)" != "zero" \
+             -a "$(SRCARCH)" != "aarch64" ] ; then \
 	   $(MAKE) -f sa.make $(GENERATED)/sa-jdi.jar; \
 	fi
 

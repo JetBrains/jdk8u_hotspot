@@ -582,7 +582,7 @@ class Method : public Metadata {
   static ByteSize const_offset()                 { return byte_offset_of(Method, _constMethod       ); }
   static ByteSize access_flags_offset()          { return byte_offset_of(Method, _access_flags      ); }
 #ifdef CC_INTERP
-  static ByteSize result_index_offset(b)          { return byte_offset_of(Method, _result_index ); }
+  static ByteSize result_index_offset()          { return byte_offset_of(Method, _result_index ); }
 #endif /* CC_INTERP */
   static ByteSize from_compiled_offset()         { return byte_offset_of(Method, _from_compiled_entry); }
   static ByteSize code_offset()                  { return byte_offset_of(Method, _code); }

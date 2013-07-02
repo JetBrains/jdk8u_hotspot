@@ -409,19 +409,6 @@ WRONG_DATA_MODE_MSG = \
 CROSS_COMPILING_MSG = \
 	echo "Cross compiling for ARCH $(CROSS_COMPILE_ARCH), skipping gamma run."
 
-ifeq ($BUILD_AARCH64, true)
-test_gamma:
-	@echo Creating $@ ...
-	$(QUIETLY) ( \
-	echo "#!/bin/sh"; \
-	echo ""; \
-	$(BUILDTREE_COMMENT); \
-	echo ""; \
-	echo "# gamma test is not yet run for aarch64 build"; \
-	echo "  exit 0"; \
-	) > $@
-	$(QUIETLY) chmod +x $@
-else
 test_gamma:  $(BUILDTREE_MAKE) $(GAMMADIR)/make/test/Queens.java
 	@echo Creating $@ ...
 	$(QUIETLY) ( \
@@ -491,10 +478,9 @@ test_gamma:  $(BUILDTREE_MAKE) $(GAMMADIR)/make/test/Queens.java
 	echo ""; \
 	echo "# Use the gamma launcher and JAVA_HOME to run the test"; \
 	echo ""; \
-	echo "#./\$${GAMMA_PROG} $(TESTFLAGS) Queens < /dev/null"; \
+	echo "./\$${GAMMA_PROG} $(TESTFLAGS) Queens < /dev/null"; \
 	) > $@
 	$(QUIETLY) chmod +x $@
-endif
 
 FORCE:
 
