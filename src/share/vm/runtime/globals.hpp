@@ -1140,7 +1140,7 @@ class CommandLineFlags {
   product(bool, CheckJNICalls, false,                                       \
           "Verify all arguments to JNI calls")                              \
                                                                             \
-  product(bool, UseFastJNIAccessors, true,                                  \
+  product(bool, UseFastJNIAccessors, false,                                 \
           "Use optimized versions of Get<Primitive>Field")                  \
                                                                             \
   product(bool, EagerXrunInit, false,                                       \
