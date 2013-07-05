@@ -2182,7 +2182,7 @@ void InstanceKlass::clean_implementors_list(BoolObjectClosure* is_alive) {
 }
 
 void InstanceKlass::clean_method_data(BoolObjectClosure* is_alive) {
-#ifdef COMPILER2
+#ifdef COMPILER
   // Currently only used by C2.
   for (int m = 0; m < methods()->length(); m++) {
     MethodData* mdo = methods()->at(m)->method_data();
@@ -2194,15 +2194,7 @@ void InstanceKlass::clean_method_data(BoolObjectClosure* is_alive) {
       }
     }
   }
-#else
-#ifdef ASSERT
-  // Verify that we haven't started to use MDOs for C1.
-  for (int m = 0; m < methods()->length(); m++) {
-    MethodData* mdo = methods()->at(m)->method_data();
-    assert(mdo == NULL, "Didn't expect C1 to use MDOs");
-  }
-#endif // ASSERT
-#endif // !COMPILER2
+#endif // !COMPILER
 }
 
 
