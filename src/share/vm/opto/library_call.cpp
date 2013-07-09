@@ -290,6 +290,7 @@ class LibraryCallKit : public GraphKit {
   bool inline_cipherBlockChaining_AESCrypt(vmIntrinsics::ID id);
   Node* inline_cipherBlockChaining_AESCrypt_predicate(bool decrypting);
   Node* get_key_start_from_aescrypt_object(Node* aescrypt_object);
+  bool inline_encodeISOArray();
 };
 
 
@@ -380,6 +381,10 @@ CallGenerator* Compile::make_vm_intrinsic(ciMethod* m, bool is_virtual) {
     if (!InlineObjectCopy)  return NULL;
     // These also use the arraycopy intrinsic mechanism:
     if (!InlineArrayCopy)  return NULL;
+    break;
+  case vmIntrinsics::_encodeISOArray:
+    if (!SpecialEncodeISOArray)  return NULL;
+    if (!Matcher::match_rule_supported(Op_EncodeISOArray))  return NULL;
     break;
   case vmIntrinsics::_checkIndex:
     // We do not intrinsify this.  The optimizer does fine with it.
@@ -798,6 +803,9 @@ bool LibraryCallKit::try_to_inline() {
   case vmIntrinsics::_cipherBlockChaining_encryptAESCrypt:
   case vmIntrinsics::_cipherBlockChaining_decryptAESCrypt:
     return inline_cipherBlockChaining_AESCrypt(intrinsic_id());
+
+  case vmIntrinsics::_encodeISOArray:
+    return inline_encodeISOArray();
 
   default:
     // If you get here, it may be that someone has added a new intrinsic
@@ -1473,10 +1481,10 @@ bool LibraryCallKit::inline_math(vmIntrinsics::ID id) {
   Node* arg = round_double_node(argument(0));
   Node* n;
   switch (id) {
-  case vmIntrinsics::_dabs:   n = new (C) AbsDNode(    arg);  break;
-  case vmIntrinsics::_dsqrt:  n = new (C) SqrtDNode(0, arg);  break;
-  case vmIntrinsics::_dlog:   n = new (C) LogDNode(    arg);  break;
-  case vmIntrinsics::_dlog10: n = new (C) Log10DNode(  arg);  break;
+  case vmIntrinsics::_dabs:   n = new (C) AbsDNode(                arg);  break;
+  case vmIntrinsics::_dsqrt:  n = new (C) SqrtDNode(C, control(),  arg);  break;
+  case vmIntrinsics::_dlog:   n = new (C) LogDNode(C, control(),   arg);  break;
+  case vmIntrinsics::_dlog10: n = new (C) Log10DNode(C, control(), arg);  break;
   default:  fatal_unexpected_iid(id);  break;
   }
   set_result(_gvn.transform(n));
@@ -1491,9 +1499,9 @@ bool LibraryCallKit::inline_trig(vmIntrinsics::ID id) {
   Node* n = NULL;
 
   switch (id) {
-  case vmIntrinsics::_dsin:  n = new (C) SinDNode(arg);  break;
-  case vmIntrinsics::_dcos:  n = new (C) CosDNode(arg);  break;
-  case vmIntrinsics::_dtan:  n = new (C) TanDNode(arg);  break;
+  case vmIntrinsics::_dsin:  n = new (C) SinDNode(C, control(), arg);  break;
+  case vmIntrinsics::_dcos:  n = new (C) CosDNode(C, control(), arg);  break;
+  case vmIntrinsics::_dtan:  n = new (C) TanDNode(C, control(), arg);  break;
   default:  fatal_unexpected_iid(id);  break;
   }
   n = _gvn.transform(n);
@@ -1645,7 +1653,7 @@ void LibraryCallKit::finish_pow_exp(Node* result, Node* x, Node* y, const TypeFu
 // really odd corner cases (+/- Infinity).  Just uncommon-trap them.
 bool LibraryCallKit::inline_exp() {
   Node* arg = round_double_node(argument(0));
-  Node* n   = _gvn.transform(new (C) ExpDNode(0, arg));
+  Node* n   = _gvn.transform(new (C) ExpDNode(C, control(), arg));
 
   finish_pow_exp(n, arg, NULL, OptoRuntime::Math_D_D_Type(), CAST_FROM_FN_PTR(address, SharedRuntime::dexp), "EXP");
 
@@ -1680,7 +1688,7 @@ bool LibraryCallKit::inline_pow() {
 
   if (!too_many_traps(Deoptimization::Reason_intrinsic)) {
     // Short form: skip the fancy tests and just check for NaN result.
-    result = _gvn.transform(new (C) PowDNode(0, x, y));
+    result = _gvn.transform(new (C) PowDNode(C, control(), x, y));
   } else {
     // If this inlining ever returned NaN in the past, include all
     // checks + call to the runtime.
@@ -1707,7 +1715,7 @@ bool LibraryCallKit::inline_pow() {
     Node *complex_path = _gvn.transform( new (C) IfTrueNode(if1) );
 
     // Set fast path result
-    Node *fast_result = _gvn.transform( new (C) PowDNode(0, x, y) );
+    Node *fast_result = _gvn.transform( new (C) PowDNode(C, control(), x, y) );
     phi->init_req(3, fast_result);
 
     // Complex path
@@ -1767,7 +1775,7 @@ bool LibraryCallKit::inline_pow() {
     // abs(x)
     Node *absx=_gvn.transform( new (C) AbsDNode(x));
     // abs(x)^y
-    Node *absxpowy = _gvn.transform( new (C) PowDNode(0, absx, y) );
+    Node *absxpowy = _gvn.transform( new (C) PowDNode(C, control(), absx, y) );
     // -abs(x)^y
     Node *negabsxpowy = _gvn.transform(new (C) NegDNode (absxpowy));
     // (1&(long)y)==1?-DPow(abs(x), y):DPow(abs(x), y)
@@ -3559,7 +3567,6 @@ bool LibraryCallKit::inline_native_getLength() {
 // public static <T,U> T[] java.util.Arrays.copyOf(     U[] original, int newLength,         Class<? extends T[]> newType);
 // public static <T,U> T[] java.util.Arrays.copyOfRange(U[] original, int from,      int to, Class<? extends T[]> newType);
 bool LibraryCallKit::inline_array_copyOf(bool is_copyOfRange) {
-  return false;
   if (too_many_traps(Deoptimization::Reason_intrinsic))  return false;
 
   // Get the arguments.
@@ -5367,6 +5374,47 @@ LibraryCallKit::generate_unchecked_arraycopy(const TypePtr* adr_type,
                     OptoRuntime::fast_arraycopy_Type(),
                     copyfunc_addr, copyfunc_name, adr_type,
                     src_start, dest_start, copy_length XTOP);
+}
+
+//-------------inline_encodeISOArray-----------------------------------
+// encode char[] to byte[] in ISO_8859_1
+bool LibraryCallKit::inline_encodeISOArray() {
+  assert(callee()->signature()->size() == 5, "encodeISOArray has 5 parameters");
+  // no receiver since it is static method
+  Node *src         = argument(0);
+  Node *src_offset  = argument(1);
+  Node *dst         = argument(2);
+  Node *dst_offset  = argument(3);
+  Node *length      = argument(4);
+
+  const Type* src_type = src->Value(&_gvn);
+  const Type* dst_type = dst->Value(&_gvn);
+  const TypeAryPtr* top_src = src_type->isa_aryptr();
+  const TypeAryPtr* top_dest = dst_type->isa_aryptr();
+  if (top_src  == NULL || top_src->klass()  == NULL ||
+      top_dest == NULL || top_dest->klass() == NULL) {
+    // failed array check
+    return false;
+  }
+
+  // Figure out the size and type of the elements we will be copying.
+  BasicType src_elem = src_type->isa_aryptr()->klass()->as_array_klass()->element_type()->basic_type();
+  BasicType dst_elem = dst_type->isa_aryptr()->klass()->as_array_klass()->element_type()->basic_type();
+  if (src_elem != T_CHAR || dst_elem != T_BYTE) {
+    return false;
+  }
+  Node* src_start = array_element_address(src, src_offset, src_elem);
+  Node* dst_start = array_element_address(dst, dst_offset, dst_elem);
+  // 'src_start' points to src array + scaled offset
+  // 'dst_start' points to dst array + scaled offset
+
+  const TypeAryPtr* mtype = TypeAryPtr::BYTES;
+  Node* enc = new (C) EncodeISOArrayNode(control(), memory(mtype), src_start, dst_start, length);
+  enc = _gvn.transform(enc);
+  Node* res_mem = _gvn.transform(new (C) SCMemProjNode(enc));
+  set_memory(res_mem, mtype);
+  set_result(enc);
+  return true;
 }
 
 //----------------------------inline_reference_get----------------------------

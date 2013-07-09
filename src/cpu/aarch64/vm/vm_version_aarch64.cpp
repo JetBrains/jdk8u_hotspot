@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, Red Hat Inc.
+ * Copyright (c) 1997, 2012, Oracle and/or its affiliates.
+ * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,8 +35,6 @@
 # include "os_linux.inline.hpp"
 #endif
 
-#include "../../../../../../simulator/simulator.hpp"
-
 int VM_Version::_cpu;
 int VM_Version::_model;
 int VM_Version::_stepping;
@@ -60,7 +60,9 @@ class VM_Version_StubGenerator: public StubCodeGenerator {
 #   define __ _masm->
     address start = __ pc();
 
+#ifdef BUILTIN_SIM
     __ c_stub_prolog(1, 0, MacroAssembler::ret_type_void);
+#endif
 
     // void getPsrInfo(VM_Version::CpuidInfo* cpuid_info);
 

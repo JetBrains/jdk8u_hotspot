@@ -100,7 +100,13 @@ CXXFLAGS =           \
 # This is VERY important! The version define must only be supplied to vm_version.o
 # If not, ccache will not re-use the cache at all, since the version string might contain
 # a time and date. 
-vm_version.o: CXXFLAGS += ${JRE_VERSION}
+CXXFLAGS/vm_version.o += ${JRE_VERSION}
+
+CXXFLAGS/BYFILE = $(CXXFLAGS/$@)
+
+# File specific flags
+CXXFLAGS += $(CXXFLAGS/BYFILE)
+
 
 ifndef JAVASE_EMBEDDED 
 ifneq (${ARCH},arm)
@@ -124,8 +130,7 @@ LFLAGS += -Xlinker -z -Xlinker noexecstack
 
 LIBS += -lm -ldl -lpthread
 
-# aarch64 needs to link to the simulator
-ifeq ($(SRCARCH), aarch64)
+ifeq ($(BUILTIN_SIM), true)
   ARMSIM_DIR = $(shell cd $(GAMMADIR)/../../simulator && pwd)
   LIBS += -L $(ARMSIM_DIR) -larmsim -Wl,-rpath,$(ARMSIM_DIR)
 endif
@@ -215,15 +220,6 @@ ifeq ($(Platform_arch_model), x86_64)
 Src_Files_EXCLUDE += \*x86_32\*
 endif
 
-# For AArch64
-ifeq ($(SRCARCH), aarch64)
-  ifeq ($(BUILD_AARCH64_C2), true)
-    Src_Files_EXCLUDE += $(ZERO_SPECIFIC_FILES)
-  else
-    Src_Files_EXCLUDE += $(COMPILER2_SPECIFIC_FILES) $(ZERO_SPECIFIC_FILES)
-  endif
-endif
-
 # Locate all source files in the given directory, excluding files in Src_Files_EXCLUDE.
 define findsrc
 	$(notdir $(shell find $(1)/. ! -name . -prune \
@@ -240,7 +236,7 @@ JVM_OBJ_FILES = $(Obj_Files)
 vm_version.o: $(filter-out vm_version.o,$(JVM_OBJ_FILES))
 
 # current aarch64 build has to export extra symbols to the simulator
-ifeq ($(SRCARCH), aarch64)
+ifeq ($(BUILTIN_SIM), true)
 mapfile : $(MAPFILE) vm.def
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
@@ -336,10 +332,6 @@ $(LD_SCRIPT): $(LIBJVM_MAPFILE)
 LD_SCRIPT_FLAG = -Wl,-T,$(LD_SCRIPT)
 endif
 
-ifeq ($(SRCARCH), aarch64)
-  STRIP_POLICY=no_strip
-endif
-
 # With more recent Redhat releases (or the cutting edge version Fedora), if
 # SELinux is configured to be enabled, the runtime linker will fail to apply
 # the text relocation to libjvm.so considering that it is built as a non-PIC
@@ -408,12 +400,9 @@ include $(MAKEFILES_DIR)/jsig.make
 # Serviceability agent
 include $(MAKEFILES_DIR)/saproc.make
 
-# Whitebox testing API
-include $(MAKEFILES_DIR)/wb.make
-
 #----------------------------------------------------------------------
 
-build: $(LIBJVM) $(LAUNCHER) $(LIBJSIG) $(LIBJVM_DB) $(BUILDLIBSAPROC) dtraceCheck $(WB_JAR)
+build: $(LIBJVM) $(LAUNCHER) $(LIBJSIG) $(LIBJVM_DB) $(BUILDLIBSAPROC) dtraceCheck
 
 install: install_jvm install_jsig install_saproc
 

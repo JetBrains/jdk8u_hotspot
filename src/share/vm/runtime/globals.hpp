@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -446,16 +446,6 @@ class CommandLineFlags {
 //
 // Note that when there is a need to support develop flags to be writeable,
 // it can be done in the same way as product_rw.
-
-// for the moment aarch64 needs to be able to disable UseBiasedLocking
-
-#ifdef TARGET_ARCH_aarch64
-#define AARCH64_ONLY(_x) _x
-#define NOT_AARCH64(_x)
-#else
-#define AARCH64_ONLY(_x)
-#define NOT_AARCH64(_x) _x
-#endif
 
 #define RUNTIME_FLAGS(develop, develop_pd, product, product_pd, diagnostic, experimental, notproduct, manageable, product_rw, lp64_product) \
                                                                             \
@@ -951,11 +941,14 @@ class CommandLineFlags {
           "Starts debugger when an implicit OS (e.g., NULL) "               \
           "exception happens")                                              \
                                                                             \
-  notproduct(bool, PrintCodeCache, false,                                   \
-          "Print the compiled_code cache when exiting")                     \
+  product(bool, PrintCodeCache, false,                                      \
+          "Print the code cache memory usage when exiting")                 \
                                                                             \
   develop(bool, PrintCodeCache2, false,                                     \
-          "Print detailed info on the compiled_code cache when exiting")    \
+          "Print detailed usage info on the code cache when exiting")       \
+                                                                            \
+  product(bool, PrintCodeCacheOnCompilation, false,                         \
+          "Print the code cache memory usage each time a method is compiled") \
                                                                             \
   diagnostic(bool, PrintStubCode, false,                                    \
           "Print generated stub code")                                      \
@@ -990,18 +983,6 @@ class CommandLineFlags {
                                                                             \
   notproduct(uintx, WarnOnStalledSpinLock, 0,                               \
           "Prints warnings for stalled SpinLocks")                          \
-                                                                            \
-  develop(bool, InitializeJavaLangSystem, true,                             \
-          "Initialize java.lang.System - turn off for individual "          \
-          "method debugging")                                               \
-                                                                            \
-  develop(bool, InitializeJavaLangString, true,                             \
-          "Initialize java.lang.String - turn off for individual "          \
-          "method debugging")                                               \
-                                                                            \
-  develop(bool, InitializeJavaLangExceptionsErrors, true,                   \
-          "Initialize various error and exception classes - turn off for "  \
-          "individual method debugging")                                    \
                                                                             \
   product(bool, RegisterFinalizersAtInit, true,                             \
           "Register finalizable objects at end of Object.<init> or "        \
@@ -1097,7 +1078,7 @@ class CommandLineFlags {
                                                                             \
   product(intx, ClearFPUAtPark, 0, "(Unsafe,Unstable)" )                    \
                                                                             \
-  product(intx, hashCode, 0,                                                \
+  product(intx, hashCode, 5,                                                \
          "(Unstable) select hashCode generation algorithm" )                \
                                                                             \
   product(intx, WorkAroundNPTLTimedWaitHang, 1,                             \
@@ -1122,13 +1103,6 @@ class CommandLineFlags {
                                                                             \
   product(bool, ReduceSignalUsage, false,                                   \
           "Reduce the use of OS signals in Java and/or the VM")             \
-                                                                            \
-  notproduct(bool, ValidateMarkSweep, false,                                \
-          "Do extra validation during MarkSweep collection")                \
-                                                                            \
-  notproduct(bool, RecordMarkSweepCompaction, false,                        \
-          "Enable GC-to-GC recording and querying of compaction during "    \
-          "MarkSweep")                                                      \
                                                                             \
   develop_pd(bool, ShareVtableStubs,                                        \
           "Share vtable stubs (smaller code but worse branch prediction")   \
@@ -1166,7 +1140,7 @@ class CommandLineFlags {
   product(bool, CheckJNICalls, false,                                       \
           "Verify all arguments to JNI calls")                              \
                                                                             \
-  product(bool, UseFastJNIAccessors, true,                                  \
+  product(bool, UseFastJNIAccessors, false,                                 \
           "Use optimized versions of Get<Primitive>Field")                  \
                                                                             \
   product(bool, EagerXrunInit, false,                                       \
@@ -1195,10 +1169,22 @@ class CommandLineFlags {
   notproduct(bool, PrintCompactFieldsSavings, false,                        \
           "Print how many words were saved with CompactFields")             \
                                                                             \
-  AARCH64_ONLY(product_pd(bool, UseBiasedLocking,			    \
+  AARCH64_ONLY(product_pd(bool, UseBiasedLocking,                   \
 			  "Enable biased locking in JVM"))		    \
-  NOT_AARCH64(product(bool, UseBiasedLocking, true,			    \
+  NOT_AARCH64(product(bool, UseBiasedLocking, true,                         \
 		      "Enable biased locking in JVM"))			    \
+  notproduct(bool, PrintFieldLayout, false,                                 \
+          "Print field layout for each class")                              \
+                                                                            \
+  product(intx, ContendedPaddingWidth, 128,                                 \
+          "How many bytes to pad the fields/classes marked @Contended with")\
+                                                                            \
+  product(bool, EnableContended, true,                                      \
+          "Enable @Contended annotation support")                           \
+                                                                            \
+  product(bool, RestrictContended, true,                                    \
+          "Restrict @Contended to trusted classes")                         \
+                                                                            \
                                                                             \
   product(intx, BiasedLockingStartupDelay, 4000,                            \
           "Number of milliseconds to wait before enabling biased locking")  \
@@ -1630,7 +1616,7 @@ class CommandLineFlags {
   develop(bool, CMSTraceThreadState, false,                                 \
           "Trace the CMS thread state (enable the trace_state() method)")   \
                                                                             \
-  product(bool, CMSClassUnloadingEnabled, false,                            \
+  product(bool, CMSClassUnloadingEnabled, true,                             \
           "Whether class unloading enabled when using CMS GC")              \
                                                                             \
   product(uintx, CMSClassUnloadingMaxInterval, 0,                           \
@@ -1779,6 +1765,10 @@ class CommandLineFlags {
   manageable(intx, CMSWaitDuration, 2000,                                   \
           "Time in milliseconds that CMS thread waits for young GC")        \
                                                                             \
+  develop(uintx, CMSCheckInterval, 1000,                                    \
+          "Interval in milliseconds that CMS thread checks if it "          \
+          "should start a collection cycle")                                \
+                                                                            \
   product(bool, CMSYield, true,                                             \
           "Yield between steps of concurrent mark & sweep")                 \
                                                                             \
@@ -1830,7 +1820,7 @@ class CommandLineFlags {
   product(bool, ParallelRefProcBalancingEnabled, true,                      \
           "Enable balancing of reference processing queues")                \
                                                                             \
-  product(intx, CMSTriggerRatio, 80,                                        \
+  product(uintx, CMSTriggerRatio, 80,                                       \
           "Percentage of MinHeapFreeRatio in CMS generation that is "       \
           "allocated before a CMS collection cycle commences")              \
                                                                             \
@@ -1844,7 +1834,7 @@ class CommandLineFlags {
                                                                             \
   product(uintx, InitiatingHeapOccupancyPercent, 45,                        \
           "Percentage of the (entire) heap occupancy to start a "           \
-          "concurrent GC cycle. It us used by GCs that trigger a "          \
+          "concurrent GC cycle. It is used by GCs that trigger a "          \
           "concurrent GC cycle based on the occupancy of the entire heap, " \
           "not just one of the generations (e.g., G1). A value of 0 "       \
           "denotes 'do constant GC cycles'.")                               \
@@ -1854,7 +1844,7 @@ class CommandLineFlags {
                                                                             \
   product(intx, CMSIsTooFullPercentage, 98,                                 \
           "An absolute ceiling above which CMS will always consider the "   \
-          "perm gen ripe for collection")                                   \
+          "unloading of classes when class unloading is enabled")           \
                                                                             \
   develop(bool, CMSTestInFreeList, false,                                   \
           "Check if the coalesced range is already in the "                 \
@@ -1923,13 +1913,13 @@ class CommandLineFlags {
           "Metadata deallocation alot interval")                            \
                                                                             \
   develop(bool, TraceMetadataChunkAllocation, false,                        \
-          "Trace humongous metadata allocations")                           \
+          "Trace chunk metadata allocations")                               \
                                                                             \
   product(bool, TraceMetadataHumongousAllocation, false,                    \
           "Trace humongous metadata allocations")                           \
                                                                             \
   develop(bool, TraceMetavirtualspaceAllocation, false,                     \
-          "Trace humongous metadata allocations")                           \
+          "Trace virtual space metadata allocations")                       \
                                                                             \
   notproduct(bool, ExecuteInternalVMTests, false,                           \
           "Enable execution of internal VM tests.")                         \
@@ -2241,7 +2231,8 @@ class CommandLineFlags {
   develop(bool, TraceClassLoaderData, false,                                \
           "Trace class loader loader_data lifetime")                        \
                                                                             \
-  product(uintx, InitialBootClassLoaderMetaspaceSize, 3*M,                  \
+  product(uintx, InitialBootClassLoaderMetaspaceSize,                       \
+          NOT_LP64(2200*K) LP64_ONLY(4*M),                                  \
           "Initial size of the boot class loader data metaspace")           \
                                                                             \
   product(bool, TraceGen0Time, false,                                       \
@@ -3004,10 +2995,10 @@ class CommandLineFlags {
   product(uintx, TLABWasteIncrement,    4,                                  \
           "Increment allowed waste at slow allocation")                     \
                                                                             \
-  product(intx, SurvivorRatio, 8,                                           \
+  product(uintx, SurvivorRatio, 8,                                          \
           "Ratio of eden/survivor space size")                              \
                                                                             \
-  product(intx, NewRatio, 2,                                                \
+  product(uintx, NewRatio, 2,                                               \
           "Ratio of new/old generation sizes")                              \
                                                                             \
   product_pd(uintx, NewSizeThreadIncrease,                                  \
@@ -3037,10 +3028,16 @@ class CommandLineFlags {
           "Min change in heap space due to GC (in bytes)")                  \
                                                                             \
   product(uintx, MinMetaspaceExpansion, ScaleForWordSize(256*K),            \
-          "Min expansion of permanent heap (in bytes)")                     \
+          "Min expansion of Metaspace (in bytes)")                          \
+                                                                            \
+  product(uintx, MinMetaspaceFreeRatio,    40,                              \
+          "Min percentage of Metaspace free after GC to avoid expansion")   \
+                                                                            \
+  product(uintx, MaxMetaspaceFreeRatio,    70,                              \
+          "Max percentage of Metaspace free after GC to avoid shrinking")   \
                                                                             \
   product(uintx, MaxMetaspaceExpansion, ScaleForWordSize(4*M),              \
-          "Max expansion of permanent heap without full GC (in bytes)")     \
+          "Max expansion of Metaspace without full GC (in bytes)")          \
                                                                             \
   product(intx, QueuedAllocationWarningCount, 0,                            \
           "Number of times an allocation that queues behind a GC "          \
@@ -3058,7 +3055,7 @@ class CommandLineFlags {
   product(uintx, InitialTenuringThreshold,    7,                            \
           "Initial value for tenuring threshold")                           \
                                                                             \
-  product(intx, TargetSurvivorRatio,    50,                                 \
+  product(uintx, TargetSurvivorRatio,    50,                                \
           "Desired percentage of survivor space used after scavenge")       \
                                                                             \
   product(uintx, MarkSweepDeadRatio,     5,                                 \
@@ -3561,10 +3558,10 @@ class CommandLineFlags {
   /* Shared spaces */                                                       \
                                                                             \
   product(bool, UseSharedSpaces, true,                                      \
-          "Use shared spaces in the permanent generation")                  \
+          "Use shared spaces for metadata")                                 \
                                                                             \
   product(bool, RequireSharedSpaces, false,                                 \
-          "Require shared spaces in the permanent generation")              \
+          "Require shared spaces for metadata")                             \
                                                                             \
   product(bool, DumpSharedSpaces, false,                                    \
            "Special mode: JVM reads a class list, loads classes, builds "   \
@@ -3575,16 +3572,16 @@ class CommandLineFlags {
           "Print usage of shared spaces")                                   \
                                                                             \
   product(uintx, SharedReadWriteSize,  NOT_LP64(12*M) LP64_ONLY(16*M),      \
-          "Size of read-write space in permanent generation (in bytes)")    \
+          "Size of read-write space for metadata (in bytes)")               \
                                                                             \
   product(uintx, SharedReadOnlySize,  NOT_LP64(12*M) LP64_ONLY(16*M),       \
-          "Size of read-only space in permanent generation (in bytes)")     \
+          "Size of read-only space for metadata (in bytes)")                \
                                                                             \
   product(uintx, SharedMiscDataSize,    NOT_LP64(2*M) LP64_ONLY(4*M),       \
-          "Size of the shared data area adjacent to the heap (in bytes)")   \
+          "Size of the shared miscellaneous data area (in bytes)")          \
                                                                             \
   product(uintx, SharedMiscCodeSize,    120*K,                              \
-          "Size of the shared code area adjacent to the heap (in bytes)")   \
+          "Size of the shared miscellaneous code area (in bytes)")          \
                                                                             \
   product(uintx, SharedDummyBlockSize, 0,                                   \
           "Size of dummy block used to shift heap addresses (in bytes)")    \

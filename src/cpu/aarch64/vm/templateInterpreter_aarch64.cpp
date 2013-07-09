@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2003, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, Red Hat Inc.
+ * Copyright (c) 2003, 2011, Oracle and/or its affiliates.
+ * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,7 +53,9 @@
 #include "oops/method.hpp"
 #endif // !PRODUCT
 
+#ifdef BUILTIN_SIM
 #include "../../../../../../simulator/simulator.hpp"
+#endif
 
 #define __ _masm->
 
@@ -970,7 +974,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
     {
       unsigned long offset;
       __ adrp(rscratch2, SafepointSynchronize::address_of_state(), offset);
-      __ ldr(rscratch2, Address(rscratch2, offset));
+      __ ldrw(rscratch2, Address(rscratch2, offset));
     }
     assert(SafepointSynchronize::_not_synchronized == 0,
 	   "SafepointSynchronize::_not_synchronized");
@@ -1577,13 +1581,15 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
                           InterpreterRuntime::exception_handler_for_exception),
              c_rarg1);
 
-  // For what we are about to push, make room.
-  __ sub(rscratch1, esp, wordSize);
-  __ cmp(sp, rscratch1);
-  Label enough_room;
-  __ br(Assembler::HS, enough_room);
+  // Calculate stack limit
+  __ ldr(rscratch1, Address(rmethod, Method::const_offset()));
+  __ ldrh(rscratch1, Address(rscratch1, ConstMethod::max_stack_offset()));
+  __ add(rscratch1, rscratch1, frame::interpreter_frame_monitor_size()
+         + (EnableInvokeDynamic ? 2 : 0) + 2);
+  __ ldr(rscratch2,
+	 Address(rfp, frame::interpreter_frame_initial_sp_offset * wordSize));
+  __ sub(rscratch1, rscratch2, rscratch1, ext::uxtx, 3);
   __ andr(sp, rscratch1, -16);
-  __ bind(enough_room);
 
   // r0: exception handler entry point
   // r3: preserved exception oop
@@ -1859,6 +1865,8 @@ void TemplateInterpreterGenerator::stop_interpreter_at() {
   __ pop(rscratch1);
 }
 
+#ifdef BUILTIN_SIM
+
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -1960,5 +1968,6 @@ extern "C" {
   }
 }
 
+#endif // BUILTIN_SIM
 #endif // !PRODUCT
 #endif // ! CC_INTERP

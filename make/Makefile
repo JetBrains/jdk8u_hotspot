@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -87,7 +87,6 @@ endif
 # Typical C1/C2 targets made available with this Makefile
 C1_VM_TARGETS=product1 fastdebug1 optimized1 jvmg1
 C2_VM_TARGETS=product  fastdebug  optimized  jvmg
-KERNEL_VM_TARGETS=productkernel fastdebugkernel optimizedkernel jvmgkernel
 ZERO_VM_TARGETS=productzero fastdebugzero optimizedzero jvmgzero
 SHARK_VM_TARGETS=productshark fastdebugshark optimizedshark jvmgshark
 MINIMAL1_VM_TARGETS=productminimal1 fastdebugminimal1 jvmgminimal1
@@ -95,12 +94,6 @@ MINIMAL1_VM_TARGETS=productminimal1 fastdebugminimal1 jvmgminimal1
 COMMON_VM_PRODUCT_TARGETS=product product1 docs export_product
 COMMON_VM_FASTDEBUG_TARGETS=fastdebug fastdebug1 docs export_fastdebug
 COMMON_VM_DEBUG_TARGETS=jvmg jvmg1 docs export_debug
-
-# extra targets used to drive aarch64 build
-# nb we only build debug c1 (via target jvmg1aarch64)
-# at some point we will need to be able to build c1 and/or c2 +/- debug
-AARCH64_C1_VM_TARGETS=jvmg1aarch64
-AARCH64_C2_VM_TARGETS=jvmgaarch64
 
 # JDK directory list
 JDK_DIRS=bin include jre lib demo
@@ -123,19 +116,9 @@ all_product:   universal_product
 all_fastdebug: universal_fastdebug
 all_debug:     universal_debug
 else
-ifeq ($(BUILD_AARCH64), true)
-ifeq ($(BUILD_AARCH64_C2), true)
-all_product:   $(AARCH64_C2_VM_TARGETS) docs export_debug
-all_debug:     $(AARCH64_C2_VM_TARGETS) docs export_debug
-else
-all_product:   $(AARCH64_C1_VM_TARGETS) docs export_debug
-all_debug:     $(AARCH64_C1_VM_TARGETS) docs export_debug
-endif
-else
 all_product:   $(COMMON_VM_PRODUCT_TARGETS)
 all_fastdebug: $(COMMON_VM_FASTDEBUG_TARGETS)
 all_debug:     $(COMMON_VM_DEBUG_TARGETS)
-endif
 endif
 endif
 
@@ -177,11 +160,6 @@ $(C2_VM_TARGETS):
 	$(CD) $(GAMMADIR)/make; \
 	$(MAKE) BUILD_FLAVOR=$@ VM_TARGET=$@ generic_build2 $(ALT_OUT)
 
-$(KERNEL_VM_TARGETS):
-	$(CD) $(GAMMADIR)/make; \
-	$(MAKE) BUILD_FLAVOR=$(@:%kernel=%) VM_TARGET=$@ \
-	  generic_buildkernel $(ALT_OUT)
-
 $(ZERO_VM_TARGETS):
 	$(CD) $(GAMMADIR)/make; \
 	$(MAKE) BUILD_FLAVOR=$(@:%zero=%) VM_TARGET=$@ \
@@ -196,16 +174,6 @@ $(MINIMAL1_VM_TARGETS):
 	$(CD) $(GAMMADIR)/make; \
 	$(MAKE) BUILD_FLAVOR=$(@:%minimal1=%) VM_TARGET=$@ \
 	  generic_buildminimal1 $(ALT_OUT)
-
-$(AARCH64_C1_VM_TARGETS):
-	$(CD) $(GAMMADIR)/make; \
-	$(MAKE) BUILD_FLAVOR=$(@:%1aarch64=%) VM_TARGET=$(@:%aarch64=%) \
-	  BUILD_AARCH64=true generic_build1 $(ALT_OUT)
-
-$(AARCH64_C2_VM_TARGETS):
-	$(CD) $(GAMMADIR)/make; \
-	$(MAKE) BUILD_FLAVOR=$(@:%aarch64=%) VM_TARGET=$(@:%aarch64=%) \
-	  BUILD_AARCH64=true BUILD_AARCH64_C2=true generic_build2 $(ALT_OUT)
 
 # Build compiler1 (client) rule, different for platforms
 generic_build1:
@@ -223,20 +191,9 @@ ifeq ($(OSNAME),windows)
 	@$(ECHO) "No compiler1 ($(VM_TARGET)) for ARCH_DATA_MODEL=$(ARCH_DATA_MODEL)"
   endif
 else
-  ifeq ($(ARCH_DATA_MODEL), 32)
 	$(CD) $(OUTPUTDIR); \
 	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
 		      $(MAKE_ARGS) $(VM_TARGET)
-  else
-    ifeq ($(BUILD_AARCH64), true)
-	$(CD) $(OUTPUTDIR); \
-	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
-		      BUILD_AARCH64=true $(MAKE_ARGS) $(VM_TARGET)
-    else
-
-	@$(ECHO) "No compiler1 ($(VM_TARGET)) for ARCH_DATA_MODEL=$(ARCH_DATA_MODEL)"
-    endif
-  endif
 endif
 
 # Build compiler2 (server) rule, different for platforms
@@ -251,33 +208,9 @@ ifeq ($(OSNAME),windows)
                       BuildUser=$(USERNAME) \
 		      $(MAKE_ARGS) $(VM_TARGET)
 else
-    ifeq ($(BUILD_AARCH64), true)
-	$(CD) $(OUTPUTDIR); \
-	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
-		      BUILD_AARCH64=true BUILD_AARCH64_C2=true $(MAKE_ARGS) $(VM_TARGET)
-    else
 	$(CD) $(OUTPUTDIR); \
 	    $(MAKE) -f $(ABS_OS_MAKEFILE) \
 		      $(MAKE_ARGS) $(VM_TARGET)
-    endif
-endif
-
-generic_buildkernel:
-	$(MKDIR) -p $(OUTPUTDIR)
-ifeq ($(OSNAME),windows)
-  ifeq ($(ARCH_DATA_MODEL), 32)
-	$(CD) $(OUTPUTDIR); \
-	    $(NMAKE) -f $(ABS_OS_MAKEFILE) \
-		      Variant=kernel \
-                      WorkSpace=$(ABS_GAMMADIR) \
-		      BootStrapDir=$(ABS_BOOTDIR) \
-                      BuildUser=$(USERNAME) \
-		      $(MAKE_ARGS) $(VM_TARGET:%kernel=%)
-  else
-	@$(ECHO) "No kernel ($(VM_TARGET)) for ARCH_DATA_MODEL=$(ARCH_DATA_MODEL)"
-  endif
-else
-	@$(ECHO) "No kernel ($(VM_TARGET)) for OS_NAME=$(OSNAME)"
 endif
 
 generic_buildzero:
@@ -353,12 +286,10 @@ XUSAGE=$(HS_SRC_DIR)/share/vm/Xusage.txt
 DOCS_DIR=$(OUTPUTDIR)/$(VM_PLATFORM)_docs
 C1_BASE_DIR=$(OUTPUTDIR)/$(VM_PLATFORM)_compiler1
 C2_BASE_DIR=$(OUTPUTDIR)/$(VM_PLATFORM)_compiler2
-KERNEL_BASE_DIR=$(OUTPUTDIR)/$(VM_PLATFORM)_kernel
 ZERO_BASE_DIR=$(OUTPUTDIR)/$(VM_PLATFORM)_zero
 SHARK_BASE_DIR=$(OUTPUTDIR)/$(VM_PLATFORM)_shark
 C1_DIR=$(C1_BASE_DIR)/$(VM_SUBDIR)
 C2_DIR=$(C2_BASE_DIR)/$(VM_SUBDIR)
-KERNEL_DIR=$(KERNEL_BASE_DIR)/$(VM_SUBDIR)
 ZERO_DIR=$(ZERO_BASE_DIR)/$(VM_SUBDIR)
 SHARK_DIR=$(SHARK_BASE_DIR)/$(VM_SUBDIR)
 MINIMAL1_BASE_DIR=$(OUTPUTDIR)/$(VM_PLATFORM)_minimal1
@@ -372,10 +303,6 @@ ifeq ($(JVM_VARIANT_CLIENT), true)
     MISC_DIR=$(C1_DIR)
     GEN_DIR=$(C1_BASE_DIR)/generated
 endif
-ifeq ($(JVM_VARIANT_KERNEL), true)
-    MISC_DIR=$(C2_DIR)
-    GEN_DIR=$(C2_BASE_DIR)/generated
-endif
 ifeq ($(JVM_VARIANT_ZEROSHARK), true)
     MISC_DIR=$(SHARK_DIR)
     GEN_DIR=$(SHARK_BASE_DIR)/generated
@@ -387,15 +314,6 @@ endif
 ifeq ($(JVM_VARIANT_MINIMAL1), true)
     MISC_DIR=$(MINIMAL1_DIR)
     GEN_DIR=$(MINIMAL1_BASE_DIR)/generated
-endif
-ifeq ($(BUILD_AARCH64), true)
-ifeq ($(BUILD_AARCH64_C2), true)
-    MISC_DIR=$(C2_DIR)
-    GEN_DIR=$(C2_BASE_DIR)/generated
-else
-    MISC_DIR=$(C1_DIR)
-    GEN_DIR=$(C1_BASE_DIR)/generated
-endif
 endif
 
 # Bin files (windows)
@@ -433,16 +351,6 @@ $(EXPORT_SERVER_DIR)/%.dll:  $(C2_DIR)/%.dll
 $(EXPORT_SERVER_DIR)/%.pdb:  $(C2_DIR)/%.pdb
 	$(install-file)
 $(EXPORT_SERVER_DIR)/%.map:  $(C2_DIR)/%.map
-	$(install-file)
-
-# Kernel files always come from kernel area
-$(EXPORT_KERNEL_DIR)/%.diz:  $(KERNEL_DIR)/%.diz
-	$(install-file)
-$(EXPORT_KERNEL_DIR)/%.dll:  $(KERNEL_DIR)/%.dll
-	$(install-file)
-$(EXPORT_KERNEL_DIR)/%.pdb:  $(KERNEL_DIR)/%.pdb
-	$(install-file)
-$(EXPORT_KERNEL_DIR)/%.map:  $(KERNEL_DIR)/%.map
 	$(install-file)
 endif
 
@@ -526,24 +434,6 @@ ifneq ($(OSNAME),windows)
         $(EXPORT_SERVER_DIR)/%.diz:			$(ZERO_DIR)/%.diz
 		$(install-file)
     endif
-    ifeq ($(BUILD_AARCH64), true)
-        $(EXPORT_JRE_LIB_ARCH_DIR)/%.$(LIBRARY_SUFFIX): $(C1_DIR)/%.$(LIBRARY_SUFFIX)
-		$(install-file)
-        $(EXPORT_SERVER_DIR)/%.$(LIBRARY_SUFFIX):       $(C1_DIR)/%.$(LIBRARY_SUFFIX)
-		$(install-file)
-        $(EXPORT_JRE_LIB_ARCH_DIR)/%.debuginfo: 		$(C1_DIR)/%.debuginfo
-		$(install-file)
-        $(EXPORT_SERVER_DIR)/%.debuginfo:       		$(C1_DIR)/%.debuginfo
-		$(install-file)
-        $(EXPORT_JRE_LIB_ARCH_DIR)/%.diz: 			$(C1_DIR)/%.diz
-		$(install-file)
-        $(EXPORT_SERVER_DIR)/%.diz:       			$(C1_DIR)/%.diz
-		$(install-file)
-        $(EXPORT_SERVER_DIR)/%.debuginfo:		$(C1_DIR)/%.debuginfo
-		$(install-file)
-        $(EXPORT_SERVER_DIR)/%.diz:			$(C1_DIR)/%.diz
-		$(install-file)
-    endif
     ifeq ($(JVM_VARIANT_MINIMAL1), true)
         $(EXPORT_JRE_LIB_ARCH_DIR)/%.$(LIBRARY_SUFFIX):	$(MINIMAL1_DIR)/%.$(LIBRARY_SUFFIX)
 		$(install-file)
@@ -568,9 +458,6 @@ endif
 
 # Jar file (sa-jdi.jar)
 $(EXPORT_LIB_DIR)/%.jar: $(GEN_DIR)/%.jar
-	$(install-file)
-
-$(EXPORT_JRE_LIB_DIR)/%.jar: $(GEN_DIR)/%.jar
 	$(install-file)
 
 # Include files (jvmti.h, jvmticmlr.h, jni.h, $(JDK_INCLUDE_SUBDIR)/jni_md.h, jmm.h, jfr.h)
@@ -604,7 +491,7 @@ $(EXPORT_DOCS_DIR)/platform/jvmti/%: $(DOCS_DIR)/%
 	$(install-file)
 
 # Xusage file
-$(EXPORT_SERVER_DIR)/Xusage.txt $(EXPORT_CLIENT_DIR)/Xusage.txt $(EXPORT_KERNEL_DIR)/Xusage.txt $(EXPORT_MINIMAL_DIR)/Xusage.txt: $(XUSAGE)
+$(EXPORT_SERVER_DIR)/Xusage.txt $(EXPORT_CLIENT_DIR)/Xusage.txt $(EXPORT_MINIMAL_DIR)/Xusage.txt: $(XUSAGE)
 	$(prep-target)
 	$(RM) $@.temp
 	$(SED) 's/\(separated by \)[;:]/\1$(PATH_SEP)/g' $< > $@.temp
@@ -617,7 +504,6 @@ clobber clean: clean_build clean_export clean_jdk
 clean_build:
 	$(RM) -r $(C1_DIR)
 	$(RM) -r $(C2_DIR)
-	$(RM) -r $(KERNEL_DIR)
 	$(RM) -r $(ZERO_DIR)
 	$(RM) -r $(SHARK_DIR)
 	$(RM) -r $(MINIMAL1_DIR)
@@ -651,10 +537,6 @@ test_jdk:
 		$(JVM_VARIANT_ZERO)$(JVM_VARIANT_ZEROSHARK)), true)
 	$(JDK_IMAGE_DIR)/bin/java -d$(ARCH_DATA_MODEL) -server -Xinternalversion
 	$(JDK_IMAGE_DIR)/bin/java -d$(ARCH_DATA_MODEL) -server -version
-  endif
-  ifeq ($(JVM_VARIANT_KERNEL), true)
-	$(JDK_IMAGE_DIR)/bin/java -d$(ARCH_DATA_MODEL) -kernel -Xinternalversion
-	$(JDK_IMAGE_DIR)/bin/java -d$(ARCH_DATA_MODEL) -kernel -version
   endif
 
 copy_product_jdk::
@@ -731,7 +613,6 @@ target_help:
 	@$(ECHO) "Other targets are:"
 	@$(ECHO) "   $(C1_VM_TARGETS)"
 	@$(ECHO) "   $(C2_VM_TARGETS)"
-	@$(ECHO) "   $(KERNEL_VM_TARGETS)"
 	@$(ECHO) "   $(MINIMAL1_VM_TARGETS)"
 
 # Variable help (only common ones used by this workspace)
@@ -827,8 +708,8 @@ endif
 include $(GAMMADIR)/make/jprt.gmk
 
 .PHONY: all world clobber clean help $(C1_VM_TARGETS) $(C2_VM_TARGETS) \
-        $(KERNEL_VM_TARGETS) $(MINIMAL1_VM_TARGETS) \
-	generic_build1 generic_build2 generic_buildkernel generic_buildminimal1 generic_export \
+        $(MINIMAL1_VM_TARGETS) \
+	generic_build1 generic_build2 generic_buildminimal1 generic_export \
 	export_product export_fastdebug export_debug export_optimized \
 	export_jdk_product export_jdk_fastdebug export_jdk_debug \
 	create_jdk copy_jdk update_jdk test_jdk \

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -543,7 +543,7 @@ class Assembler : public AbstractAssembler  {
   // of instructions are freely declared without the need for wrapping them an ifdef.
   // (Some dangerous instructions are ifdef's out of inappropriate jvm's.)
   // In the .cpp file the implementations are wrapped so that they are dropped out
-  // of the resulting jvm. This is done mostly to keep the footprint of KERNEL
+  // of the resulting jvm. This is done mostly to keep the footprint of MINIMAL
   // to the size it was prior to merging up the 32bit and 64bit assemblers.
   //
   // This does mean you'll get a linker/runtime error if you use a 64bit only instruction
@@ -832,7 +832,8 @@ private:
 
   // These do register sized moves/scans
   void rep_mov();
-  void rep_set();
+  void rep_stos();
+  void rep_stosb();
   void repne_scan();
 #ifdef _LP64
   void repne_scanl();
@@ -1394,6 +1395,10 @@ private:
   // Pack with unsigned saturation
   void packuswb(XMMRegister dst, XMMRegister src);
   void packuswb(XMMRegister dst, Address src);
+  void vpackuswb(XMMRegister dst, XMMRegister nds, XMMRegister src, bool vector256);
+
+  // Pemutation of 64bit words
+  void vpermq(XMMRegister dst, XMMRegister src, int imm8, bool vector256);
 
   // SSE4.2 string instructions
   void pcmpestri(XMMRegister xmm1, XMMRegister xmm2, int imm8);
@@ -1443,9 +1448,12 @@ private:
   // Shift Right by bytes Logical DoubleQuadword Immediate
   void psrldq(XMMRegister dst, int shift);
 
-  // Logical Compare Double Quadword
+  // Logical Compare 128bit
   void ptest(XMMRegister dst, XMMRegister src);
   void ptest(XMMRegister dst, Address src);
+  // Logical Compare 256bit
+  void vptest(XMMRegister dst, XMMRegister src);
+  void vptest(XMMRegister dst, Address src);
 
   // Interleave Low Bytes
   void punpcklbw(XMMRegister dst, XMMRegister src);
@@ -1752,6 +1760,9 @@ private:
   void vinserti128h(XMMRegister dst, Address src);
   void vextractf128h(Address dst, XMMRegister src);
   void vextracti128h(Address dst, XMMRegister src);
+
+  // duplicate 4-bytes integer data from src into 8 locations in dest
+  void vpbroadcastd(XMMRegister dst, XMMRegister src);
 
   // AVX instruction which is used to clear upper 128 bits of YMM registers and
   // to avoid transaction penalty between AVX and SSE states. There is no

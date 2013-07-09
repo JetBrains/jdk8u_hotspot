@@ -34,6 +34,7 @@
 #include "oops/markOop.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/prefetch.hpp"
+#include "utilities/macros.hpp"
 #include "utilities/workgroup.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "os_linux.inline.hpp"
@@ -655,15 +656,9 @@ protected:
       assert(block_is_obj(q),                                                   \
              "should be at block boundaries, and should be looking at objs");   \
                                                                                 \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::track_interior_pointers(oop(q)));     \
-                                                                                \
       /* point all the oops to the new location */                              \
       size_t size = oop(q)->adjust_pointers();                                  \
       size = adjust_obj_size(size);                                             \
-                                                                                \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::check_interior_pointers());           \
-                                                                                \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::validate_live_oop(oop(q), size));     \
                                                                                 \
       q += size;                                                                \
     }                                                                           \
@@ -685,12 +680,9 @@ protected:
     Prefetch::write(q, interval);                                               \
     if (oop(q)->is_gc_marked()) {                                               \
       /* q is alive */                                                          \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::track_interior_pointers(oop(q)));     \
       /* point all the oops to the new location */                              \
       size_t size = oop(q)->adjust_pointers();                                  \
       size = adjust_obj_size(size);                                             \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::check_interior_pointers());           \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::validate_live_oop(oop(q), size));     \
       debug_only(prev_q = q);                                                   \
       q += size;                                                                \
     } else {                                                                    \
@@ -725,7 +717,6 @@ protected:
       size_t size = obj_size(q);                                                \
       assert(!oop(q)->is_gc_marked(),                                           \
              "should be unmarked (special dense prefix handling)");             \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::live_oop_moved_to(q, size, q));       \
       debug_only(prev_q = q);                                                   \
       q += size;                                                                \
     }                                                                           \
@@ -759,8 +750,6 @@ protected:
       Prefetch::write(compaction_top, copy_interval);                           \
                                                                                 \
       /* copy object and reinit its mark */                                     \
-      VALIDATE_MARK_SWEEP_ONLY(MarkSweep::live_oop_moved_to(q, size,            \
-                                                            compaction_top));   \
       assert(q != compaction_top, "everything in this pass should be moving");  \
       Copy::aligned_conjoint_words(q, compaction_top, size);                    \
       oop(compaction_top)->init_mark();                                         \
@@ -896,14 +885,14 @@ class ContiguousSpace: public CompactibleSpace {
   }
 
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   // In support of parallel oop_iterate.
   #define ContigSpace_PAR_OOP_ITERATE_DECL(OopClosureType, nv_suffix)  \
     void par_oop_iterate(MemRegion mr, OopClosureType* blk);
 
     ALL_PAR_OOP_ITERATE_CLOSURES(ContigSpace_PAR_OOP_ITERATE_DECL)
   #undef ContigSpace_PAR_OOP_ITERATE_DECL
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   // Compaction support
   virtual void reset_after_compaction() {

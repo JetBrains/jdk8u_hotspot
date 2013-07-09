@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, Red Hat Inc.
+ * Copyright (c) 2003, 2012, Oracle and/or its affiliates.
+ * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -41,7 +43,10 @@
 #include "opto/runtime.hpp"
 #endif
 
+#ifdef BUILTIN_SIM
 #include "../../../../../../simulator/simulator.hpp"
+#endif
+
 #define __ masm->
 
 const int StackAlignmentInSlots = StackAlignmentInBytes / VMRegImpl::stack_slot_size;
@@ -126,7 +131,7 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
   OopMapSet *oop_maps = new OopMapSet();
   OopMap* oop_map = new OopMap(frame_size_in_slots, 0);
 
-  for (int i = 0; i < FrameMap::nof_cpu_regs; i++) {
+  for (int i = 0; i < RegisterImpl::number_of_registers; i++) {
     Register r = as_Register(i);
     if (r < rheapbase && r != rscratch1 && r != rscratch2) {
       int sp_offset = 2 * (i + 32); // SP offsets are in 4-byte words,
@@ -138,7 +143,7 @@ OopMap* RegisterSaver::save_live_registers(MacroAssembler* masm, int additional_
     }
   }
 
-  for (int i = 0; i < FrameMap::nof_fpu_regs; i++) {
+  for (int i = 0; i < FloatRegisterImpl::number_of_registers; i++) {
     FloatRegister r = as_FloatRegister(i);
     int sp_offset = 2 * i;
     oop_map->set_callee_saved(VMRegImpl::stack2reg(sp_offset),
@@ -381,32 +386,32 @@ static void gen_c2i_adapter(MacroAssembler *masm,
       continue;
     }
     if (r_1->is_stack()) {
-      // memory to memory use r0
+      // memory to memory use rscratch1
       int ld_off = (r_1->reg2stack() * VMRegImpl::stack_slot_size
 		    + extraspace
 		    + words_pushed * wordSize);
       if (!r_2->is_valid()) {
         // sign extend??
-        __ ldrw(r0, Address(sp, ld_off));
-        __ str(r0, Address(sp, st_off));
+        __ ldrw(rscratch1, Address(sp, ld_off));
+        __ str(rscratch1, Address(sp, st_off));
 
       } else {
 
-        __ ldr(r0, Address(sp, ld_off));
+        __ ldr(rscratch1, Address(sp, ld_off));
 
         // Two VMREgs|OptoRegs can be T_OBJECT, T_ADDRESS, T_DOUBLE, T_LONG
         // T_DOUBLE and T_LONG use two slots in the interpreter
         if ( sig_bt[i] == T_LONG || sig_bt[i] == T_DOUBLE) {
           // ld_off == LSW, ld_off+wordSize == MSW
           // st_off == MSW, next_off == LSW
+          __ str(rscratch1, Address(sp, next_off));
 #ifdef ASSERT
           // Overwrite the unused slot with known junk
-          __ mov(r0, 0xdeadffffdeadaaaaul);
-          __ str(r0, Address(sp, st_off));
+          __ mov(rscratch1, 0xdeadffffdeadaaaaul);
+          __ str(rscratch1, Address(sp, st_off));
 #endif /* ASSERT */
-          __ str(r0, Address(sp, next_off));
         } else {
-          __ str(r0, Address(sp, st_off));
+          __ str(rscratch1, Address(sp, st_off));
         }
       }
     } else if (r_1->is_Register()) {
@@ -422,8 +427,8 @@ static void gen_c2i_adapter(MacroAssembler *masm,
           // long/double in gpr
 #ifdef ASSERT
           // Overwrite the unused slot with known junk
-          __ mov(r0, 0xdeadffffdeadaaabul);
-          __ str(r0, Address(sp, st_off));
+          __ mov(rscratch1, 0xdeadffffdeadaaabul);
+          __ str(rscratch1, Address(sp, st_off));
 #endif /* ASSERT */
           __ str(r, Address(sp, next_off));
         } else {
@@ -438,8 +443,8 @@ static void gen_c2i_adapter(MacroAssembler *masm,
       } else {
 #ifdef ASSERT
         // Overwrite the unused slot with known junk
-        __ mov(r0, 0xdeadffffdeadaaacul);
-        __ str(r0, Address(sp, st_off));
+        __ mov(rscratch1, 0xdeadffffdeadaaacul);
+        __ str(rscratch1, Address(sp, st_off));
 #endif /* ASSERT */
         __ strd(r_1->as_FloatRegister(), Address(sp, next_off));
       }
@@ -690,13 +695,20 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
                                                             const VMRegPair *regs,
                                                             AdapterFingerPrint* fingerprint) {
   address i2c_entry = __ pc();
-  char name[400];
+#ifdef BUILTIN_SIM
+  char *name = NULL;
   AArch64Simulator *sim = NULL;
+  size_t len = 65536;
   if (NotifySimulator) {
+    name = new char[len];
+  }
+
+  if (name) {
     generate_i2c_adapter_name(name, total_args_passed, sig_bt);
     sim = AArch64Simulator::current();
     sim->notifyCompile(name, i2c_entry);
   }
+#endif
   gen_i2c_adapter(masm, total_args_passed, comp_args_on_stack, sig_bt, regs);
 
   address c2i_unverified_entry = __ pc();
@@ -738,11 +750,14 @@ AdapterHandlerEntry* SharedRuntime::generate_i2c2i_adapters(MacroAssembler *masm
 
   address c2i_entry = __ pc();
 
-  if (NotifySimulator) {
+#ifdef BUILTIN_SIM
+  if (name) {
     name[0] = 'c';
     name[2] = 'i';
     sim->notifyCompile(name, c2i_entry);
+    delete[] name;
   }
+#endif
 
   gen_c2i_adapter(masm, total_args_passed, comp_args_on_stack, sig_bt, regs, skip_fixup);
 
@@ -1277,14 +1292,23 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
                                                 BasicType* in_sig_bt,
                                                 VMRegPair* in_regs,
                                                 BasicType ret_type) {
+#ifdef BUILTIN_SIM
   if (NotifySimulator) {
-    char name[400];
-    strcpy(name, method()->method_holder()->name()->as_utf8());
-    strcat(name, ".");
-    strcat(name, method()->name()->as_utf8());
-    strcat(name, method()->signature()->as_utf8());
+    // Names are up to 65536 chars long.  UTF8-coded strings are up to
+    // 3 bytes per character.  We concatenate three such strings.
+    // Yes, I know this is ridiculous, but it's debug code and glibc
+    // allocates large arrays very efficiently.
+    size_t len = (65536 * 3) * 3;
+    char *name = new char[len];
+
+    strncpy(name, method()->method_holder()->name()->as_utf8(), len);
+    strncat(name, ".", len);
+    strncat(name, method()->name()->as_utf8(), len);
+    strncat(name, method()->signature()->as_utf8(), len);
     AArch64Simulator::current()->notifyCompile(name, __ pc());
+    delete[] name;
   }
+#endif
 
   if (method->is_method_handle_intrinsic()) {
     vmIntrinsics::ID iid = method->intrinsic_id();

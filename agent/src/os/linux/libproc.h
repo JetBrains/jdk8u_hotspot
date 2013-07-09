@@ -48,6 +48,10 @@
 
 #endif //sparc or sparcv9
 
+#if defined(aarch64)
+#include "asm/ptrace.h"
+#endif
+
 /************************************************************************************
 
 0. This is very minimal subset of Solaris libproc just enough for current application.
@@ -79,17 +83,12 @@ combination of ptrace and /proc calls.
 
 *************************************************************************************/
 
-#ifdef ia64
-struct user_regs_struct {
-/* copied from user.h which doesn't define this in a struct */
-
-#define IA64_REG_COUNT (EF_SIZE/8+32)   /* integer and fp regs */
-unsigned long   regs[IA64_REG_COUNT];     /* integer and fp regs */
-};
-#endif
 
 #if defined(sparc)  || defined(sparcv9)
 #define user_regs_struct  pt_regs
+#endif
+#if defined(aarch64)
+#define user_regs_struct user_pt_regs
 #endif
 
 // This C bool type must be int for compatibility with Linux calls and

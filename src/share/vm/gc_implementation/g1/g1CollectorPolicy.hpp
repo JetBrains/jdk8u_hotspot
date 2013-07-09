@@ -94,18 +94,18 @@ class TraceGen1TimeData : public CHeapObj<mtGC> {
 // will occur.
 //
 // If nothing related to the the young gen size is set on the command
-// line we should allow the young gen to be between
-// G1DefaultMinNewGenPercent and G1DefaultMaxNewGenPercent of the
-// heap size. This means that every time the heap size changes the
-// limits for the young gen size will be updated.
+// line we should allow the young gen to be between G1NewSizePercent
+// and G1MaxNewSizePercent of the heap size. This means that every time
+// the heap size changes, the limits for the young gen size will be
+// recalculated.
 //
 // If only -XX:NewSize is set we should use the specified value as the
-// minimum size for young gen. Still using G1DefaultMaxNewGenPercent
-// of the heap as maximum.
+// minimum size for young gen. Still using G1MaxNewSizePercent of the
+// heap as maximum.
 //
 // If only -XX:MaxNewSize is set we should use the specified value as the
-// maximum size for young gen. Still using G1DefaultMinNewGenPercent
-// of the heap as minimum.
+// maximum size for young gen. Still using G1NewSizePercent of the heap
+// as minimum.
 //
 // If -XX:NewSize and -XX:MaxNewSize are both specified we use these values.
 // No updates when the heap size changes. There is a special case when
@@ -618,6 +618,18 @@ private:
   // calculate_young_list_target_length().
   bool predict_will_fit(uint young_length, double base_time_ms,
                         uint base_free_regions, double target_pause_time_ms);
+
+  // Calculate the minimum number of old regions we'll add to the CSet
+  // during a mixed GC.
+  uint calc_min_old_cset_length();
+
+  // Calculate the maximum number of old regions we'll add to the CSet
+  // during a mixed GC.
+  uint calc_max_old_cset_length();
+
+  // Returns the given amount of uncollected reclaimable space
+  // as a percentage of the current heap capacity.
+  double reclaimable_bytes_perc(size_t reclaimable_bytes);
 
 public:
 

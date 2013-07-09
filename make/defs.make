@@ -272,23 +272,6 @@ ifneq ($(OSNAME),windows)
   ARCH/zero   = zero
   ARCH/aarch64 = aarch64
 
-  # special case -- if BUILD_AARCH64 is true and ARCH setting returned
-  # by uname is amd64 or x86_64 then we build for the AARCH64
-  # simulator and use the architecture-specific sources obtained by
-  # setting SRCARCH = aarch64.
-  # n.b. in this case BUILDARCH will also be aarch64 but libarch will
-  # be retained as amd64. the latter will need to change when we move
-  # to real hardware
-
-ifeq ($(BUILD_AARCH64), true)
-  ifeq ($(ARCH), amd64)
-    SRCARCH=aarch64
-  endif
-  ifeq ($(ARCH), x86_64)
-    SRCARCH=aarch64
-  endif
-endif
-
   # BUILDARCH is usually the same as SRCARCH, except for sparcv9
   BUILDARCH = $(SRCARCH)
   ifeq ($(BUILDARCH), x86)
@@ -308,6 +291,7 @@ endif
   LIBARCH         = $(LIBARCH/$(BUILDARCH))
   LIBARCH/i486    = i386
   LIBARCH/amd64   = amd64
+  LIBARCH/aarch64 = aarch64
   LIBARCH/sparc   = sparc
   LIBARCH/sparcv9 = sparcv9
   LIBARCH/ia64    = ia64
@@ -315,9 +299,8 @@ endif
   LIBARCH/ppc     = ppc
   LIBARCH/arm     = arm
   LIBARCH/zero    = $(ZERO_LIBARCH)
-  LIBARCH/aarch64 = amd64
 
-  LP64_ARCH = sparcv9 amd64 ia64 zero aarch64
+  LP64_ARCH = sparcv9 amd64 aarch64 ia64 zero
 endif
 
 # Required make macro settings for all platforms

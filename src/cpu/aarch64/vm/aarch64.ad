@@ -1,5 +1,7 @@
 //
-// Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
+// Copyright (c) 2013, Red Hat Inc.
+// Copyright (c) 2003, 2012, Oracle and/or its affiliates.
+// All rights reserved.
 // DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
 // This code is free software; you can redistribute it and/or modify it
@@ -4125,7 +4127,7 @@ instruct prefetchr( memory mem ) %{
 
   format %{ "prfm $mem, PLDL1KEEP\t# Prefetch into level 1 cache read keep" %}
 
-  ins_encode( aarch64_enc_prefetchr(src, mem) );
+  ins_encode( aarch64_enc_prefetchr(mem) );
 
   ins_pipe(pipe_class_memory);
 %}
@@ -4135,7 +4137,7 @@ instruct prefetchw( memory mem ) %{
 
   format %{ "prfm $mem, PSTL1KEEP\t# Prefetch into level 1 cache write keep" %}
 
-  ins_encode( aarch64_enc_prefetchw(src, mem) );
+  ins_encode( aarch64_enc_prefetchw(mem) );
 
   ins_pipe(pipe_class_memory);
 %}
@@ -4145,7 +4147,7 @@ instruct prefetchnta( memory mem ) %{
 
   format %{ "prfm $mem, PSTL1STRM\t# Prefetch into level 1 cache write streaming" %}
 
-  ins_encode( aarch64_enc_prefetchnta(src, mem) );
+  ins_encode( aarch64_enc_prefetchnta(mem) );
 
   ins_pipe(pipe_class_memory);
 %}

@@ -753,10 +753,11 @@ bool InstructForm::captures_bottom_type(FormDict &globals) const {
         !strcmp(_matrule->_rChild->_opType,"DecodeNKlass") ||
         !strcmp(_matrule->_rChild->_opType,"EncodePKlass") ||
         !strcmp(_matrule->_rChild->_opType,"LoadN")        ||
-        !strcmp(_matrule->_rChild->_opType,"GetAndSetN")   ||
         !strcmp(_matrule->_rChild->_opType,"LoadNKlass")   ||
         !strcmp(_matrule->_rChild->_opType,"CreateEx")     ||  // type of exception
-        !strcmp(_matrule->_rChild->_opType,"CheckCastPP")) ) return true;
+        !strcmp(_matrule->_rChild->_opType,"CheckCastPP")  ||
+        !strcmp(_matrule->_rChild->_opType,"GetAndSetP")   ||
+        !strcmp(_matrule->_rChild->_opType,"GetAndSetN")) )  return true;
   else if ( is_ideal_load() == Form::idealP )                return true;
   else if ( is_ideal_store() != Form::none  )                return true;
 
@@ -862,8 +863,10 @@ uint InstructForm::oper_input_base(FormDict &globals) {
       ( strcmp(_matrule->_rChild->_opType,"AryEq"     )==0 ||
         strcmp(_matrule->_rChild->_opType,"StrComp"   )==0 ||
         strcmp(_matrule->_rChild->_opType,"StrEquals" )==0 ||
-        strcmp(_matrule->_rChild->_opType,"StrIndexOf")==0 )) {
+        strcmp(_matrule->_rChild->_opType,"StrIndexOf")==0 ||
+        strcmp(_matrule->_rChild->_opType,"EncodeISOArray")==0)) {
         // String.(compareTo/equals/indexOf) and Arrays.equals
+        // and sun.nio.cs.iso8859_1$Encoder.EncodeISOArray
         // take 1 control and 1 memory edges.
     return 2;
   }

@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, Red Hat Inc.
+ * Copyright (c) 2005, 2010, Oracle and/or its affiliates.
+ * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -102,10 +104,12 @@ void LinearScan::allocate_fpu_stack() {
     }
   }
 
+#ifndef TARGET_ARCH_aarch64
   FpuStackAllocator alloc(ir()->compilation(), this);
   _fpu_stack_allocator = &alloc;
   alloc.allocate();
   _fpu_stack_allocator = NULL;
+#endif
 }
 
 

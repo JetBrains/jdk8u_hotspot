@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,10 +31,12 @@
 #include "oops/fieldInfo.hpp"
 #include "oops/instanceOop.hpp"
 #include "oops/klassVtable.hpp"
+#include "runtime/atomic.hpp"
 #include "runtime/handles.hpp"
 #include "runtime/os.hpp"
 #include "utilities/accessFlags.hpp"
 #include "utilities/bitMap.inline.hpp"
+#include "utilities/macros.hpp"
 
 // An InstanceKlass is the VM level representation of a Java class.
 // It contains all information needed for at class at execution runtime.
@@ -153,8 +155,8 @@ class InstanceKlass: public Klass {
                                           ReferenceType rt,
                                           AccessFlags access_flags,
                                           Symbol* name,
-                                        Klass* super_klass,
-                                          KlassHandle host_klass,
+                                          Klass* super_klass,
+                                          bool is_anonymous,
                                           TRAPS);
 
   InstanceKlass() { assert(DumpSharedSpaces || UseSharedSpaces, "only for CDS"); }
@@ -169,6 +171,11 @@ class InstanceKlass: public Klass {
     fully_initialized,                  // initialized (successfull final state)
     initialization_error                // error happened during initialization
   };
+
+  static int number_of_instance_classes() { return _total_instanceKlass_count; }
+
+ private:
+  static volatile int _total_instanceKlass_count;
 
  protected:
   // Protection domain.
@@ -219,12 +226,17 @@ class InstanceKlass: public Klass {
   u2              _java_fields_count;    // The number of declared Java fields
   int             _nonstatic_oop_map_size;// size in words of nonstatic oop map blocks
 
+  // _is_marked_dependent can be set concurrently, thus cannot be part of the
+  // _misc_flags.
   bool            _is_marked_dependent;  // used for marking during flushing and deoptimization
+
   enum {
     _misc_rewritten            = 1 << 0, // methods rewritten.
     _misc_has_nonstatic_fields = 1 << 1, // for sizing with UseCompressedOops
     _misc_should_verify_class  = 1 << 2, // allow caching of preverification
-    _misc_is_anonymous         = 1 << 3  // has embedded _inner_classes field
+    _misc_is_anonymous         = 1 << 3, // has embedded _inner_classes field
+    _misc_is_contended         = 1 << 4, // marked with contended annotation
+    _misc_has_default_methods  = 1 << 5  // class/superclass/implemented interfaces has default methods
   };
   u2              _misc_flags;
   u2              _minor_version;        // minor version number of class file
@@ -245,12 +257,18 @@ class InstanceKlass: public Klass {
   // JVMTI fields can be moved to their own structure - see 6315920
   unsigned char * _cached_class_file_bytes;       // JVMTI: cached class file, before retransformable agent modified it in CFLH
   jint            _cached_class_file_len;         // JVMTI: length of above
-  JvmtiCachedClassFieldMap* _jvmti_cached_class_field_map;  // JVMTI: used during heap iteration
-
-  // true if class, superclass, or implemented interfaces have default methods
-  bool            _has_default_methods;
 
   volatile u2     _idnum_allocated_count;         // JNI/JVMTI: increments with the addition of methods, old ids don't change
+
+  // Class states are defined as ClassState (see above).
+  // Place the _init_state here to utilize the unused 2-byte after
+  // _idnum_allocated_count.
+  u1              _init_state;                    // state of class
+  u1              _reference_type;                // reference type
+
+
+  JvmtiCachedClassFieldMap* _jvmti_cached_class_field_map;  // JVMTI: used during heap iteration
+
   // Method array.
   Array<Method*>* _methods;
   // Interface (Klass*s) this class declares locally to implement.
@@ -273,13 +291,6 @@ class InstanceKlass: public Klass {
   //     [generic signature index]
   //     ...
   Array<u2>*      _fields;
-
-  // Class states are defined as ClassState (see above).
-  // Place the _init_state here to utilize the unused 2-byte after
-  // _idnum_allocated_count.
-  u1              _init_state;                    // state of class
-
-  u1              _reference_type;                // reference type
 
   // embedded Java vtable follows here
   // embedded Java itables follows here
@@ -454,7 +465,7 @@ class InstanceKlass: public Klass {
   bool link_class_or_fail(TRAPS); // returns false on failure
   void unlink_class();
   void rewrite_class(TRAPS);
-  void relocate_and_link_methods(TRAPS);
+  void link_methods(TRAPS);
   Method* class_initializer();
 
   // set the class to initialized if no static initializer is present
@@ -525,7 +536,9 @@ class InstanceKlass: public Klass {
     assert(is_anonymous(), "not anonymous");
     Klass** addr = (Klass**)adr_host_klass();
     assert(addr != NULL, "no reversed space");
-    *addr = host;
+    if (addr != NULL) {
+      *addr = host;
+    }
   }
   bool is_anonymous() const                {
     return (_misc_flags & _misc_is_anonymous) != 0;
@@ -542,6 +555,17 @@ class InstanceKlass: public Klass {
   // in places where the metadata is stored in other places, like nmethods
   oop klass_holder() const {
     return is_anonymous() ? java_mirror() : class_loader();
+  }
+
+  bool is_contended() const                {
+    return (_misc_flags & _misc_is_contended) != 0;
+  }
+  void set_is_contended(bool value)        {
+    if (value) {
+      _misc_flags |= _misc_is_contended;
+    } else {
+      _misc_flags &= ~_misc_is_contended;
+    }
   }
 
   // signers
@@ -610,8 +634,16 @@ class InstanceKlass: public Klass {
     return _jvmti_cached_class_field_map;
   }
 
-  bool has_default_methods() const { return _has_default_methods; }
-  void set_has_default_methods(bool b) { _has_default_methods = b; }
+  bool has_default_methods() const {
+    return (_misc_flags & _misc_has_default_methods) != 0;
+  }
+  void set_has_default_methods(bool b) {
+    if (b) {
+      _misc_flags |= _misc_has_default_methods;
+    } else {
+      _misc_flags &= ~_misc_has_default_methods;
+    }
+  }
 
   // for adding methods, ConstMethod::UNSET_IDNUM means no more ids available
   inline u2 next_method_idnum();
@@ -649,15 +681,19 @@ class InstanceKlass: public Klass {
   // annotations support
   Annotations* annotations() const          { return _annotations; }
   void set_annotations(Annotations* anno)   { _annotations = anno; }
+
   AnnotationArray* class_annotations() const {
-    if (annotations() == NULL) return NULL;
-    return annotations()->class_annotations();
+    return (_annotations != NULL) ? _annotations->class_annotations() : NULL;
   }
   Array<AnnotationArray*>* fields_annotations() const {
-    if (annotations() == NULL) return NULL;
-    return annotations()->fields_annotations();
+    return (_annotations != NULL) ? _annotations->fields_annotations() : NULL;
   }
-
+  AnnotationArray* class_type_annotations() const {
+    return (_annotations != NULL) ? _annotations->class_type_annotations() : NULL;
+  }
+  Array<AnnotationArray*>* fields_type_annotations() const {
+    return (_annotations != NULL) ? _annotations->fields_type_annotations() : NULL;
+  }
   // allocation
   instanceOop allocate_instance(TRAPS);
 
@@ -724,7 +760,10 @@ class InstanceKlass: public Klass {
   void set_implementor(Klass* k) {
     assert(is_interface(), "not interface");
     Klass** addr = adr_implementor();
-    *addr = k;
+    assert(addr != NULL, "null addr");
+    if (addr != NULL) {
+      *addr = k;
+    }
   }
 
   int  nof_implementors() const       {
@@ -776,6 +815,7 @@ class InstanceKlass: public Klass {
 
   // Sizing (in words)
   static int header_size()            { return align_object_offset(sizeof(InstanceKlass)/HeapWordSize); }
+
   static int size(int vtable_length, int itable_length,
                   int nonstatic_oop_map_size,
                   bool is_interface, bool is_anonymous) {
@@ -794,6 +834,9 @@ class InstanceKlass: public Klass {
                                                is_interface(),
                                                is_anonymous());
   }
+#if INCLUDE_SERVICES
+  virtual void collect_statistics(KlassSizeStats *sz) const;
+#endif
 
   static int vtable_start_offset()    { return header_size(); }
   static int vtable_length_offset()   { return offset_of(InstanceKlass, _vtable_len) / HeapWordSize; }
@@ -810,10 +853,14 @@ class InstanceKlass: public Klass {
     return (OopMapBlock*)(start_of_itable() + align_object_offset(itable_length()));
   }
 
+  Klass** end_of_nonstatic_oop_maps() const {
+    return (Klass**)(start_of_nonstatic_oop_maps() +
+                     nonstatic_oop_map_count());
+  }
+
   Klass** adr_implementor() const {
     if (is_interface()) {
-      return (Klass**)(start_of_nonstatic_oop_maps() +
-                    nonstatic_oop_map_count());
+      return (Klass**)end_of_nonstatic_oop_maps();
     } else {
       return NULL;
     }
@@ -825,8 +872,7 @@ class InstanceKlass: public Klass {
       if (adr_impl != NULL) {
         return adr_impl + 1;
       } else {
-        return (Klass**)(start_of_nonstatic_oop_maps() +
-                      nonstatic_oop_map_count());
+        return end_of_nonstatic_oop_maps();
       }
     } else {
       return NULL;
@@ -900,13 +946,13 @@ class InstanceKlass: public Klass {
   ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceKlass_OOP_OOP_ITERATE_DECL)
   ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceKlass_OOP_OOP_ITERATE_DECL)
 
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
 #define InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DECL(OopClosureType, nv_suffix) \
   int  oop_oop_iterate_backwards##nv_suffix(oop obj, OopClosureType* blk);
 
   ALL_OOP_OOP_ITERATE_CLOSURES_1(InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DECL)
   ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DECL)
-#endif // !SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   u2 idnum_allocated_count() const      { return _idnum_allocated_count; }
 private:

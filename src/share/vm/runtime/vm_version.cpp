@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1998, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -114,9 +114,6 @@ void Abstract_VM_Version::initialize() {
 #endif
 
 #ifndef VMTYPE
-  #ifdef KERNEL
-    #define VMTYPE "Kernel"
-  #else // KERNEL
   #ifdef TIERED
     #define VMTYPE "Server"
   #else // TIERED
@@ -131,7 +128,6 @@ void Abstract_VM_Version::initialize() {
                     COMPILER2_PRESENT("Server")
   #endif // ZERO
   #endif // TIERED
-  #endif // KERNEL
 #endif
 
 #ifndef HOTSPOT_VM_DISTRO
@@ -189,16 +185,13 @@ const char* Abstract_VM_Version::jre_release_version() {
 #ifdef ZERO
 #define CPU      ZERO_LIBARCH
 #else
-#ifdef TARGET_ARCH_aarch64
-#define CPU       "aarch64"
-#else
 #define CPU      IA32_ONLY("x86")                \
                  IA64_ONLY("ia64")               \
                  AMD64_ONLY("amd64")             \
                  ARM_ONLY("arm")                 \
                  PPC_ONLY("ppc")                 \
+                 AARCH64_ONLY("aarch64")	 \
                  SPARC_ONLY("sparc")
-#endif // TARGET_ARCH_aarch64
 #endif // ZERO
 
 const char *Abstract_VM_Version::vm_platform_string() {

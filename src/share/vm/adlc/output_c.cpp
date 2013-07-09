@@ -2278,8 +2278,13 @@ private:
   const char* reg_conversion(const char* rep_var) {
     if (strcmp(rep_var,"$Register") == 0)      return "as_Register";
     if (strcmp(rep_var,"$FloatRegister") == 0) return "as_FloatRegister";
+// the AArch64 (x86-hybrid) simulator build defines AMD64
+// but it does not want to see XMMRegister
+#ifdef BUILTIN_SIM
+#else
 #if defined(IA32) || defined(AMD64)
     if (strcmp(rep_var,"$XMMRegister") == 0)   return "as_XMMRegister";
+#endif
 #endif
     return NULL;
   }

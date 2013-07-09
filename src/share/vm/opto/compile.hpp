@@ -72,6 +72,7 @@ class SafePointNode;
 class JVMState;
 class TypeData;
 class TypePtr;
+class TypeOopPtr;
 class TypeFunc;
 class Unique_Node_List;
 class nmethod;
@@ -280,6 +281,8 @@ class Compile : public Phase {
   int                   _orig_pc_slot_offset_in_bytes;
 
   int                   _major_progress;        // Count of something big happening
+  bool                  _inlining_progress;     // progress doing incremental inlining?
+  bool                  _inlining_incrementally;// Are we doing incremental inlining (post parse)
   bool                  _has_loops;             // True if the method _may_ have some loops
   bool                  _has_split_ifs;         // True if the method _may_ have some split-if
   bool                  _has_unsafe_access;     // True if the method _may_ produce faults in unsafe loads or stores.
@@ -311,6 +314,7 @@ class Compile : public Phase {
   GrowableArray<CallGenerator*>* _intrinsics;   // List of intrinsics.
   GrowableArray<Node*>* _macro_nodes;           // List of nodes which need to be expanded before matching.
   GrowableArray<Node*>* _predicate_opaqs;       // List of Opaque1 nodes for the loop predicates.
+  GrowableArray<Node*>* _expensive_nodes;       // List of nodes that are expensive to compute and that we'd better not let the GVN freely common
   ConnectionGraph*      _congraph;
 #ifndef PRODUCT
   IdealGraphPrinter*    _printer;
@@ -367,8 +371,13 @@ class Compile : public Phase {
   Unique_Node_List*     _for_igvn;              // Initial work-list for next round of Iterative GVN
   WarmCallInfo*         _warm_calls;            // Sorted work-list for heat-based inlining.
 
-  GrowableArray<CallGenerator*> _late_inlines;  // List of CallGenerators to be revisited after
-                                                // main parsing has finished.
+  GrowableArray<CallGenerator*> _late_inlines;        // List of CallGenerators to be revisited after
+                                                      // main parsing has finished.
+  GrowableArray<CallGenerator*> _string_late_inlines; // same but for string operations
+
+  int                           _late_inlines_pos;    // Where in the queue should the next late inlining candidate go (emulate depth first inlining)
+  uint                          _number_of_mh_late_inlines; // number of method handle late inlining still pending
+
 
   // Inlining may not happen in parse order which would make
   // PrintInlining output confusing. Keep track of PrintInlining
@@ -389,6 +398,13 @@ class Compile : public Phase {
 
   GrowableArray<PrintInliningBuffer>* _print_inlining_list;
   int _print_inlining;
+
+  // Only keep nodes in the expensive node list that need to be optimized
+  void cleanup_expensive_nodes(PhaseIterGVN &igvn);
+  // Use for sorting expensive nodes to bring similar nodes together
+  static int cmp_expensive_nodes(Node** n1, Node** n2);
+  // Expensive nodes list already sorted?
+  bool expensive_nodes_sorted() const;
 
  public:
 
@@ -491,6 +507,10 @@ class Compile : public Phase {
   int               fixed_slots() const         { assert(_fixed_slots >= 0, "");         return _fixed_slots; }
   void          set_fixed_slots(int n)          { _fixed_slots = n; }
   int               major_progress() const      { return _major_progress; }
+  void          set_inlining_progress(bool z)   { _inlining_progress = z; }
+  int               inlining_progress() const   { return _inlining_progress; }
+  void          set_inlining_incrementally(bool z) { _inlining_incrementally = z; }
+  int               inlining_incrementally() const { return _inlining_incrementally; }
   void          set_major_progress()            { _major_progress++; }
   void        clear_major_progress()            { _major_progress = 0; }
   int               num_loop_opts() const       { return _num_loop_opts; }
@@ -561,8 +581,10 @@ class Compile : public Phase {
 
   int           macro_count()                   { return _macro_nodes->length(); }
   int           predicate_count()               { return _predicate_opaqs->length();}
+  int           expensive_count()               { return _expensive_nodes->length(); }
   Node*         macro_node(int idx)             { return _macro_nodes->at(idx); }
   Node*         predicate_opaque1_node(int idx) { return _predicate_opaqs->at(idx);}
+  Node*         expensive_node(int idx)         { return _expensive_nodes->at(idx); }
   ConnectionGraph* congraph()                   { return _congraph;}
   void set_congraph(ConnectionGraph* congraph)  { _congraph = congraph;}
   void add_macro_node(Node * n) {
@@ -580,6 +602,12 @@ class Compile : public Phase {
       _predicate_opaqs->remove(n);
     }
   }
+  void add_expensive_node(Node * n);
+  void remove_expensive_node(Node * n) {
+    if (_expensive_nodes->contains(n)) {
+      _expensive_nodes->remove(n);
+    }
+  }
   void add_predicate_opaq(Node * n) {
     assert(!_predicate_opaqs->contains(n), " duplicate entry in predicate opaque1");
     assert(_macro_nodes->contains(n), "should have already been in macro list");
@@ -591,6 +619,13 @@ class Compile : public Phase {
   bool is_predicate_opaq(Node * n) {
     return _predicate_opaqs->contains(n);
   }
+
+  // Are there candidate expensive nodes for optimization?
+  bool should_optimize_expensive_nodes(PhaseIterGVN &igvn);
+  // Check whether n1 and n2 are similar
+  static int cmp_expensive_nodes(Node* n1, Node* n2);
+  // Sort expensive nodes to locate similar expensive nodes
+  void sort_expensive_nodes();
 
   // Compilation environment.
   Arena*            comp_arena()                { return &_comp_arena; }
@@ -643,6 +678,7 @@ class Compile : public Phase {
   void         record_dead_node(uint idx)  { if (_dead_node_list.test_set(idx)) return;
                                              _dead_node_count++;
                                            }
+  bool         is_dead_node(uint idx)      { return _dead_node_list.test(idx) != 0; }
   uint         dead_node_count()           { return _dead_node_count; }
   void         reset_dead_node_list()      { _dead_node_list.Reset();
                                              _dead_node_count = 0;
@@ -729,8 +765,16 @@ class Compile : public Phase {
 
   // Decide how to build a call.
   // The profile factor is a discount to apply to this site's interp. profile.
-  CallGenerator*    call_generator(ciMethod* call_method, int vtable_index, bool call_is_virtual, JVMState* jvms, bool allow_inline, float profile_factor, bool allow_intrinsics = true);
+  CallGenerator*    call_generator(ciMethod* call_method, int vtable_index, bool call_does_dispatch, JVMState* jvms, bool allow_inline, float profile_factor, bool allow_intrinsics = true, bool delayed_forbidden = false);
   bool should_delay_inlining(ciMethod* call_method, JVMState* jvms);
+
+  // Helper functions to identify inlining potential at call-site
+  ciMethod* optimize_virtual_call(ciMethod* caller, int bci, ciInstanceKlass* klass,
+                                  ciMethod* callee, const TypeOopPtr* receiver_type,
+                                  bool is_virtual,
+                                  bool &call_does_dispatch, int &vtable_index);
+  ciMethod* optimize_inlining(ciMethod* caller, int bci, ciInstanceKlass* klass,
+                              ciMethod* callee, const TypeOopPtr* receiver_type);
 
   // Report if there were too many traps at a current method and bci.
   // Report if a trap was recorded, and/or PerMethodTrapLimit was exceeded.
@@ -765,9 +809,38 @@ class Compile : public Phase {
   WarmCallInfo* pop_warm_call();
 
   // Record this CallGenerator for inlining at the end of parsing.
-  void              add_late_inline(CallGenerator* cg) { _late_inlines.push(cg); }
+  void              add_late_inline(CallGenerator* cg)        {
+    _late_inlines.insert_before(_late_inlines_pos, cg);
+    _late_inlines_pos++;
+  }
+
+  void              prepend_late_inline(CallGenerator* cg)    {
+    _late_inlines.insert_before(0, cg);
+  }
+
+  void              add_string_late_inline(CallGenerator* cg) {
+    _string_late_inlines.push(cg);
+  }
+
+  void remove_useless_late_inlines(GrowableArray<CallGenerator*>* inlines, Unique_Node_List &useful);
 
   void dump_inlining();
+
+  bool over_inlining_cutoff() const {
+    if (!inlining_incrementally()) {
+      return unique() > (uint)NodeCountInliningCutoff;
+    } else {
+      return live_nodes() > (uint)LiveNodeCountInliningCutoff;
+    }
+  }
+
+  void inc_number_of_mh_late_inlines() { _number_of_mh_late_inlines++; }
+  void dec_number_of_mh_late_inlines() { assert(_number_of_mh_late_inlines > 0, "_number_of_mh_late_inlines < 0 !"); _number_of_mh_late_inlines--; }
+  bool has_mh_late_inlines() const     { return _number_of_mh_late_inlines > 0; }
+
+  void inline_incrementally_one(PhaseIterGVN& igvn);
+  void inline_incrementally(PhaseIterGVN& igvn);
+  void inline_string_calls(bool parse_time);
 
   // Matching, CFG layout, allocation, code generation
   PhaseCFG*         cfg()                       { return _cfg; }
@@ -1014,6 +1087,9 @@ class Compile : public Phase {
 
   // Definitions of pd methods
   static void pd_compiler2_init();
+
+  // Auxiliary method for randomized fuzzing/stressing
+  static bool randomized_select(int count);
 };
 
 #endif // SHARE_VM_OPTO_COMPILE_HPP

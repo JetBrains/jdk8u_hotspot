@@ -29,9 +29,6 @@
 #include "utilities/globalDefinitions.hpp"
 #include "asm/register.hpp"
 
-#ifdef TARGET_ARCH_aarch64
-# include "register_aarch64.hpp"
-#endif
 #ifdef COMPILER2
 #include "opto/adlcVMDeps.hpp"
 #include "utilities/ostream.hpp"

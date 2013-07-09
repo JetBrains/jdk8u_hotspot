@@ -45,6 +45,7 @@
 #include "runtime/timer.hpp"
 #include "runtime/vframeArray.hpp"
 #include "utilities/debug.hpp"
+#include "utilities/macros.hpp"
 #ifdef SHARK
 #include "shark/shark_globals.hpp"
 #endif
@@ -137,7 +138,7 @@ address CppInterpreterGenerator::generate_result_handler_for(BasicType type) {
   }
   __ ret();                           // return from interpreter activation
   __ delayed()->restore(I5_savedSP, G0, SP);  // remove interpreter frame
-  NOT_PRODUCT(__ emit_long(0);)       // marker for disassembly
+  NOT_PRODUCT(__ emit_int32(0);)       // marker for disassembly
   return entry;
 }
 
@@ -232,7 +233,7 @@ address CppInterpreterGenerator::generate_tosca_to_stack_converter(BasicType typ
   }
   __ retl();                          // return from interpreter activation
   __ delayed()->nop();                // schedule this better
-  NOT_PRODUCT(__ emit_long(0);)       // marker for disassembly
+  NOT_PRODUCT(__ emit_int32(0);)       // marker for disassembly
   return entry;
 }
 
@@ -551,7 +552,7 @@ address InterpreterGenerator::generate_accessor_entry(void) {
 }
 
 address InterpreterGenerator::generate_Reference_get_entry(void) {
-#ifndef SERIALGC
+#if INCLUDE_ALL_GCS
   if (UseG1GC) {
     // We need to generate have a routine that generates code to:
     //   * load the value in the referent field
@@ -563,7 +564,7 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
     // field as live.
     Unimplemented();
   }
-#endif // SERIALGC
+#endif // INCLUDE_ALL_GCS
 
   // If G1 is not enabled then attempt to go through the accessor entry point
   // Reference.get is an accessor
@@ -1473,7 +1474,7 @@ static address interpreter_frame_manager = NULL;
     __ brx(Assembler::equal, false, Assembler::pt, skip);         \
     __ delayed()->nop();                                          \
     __ breakpoint_trap();                                         \
-    __ emit_long(marker);                                         \
+    __ emit_int32(marker);                                         \
     __ bind(skip);                                                \
   }
 #else

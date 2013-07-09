@@ -58,7 +58,7 @@
 #include "utilities/copy.hpp"
 #include "utilities/events.hpp"
 
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
 #include "../../../../../../simulator/simulator.hpp"
 #endif
 
@@ -208,11 +208,16 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
 #if defined(SPARC) || defined(PPC)
     case handle_exception_nofpu_id:  // Unused on sparc
 #endif
+#ifdef TARGET_ARCH_aarch64
+    case throw_index_exception_id:
+    case throw_array_store_exception_id:
+    case deoptimize_id:
+#endif
       break;
 
     // All other stubs should have oopmaps
     default:
-      // assert(oop_maps != NULL, "must have an oopmap");
+      assert(oop_maps != NULL, "must have an oopmap");
       break;
   }
 #endif
@@ -228,12 +233,14 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
                                                  sasm->frame_size(),
                                                  oop_maps,
                                                  sasm->must_gc_arguments());
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
   if (NotifySimulator) {
+    size_t len = 65536;
+    char *name = new char[len];
+
     // tell the sim about the new stub code
     AArch64Simulator *simulator = AArch64Simulator::current();
-    char name[400];
-    strcpy(name, name_for(id));
+    strncpy(name, name_for(id), len);
     // replace spaces with underscore so we can write to file and reparse
     for (char *p = strpbrk(name, " "); p; p = strpbrk(p, " ")) {
       *p = '_';
@@ -242,6 +249,7 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
     simulator->notifyCompile(name, base);
     // code does not get relocated so just pass offset 0 and the code is live
     simulator->notifyRelocate(base, 0);
+    delete[] name;
   }
 #endif
   // install blob

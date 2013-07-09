@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 2000, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, Red Hat Inc.
+ * Copyright (c) 2000, 2011, Oracle and/or its affiliates.
+ * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -64,7 +66,7 @@ define_pd_global(intx, PreInflateSpin,           10);
 define_pd_global(bool, RewriteBytecodes,     true);
 define_pd_global(bool, RewriteFrequentPairs, false);
 
-define_pd_global(bool, UseMembar,            false);
+define_pd_global(bool, UseMembar,            true);
 
 // GC Ergo Flags
 define_pd_global(intx, CMSYoungGenPerWorker, 64*M);  // default max size of CMS young gen, per GC worker thread
@@ -72,14 +74,31 @@ define_pd_global(intx, CMSYoungGenPerWorker, 64*M);  // default max size of CMS 
 // avoid biased locking while we are bootstrapping the aarch64 build
 define_pd_global(bool, UseBiasedLocking, false);
 
+#if defined(COMPILER1) || defined(COMPILER2)
 define_pd_global(intx, InlineSmallCode,          1000);
+#endif
 
+#ifdef BUILTIN_SIM
+#define UseBuiltinSim		true
 #define ARCH_FLAGS(develop, product, diagnostic, experimental, notproduct) \
-                                                                           \
-  product(bool, NotifySimulator, true,                                     \
-         "tell the AArch64 sim where we are in method code")               \
-                                                                           \
-  product(bool, UseSimulatorCache, false,                                  \
-         "tell sim to cache memory updates until exclusive op occurs")     \
+									\
+  product(bool, NotifySimulator, UseBuiltinSim,                         \
+         "tell the AArch64 sim where we are in method code")		\
+									\
+  product(bool, UseSimulatorCache, false,				\
+         "tell sim to cache memory updates until exclusive op occurs")	\
+									\
+  product(bool, NearCpool, true,					\
+         "constant pool is close to instructions")
+
+#else
+#define UseBuiltinSim		false
+#define NotifySimulator		false
+#define UseSimulatorCache	false
+#define ARCH_FLAGS(develop, product, diagnostic, experimental, notproduct) \
+									\
+  product(bool, NearCpool, true,					\
+         "constant pool is close to instructions")
+#endif
 
 #endif // CPU_AARCH64_VM_GLOBALS_AARCH64_HPP

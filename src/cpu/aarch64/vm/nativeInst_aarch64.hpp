@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 1997, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, Red Hat Inc.
+ * Copyright (c) 1997, 2011, Oracle and/or its affiliates.
+ * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -93,6 +95,11 @@ class NativeInstruction VALUE_OBJ_CLASS_SPEC {
   inline friend NativeInstruction* nativeInstruction_at(address address);
 
   static bool is_adrp_at(address instr);
+  static bool is_ldr_literal_at(address instr);
+
+  static bool maybe_cpool_ref(address instr) {
+    return is_adrp_at(instr) || is_ldr_literal_at(instr);
+  }
 };
 
 inline NativeInstruction* nativeInstruction_at(address address) {
@@ -201,7 +208,15 @@ class NativeMovConstReg: public NativeInstruction {
   };
 
   address instruction_address() const       { return addr_at(instruction_offset); }
-  address next_instruction_address() const  { return addr_at(instruction_size); }
+  address next_instruction_address() const  {
+    if (is_adrp_at(instruction_address()))
+      return addr_at(2*4);
+    else if (is_ldr_literal_at(instruction_address()))
+      return(addr_at(4));
+    else
+      return addr_at(instruction_size);
+  }
+
   intptr_t data() const;
   void  set_data(intptr_t x);
 

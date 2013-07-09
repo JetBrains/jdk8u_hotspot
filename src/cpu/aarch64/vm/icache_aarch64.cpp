@@ -1,5 +1,7 @@
 /*
- * Copyright (c) 1997, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, Red Hat Inc.
+ * Copyright (c) 1997, 2010, Oracle and/or its affiliates.
+ * All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -51,7 +53,9 @@ void ICacheStubGenerator::generate_icache_flush(ICache::flush_icache_stub_t* flu
   // which follows, loading the 3 general registers passed by the
   // caller into the first 3 ARM registers
 
+#ifdef BUILTIN_SIM
   __ c_stub_prolog(3, 0, MacroAssembler::ret_type_integral);
+#endif
 
   address entry = __ pc();
 

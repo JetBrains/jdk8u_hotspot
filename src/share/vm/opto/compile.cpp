@@ -72,7 +72,6 @@
 #endif
 #ifdef TARGET_ARCH_MODEL_aarch64
 # include "adfiles/ad_aarch64.hpp"
-# include "../../../../../../simulator/simulator.hpp"
 #endif
 #ifdef TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
@@ -87,6 +86,9 @@
 # include "adfiles/ad_ppc.hpp"
 #endif
 
+#ifdef BUILTIN_SIM
+#include "../../../../../../simulator/simulator.hpp"
+#endif
 
 // -------------------- Compile::mach_constant_base_node -----------------------
 // Constant table base node singleton.
@@ -140,7 +142,7 @@ int Compile::intrinsic_insertion_index(ciMethod* m, bool is_virtual) {
 
 void Compile::register_intrinsic(CallGenerator* cg) {
   if (_intrinsics == NULL) {
-    _intrinsics = new GrowableArray<CallGenerator*>(60);
+    _intrinsics = new (comp_arena())GrowableArray<CallGenerator*>(comp_arena(), 60, 0, NULL);
   }
   // This code is stolen from ciObjectFactory::insert.
   // Really, GrowableArray should have methods for
@@ -369,6 +371,21 @@ void Compile::update_dead_node_list(Unique_Node_List &useful) {
   }
 }
 
+void Compile::remove_useless_late_inlines(GrowableArray<CallGenerator*>* inlines, Unique_Node_List &useful) {
+  int shift = 0;
+  for (int i = 0; i < inlines->length(); i++) {
+    CallGenerator* cg = inlines->at(i);
+    CallNode* call = cg->call_node();
+    if (shift > 0) {
+      inlines->at_put(i-shift, cg);
+    }
+    if (!useful.member(call)) {
+      shift++;
+    }
+  }
+  inlines->trunc_to(inlines->length()-shift);
+}
+
 // Disconnect all useless nodes by disconnecting those at the boundary.
 void Compile::remove_useless_nodes(Unique_Node_List &useful) {
   uint next = 0;
@@ -398,6 +415,16 @@ void Compile::remove_useless_nodes(Unique_Node_List &useful) {
       remove_macro_node(n);
     }
   }
+  // Remove useless expensive node
+  for (int i = C->expensive_count()-1; i >= 0; i--) {
+    Node* n = C->expensive_node(i);
+    if (!useful.member(n)) {
+      remove_expensive_node(n);
+    }
+  }
+  // clean up the late inline lists
+  remove_useless_late_inlines(&_string_late_inlines, useful);
+  remove_useless_late_inlines(&_late_inlines, useful);
   debug_only(verify_graph_edges(true/*check for no_dead_code*/);)
 }
 
@@ -615,6 +642,12 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
                   _printer(IdealGraphPrinter::printer()),
 #endif
                   _congraph(NULL),
+                  _late_inlines(comp_arena(), 2, 0, NULL),
+                  _string_late_inlines(comp_arena(), 2, 0, NULL),
+                  _late_inlines_pos(0),
+                  _number_of_mh_late_inlines(0),
+                  _inlining_progress(false),
+                  _inlining_incrementally(false),
                   _print_inlining_list(NULL),
                   _print_inlining(0) {
   C = this;
@@ -672,7 +705,7 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
   PhaseGVN gvn(node_arena(), estimated_size);
   set_initial_gvn(&gvn);
 
-  if (PrintInlining) {
+  if (PrintInlining  || PrintIntrinsics NOT_PRODUCT( || PrintOptoInlining)) {
     _print_inlining_list = new (comp_arena())GrowableArray<PrintInliningBuffer>(comp_arena(), 1, 1, PrintInliningBuffer());
   }
   { // Scope for timing the parser
@@ -741,29 +774,13 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       rethrow_exceptions(kit.transfer_exceptions_into_jvms());
     }
 
-    if (!failing() && has_stringbuilder()) {
-      {
-        // remove useless nodes to make the usage analysis simpler
-        ResourceMark rm;
-        PhaseRemoveUseless pru(initial_gvn(), &for_igvn);
-      }
+    assert(IncrementalInline || (_late_inlines.length() == 0 && !has_mh_late_inlines()), "incremental inlining is off");
 
-      {
-        ResourceMark rm;
-        print_method("Before StringOpts", 3);
-        PhaseStringOpts pso(initial_gvn(), &for_igvn);
-        print_method("After StringOpts", 3);
-      }
-
-      // now inline anything that we skipped the first time around
-      while (_late_inlines.length() > 0) {
-        CallGenerator* cg = _late_inlines.pop();
-        cg->do_late_inline();
-        if (failing())  return;
-      }
+    if (_late_inlines.length() == 0 && !has_mh_late_inlines() && !failing() && has_stringbuilder()) {
+      inline_string_calls(true);
     }
-    assert(_late_inlines.length() == 0, "should have been processed");
-    dump_inlining();
+
+    if (failing())  return;
 
     print_method("Before RemoveUseless", 3);
 
@@ -851,19 +868,27 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       _code_offsets.set_value(CodeOffsets::OSR_Entry, 0);
     }
 
-#ifdef TARGET_ARCH_aarch64
-    char method_name[400];
-    unsigned char *entry = code_buffer()->insts_begin();
-    stringStream st(method_name, 400);
-    if (_entry_bci != InvocationEntryBci) {
-      st.print("osr:");
+#ifdef BUILTIN_SIM
+    char *method_name = NULL;
+    AArch64Simulator *sim = NULL;
+    size_t len = 65536;
+    if (NotifySimulator) {
+      method_name = new char[len];
     }
-    _method->holder()->name()->print_symbol_on(&st);
-    st.print(".");
-    _method->name()->print_symbol_on(&st);
-    _method->signature()->as_symbol()->print_symbol_on(&st);
-    AArch64Simulator::current()->notifyCompile(method_name, entry);
-    AArch64Simulator::current()->notifyRelocate(entry, 0);
+    if (method_name) {
+      unsigned char *entry = code_buffer()->insts_begin();
+      stringStream st(method_name, 400);
+      if (_entry_bci != InvocationEntryBci) {
+        st.print("osr:");
+      }
+      _method->holder()->name()->print_symbol_on(&st);
+      st.print(".");
+      _method->name()->print_symbol_on(&st);
+      _method->signature()->as_symbol()->print_symbol_on(&st);
+      sim = AArch64Simulator::current();
+      sim->notifyCompile(method_name, entry);
+      sim->notifyRelocate(entry, 0);
+    }
 #endif
 
     env()->register_method(_method, _entry_bci,
@@ -925,6 +950,9 @@ Compile::Compile( ciEnv* ci_env,
     _dead_node_list(comp_arena()),
     _dead_node_count(0),
     _congraph(NULL),
+    _number_of_mh_late_inlines(0),
+    _inlining_progress(false),
+    _inlining_incrementally(false),
     _print_inlining_list(NULL),
     _print_inlining(0) {
   C = this;
@@ -1069,6 +1097,7 @@ void Compile::Init(int aliaslevel) {
   _intrinsics = NULL;
   _macro_nodes = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   _predicate_opaqs = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
+  _expensive_nodes = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   register_library_intrinsics();
 }
 
@@ -1779,6 +1808,124 @@ void Compile::cleanup_loop_predicates(PhaseIterGVN &igvn) {
   assert(predicate_count()==0, "should be clean!");
 }
 
+// StringOpts and late inlining of string methods
+void Compile::inline_string_calls(bool parse_time) {
+  {
+    // remove useless nodes to make the usage analysis simpler
+    ResourceMark rm;
+    PhaseRemoveUseless pru(initial_gvn(), for_igvn());
+  }
+
+  {
+    ResourceMark rm;
+    print_method("Before StringOpts", 3);
+    PhaseStringOpts pso(initial_gvn(), for_igvn());
+    print_method("After StringOpts", 3);
+  }
+
+  // now inline anything that we skipped the first time around
+  if (!parse_time) {
+    _late_inlines_pos = _late_inlines.length();
+  }
+
+  while (_string_late_inlines.length() > 0) {
+    CallGenerator* cg = _string_late_inlines.pop();
+    cg->do_late_inline();
+    if (failing())  return;
+  }
+  _string_late_inlines.trunc_to(0);
+}
+
+void Compile::inline_incrementally_one(PhaseIterGVN& igvn) {
+  assert(IncrementalInline, "incremental inlining should be on");
+  PhaseGVN* gvn = initial_gvn();
+
+  set_inlining_progress(false);
+  for_igvn()->clear();
+  gvn->replace_with(&igvn);
+
+  int i = 0;
+
+  for (; i <_late_inlines.length() && !inlining_progress(); i++) {
+    CallGenerator* cg = _late_inlines.at(i);
+    _late_inlines_pos = i+1;
+    cg->do_late_inline();
+    if (failing())  return;
+  }
+  int j = 0;
+  for (; i < _late_inlines.length(); i++, j++) {
+    _late_inlines.at_put(j, _late_inlines.at(i));
+  }
+  _late_inlines.trunc_to(j);
+
+  {
+    ResourceMark rm;
+    PhaseRemoveUseless pru(C->initial_gvn(), C->for_igvn());
+  }
+
+  igvn = PhaseIterGVN(gvn);
+}
+
+// Perform incremental inlining until bound on number of live nodes is reached
+void Compile::inline_incrementally(PhaseIterGVN& igvn) {
+  PhaseGVN* gvn = initial_gvn();
+
+  set_inlining_incrementally(true);
+  set_inlining_progress(true);
+  uint low_live_nodes = 0;
+
+  while(inlining_progress() && _late_inlines.length() > 0) {
+
+    if (live_nodes() > (uint)LiveNodeCountInliningCutoff) {
+      if (low_live_nodes < (uint)LiveNodeCountInliningCutoff * 8 / 10) {
+        // PhaseIdealLoop is expensive so we only try it once we are
+        // out of loop and we only try it again if the previous helped
+        // got the number of nodes down significantly
+        PhaseIdealLoop ideal_loop( igvn, false, true );
+        if (failing())  return;
+        low_live_nodes = live_nodes();
+        _major_progress = true;
+      }
+
+      if (live_nodes() > (uint)LiveNodeCountInliningCutoff) {
+        break;
+      }
+    }
+
+    inline_incrementally_one(igvn);
+
+    if (failing())  return;
+
+    igvn.optimize();
+
+    if (failing())  return;
+  }
+
+  assert( igvn._worklist.size() == 0, "should be done with igvn" );
+
+  if (_string_late_inlines.length() > 0) {
+    assert(has_stringbuilder(), "inconsistent");
+    for_igvn()->clear();
+    initial_gvn()->replace_with(&igvn);
+
+    inline_string_calls(false);
+
+    if (failing())  return;
+
+    {
+      ResourceMark rm;
+      PhaseRemoveUseless pru(initial_gvn(), for_igvn());
+    }
+
+    igvn = PhaseIterGVN(gvn);
+
+    igvn.optimize();
+  }
+
+  set_inlining_incrementally(false);
+}
+
+
 //------------------------------Optimize---------------------------------------
 // Given a graph, optimize it.
 void Compile::Optimize() {
@@ -1810,6 +1957,16 @@ void Compile::Optimize() {
   print_method("Iter GVN 1", 2);
 
   if (failing())  return;
+
+  inline_incrementally(igvn);
+
+  print_method("Incremental Inline", 2);
+
+  if (failing())  return;
+
+  // No more new expensive nodes will be added to the list from here
+  // so keep only the actual candidates for optimizations.
+  cleanup_expensive_nodes(igvn);
 
   // Perform escape analysis
   if (_do_escape_analysis && ConnectionGraph::has_candidates(this)) {
@@ -1933,6 +2090,7 @@ void Compile::Optimize() {
 
  } // (End scope of igvn; run destructor if necessary for asserts.)
 
+  dump_inlining();
   // A method with only infinite loops has no edges entering loops from root
   {
     NOT_PRODUCT( TracePhase t2("graphReshape", &_t_graphReshaping, TimeCompiler); )
@@ -2770,6 +2928,13 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
       }
     }
     break;
+  case Op_MemBarStoreStore:
+    // Break the link with AllocateNode: it is no longer useful and
+    // confuses register allocation.
+    if (n->req() > MemBarNode::Precedent) {
+      n->set_req(MemBarNode::Precedent, top());
+    }
+    break;
   default:
     assert( !n->is_Call(), "" );
     assert( !n->is_Mem(), "" );
@@ -2891,6 +3056,15 @@ bool Compile::final_graph_reshaping() {
   if (root()->req() == 1) {
     record_method_not_compilable("trivial infinite loop");
     return true;
+  }
+
+  // Expensive nodes have their control input set to prevent the GVN
+  // from freely commoning them. There's no GVN beyond this point so
+  // no need to keep the control input. We want the expensive nodes to
+  // be freely moved to the least frequent code path by gcm.
+  assert(OptimizeExpensiveOps || expensive_count() == 0, "optimization off but list non empty?");
+  for (int i = 0; i < expensive_count(); i++) {
+    _expensive_nodes->at(i)->set_req(0, NULL);
   }
 
   Final_Reshape_Counts frc;
@@ -3380,9 +3554,189 @@ void Compile::ConstantTable::fill_jump_table(CodeBuffer& cb, MachConstantNode* n
 }
 
 void Compile::dump_inlining() {
-  if (PrintInlining) {
+  if (PrintInlining || PrintIntrinsics NOT_PRODUCT( || PrintOptoInlining)) {
+    // Print inlining message for candidates that we couldn't inline
+    // for lack of space or non constant receiver
+    for (int i = 0; i < _late_inlines.length(); i++) {
+      CallGenerator* cg = _late_inlines.at(i);
+      cg->print_inlining_late("live nodes > LiveNodeCountInliningCutoff");
+    }
+    Unique_Node_List useful;
+    useful.push(root());
+    for (uint next = 0; next < useful.size(); ++next) {
+      Node* n  = useful.at(next);
+      if (n->is_Call() && n->as_Call()->generator() != NULL && n->as_Call()->generator()->call_node() == n) {
+        CallNode* call = n->as_Call();
+        CallGenerator* cg = call->generator();
+        cg->print_inlining_late("receiver not constant");
+      }
+      uint max = n->len();
+      for ( uint i = 0; i < max; ++i ) {
+        Node *m = n->in(i);
+        if ( m == NULL ) continue;
+        useful.push(m);
+      }
+    }
     for (int i = 0; i < _print_inlining_list->length(); i++) {
       tty->print(_print_inlining_list->at(i).ss()->as_string());
     }
   }
+}
+
+int Compile::cmp_expensive_nodes(Node* n1, Node* n2) {
+  if (n1->Opcode() < n2->Opcode())      return -1;
+  else if (n1->Opcode() > n2->Opcode()) return 1;
+
+  assert(n1->req() == n2->req(), err_msg_res("can't compare %s nodes: n1->req() = %d, n2->req() = %d", NodeClassNames[n1->Opcode()], n1->req(), n2->req()));
+  for (uint i = 1; i < n1->req(); i++) {
+    if (n1->in(i) < n2->in(i))      return -1;
+    else if (n1->in(i) > n2->in(i)) return 1;
+  }
+
+  return 0;
+}
+
+int Compile::cmp_expensive_nodes(Node** n1p, Node** n2p) {
+  Node* n1 = *n1p;
+  Node* n2 = *n2p;
+
+  return cmp_expensive_nodes(n1, n2);
+}
+
+void Compile::sort_expensive_nodes() {
+  if (!expensive_nodes_sorted()) {
+    _expensive_nodes->sort(cmp_expensive_nodes);
+  }
+}
+
+bool Compile::expensive_nodes_sorted() const {
+  for (int i = 1; i < _expensive_nodes->length(); i++) {
+    if (cmp_expensive_nodes(_expensive_nodes->adr_at(i), _expensive_nodes->adr_at(i-1)) < 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Compile::should_optimize_expensive_nodes(PhaseIterGVN &igvn) {
+  if (_expensive_nodes->length() == 0) {
+    return false;
+  }
+
+  assert(OptimizeExpensiveOps, "optimization off?");
+
+  // Take this opportunity to remove dead nodes from the list
+  int j = 0;
+  for (int i = 0; i < _expensive_nodes->length(); i++) {
+    Node* n = _expensive_nodes->at(i);
+    if (!n->is_unreachable(igvn)) {
+      assert(n->is_expensive(), "should be expensive");
+      _expensive_nodes->at_put(j, n);
+      j++;
+    }
+  }
+  _expensive_nodes->trunc_to(j);
+
+  // Then sort the list so that similar nodes are next to each other
+  // and check for at least two nodes of identical kind with same data
+  // inputs.
+  sort_expensive_nodes();
+
+  for (int i = 0; i < _expensive_nodes->length()-1; i++) {
+    if (cmp_expensive_nodes(_expensive_nodes->adr_at(i), _expensive_nodes->adr_at(i+1)) == 0) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void Compile::cleanup_expensive_nodes(PhaseIterGVN &igvn) {
+  if (_expensive_nodes->length() == 0) {
+    return;
+  }
+
+  assert(OptimizeExpensiveOps, "optimization off?");
+
+  // Sort to bring similar nodes next to each other and clear the
+  // control input of nodes for which there's only a single copy.
+  sort_expensive_nodes();
+
+  int j = 0;
+  int identical = 0;
+  int i = 0;
+  for (; i < _expensive_nodes->length()-1; i++) {
+    assert(j <= i, "can't write beyond current index");
+    if (_expensive_nodes->at(i)->Opcode() == _expensive_nodes->at(i+1)->Opcode()) {
+      identical++;
+      _expensive_nodes->at_put(j++, _expensive_nodes->at(i));
+      continue;
+    }
+    if (identical > 0) {
+      _expensive_nodes->at_put(j++, _expensive_nodes->at(i));
+      identical = 0;
+    } else {
+      Node* n = _expensive_nodes->at(i);
+      igvn.hash_delete(n);
+      n->set_req(0, NULL);
+      igvn.hash_insert(n);
+    }
+  }
+  if (identical > 0) {
+    _expensive_nodes->at_put(j++, _expensive_nodes->at(i));
+  } else if (_expensive_nodes->length() >= 1) {
+    Node* n = _expensive_nodes->at(i);
+    igvn.hash_delete(n);
+    n->set_req(0, NULL);
+    igvn.hash_insert(n);
+  }
+  _expensive_nodes->trunc_to(j);
+}
+
+void Compile::add_expensive_node(Node * n) {
+  assert(!_expensive_nodes->contains(n), "duplicate entry in expensive list");
+  assert(n->is_expensive(), "expensive nodes with non-null control here only");
+  assert(!n->is_CFG() && !n->is_Mem(), "no cfg or memory nodes here");
+  if (OptimizeExpensiveOps) {
+    _expensive_nodes->append(n);
+  } else {
+    // Clear control input and let IGVN optimize expensive nodes if
+    // OptimizeExpensiveOps is off.
+    n->set_req(0, NULL);
+  }
+}
+
+// Auxiliary method to support randomized stressing/fuzzing.
+//
+// This method can be called the arbitrary number of times, with current count
+// as the argument. The logic allows selecting a single candidate from the
+// running list of candidates as follows:
+//    int count = 0;
+//    Cand* selected = null;
+//    while(cand = cand->next()) {
+//      if (randomized_select(++count)) {
+//        selected = cand;
+//      }
+//    }
+//
+// Including count equalizes the chances any candidate is "selected".
+// This is useful when we don't have the complete list of candidates to choose
+// from uniformly. In this case, we need to adjust the randomicity of the
+// selection, or else we will end up biasing the selection towards the latter
+// candidates.
+//
+// Quick back-envelope calculation shows that for the list of n candidates
+// the equal probability for the candidate to persist as "best" can be
+// achieved by replacing it with "next" k-th candidate with the probability
+// of 1/k. It can be easily shown that by the end of the run, the
+// probability for any candidate is converged to 1/n, thus giving the
+// uniform distribution among all the candidates.
+//
+// We don't care about the domain size as long as (RANDOMIZED_DOMAIN / count) is large.
+#define RANDOMIZED_DOMAIN_POW 29
+#define RANDOMIZED_DOMAIN (1 << RANDOMIZED_DOMAIN_POW)
+#define RANDOMIZED_DOMAIN_MASK ((1 << (RANDOMIZED_DOMAIN_POW + 1)) - 1)
+bool Compile::randomized_select(int count) {
+  assert(count > 0, "only positive");
+  return (os::random() & RANDOMIZED_DOMAIN_MASK) < (RANDOMIZED_DOMAIN / count);
 }

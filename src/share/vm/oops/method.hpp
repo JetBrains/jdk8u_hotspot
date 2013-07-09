@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -100,6 +100,8 @@ class LocalVariableTableElement;
 class AdapterHandlerEntry;
 class MethodData;
 class ConstMethod;
+class InlineTableSizes;
+class KlassSizeStats;
 
 class Method : public Metadata {
  friend class VMStructs;
@@ -126,8 +128,8 @@ class Method : public Metadata {
   InvocationCounter _backedge_counter;           // Incremented before each backedge taken - used to trigger frequencey-based optimizations
 
 #ifdef TIERED
-  jlong             _prev_time;                   // Previous time the rate was acquired
   float             _rate;                        // Events (invocation and backedge counter increments) per millisecond
+  jlong             _prev_time;                   // Previous time the rate was acquired
 #endif
 
 #ifndef PRODUCT
@@ -155,11 +157,7 @@ class Method : public Metadata {
   static Method* allocate(ClassLoaderData* loader_data,
                           int byte_code_size,
                           AccessFlags access_flags,
-                          int compressed_line_number_size,
-                          int localvariable_table_length,
-                          int exception_table_length,
-                          int checked_exceptions_length,
-                          u2 generic_signature_index,
+                          InlineTableSizes* sizes,
                           ConstMethod::MethodType method_type,
                           TRAPS);
 
@@ -204,25 +202,16 @@ class Method : public Metadata {
 
   // annotations support
   AnnotationArray* annotations() const           {
-    InstanceKlass* ik = method_holder();
-    if (ik->annotations() == NULL) {
-      return NULL;
-    }
-    return ik->annotations()->get_method_annotations_of(method_idnum());
+    return constMethod()->method_annotations();
   }
   AnnotationArray* parameter_annotations() const {
-    InstanceKlass* ik = method_holder();
-    if (ik->annotations() == NULL) {
-      return NULL;
-    }
-    return ik->annotations()->get_method_parameter_annotations_of(method_idnum());
+    return constMethod()->parameter_annotations();
   }
   AnnotationArray* annotation_default() const    {
-    InstanceKlass* ik = method_holder();
-    if (ik->annotations() == NULL) {
-      return NULL;
-    }
-    return ik->annotations()->get_method_default_annotations_of(method_idnum());
+    return constMethod()->default_annotations();
+  }
+  AnnotationArray* type_annotations() const      {
+    return constMethod()->type_annotations();
   }
 
 #ifdef CC_INTERP
@@ -342,7 +331,7 @@ class Method : public Metadata {
   // exception handler which caused the exception to be thrown, which
   // is needed for proper retries. See, for example,
   // InterpreterRuntime::exception_handler_for_exception.
-  int fast_exception_handler_bci_for(KlassHandle ex_klass, int throw_bci, TRAPS);
+  static int fast_exception_handler_bci_for(methodHandle mh, KlassHandle ex_klass, int throw_bci, TRAPS);
 
   // method data access
   MethodData* method_data() const              {
@@ -429,13 +418,6 @@ class Method : public Metadata {
   address interpreter_entry() const              { return _i2i_entry; }
   // Only used when first initialize so we can set _i2i_entry and _from_interpreted_entry
   void set_interpreter_entry(address entry)      { _i2i_entry = entry;  _from_interpreted_entry = entry; }
-  int  interpreter_kind(void) {
-     return constMethod()->interpreter_kind();
-  }
-  void set_interpreter_kind();
-  void set_interpreter_kind(int kind) {
-    constMethod()->set_interpreter_kind(kind);
-  }
 
   // native function (used for native methods only)
   enum {
@@ -477,6 +459,14 @@ class Method : public Metadata {
   void print_codes() const            { print_codes_on(tty); }
   void print_codes_on(outputStream* st) const                      PRODUCT_RETURN;
   void print_codes_on(int from, int to, outputStream* st) const    PRODUCT_RETURN;
+
+  // method parameters
+  bool has_method_parameters() const
+                         { return constMethod()->has_method_parameters(); }
+  int method_parameters_length() const
+                         { return constMethod()->method_parameters_length(); }
+  MethodParametersElement* method_parameters_start() const
+                          { return constMethod()->method_parameters_start(); }
 
   // checked exceptions
   int checked_exceptions_length() const
@@ -584,12 +574,15 @@ class Method : public Metadata {
   static int header_size()                       { return sizeof(Method)/HeapWordSize; }
   static int size(bool is_native);
   int size() const                               { return method_size(); }
+#if INCLUDE_SERVICES
+  void collect_statistics(KlassSizeStats *sz) const;
+#endif
 
   // interpreter support
   static ByteSize const_offset()                 { return byte_offset_of(Method, _constMethod       ); }
   static ByteSize access_flags_offset()          { return byte_offset_of(Method, _access_flags      ); }
 #ifdef CC_INTERP
-  static ByteSize result_index_offset(b)          { return byte_offset_of(Method, _result_index ); }
+  static ByteSize result_index_offset()          { return byte_offset_of(Method, _result_index ); }
 #endif /* CC_INTERP */
   static ByteSize from_compiled_offset()         { return byte_offset_of(Method, _from_compiled_entry); }
   static ByteSize code_offset()                  { return byte_offset_of(Method, _code); }
@@ -751,18 +744,18 @@ class Method : public Metadata {
   // whether it is not compilable for another reason like having a
   // breakpoint set in it.
   bool  is_not_compilable(int comp_level = CompLevel_any) const;
-  void set_not_compilable(int comp_level = CompLevel_all, bool report = true);
+  void set_not_compilable(int comp_level = CompLevel_all, bool report = true, const char* reason = NULL);
   void set_not_compilable_quietly(int comp_level = CompLevel_all) {
     set_not_compilable(comp_level, false);
   }
   bool  is_not_osr_compilable(int comp_level = CompLevel_any) const;
-  void set_not_osr_compilable(int comp_level = CompLevel_all, bool report = true);
+  void set_not_osr_compilable(int comp_level = CompLevel_all, bool report = true, const char* reason = NULL);
   void set_not_osr_compilable_quietly(int comp_level = CompLevel_all) {
     set_not_osr_compilable(comp_level, false);
   }
 
  private:
-  void print_made_not_compilable(int comp_level, bool is_osr, bool report);
+  void print_made_not_compilable(int comp_level, bool is_osr, bool report, const char* reason);
 
  public:
   bool  is_not_c1_compilable() const          { return access_flags().is_not_c1_compilable(); }
@@ -787,15 +780,15 @@ class Method : public Metadata {
   static bool has_unloaded_classes_in_signature(methodHandle m, TRAPS);
 
   // Printing
-  void print_short_name(outputStream* st = tty)  /*PRODUCT_RETURN*/; // prints as klassname::methodname; Exposed so field engineers can debug VM
+  void print_short_name(outputStream* st = tty); // prints as klassname::methodname; Exposed so field engineers can debug VM
+#if INCLUDE_JVMTI
+  void print_name(outputStream* st = tty); // prints as "virtual void foo(int)"; exposed for TraceRedefineClasses
+#else
   void print_name(outputStream* st = tty)        PRODUCT_RETURN; // prints as "virtual void foo(int)"
+#endif
 
   // Helper routine used for method sorting
-  static void sort_methods(Array<Method*>* methods,
-                           Array<AnnotationArray*>* methods_annotations,
-                           Array<AnnotationArray*>* methods_parameter_annotations,
-                           Array<AnnotationArray*>* methods_default_annotations,
-                           bool idempotent = false);
+  static void sort_methods(Array<Method*>* methods, bool idempotent = false);
 
   // Deallocation function for redefine classes or if an error occurs
   void deallocate_contents(ClassLoaderData* loader_data);

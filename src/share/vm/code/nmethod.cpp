@@ -46,7 +46,7 @@
 #include "shark/sharkCompiler.hpp"
 #endif
 
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
 #include "../../../../../simulator/simulator.hpp"
 #endif
 
@@ -883,7 +883,7 @@ nmethod::nmethod(
     }
     debug_only(verify_scavenge_root_oops());
 
-#ifdef TARGET_ARCH_aarch64
+#ifdef BUILTIN_SIM
     if (NotifySimulator) {
       unsigned char *base = code_buffer->insts()->start();
       long delta = entry_point() - base;
