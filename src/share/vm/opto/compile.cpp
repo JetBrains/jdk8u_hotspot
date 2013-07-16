@@ -86,6 +86,9 @@
 # include "adfiles/ad_ppc.hpp"
 #endif
 
+#ifdef BUILTIN_SIM
+#include "../../../../../../simulator/simulator.hpp"
+#endif
 
 // -------------------- Compile::mach_constant_base_node -----------------------
 // Constant table base node singleton.
@@ -864,6 +867,29 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       _code_offsets.set_value(CodeOffsets::Verified_Entry, _first_block_size);
       _code_offsets.set_value(CodeOffsets::OSR_Entry, 0);
     }
+
+#ifdef BUILTIN_SIM
+    char *method_name = NULL;
+    AArch64Simulator *sim = NULL;
+    size_t len = 65536;
+    if (NotifySimulator) {
+      method_name = new char[len];
+    }
+    if (method_name) {
+      unsigned char *entry = code_buffer()->insts_begin();
+      stringStream st(method_name, 400);
+      if (_entry_bci != InvocationEntryBci) {
+        st.print("osr:");
+      }
+      _method->holder()->name()->print_symbol_on(&st);
+      st.print(".");
+      _method->name()->print_symbol_on(&st);
+      _method->signature()->as_symbol()->print_symbol_on(&st);
+      sim = AArch64Simulator::current();
+      sim->notifyCompile(method_name, entry);
+      sim->notifyRelocate(entry, 0);
+    }
+#endif
 
     env()->register_method(_method, _entry_bci,
                            &_code_offsets,
