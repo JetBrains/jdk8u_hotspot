@@ -315,7 +315,7 @@ UNSAFE_ENTRY(void, Unsafe_SetObjectVolatile(JNIEnv *env, jobject unsafe, jobject
   OrderAccess::fence();
 UNSAFE_END
 
-#if defined(SPARC) || defined(X86)
+#if defined(SPARC) || defined(X86) || defined(AARCH64)
 // Sparc and X86 have atomic jlong (8 bytes) instructions
 
 #else
@@ -420,7 +420,7 @@ DEFINE_GETSETOOP_VOLATILE(jint, Int);
 DEFINE_GETSETOOP_VOLATILE(jfloat, Float);
 DEFINE_GETSETOOP_VOLATILE(jdouble, Double);
 
-#if defined(SPARC) || defined(X86)
+#if defined(SPARC) || defined(X86) || defined(AARCH64)
 // Sparc and X86 have atomic jlong (8 bytes) instructions
 DEFINE_GETSETOOP_VOLATILE(jlong, Long);
 #endif
@@ -450,7 +450,7 @@ UNSAFE_END
 
 UNSAFE_ENTRY(void, Unsafe_SetOrderedLong(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jlong x))
   UnsafeWrapper("Unsafe_SetOrderedLong");
-#if defined(SPARC) || defined(X86)
+#if defined(SPARC) || defined(X86) || defined(AARCH64)
   // Sparc and X86 have atomic jlong (8 bytes) instructions
   SET_FIELD_VOLATILE(obj, offset, jlong, x);
 #else

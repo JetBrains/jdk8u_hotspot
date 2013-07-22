@@ -56,7 +56,7 @@ void AdvancedThresholdPolicy::initialize() {
   set_c2_count(MAX2(count - count / 3, 1));
 
   // Some inlining tuning
-#ifdef X86
+#if defined(X86) || defined(AARCH64)
   if (FLAG_IS_DEFAULT(InlineSmallCode)) {
     FLAG_SET_DEFAULT(InlineSmallCode, 2000);
   }

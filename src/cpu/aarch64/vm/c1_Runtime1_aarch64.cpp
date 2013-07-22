@@ -450,9 +450,9 @@ OopMapSet* Runtime1::generate_handle_exception(StubID id, StubAssembler *sasm) {
     // Restore SP from FP if the exception PC is a method handle call site.
     {
       Label nope;
-      __ ldr(rscratch1, Address(rthread, JavaThread::is_method_handle_return_offset()));
-      __ cbnz(rscratch1, nope);
-      __ call_Unimplemented();
+      __ ldrw(rscratch1, Address(rthread, JavaThread::is_method_handle_return_offset()));
+      __ cbzw(rscratch1, nope);
+      __ mov(sp, rfp);
       __ bind(nope);
     }
 
@@ -517,7 +517,7 @@ void Runtime1::generate_unwind_exception(StubAssembler *sasm) {
   {
     Label foo;
     __ ldrw(rscratch1, Address(rthread, JavaThread::is_method_handle_return_offset()));
-    __ cbz(rscratch1, foo);
+    __ cbzw(rscratch1, foo);
     __ mov(sp, rfp);
     __ bind(foo);
   }
@@ -789,7 +789,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         __ enter();
         OopMap* map = save_live_registers(sasm, 3);
         // Retrieve bci
-        __ ldr(bci, Address(rfp, 2*BytesPerWord));
+        __ ldrw(bci, Address(rfp, 2*BytesPerWord));
         // And a pointer to the Method*
         __ ldr(method, Address(rfp, 3*BytesPerWord));
         int call_offset = __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, counter_overflow), bci, method);
@@ -1308,90 +1308,90 @@ JRT_ENTRY(void, Runtime1::patch_code_aarch64(JavaThread* thread, Runtime1::StubI
       NativeGeneralJump* jump = nativeGeneralJump_at(caller_frame.pc());
       address instr_pc = jump->jump_destination();
       NativeInstruction* ni = nativeInstruction_at(instr_pc);
-      guarantee(ni->is_jump(), "should be");
+      if (ni->is_jump() ) {
+	// the jump has not been patched yet
+	address stub_location = caller_frame.pc() + PatchingStub::patch_info_offset();
+	unsigned char* byte_count = (unsigned char*) (stub_location - 1);
+	unsigned char* byte_skip = (unsigned char*) (stub_location - 2);
+	unsigned char* being_initialized_entry_offset = (unsigned char*) (stub_location - 3);
+	address copy_buff = stub_location - *byte_skip - *byte_count;
+	address being_initialized_entry = stub_location - *being_initialized_entry_offset;
+	if (TracePatching) {
+	  tty->print_cr(" Patching %s at bci %d at address 0x%x  (%s)", Bytecodes::name(code), bci,
+			instr_pc, (stub_id == Runtime1::access_field_patching_id) ? "field" : "klass");
+	  nmethod* caller_code = CodeCache::find_nmethod(caller_frame.pc());
+	  assert(caller_code != NULL, "nmethod not found");
 
-      // the jump has not been patched yet
-      address stub_location = caller_frame.pc() + PatchingStub::patch_info_offset();
-      unsigned char* byte_count = (unsigned char*) (stub_location - 1);
-      unsigned char* byte_skip = (unsigned char*) (stub_location - 2);
-      unsigned char* being_initialized_entry_offset = (unsigned char*) (stub_location - 3);
-      address copy_buff = stub_location - *byte_skip - *byte_count;
-      address being_initialized_entry = stub_location - *being_initialized_entry_offset;
-      if (TracePatching) {
-	tty->print_cr(" Patching %s at bci %d at address 0x%x  (%s)", Bytecodes::name(code), bci,
-		      instr_pc, (stub_id == Runtime1::access_field_patching_id) ? "field" : "klass");
-	nmethod* caller_code = CodeCache::find_nmethod(caller_frame.pc());
-	assert(caller_code != NULL, "nmethod not found");
+	  // NOTE we use pc() not original_pc() because we already know they are
+	  // identical otherwise we'd have never entered this block of code
+	  OopMap* map = caller_code->oop_map_for_return_address(caller_frame.pc());
+	  assert(map != NULL, "null check");
+	  map->print();
+	  tty->cr();
 
-	// NOTE we use pc() not original_pc() because we already know they are
-	// identical otherwise we'd have never entered this block of code
-	OopMap* map = caller_code->oop_map_for_return_address(caller_frame.pc());
-	assert(map != NULL, "null check");
-	map->print();
-	tty->cr();
-
-	Disassembler::decode(copy_buff, copy_buff + *byte_count, tty);
-      }
-
-      // The word in the constant pool needs fixing.
-      unsigned insn = *(unsigned*)copy_buff;
-      unsigned long *cpool_addr
-	= (unsigned long *)MacroAssembler::target_addr_for_insn(instr_pc, insn);
-
-      nmethod* nm = CodeCache::find_nmethod(caller_frame.pc());
-      CodeBlob *cb = CodeCache::find_blob(caller_frame.pc());
-      assert(nm != NULL, "invalid nmethod_pc");
-      assert(address(cpool_addr) >= nm->consts_begin()
-	     && address(cpool_addr) < nm->consts_end(),
-	     "constant address should be inside constant pool");
-
-      switch(stub_id) {
-      case access_field_patching_id:
-	*cpool_addr = patch_field_offset; break;
-      case load_mirror_patching_id:
-	*cpool_addr = (uint64_t)mirror(); break;
-      case load_klass_patching_id:
-	*cpool_addr = (uint64_t)load_klass(); break;
-      default:
-	ShouldNotReachHere();
-      }
-
-      // Update the location in the nmethod with the proper
-      // metadata.  When the code was generated, a NULL was stuffed
-      // in the metadata table and that table needs to be update to
-      // have the right value.  On intel the value is kept
-      // directly in the instruction instead of in the metadata
-      // table, so set_data above effectively updated the value.
-      //
-      // FIXME: It's tempting to think that rather them putting OOPs
-      // in the cpool we could refer directly to the locations in the
-      // nmethod.  However, we can't guarantee that an ADRP would be
-      // able to reach them: an ADRP can only reach within +- 4GiB of
-      // the PC using two instructions.  While it's pretty unlikely
-      // that we will exceed this limit, it's not impossible.
-      RelocIterator mds(nm, (address)cpool_addr, (address)cpool_addr + 1);
-      bool found = false;
-      while (mds.next() && !found) {
-	if (mds.type() == relocInfo::oop_type) {
-	  assert(stub_id == Runtime1::load_mirror_patching_id, "wrong stub id");
-	  oop_Relocation* r = mds.oop_reloc();
-	  oop* oop_adr = r->oop_addr();
-	  *oop_adr = mirror();
-	  r->fix_oop_relocation();
-	  found = true;
-	} else if (mds.type() == relocInfo::metadata_type) {
-	  assert(stub_id == Runtime1::load_klass_patching_id, "wrong stub id");
-	  metadata_Relocation* r = mds.metadata_reloc();
-	  Metadata** metadata_adr = r->metadata_addr();
-	  *metadata_adr = load_klass();
-	  r->fix_metadata_relocation();
-	  found = true;
+	  Disassembler::decode(copy_buff, copy_buff + *byte_count, tty);
 	}
+
+	// The word in the constant pool needs fixing.
+	unsigned insn = *(unsigned*)copy_buff;
+	unsigned long *cpool_addr
+	  = (unsigned long *)MacroAssembler::target_addr_for_insn(instr_pc, insn);
+
+	nmethod* nm = CodeCache::find_nmethod(caller_frame.pc());
+	CodeBlob *cb = CodeCache::find_blob(caller_frame.pc());
+	assert(nm != NULL, "invalid nmethod_pc");
+	assert(address(cpool_addr) >= nm->consts_begin()
+	       && address(cpool_addr) < nm->consts_end(),
+	       "constant address should be inside constant pool");
+
+	switch(stub_id) {
+	case access_field_patching_id:
+	  *cpool_addr = patch_field_offset; break;
+	case load_mirror_patching_id:
+	  *cpool_addr = (uint64_t)mirror(); break;
+	case load_klass_patching_id:
+	  *cpool_addr = (uint64_t)load_klass(); break;
+	default:
+	  ShouldNotReachHere();
+	}
+
+	// Update the location in the nmethod with the proper
+	// metadata.  When the code was generated, a NULL was stuffed
+	// in the metadata table and that table needs to be update to
+	// have the right value.  On intel the value is kept
+	// directly in the instruction instead of in the metadata
+	// table, so set_data above effectively updated the value.
+	//
+	// FIXME: It's tempting to think that rather them putting OOPs
+	// in the cpool we could refer directly to the locations in the
+	// nmethod.  However, we can't guarantee that an ADRP would be
+	// able to reach them: an ADRP can only reach within +- 4GiB of
+	// the PC using two instructions.  While it's pretty unlikely
+	// that we will exceed this limit, it's not impossible.
+	RelocIterator mds(nm, (address)cpool_addr, (address)cpool_addr + 1);
+	bool found = false;
+	while (mds.next() && !found) {
+	  if (mds.type() == relocInfo::oop_type) {
+	    assert(stub_id == Runtime1::load_mirror_patching_id, "wrong stub id");
+	    oop_Relocation* r = mds.oop_reloc();
+	    oop* oop_adr = r->oop_addr();
+	    *oop_adr = mirror();
+	    r->fix_oop_relocation();
+	    found = true;
+	  } else if (mds.type() == relocInfo::metadata_type) {
+	    assert(stub_id == Runtime1::load_klass_patching_id, "wrong stub id");
+	    metadata_Relocation* r = mds.metadata_reloc();
+	    Metadata** metadata_adr = r->metadata_addr();
+	    *metadata_adr = load_klass();
+	    r->fix_metadata_relocation();
+	    found = true;
+	  }
+	}
+
+	// And we overwrite the jump
+	NativeGeneralJump::replace_mt_safe(instr_pc, copy_buff);
+
       }
-
-      // And we overwrite the jump
-      NativeGeneralJump::replace_mt_safe(instr_pc, copy_buff);
-
     }
   }
 

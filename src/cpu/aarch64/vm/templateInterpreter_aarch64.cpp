@@ -958,7 +958,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   if (os::is_MP()) {
     if (UseMembar) {
       // Force this write out before the read below
-      __ dmb(Assembler::SY);
+      __ dsb(Assembler::SY);
     } else {
       // Write serialization page so VM thread can do a pseudo remote membar.
       // We use the current thread pointer to calculate a thread specific
@@ -1033,7 +1033,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   {
     Label no_reguard;
     __ lea(rscratch1, Address(rthread, in_bytes(JavaThread::stack_guard_state_offset())));
-    __ ldr(rscratch1, Address(rscratch1));
+    __ ldrw(rscratch1, Address(rscratch1));
     __ cmp(rscratch1, JavaThread::stack_guard_yellow_disabled);
     __ br(Assembler::NE, no_reguard);
 

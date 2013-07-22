@@ -469,7 +469,7 @@ address decode_env::decode_instructions(address start, address end) {
                                                     start, end - start,
                                                     NULL, (void*) xmlout,
                                                     NULL, (void*) out,
-                                                    options(), 0/*nice new line*/)
+                                                    options(), 1/*nice new line*/)
       :
       (address)
       (*Disassembler::_decode_instructions)(start, end,
