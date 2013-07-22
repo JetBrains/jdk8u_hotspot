@@ -43,7 +43,6 @@ Register LIR_OprDesc::as_register_hi() const {
 }
 
 #if defined(X86)
-#ifndef TARGET_ARCH_aarch64
 
 XMMRegister LIR_OprDesc::as_xmm_float_reg() const {
   return FrameMap::nr2xmmreg(xmm_regnr());
@@ -54,7 +53,6 @@ XMMRegister LIR_OprDesc::as_xmm_double_reg() const {
   return FrameMap::nr2xmmreg(xmm_regnrLo());
 }
 
-#endif
 #endif // X86
 
 #if defined(SPARC) || defined(PPC)
@@ -1528,13 +1526,16 @@ void LIR_OprDesc::print(outputStream* out) const {
   } else if (is_double_cpu()) {
     out->print(as_register_hi()->name());
     out->print(as_register_lo()->name());
-#if defined(X86)
-#ifndef TARGET_ARCH_aarch64
+#if defined(AARCH64)
+  } else if (is_single_fpu()) {
+    out->print("fpu%d", fpu_regnr());
+  } else if (is_double_fpu()) {
+    out->print("fpu%d", fpu_regnrLo());
+#elif defined(X86)
   } else if (is_single_xmm()) {
     out->print(as_xmm_float_reg()->name());
   } else if (is_double_xmm()) {
     out->print(as_xmm_double_reg()->name());
-#endif
   } else if (is_single_fpu()) {
     out->print("fpu%d", fpu_regnr());
   } else if (is_double_fpu()) {
