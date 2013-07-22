@@ -2079,7 +2079,7 @@ void LIRGenerator::do_UnsafeGetRaw(UnsafeGetRaw* x) {
     assert(log2_scale == 0, "must not have a scale");
     addr = new LIR_Address(base_op, index_op->as_jint(), dst_type);
   } else {
-#ifdef X86
+#if defined(X86) || defined(AARCH64)
 #ifdef _LP64
     if (!index_op->is_illegal() && index_op->type() == T_INT) {
       LIR_Opr tmp = new_pointer_register();
