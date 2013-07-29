@@ -735,7 +735,6 @@ int MachCallStaticJavaNode::ret_addr_offset()
 
 int MachCallDynamicJavaNode::ret_addr_offset()
 {
-  Unimplemented();
   // TODO: check this it should just be a bl/blr
   return 4;
 }
@@ -2256,8 +2255,41 @@ encode %{
         __ lea(rscratch1, Address(base, disp));
 	//__ prfm(Address(rscratch1, index_reg, Address::lsl(scale)), PSTL1STRM);
         __ nop();
+      }
     }
-    }
+  %}
+
+  enc_class aarch64_enc_clear_array_reg_reg(iRegL cnt, iRegP base) %{
+    MacroAssembler _masm(&cbuf);
+    Register cnt_orig = as_Register($cnt$$reg);
+    Register base_orig = as_Register($base$$reg);
+    Register cnt_reg = rscratch1;
+    Register base_reg = rscratch2;
+    // base is doubleword aligned
+    // cnt is count of doublewords
+
+    // TODO
+    // look for more efficient ways of doing this
+    // e.g. use stp?
+
+    // copy the input registers so we can modify them. we really want
+    // the input registers to be USE_KILL but that requires them to be
+    // defined registers. copying is always worse than maybe being
+    // able to allocate a specific register
+
+    __ mov(cnt_reg, cnt_orig);
+    __ mov(base_reg, base_orig);
+
+    // for now we just write cnt zeros
+    Label loop;
+    Label done;
+    __ bind(loop);
+    __ cmp(cnt_reg, zr);
+    __ br(Assembler::LT, done);
+    __ str(zr, __ post(base_reg, wordSize));
+    __ b(loop);
+    __ bind(done);
+
   %}
 
   /// mov envcodings
@@ -3526,7 +3558,7 @@ operand indIndexScaledOffsetI(iRegP reg, iRegL lreg, immIScale scale, immIAddSub
   constraint(ALLOC_IN_RC(ptr_reg));
   match(AddP (AddP reg (LShiftL lreg scale)) off);
   op_cost(DEFAULT_COST_LOW);
-  format %{ "$reg, $lreg lsl($scale), #$off" %}
+  format %{ "$reg, $lreg lsl($scale), $off" %}
   interface(MEMORY_INTER) %{
     base($reg);
     index($lreg);
@@ -3540,7 +3572,7 @@ operand indIndexScaledOffsetL(iRegP reg, iRegL lreg, immIScale scale, immLAddSub
   constraint(ALLOC_IN_RC(ptr_reg));
   match(AddP (AddP reg (LShiftL lreg scale)) off);
   op_cost(DEFAULT_COST_LOW);
-  format %{ "$reg, $lreg lsl($scale), #$off" %}
+  format %{ "$reg, $lreg lsl($scale), $off" %}
   interface(MEMORY_INTER) %{
     base($reg);
     index($lreg);
@@ -3582,7 +3614,7 @@ operand indOffI(iRegP reg, immIAddSub off)
   constraint(ALLOC_IN_RC(ptr_reg));
   match(AddP reg off);
   op_cost(0);
-  format %{ "[$reg, #$off]" %}
+  format %{ "[$reg, $off]" %}
   interface(MEMORY_INTER) %{
     base($reg);
     index(0xffffffff);
@@ -3596,7 +3628,7 @@ operand indOffL(iRegP reg, immLAddSub off)
   constraint(ALLOC_IN_RC(ptr_reg));
   match(AddP reg off);
   op_cost(0);
-  format %{ "[$reg, #$off]" %}
+  format %{ "[$reg, $off]" %}
   interface(MEMORY_INTER) %{
     base($reg);
     index(0xffffffff);
@@ -3723,9 +3755,9 @@ operand cmpOpU()
     equal(0x0, "eq");
     not_equal(0x1, "ne");
     less(0x3, "lo");
-    greater_equal(0x8, "hi");
+    greater_equal(0x2, "hs");
     less_equal(0x9, "ls");
-    greater(0x2, "hs");
+    greater(0x8, "hi");
   %}
 %}
 
@@ -6369,6 +6401,8 @@ instruct convI2B(iRegI dst, iRegI src, rFlagsReg cr)
     __ cmpw(as_Register($src$$reg), zr);
     __ cset(as_Register($dst$$reg), Assembler::NE);
   %}
+
+  ins_pipe(pipe_class_default);
 %}
 
 instruct convP2B(iRegI dst, iRegP src, rFlagsReg cr)
@@ -6385,6 +6419,8 @@ instruct convP2B(iRegI dst, iRegP src, rFlagsReg cr)
     __ cmp(as_Register($src$$reg), zr);
     __ cset(as_Register($dst$$reg), Assembler::NE);
   %}
+
+  ins_pipe(pipe_class_default);
 %}
 
 instruct convD2F_reg(vRegF dst, vRegD src) %{
@@ -6515,6 +6551,27 @@ instruct convL2D_reg_reg(vRegD dst, iRegL src) %{
   %}
 
   ins_pipe(pipe_class_default);
+%}
+
+// ============================================================================
+// clearing of an array
+
+instruct clearArray_reg_reg(iRegLNoSp cnt, iRegPNoSp base, Universe dummy, rFlagsReg cr)
+%{
+  match(Set dummy (ClearArray cnt base));
+  // TODO
+  // we really want to allocate cnt and base in defined registers.
+  // that would allow us to mark them as USE_KILL and modify them in
+  // place. we cannot do that if we use a register class (why?).  so
+  // for now we acceot the hit of a copy into rscratch1 and rscratch2
+  effect(USE cnt, USE base, KILL cr);
+
+  ins_cost(MEMORY_REF_COST);
+  format %{ "ClearArray $cnt, $base" %}
+
+  ins_encode(aarch64_enc_clear_array_reg_reg(cnt, base));
+
+  ins_pipe(pipe_class_memory);
 %}
 
 // ============================================================================
@@ -6720,6 +6777,40 @@ instruct compN_reg_reg(rFlagsReg cr, iRegN op1, iRegN op2)
   ins_pipe(pipe_class_compare);
 %}
 
+instruct compF_reg_reg(rFlagsReg cr, vRegF src1, vRegF src2)
+%{
+  match(Set cr (CmpF src1 src2));
+
+  ins_cost(DEFAULT_COST);
+  // TODO
+  // don't think we care about NaNs here as we compare using LT or HI
+  // which do the right thing for unordered but check this
+  format %{ "fcmps $src1, $src2" %}
+
+  ins_encode %{
+    __ fcmps(as_FloatRegister($src1$$reg), as_FloatRegister($src2$$reg));
+  %}
+
+  ins_pipe(pipe_class_compare);
+%}
+
+instruct compD_reg_reg(rFlagsReg cr, vRegD src1, vRegD src2)
+%{
+  match(Set cr (CmpD src1 src2));
+
+  ins_cost(DEFAULT_COST);
+  // TODO
+  // don't think we care about NaNs here as we compare using LT or HI
+  // which do the right thing for unordered but check this
+  format %{ "fcmpd $src1, $src2" %}
+
+  ins_encode %{
+    __ fcmpd(as_FloatRegister($src1$$reg), as_FloatRegister($src2$$reg));
+  %}
+
+  ins_pipe(pipe_class_compare);
+%}
+
 // ============================================================================
 // Max and Min
 
@@ -6727,7 +6818,7 @@ instruct minI_rReg(iRegINoSp dst, iRegI src1, iRegI src2)
 %{
   match(Set dst (MinI src1 src2));
 
-  size(2);
+  size(8);
 
   ins_cost(DEFAULT_COST * 2);
   format %{
@@ -6751,7 +6842,7 @@ instruct maxI_rReg(iRegINoSp dst, iRegI src1, iRegI src2)
 %{
   match(Set dst (MaxI src1 src2));
 
-  size(2);
+  size(8);
 
   ins_cost(DEFAULT_COST * 2);
   format %{
@@ -6902,6 +6993,29 @@ instruct cmpFastUnlock(rFlagsReg cr, iRegPNoSp object, iRegPNoSp box, iRegPNoSp 
   ins_encode(aarch64_enc_fast_unlock(object, box, tmp, tmp2));
 
   ins_pipe(pipe_class_compare);
+%}
+
+
+// ============================================================================
+// Safepoint Instructions
+
+// TODO
+// provide a near and far version of this code
+
+instruct safePoint_poll(rFlagsReg cr, iRegP poll)
+%{
+  match(SafePoint poll);
+  effect(KILL cr, USE poll);
+
+  format %{
+    "ldr rscratch1, [$poll]\t# Safepoint: poll for GC"
+    "cmp rscratch1, zr"
+  %}
+  ins_encode %{
+    __ ldr(rscratch1, as_Register($poll$$reg));
+    __ cmp(rscratch1, zr);
+  %}
+  ins_pipe(pipe_class_memory);
 %}
 
 
