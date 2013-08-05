@@ -26,10 +26,11 @@
 
 #include "precompiled.hpp"
 #include "asm/assembler.hpp"
+#include "c1/c1_CodeStubs.hpp"
 #include "c1/c1_Defs.hpp"
 #include "c1/c1_MacroAssembler.hpp"
 #include "c1/c1_Runtime1.hpp"
-#include "c1/c1_CodeStubs.hpp"
+#include "compiler/disassembler.hpp"
 #include "interpreter/interpreter.hpp"
 #include "nativeInst_aarch64.hpp"
 #include "oops/compiledICHolder.hpp"
@@ -38,6 +39,7 @@
 #include "register_aarch64.hpp"
 #include "runtime/sharedRuntime.hpp"
 #include "runtime/signature.hpp"
+#include "runtime/vframe.hpp"
 #include "runtime/vframeArray.hpp"
 #include "vmreg_aarch64.inline.hpp"
 
@@ -1128,6 +1130,21 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         oop_maps = generate_handle_exception(id, sasm);
       }
       break;
+
+    case throw_index_exception_id:
+      { StubFrame f(sasm, "index_range_check_failed", dont_gc_arguments);
+        oop_maps = generate_exception_throw(sasm, CAST_FROM_FN_PTR(address, throw_index_exception), true);
+      }
+      break;
+
+    case throw_array_store_exception_id:
+      { StubFrame f(sasm, "throw_array_store_exception", dont_gc_arguments);
+        // tos + 0: link
+        //     + 1: return address
+        oop_maps = generate_exception_throw(sasm, CAST_FROM_FN_PTR(address, throw_array_store_exception), true);
+      }
+      break;
+
 
     default:
       { StubFrame f(sasm, "unimplemented entry", dont_gc_arguments);
