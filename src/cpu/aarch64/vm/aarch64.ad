@@ -2797,17 +2797,17 @@ encode %{
   enc_class aarch64_enc_tail_call(iRegP jump_target) %{
     MacroAssembler _masm(&cbuf);
     Register target_reg = as_Register($jump_target$$reg);
-    __ blr(target_reg);
+    __ br(target_reg);
   %}
 
   enc_class aarch64_enc_tail_jmp(iRegP jump_target) %{
     MacroAssembler _masm(&cbuf);
     Register target_reg = as_Register($jump_target$$reg);
     // exception oop should be in r0
-    // TODO check this
-    // assume that ret addr has been popped into lr
-    __ ldr(r1, lr);
-    __ blr(target_reg);
+    // ret addr has been popped into lr
+    // callee expects it in r3
+    __ mov(r3, lr);
+    __ br(target_reg);
   %}
 
   // TODO
