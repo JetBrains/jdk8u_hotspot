@@ -885,7 +885,7 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       st.print(".");
       _method->name()->print_symbol_on(&st);
       _method->signature()->as_symbol()->print_symbol_on(&st);
-      sim = AArch64Simulator::current();
+      sim = AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck);
       sim->notifyCompile(method_name, entry);
       sim->notifyRelocate(entry, 0);
     }
