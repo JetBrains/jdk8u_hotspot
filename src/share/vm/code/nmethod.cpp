@@ -686,6 +686,15 @@ nmethod::nmethod(
       CodeCache::add_scavenge_root_nmethod(this);
     }
     debug_only(verify_scavenge_root_oops());
+
+#ifdef BUILTIN_SIM
+    if (NotifySimulator) {
+      unsigned char *base = code_buffer->insts()->start();
+      long delta = entry_point() - base;
+      AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck)->notifyRelocate(base, delta);
+    }
+#endif
+
     CodeCache::commit(this);
   }
 
