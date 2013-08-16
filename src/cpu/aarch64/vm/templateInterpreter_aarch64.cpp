@@ -1957,11 +1957,24 @@ extern "C" {
 	    strcpy(method, "B adapter blob");
 	  } else if (cb->is_runtime_stub()) {
 	    strcpy(method, "B runtime stub");
-	  }
+	  } else if (cb->is_exception_stub()) {
+	    strcpy(method, "B exception stub");
+	  } else if (cb->is_deoptimization_stub()) {
+	    strcpy(method, "B deoptimization stub");
+	  } else if (cb->is_safepoint_stub()) {
+	    strcpy(method, "B safepoint stub");
+	  } else if (cb->is_uncommon_trap_stub()) {
+	    strcpy(method, "B uncommon trap stub");
+	  } else if (cb->contains((address)StubRoutines::call_stub())) {
+	    strcpy(method, "B call stub");
+	  } else {
+            strcpy(method, "B unknown blob : ");
+            strcat(method, cb->name());
+          }
 	  if (framesize != NULL) {
 	    *framesize = cb->frame_size();
 	  }
-	}
+        }
       }
     }
   }
