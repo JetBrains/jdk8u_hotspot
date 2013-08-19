@@ -882,6 +882,14 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
         st.print("osr:");
       }
       _method->holder()->name()->print_symbol_on(&st);
+      // convert '/' separators in class name into '.' separator
+      for (unsigned i = 0; i < len; i++) {
+        if (method_name[i] == '/') {
+          method_name[i] = '.';
+        } else if (method_name[i] == '\0') {
+          break;
+        }
+      }
       st.print(".");
       _method->name()->print_symbol_on(&st);
       _method->signature()->as_symbol()->print_symbol_on(&st);
