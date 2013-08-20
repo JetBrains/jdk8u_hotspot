@@ -1275,7 +1275,32 @@ void LIR_Assembler::emit_alloc_array(LIR_OpAllocArray* op) {
 
 void LIR_Assembler::type_profile_helper(Register mdo,
                                         ciMethodData *md, ciProfileData *data,
-                                        Register recv, Label* update_done) { Unimplemented(); }
+                                        Register recv, Label* update_done) {
+  for (uint i = 0; i < ReceiverTypeData::row_limit(); i++) {
+    Label next_test;
+    // See if the receiver is receiver[n].
+    __ ldr(rscratch1, Address(mdo, md->byte_offset_of_slot(data, ReceiverTypeData::receiver_offset(i))));
+    __ cmp(recv, rscratch1);
+    __ br(Assembler::NE, next_test);
+    Address data_addr(mdo, md->byte_offset_of_slot(data, ReceiverTypeData::receiver_count_offset(i)));
+    __ addptr(data_addr, DataLayout::counter_increment);
+    __ b(*update_done);
+    __ bind(next_test);
+  }
+
+  // Didn't find receiver; find next empty slot and fill it in
+  for (uint i = 0; i < ReceiverTypeData::row_limit(); i++) {
+    Label next_test;
+    Address recv_addr(mdo, md->byte_offset_of_slot(data, ReceiverTypeData::receiver_offset(i)));
+    __ ldr(rscratch1, recv_addr);
+    __ cbnz(rscratch1, next_test);
+    __ str(recv, recv_addr);
+    __ mov(rscratch1, DataLayout::counter_increment);
+    __ str(rscratch1, Address(mdo, md->byte_offset_of_slot(data, ReceiverTypeData::receiver_count_offset(i))));
+    __ b(*update_done);
+    __ bind(next_test);
+  }
+}
 
 void LIR_Assembler::emit_typecheck_helper(LIR_OpTypeCheck *op, Label* success, Label* failure, Label* obj_is_null) {
   // we always need a stub for the failure case.
@@ -1447,7 +1472,10 @@ void LIR_Assembler::emit_opTypeCheck(LIR_OpTypeCheck* op) {
       // Object is null; update MDO and exit
       Register mdo  = klass_RInfo;
       __ mov_metadata(mdo, md->constant_encoding());
-      Address data_addr(mdo, md->byte_offset_of_slot(data, DataLayout::header_offset()));
+      Address data_addr
+	= __ form_address(rscratch2, mdo,
+			  md->byte_offset_of_slot(data, DataLayout::header_offset()),
+			  LogBytesPerInt);
       int header_bits = DataLayout::flag_mask_to_header_mask(BitData::null_seen_byte_constant());
       __ ldrw(rscratch1, data_addr);
       __ orrw(rscratch1, rscratch1, header_bits);
@@ -2513,9 +2541,7 @@ void LIR_Assembler::emit_profile_call(LIR_OpProfileCall* op) {
 	  __ mov_metadata(rscratch1, known_klass->constant_encoding());
           __ str(rscratch1, recv_addr);
           Address data_addr(mdo, md->byte_offset_of_slot(data, VirtualCallData::receiver_count_offset(i)));
-	  __ ldr(rscratch1, data_addr);
-	  __ add(rscratch1, rscratch1, DataLayout::counter_increment);
-	  __ str(rscratch1, data_addr);
+	  __ addptr(counter_addr, DataLayout::counter_increment);
           return;
         }
       }
@@ -2531,9 +2557,7 @@ void LIR_Assembler::emit_profile_call(LIR_OpProfileCall* op) {
     }
   } else {
     // Static call
-    __ ldr(rscratch1, counter_addr);
-    __ add(rscratch1, rscratch1, DataLayout::counter_increment);
-    __ str(rscratch1, counter_addr);
+    __ addptr(counter_addr, DataLayout::counter_increment);
   }
 }
 

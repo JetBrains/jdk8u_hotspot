@@ -1020,7 +1020,11 @@ public:
 
   // Arithmetics
 
-  void addptr(Address dst, int32_t src) { Unimplemented(); }
+  void addptr(Address dst, int32_t src) {
+    ldr(rscratch1, dst);
+    add(rscratch1, rscratch1, src);
+    str(rscratch1, dst);
+}
   // unimplemented
 #if 0
   void addptr(Address dst, Register src);
@@ -1283,6 +1287,12 @@ public:
     add(rscratch1, rscratch1, rscratch2, ext::sxtw, 2);
     br(rscratch1);
   }
+
+  // Form an address from base + (offset << shift) in Rd.  Rd may or
+  // may not actually be used: you must use the Address that is
+  // returned.  It is up to you to ensure that the shift provided
+  // matches the size of your data.
+  Address form_address(Register Rd, Register base, long byte_offset, int shift);
 
   // Prolog generator routines to support switch between x86 code and
   // generated ARM code
