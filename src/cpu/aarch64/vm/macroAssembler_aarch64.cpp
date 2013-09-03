@@ -360,11 +360,9 @@ void MacroAssembler::call_VM_base(Register oop_result,
   // Only interpreter should have to clear fp
   reset_last_Java_frame(true, false);
 
-#ifndef CC_INTERP
    // C++ interp handles this in the interpreter
   check_and_handle_popframe(java_thread);
   check_and_handle_earlyret(java_thread);
-#endif /* CC_INTERP */
 
   if (check_exceptions) {
     // check for pending exceptions (java_thread is set upon return)
@@ -1587,6 +1585,22 @@ void MacroAssembler::wrap_adds_subs_imm_insn(Register Rd, Register Rn, unsigned 
 }
 
 
+void MacroAssembler::add(Register Rd, Register Rn, RegisterOrConstant increment) {
+  if (increment.is_register()) {
+    add(Rd, Rn, increment.as_register());
+  } else {
+    add(Rd, Rn, increment.as_constant());
+  }
+}
+
+void MacroAssembler::addw(Register Rd, Register Rn, RegisterOrConstant increment) {
+  if (increment.is_register()) {
+    add(Rd, Rn, increment.as_register());
+  } else {
+    add(Rd, Rn, increment.as_constant());
+  }
+}
+
 #ifdef ASSERT
 static Register spill_registers[] = {
   rheapbase,
@@ -2559,3 +2573,18 @@ address MacroAssembler::read_polling_page(Register r, address page, relocInfo::r
   ldrw(zr, Address(r, off));
   return inst_mark();
 }
+
+void MacroAssembler::adrp(Register reg1, const Address &dest, unsigned long &byte_offset) {
+  if (labs(pc() - dest.target()) >= (1LL << 32)) {
+    // Out of range.  This doesn't happen very often, but we have to
+    // handle it
+    mov(reg1, dest);
+    byte_offset = 0;
+  } else {
+    InstructionMark im(this);
+    code_section()->relocate(inst_mark(), dest.rspec());
+    byte_offset = (uint64_t)dest.target() & 0xfff;
+    _adrp(reg1, dest.target());
+  }
+}
+
