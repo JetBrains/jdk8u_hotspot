@@ -2588,3 +2588,19 @@ void MacroAssembler::adrp(Register reg1, const Address &dest, unsigned long &byt
   }
 }
 
+void MacroAssembler::generate_flush_loop(flush_insn flush, Register start, Register lines) {
+  Label again, exit;
+
+  assert_different_registers(start, lines, rscratch1, rscratch2);
+
+  cmp(lines, zr);
+  br(Assembler::LE, exit);
+  mov(rscratch1, start);
+  mov(rscratch2, lines);
+  bind(again);
+  (this->*flush)(rscratch1);
+  sub(rscratch2, rscratch2, 1);
+  add(rscratch1, rscratch1, ICache::line_size);
+  cbnz(rscratch2, again);
+  bind(exit);
+}

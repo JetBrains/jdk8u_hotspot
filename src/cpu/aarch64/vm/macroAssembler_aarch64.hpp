@@ -1365,6 +1365,9 @@ public:
   }
 
   address read_polling_page(Register r, address page, relocInfo::relocType rtype);
+
+  typedef void (Assembler::* flush_insn)(Register Rt);
+  void generate_flush_loop(flush_insn flush, Register start, Register lines);
 };
 
 #ifdef ASSERT
