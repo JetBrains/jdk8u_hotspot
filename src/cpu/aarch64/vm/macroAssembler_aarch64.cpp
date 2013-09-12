@@ -850,29 +850,57 @@ void MacroAssembler::check_klass_subtype_slow_path(Register sub_klass,
 void MacroAssembler::verify_oop(Register reg, const char* s) {
   if (!VerifyOops) return;
 
-  assert(reg != rmethod, "bad reg in verify_oop");
-
   // Pass register number to verify_oop_subroutine
   char* b = new char[strlen(s) + 50];
   sprintf(b, "verify_oop: %s: %s", reg->name(), s);
   BLOCK_COMMENT("verify_oop {");
-  stp(r0, rscratch1, Address(pre(sp, -16)));
 
-  ExternalAddress buffer((address) b);
-  // our contract is not to modify anything
-  mov(rscratch1, buffer.target());
-  stp(rscratch1, reg, Address(pre(sp, -16)));
+  stp(r0, rscratch1, Address(pre(sp, -2 * wordSize)));
+  stp(rscratch2, lr, Address(pre(sp, -2 * wordSize)));
+
+  mov(r0, reg);
+  mov(rscratch1, (address)b);
 
   // call indirectly to solve generation ordering problem
-  stp(reg, lr, Address(pre(sp, -16)));
-  lea(rscratch1, ExternalAddress(StubRoutines::verify_oop_subroutine_entry_address()));
-  ldr(rscratch1, Address(rscratch1));
-  blr(rscratch1);
-  ldp(reg, lr, Address(post(sp, 16)));
-  add(sp, sp, 2 * wordSize);
-  ldp(r0, rscratch1, Address(post(sp, 16)));
+  lea(rscratch2, ExternalAddress(StubRoutines::verify_oop_subroutine_entry_address()));
+  ldr(rscratch2, Address(rscratch2));
+  blr(rscratch2);
+
+  ldp(rscratch2, lr, Address(post(sp, 2 * wordSize)));
+  ldp(r0, rscratch1, Address(post(sp, 2 * wordSize)));
 
   BLOCK_COMMENT("} verify_oop");
+}
+
+void MacroAssembler::verify_oop_addr(Address addr, const char* s) {
+  if (!VerifyOops) return;
+
+  char* b = new char[strlen(s) + 50];
+  sprintf(b, "verify_oop_addr: %s", s);
+  BLOCK_COMMENT("verify_oop_addr {");
+
+  stp(r0, rscratch1, Address(pre(sp, -2 * wordSize)));
+  stp(rscratch2, lr, Address(pre(sp, -2 * wordSize)));
+
+  // addr may contain sp so we will have to adjust it based on the
+  // pushes that we just did.
+  if (addr.uses(sp)) {
+    lea(r0, addr);
+    ldr(r0, Address(r0, 4 * wordSize));
+  } else {
+    ldr(r0, addr);
+  }
+  mov(rscratch1, (address)b);
+
+  // call indirectly to solve generation ordering problem
+  lea(rscratch2, ExternalAddress(StubRoutines::verify_oop_subroutine_entry_address()));
+  ldr(rscratch2, Address(rscratch2));
+  blr(rscratch2);
+
+  ldp(rscratch2, lr, Address(post(sp, 2 * wordSize)));
+  ldp(r0, rscratch1, Address(post(sp, 2 * wordSize)));
+
+  BLOCK_COMMENT("} verify_oop_addr");
 }
 
 Address MacroAssembler::argument_address(RegisterOrConstant arg_slot,
@@ -2176,7 +2204,7 @@ void  MacroAssembler::decode_klass_not_null(Register dst, Register src) {
       add(dst, zr, src, Assembler::LSL, LogKlassAlignmentInBytes);
     }
   } else {
-    assert (Universe::narrow_oop_base() == NULL, "sanity");
+    assert (Universe::narrow_klass_base() == NULL, "sanity");
     if (dst != src) {
       mov(dst, src);
     }
@@ -2514,28 +2542,26 @@ void MacroAssembler::verify_tlab() {
 #ifdef ASSERT
   if (UseTLAB && VerifyOops) {
     Label next, ok;
-    Register t1 = r4;
 
-    str(t1, Address(pre(sp, -16)));
-    push(t1);
+    stp(rscratch2, rscratch1, Address(pre(sp, -16)));
 
-    ldr(t1, Address(rthread, in_bytes(JavaThread::tlab_top_offset())));
+    ldr(rscratch2, Address(rthread, in_bytes(JavaThread::tlab_top_offset())));
     ldr(rscratch1, Address(rthread, in_bytes(JavaThread::tlab_start_offset())));
-    cmp(t1, rscratch1);
+    cmp(rscratch2, rscratch1);
     br(Assembler::HS, next);
     STOP("assert(top >= start)");
     should_not_reach_here();
 
     bind(next);
-    ldr(t1, Address(rthread, in_bytes(JavaThread::tlab_end_offset())));
+    ldr(rscratch2, Address(rthread, in_bytes(JavaThread::tlab_end_offset())));
     ldr(rscratch1, Address(rthread, in_bytes(JavaThread::tlab_top_offset())));
-    cmp(t1, rscratch1);
+    cmp(rscratch2, rscratch1);
     br(Assembler::HS, ok);
     STOP("assert(top <= end)");
     should_not_reach_here();
 
     bind(ok);
-    ldr(t1, Address(post(sp, 16)));
+    ldp(rscratch2, rscratch1, Address(post(sp, 16)));
   }
 #endif
 }

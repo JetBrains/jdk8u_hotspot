@@ -157,8 +157,12 @@ void C1_MacroAssembler::unlock_object(Register hdr, Register obj, Register disp_
   // the displaced header, get the object header instead
   // if the object header was not pointing to the displaced header,
   // we do unlocking via runtime call
-  lea(rscratch1, Address(obj, hdr_offset));
-  cmpxchgptr(disp_hdr, hdr, rscratch1, rscratch2, done, slow_case);
+  if (hdr_offset) {
+    lea(rscratch1, Address(obj, hdr_offset));
+    cmpxchgptr(disp_hdr, hdr, rscratch1, rscratch2, done, slow_case);
+  } else {
+    cmpxchgptr(disp_hdr, hdr, obj, rscratch2, done, slow_case);
+  }
   // done
   bind(done);
 }
@@ -186,7 +190,7 @@ void C1_MacroAssembler::initialize_header(Register obj, Register klass, Register
   str(t1, Address(obj, oopDesc::mark_offset_in_bytes()));
 
   if (UseCompressedKlassPointers) { // Take care not to kill klass
-    encode_heap_oop_not_null(t1, klass);
+    encode_klass_not_null(t1, klass);
     strw(t1, Address(obj, oopDesc::klass_offset_in_bytes()));
   } else {
     str(klass, Address(obj, oopDesc::klass_offset_in_bytes()));
@@ -462,7 +466,10 @@ void C1_MacroAssembler::verified_entry() {
 
 #ifndef PRODUCT
 
-void C1_MacroAssembler::verify_stack_oop(int stack_offset) { Unimplemented(); }
+void C1_MacroAssembler::verify_stack_oop(int stack_offset) {
+  if (!VerifyOops) return;
+  verify_oop_addr(Address(sp, stack_offset), "oop");
+}
 
 void C1_MacroAssembler::verify_not_null_oop(Register r) {
   if (!VerifyOops) return;
