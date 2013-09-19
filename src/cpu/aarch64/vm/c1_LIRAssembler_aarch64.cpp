@@ -2217,7 +2217,7 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
     __ cbz(r0, *stub->continuation());
 
     if (copyfunc_addr != NULL) {
-      __ eor(tmp, r0, -1);
+      __ eon(tmp, r0, zr);
     }
 
     // Reload values from the stack so they are where the stub
@@ -2354,8 +2354,9 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
           Address klass_lh_addr(tmp, lh_offset);
           jint objArray_lh = Klass::array_layout_helper(T_OBJECT);
 	  __ ldrw(rscratch1, klass_lh_addr);
-          __ cmpw(rscratch1, objArray_lh);
-          __ br(Assembler::NE, *stub->entry());
+	  __ mov(rscratch2, objArray_lh);
+          __ eorw(rscratch1, rscratch1, rscratch2);
+          __ cbnzw(rscratch1, *stub->entry());
         }
 
        // Spill because stubs can use any register they like and it's
@@ -2389,7 +2390,7 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
         }
 #endif
 
-        __ cbnz(r0, *stub->continuation());
+        __ cbz(r0, *stub->continuation());
 
 #ifndef PRODUCT
         if (PrintC1Statistics) {
@@ -2397,7 +2398,7 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
         }
 #endif
 
-        __ eor(tmp, r0, -1);
+        __ eon(tmp, r0, zr);
 
         // Restore previously spilled arguments
 	__ ldp(dst,     dst_pos, Address(sp, 0*BytesPerWord));
