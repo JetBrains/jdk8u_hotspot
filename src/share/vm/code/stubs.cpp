@@ -148,7 +148,7 @@ Stub* StubQueue::request(int requested_code_size) {
 
 
 void StubQueue::commit(int committed_code_size, CodeStrings& strings) {
-  // assert(committed_code_size > 0, "committed_code_size must be > 0");
+  assert(committed_code_size > 0, "committed_code_size must be > 0");
   int committed_size = round_to(stub_code_size_to_size(committed_code_size), CodeEntryAlignment);
   Stub* s = current_stub();
   assert(committed_size <= stub_size(s), "committed size must not exceed requested size");
