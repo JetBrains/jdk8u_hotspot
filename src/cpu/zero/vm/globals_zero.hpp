@@ -57,6 +57,12 @@ define_pd_global(bool,  UseMembar,            true);
 // GC Ergo Flags
 define_pd_global(intx, CMSYoungGenPerWorker, 16*M);  // default max size of CMS young gen, per GC worker thread
 
+#ifdef AARCH64
+// This is declared as _pd for AARCH64 only in globals.hpp
+// so must match with definition here.
+define_pd_global(bool, UseBiasedLocking, false);
+#endif
+
 #define ARCH_FLAGS(develop, product, diagnostic, experimental, notproduct)
 
 #endif // CPU_ZERO_VM_GLOBALS_ZERO_HPP
