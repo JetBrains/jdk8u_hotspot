@@ -830,7 +830,7 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name, Handle cla
             Klass *kk;
             {
               MutexLocker mu(SystemDictionary_lock, THREAD);
-              kk = find_class(name, ik->class_loader_data());
+              kk = find_class(d_index, d_hash, name, ik->class_loader_data());
             }
             if (kk != NULL) {
               // No clean up is needed if the shared class has been entered
@@ -1592,9 +1592,10 @@ Symbol* SystemDictionary::find_placeholder(Symbol* class_name,
 // Used for assertions and verification only
 Klass* SystemDictionary::find_class(Symbol* class_name, ClassLoaderData* loader_data) {
   #ifndef ASSERT
-  guarantee(VerifyBeforeGC   ||
-            VerifyDuringGC   ||
-            VerifyBeforeExit ||
+  guarantee(VerifyBeforeGC      ||
+            VerifyDuringGC      ||
+            VerifyBeforeExit    ||
+            VerifyDuringStartup ||
             VerifyAfterGC, "too expensive");
   #endif
   assert_locked_or_safepoint(SystemDictionary_lock);

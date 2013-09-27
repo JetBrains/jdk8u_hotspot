@@ -344,6 +344,7 @@ public:
   virtual void print_gc_threads_on(outputStream* st) const;
   virtual void gc_threads_do(ThreadClosure* tc) const;
   virtual void print_tracing_info() const;
+  virtual void print_on_error(outputStream* st) const;
 
   // PrintGC, PrintGCDetails support
   void print_heap_change(size_t prev_used) const;
@@ -431,8 +432,7 @@ public:
   // JNI weak roots, the code cache, system dictionary, symbol table,
   // string table, and referents of reachable weak refs.
   void gen_process_weak_roots(OopClosure* root_closure,
-                              CodeBlobClosure* code_roots,
-                              OopClosure* non_root_closure);
+                              CodeBlobClosure* code_roots);
 
   // Set the saved marks of generations, if that makes sense.
   // In particular, if any generation might iterate over the oops

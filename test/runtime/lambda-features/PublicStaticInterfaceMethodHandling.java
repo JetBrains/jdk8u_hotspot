@@ -19,27 +19,31 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
+ *
  */
 
-/* @test TestVerifyBeforeGCDuringStartup.java
- * @key gc
- * @bug 8010463
- * @summary Simple test run with -XX:+VerifyBeforeGC -XX:-UseTLAB to verify 8010463
- * @library /testlibrary
+/*
+ * @test
+ * @bug 8013418
+ * @summary [JDK 8] Test correct handling of static public interface methods
+ * @run main/othervm -Xverify:all PublicStaticInterfaceMethodHandling
  */
 
-import com.oracle.java.testlibrary.OutputAnalyzer;
-import com.oracle.java.testlibrary.ProcessTools;
+class TestClass implements InterfaceWithStaticAndDefaultMethods {
+}
 
-public class TestVerifyBeforeGCDuringStartup {
-  public static void main(String args[]) throws Exception {
-    ProcessBuilder pb =
-      ProcessTools.createJavaProcessBuilder(System.getProperty("test.vm.opts"),
-                                            "-XX:-UseTLAB",
-                                            "-XX:+UnlockDiagnosticVMOptions",
-                                            "-XX:+VerifyBeforeGC", "-version");
-    OutputAnalyzer output = new OutputAnalyzer(pb.start());
-    output.shouldContain("[Verifying");
-    output.shouldHaveExitValue(0);
-  }
+interface InterfaceWithStaticAndDefaultMethods {
+    public static String get() {
+        return "Hello from StaticMethodInInterface.get()";
+    }
+    default void default_method() {
+        System.out.println("Default method FunctionalInterface:default_method()");
+    }
+}
+
+public class PublicStaticInterfaceMethodHandling  {
+    public static void main(String[] args) {
+        TestClass tc = new TestClass();
+        tc.default_method();
+    }
 }

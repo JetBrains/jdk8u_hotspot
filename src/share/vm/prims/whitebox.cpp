@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -49,6 +49,7 @@
 #endif // INCLUDE_NMT
 
 #include "compiler/compileBroker.hpp"
+#include "runtime/compilationPolicy.hpp"
 
 bool WhiteBox::_used = false;
 
@@ -92,6 +93,15 @@ WB_ENTRY(jboolean, WB_IsClassAlive(JNIEnv* env, jobject target, jstring name))
   return closure.found();
 WB_END
 
+WB_ENTRY(void, WB_PrintHeapSizes(JNIEnv* env, jobject o)) {
+  CollectorPolicy * p = Universe::heap()->collector_policy();
+  gclog_or_tty->print_cr("Minimum heap "SIZE_FORMAT" Initial heap "
+    SIZE_FORMAT" Maximum heap "SIZE_FORMAT" Min alignment "SIZE_FORMAT" Max alignment "SIZE_FORMAT,
+    p->min_heap_byte_size(), p->initial_heap_byte_size(), p->max_heap_byte_size(),
+    p->min_alignment(), p->max_alignment());
+}
+WB_END
+
 #if INCLUDE_ALL_GCS
 WB_ENTRY(jboolean, WB_G1IsHumongous(JNIEnv* env, jobject o, jobject obj))
   G1CollectedHeap* g1 = G1CollectedHeap::heap();
@@ -118,45 +128,46 @@ WB_END
 #endif // INCLUDE_ALL_GCS
 
 #ifdef INCLUDE_NMT
-// Keep track of the 3 allocations in NMTAllocTest so we can free them later
-// on and verify that they're not visible anymore
-static void* nmtMtTest1 = NULL, *nmtMtTest2 = NULL, *nmtMtTest3 = NULL;
-
 // Alloc memory using the test memory type so that we can use that to see if
 // NMT picks it up correctly
-WB_ENTRY(jboolean, WB_NMTAllocTest(JNIEnv* env))
-  void *mem;
+WB_ENTRY(jlong, WB_NMTMalloc(JNIEnv* env, jobject o, jlong size))
+  jlong addr = 0;
 
-  if (!MemTracker::is_on() || MemTracker::shutdown_in_progress()) {
-    return false;
+  if (MemTracker::is_on() && !MemTracker::shutdown_in_progress()) {
+    addr = (jlong)(uintptr_t)os::malloc(size, mtTest);
   }
 
-  // Allocate 2 * 128k + 256k + 1024k and free the 1024k one to make sure we track
-  // everything correctly. Total should be 512k held alive.
-  nmtMtTest1 = os::malloc(128 * 1024, mtTest);
-  mem = os::malloc(1024 * 1024, mtTest);
-  nmtMtTest2 = os::malloc(256 * 1024, mtTest);
-  os::free(mem, mtTest);
-  nmtMtTest3 = os::malloc(128 * 1024, mtTest);
-
-  return true;
+  return addr;
 WB_END
 
 // Free the memory allocated by NMTAllocTest
-WB_ENTRY(jboolean, WB_NMTFreeTestMemory(JNIEnv* env))
+WB_ENTRY(void, WB_NMTFree(JNIEnv* env, jobject o, jlong mem))
+  os::free((void*)(uintptr_t)mem, mtTest);
+WB_END
 
-  if (nmtMtTest1 == NULL || nmtMtTest2 == NULL || nmtMtTest3 == NULL) {
-    return false;
+WB_ENTRY(jlong, WB_NMTReserveMemory(JNIEnv* env, jobject o, jlong size))
+  jlong addr = 0;
+
+  if (MemTracker::is_on() && !MemTracker::shutdown_in_progress()) {
+    addr = (jlong)(uintptr_t)os::reserve_memory(size);
+    MemTracker::record_virtual_memory_type((address)addr, mtTest);
   }
 
-  os::free(nmtMtTest1, mtTest);
-  nmtMtTest1 = NULL;
-  os::free(nmtMtTest2, mtTest);
-  nmtMtTest2 = NULL;
-  os::free(nmtMtTest3, mtTest);
-  nmtMtTest3 = NULL;
+  return addr;
+WB_END
 
-  return true;
+
+WB_ENTRY(void, WB_NMTCommitMemory(JNIEnv* env, jobject o, jlong addr, jlong size))
+  os::commit_memory((char *)(uintptr_t)addr, size);
+  MemTracker::record_virtual_memory_type((address)(uintptr_t)addr, mtTest);
+WB_END
+
+WB_ENTRY(void, WB_NMTUncommitMemory(JNIEnv* env, jobject o, jlong addr, jlong size))
+  os::uncommit_memory((char *)(uintptr_t)addr, size);
+WB_END
+
+WB_ENTRY(void, WB_NMTReleaseMemory(JNIEnv* env, jobject o, jlong addr, jlong size))
+  os::release_memory((char *)(uintptr_t)addr, size);
 WB_END
 
 // Block until the current generation of NMT data to be merged, used to reliably test the NMT feature
@@ -213,11 +224,11 @@ WB_ENTRY(jboolean, WB_IsMethodCompiled(JNIEnv* env, jobject o, jobject method))
   return (code->is_alive() && !code->is_marked_for_deoptimization());
 WB_END
 
-WB_ENTRY(jboolean, WB_IsMethodCompilable(JNIEnv* env, jobject o, jobject method))
+WB_ENTRY(jboolean, WB_IsMethodCompilable(JNIEnv* env, jobject o, jobject method, jint comp_level))
   jmethodID jmid = reflected_method_to_jmid(thread, env, method);
   MutexLockerEx mu(Compile_lock);
   methodHandle mh(THREAD, Method::checked_resolve_jmethod_id(jmid));
-  return !mh->is_not_compilable();
+  return CompilationPolicy::can_be_compiled(mh, comp_level);
 WB_END
 
 WB_ENTRY(jboolean, WB_IsMethodQueuedForCompilation(JNIEnv* env, jobject o, jobject method))
@@ -235,13 +246,13 @@ WB_ENTRY(jint, WB_GetMethodCompilationLevel(JNIEnv* env, jobject o, jobject meth
 WB_END
 
 
-WB_ENTRY(void, WB_MakeMethodNotCompilable(JNIEnv* env, jobject o, jobject method))
+WB_ENTRY(void, WB_MakeMethodNotCompilable(JNIEnv* env, jobject o, jobject method, jint comp_level))
   jmethodID jmid = reflected_method_to_jmid(thread, env, method);
   methodHandle mh(THREAD, Method::checked_resolve_jmethod_id(jmid));
-  mh->set_not_compilable();
+  mh->set_not_compilable(comp_level, true /* report */, "WhiteBox");
 WB_END
 
-WB_ENTRY(jboolean, WB_SetDontInlineMethod(JNIEnv* env, jobject o, jobject method, jboolean value))
+WB_ENTRY(jboolean, WB_TestSetDontInlineMethod(JNIEnv* env, jobject o, jobject method, jboolean value))
   jmethodID jmid = reflected_method_to_jmid(thread, env, method);
   methodHandle mh(THREAD, Method::checked_resolve_jmethod_id(jmid));
   bool result = mh->dont_inline();
@@ -254,15 +265,62 @@ WB_ENTRY(jint, WB_GetCompileQueuesSize(JNIEnv* env, jobject o))
          CompileBroker::queue_size(CompLevel_full_profile) /* C1 */;
 WB_END
 
+
+WB_ENTRY(jboolean, WB_TestSetForceInlineMethod(JNIEnv* env, jobject o, jobject method, jboolean value))
+  jmethodID jmid = reflected_method_to_jmid(thread, env, method);
+  methodHandle mh(THREAD, Method::checked_resolve_jmethod_id(jmid));
+  bool result = mh->force_inline();
+  mh->set_force_inline(value == JNI_TRUE);
+  return result;
+WB_END
+
+WB_ENTRY(jboolean, WB_EnqueueMethodForCompilation(JNIEnv* env, jobject o, jobject method, jint comp_level))
+  jmethodID jmid = reflected_method_to_jmid(thread, env, method);
+  methodHandle mh(THREAD, Method::checked_resolve_jmethod_id(jmid));
+  nmethod* nm = CompileBroker::compile_method(mh, InvocationEntryBci, comp_level, mh, mh->invocation_count(), "WhiteBox", THREAD);
+  MutexLockerEx mu(Compile_lock);
+  return (mh->queued_for_compilation() || nm != NULL);
+WB_END
+
+WB_ENTRY(void, WB_ClearMethodState(JNIEnv* env, jobject o, jobject method))
+  jmethodID jmid = reflected_method_to_jmid(thread, env, method);
+  methodHandle mh(THREAD, Method::checked_resolve_jmethod_id(jmid));
+  MutexLockerEx mu(Compile_lock);
+  MethodData* mdo = mh->method_data();
+  MethodCounters* mcs = mh->method_counters();
+
+  if (mdo != NULL) {
+    mdo->init();
+    ResourceMark rm;
+    int arg_count = mdo->method()->size_of_parameters();
+    for (int i = 0; i < arg_count; i++) {
+      mdo->set_arg_modified(i, 0);
+    }
+  }
+
+  mh->clear_not_c1_compilable();
+  mh->clear_not_c2_compilable();
+  mh->clear_not_c2_osr_compilable();
+  NOT_PRODUCT(mh->set_compiled_invocation_count(0));
+  if (mcs != NULL) {
+    mcs->backedge_counter()->init();
+    mcs->invocation_counter()->init();
+    mcs->set_interpreter_invocation_count(0);
+    mcs->set_interpreter_throwout_count(0);
+
+#ifdef TIERED
+    mcs->set_rate(0.0F);
+    mh->set_prev_event_count(0, THREAD);
+    mh->set_prev_time(0, THREAD);
+#endif
+  }
+WB_END
+
 WB_ENTRY(jboolean, WB_IsInStringTable(JNIEnv* env, jobject o, jstring javaString))
   ResourceMark rm(THREAD);
   int len;
-  jchar* name = java_lang_String::as_unicode_string(JNIHandles::resolve(javaString), len);
-  oop found_string = StringTable::the_table()->lookup(name, len);
-  if (found_string == NULL) {
-        return false;
-  }
-  return true;
+  jchar* name = java_lang_String::as_unicode_string(JNIHandles::resolve(javaString), len, CHECK_false);
+  return (StringTable::lookup(name, len) != NULL);
 WB_END
 
 
@@ -271,6 +329,10 @@ WB_ENTRY(void, WB_FullGC(JNIEnv* env, jobject o))
   Universe::heap()->collect(GCCause::_last_ditch_collection);
 WB_END
 
+
+WB_ENTRY(jlong, WB_ReserveMemory(JNIEnv* env, jobject o, jlong size))
+  return (jlong)os::reserve_memory(size, NULL, 0);
+WB_END
 
 //Some convenience methods to deal with objects from java
 int WhiteBox::offset_for_field(const char* field_name, oop object,
@@ -333,6 +395,7 @@ static JNINativeMethod methods[] = {
       CC"(Ljava/lang/String;[Lsun/hotspot/parser/DiagnosticCommand;)[Ljava/lang/Object;",
       (void*) &WB_ParseCommandLine
   },
+  {CC"printHeapSizes",     CC"()V",                   (void*)&WB_PrintHeapSizes    },
 #if INCLUDE_ALL_GCS
   {CC"g1InConcurrentMark", CC"()Z",                   (void*)&WB_G1InConcurrentMark},
   {CC"g1IsHumongous",      CC"(Ljava/lang/Object;)Z", (void*)&WB_G1IsHumongous     },
@@ -340,29 +403,41 @@ static JNINativeMethod methods[] = {
   {CC"g1RegionSize",       CC"()I",                   (void*)&WB_G1RegionSize      },
 #endif // INCLUDE_ALL_GCS
 #ifdef INCLUDE_NMT
-  {CC"NMTAllocTest",       CC"()Z",                   (void*)&WB_NMTAllocTest      },
-  {CC"NMTFreeTestMemory",  CC"()Z",                   (void*)&WB_NMTFreeTestMemory },
-  {CC"NMTWaitForDataMerge",CC"()Z",                   (void*)&WB_NMTWaitForDataMerge},
+  {CC"NMTMalloc",           CC"(J)J",                 (void*)&WB_NMTMalloc          },
+  {CC"NMTFree",             CC"(J)V",                 (void*)&WB_NMTFree            },
+  {CC"NMTReserveMemory",    CC"(J)J",                 (void*)&WB_NMTReserveMemory   },
+  {CC"NMTCommitMemory",     CC"(JJ)V",                (void*)&WB_NMTCommitMemory    },
+  {CC"NMTUncommitMemory",   CC"(JJ)V",                (void*)&WB_NMTUncommitMemory  },
+  {CC"NMTReleaseMemory",    CC"(JJ)V",                (void*)&WB_NMTReleaseMemory   },
+  {CC"NMTWaitForDataMerge", CC"()Z",                  (void*)&WB_NMTWaitForDataMerge},
 #endif // INCLUDE_NMT
   {CC"deoptimizeAll",      CC"()V",                   (void*)&WB_DeoptimizeAll     },
-  {CC"deoptimizeMethod",   CC"(Ljava/lang/reflect/Method;)I",
+  {CC"deoptimizeMethod",   CC"(Ljava/lang/reflect/Executable;)I",
                                                       (void*)&WB_DeoptimizeMethod  },
-  {CC"isMethodCompiled",   CC"(Ljava/lang/reflect/Method;)Z",
+  {CC"isMethodCompiled",   CC"(Ljava/lang/reflect/Executable;)Z",
                                                       (void*)&WB_IsMethodCompiled  },
-  {CC"isMethodCompilable", CC"(Ljava/lang/reflect/Method;)Z",
+  {CC"isMethodCompilable", CC"(Ljava/lang/reflect/Executable;I)Z",
                                                       (void*)&WB_IsMethodCompilable},
   {CC"isMethodQueuedForCompilation",
-      CC"(Ljava/lang/reflect/Method;)Z",              (void*)&WB_IsMethodQueuedForCompilation},
+      CC"(Ljava/lang/reflect/Executable;)Z",          (void*)&WB_IsMethodQueuedForCompilation},
   {CC"makeMethodNotCompilable",
-      CC"(Ljava/lang/reflect/Method;)V",              (void*)&WB_MakeMethodNotCompilable},
-  {CC"setDontInlineMethod",
-      CC"(Ljava/lang/reflect/Method;Z)Z",             (void*)&WB_SetDontInlineMethod},
+      CC"(Ljava/lang/reflect/Executable;I)V",         (void*)&WB_MakeMethodNotCompilable},
+  {CC"testSetDontInlineMethod",
+      CC"(Ljava/lang/reflect/Executable;Z)Z",         (void*)&WB_TestSetDontInlineMethod},
   {CC"getMethodCompilationLevel",
-      CC"(Ljava/lang/reflect/Method;)I",              (void*)&WB_GetMethodCompilationLevel},
+      CC"(Ljava/lang/reflect/Executable;)I",          (void*)&WB_GetMethodCompilationLevel},
   {CC"getCompileQueuesSize",
       CC"()I",                                        (void*)&WB_GetCompileQueuesSize},
+  {CC"testSetForceInlineMethod",
+      CC"(Ljava/lang/reflect/Executable;Z)Z",         (void*)&WB_TestSetForceInlineMethod},
+  {CC"enqueueMethodForCompilation",
+      CC"(Ljava/lang/reflect/Executable;I)Z",         (void*)&WB_EnqueueMethodForCompilation},
+  {CC"clearMethodState",
+      CC"(Ljava/lang/reflect/Executable;)V",          (void*)&WB_ClearMethodState},
   {CC"isInStringTable",   CC"(Ljava/lang/String;)Z",  (void*)&WB_IsInStringTable  },
   {CC"fullGC",   CC"()V",                             (void*)&WB_FullGC },
+
+  {CC"reserveMemory", CC"(J)J", (void*)&WB_ReserveMemory },
 };
 
 #undef CC
@@ -374,9 +449,29 @@ JVM_ENTRY(void, JVM_RegisterWhiteBoxMethods(JNIEnv* env, jclass wbclass))
       instanceKlassHandle ikh = instanceKlassHandle(JNIHandles::resolve(wbclass)->klass());
       Handle loader(ikh->class_loader());
       if (loader.is_null()) {
+        ResourceMark rm;
         ThreadToNativeFromVM ttnfv(thread); // can't be in VM when we call JNI
-        jint result = env->RegisterNatives(wbclass, methods, sizeof(methods)/sizeof(methods[0]));
-        if (result == 0) {
+        bool result = true;
+        //  one by one registration natives for exception catching
+        jclass exceptionKlass = env->FindClass(vmSymbols::java_lang_NoSuchMethodError()->as_C_string());
+        for (int i = 0, n = sizeof(methods) / sizeof(methods[0]); i < n; ++i) {
+          if (env->RegisterNatives(wbclass, methods + i, 1) != 0) {
+            result = false;
+            if (env->ExceptionCheck() && env->IsInstanceOf(env->ExceptionOccurred(), exceptionKlass)) {
+              // j.l.NoSuchMethodError is thrown when a method can't be found or a method is not native
+              // ignoring the exception
+              tty->print_cr("Warning: 'NoSuchMethodError' on register of sun.hotspot.WhiteBox::%s%s", methods[i].name, methods[i].signature);
+              env->ExceptionClear();
+            } else {
+              // register is failed w/o exception or w/ unexpected exception
+              tty->print_cr("Warning: unexpected error on register of sun.hotspot.WhiteBox::%s%s. All methods will be unregistered", methods[i].name, methods[i].signature);
+              env->UnregisterNatives(wbclass);
+              break;
+            }
+          }
+        }
+
+        if (result) {
           WhiteBox::set_used();
         }
       }

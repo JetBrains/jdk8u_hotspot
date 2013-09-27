@@ -1182,6 +1182,9 @@ bool os::dll_build_name(char *buffer, size_t buflen,
   } else if (strchr(pname, *os::path_separator()) != NULL) {
     int n;
     char** pelements = split_path(pname, &n);
+    if (pelements == NULL) {
+      return false;
+    }
     for (int i = 0 ; i < n ; i++) {
       char* path = pelements[i];
       // Really shouldn't be NULL, but check can't hurt
@@ -1218,8 +1221,10 @@ bool os::dll_build_name(char *buffer, size_t buflen,
 
 // Needs to be in os specific directory because windows requires another
 // header file <direct.h>
-const char* os::get_current_directory(char *buf, int buflen) {
-  return _getcwd(buf, buflen);
+const char* os::get_current_directory(char *buf, size_t buflen) {
+  int n = static_cast<int>(buflen);
+  if (buflen > INT_MAX)  n = INT_MAX;
+  return _getcwd(buf, n);
 }
 
 //-----------------------------------------------------------
@@ -4095,6 +4100,10 @@ int os::open(const char *path, int oflag, int mode) {
   return ::open(pathbuf, oflag | O_BINARY | O_NOINHERIT, mode);
 }
 
+FILE* os::open(int fd, const char* mode) {
+  return ::_fdopen(fd, mode);
+}
+
 // Is a (classpath) directory empty?
 bool os::dir_is_empty(const char* path) {
   WIN32_FIND_DATA fd;
@@ -4235,9 +4244,6 @@ char * os::native_path(char *path) {
           path[3] = '\0';
   }
 
-  #ifdef DEBUG
-    jio_fprintf(stderr, "sysNativePath: %s\n", path);
-  #endif DEBUG
   return path;
 }
 

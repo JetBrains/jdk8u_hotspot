@@ -229,11 +229,11 @@ void report_fatal(const char* file, int line, const char* message)
 }
 
 void report_vm_out_of_memory(const char* file, int line, size_t size,
-                             const char* message) {
+                             VMErrorType vm_err_type, const char* message) {
   if (Debugging) return;
 
   Thread* thread = ThreadLocalStorage::get_thread_slow();
-  VMError(thread, file, line, size, message).report_and_die();
+  VMError(thread, file, line, size, vm_err_type, message).report_and_die();
 
   // The UseOSErrorReporting option in report_and_die() may allow a return
   // to here. If so then we'll have to figure out how to handle it.
@@ -344,7 +344,7 @@ void test_error_handler(size_t test_num)
                            msg, eol, msg, eol, msg, eol, msg, eol, msg, eol,
                            msg, eol, msg, eol, msg, eol, msg, eol, msg, eol,
                            msg, eol, msg, eol, msg, eol, msg, eol, msg));
-    case  8: vm_exit_out_of_memory(num, "ChunkPool::allocate");
+    case  8: vm_exit_out_of_memory(num, OOM_MALLOC_ERROR, "ChunkPool::allocate");
     case  9: ShouldNotCallThis();
     case 10: ShouldNotReachHere();
     case 11: Unimplemented();
@@ -607,18 +607,6 @@ extern "C" nmethod* findnm(intptr_t addr) {
   Command c("findnm");
   return  CodeCache::find_nmethod((address)addr);
 }
-
-static address same_page(address x, address y) {
-  intptr_t page_bits = -os::vm_page_size();
-  if ((intptr_t(x) & page_bits) == (intptr_t(y) & page_bits)) {
-    return x;
-  } else if (x > y) {
-    return (address)(intptr_t(y) | ~page_bits) + 1;
-  } else {
-    return (address)(intptr_t(y) & page_bits);
-  }
-}
-
 
 // Another interface that isn't ambiguous in dbx.
 // Can we someday rename the other find to hsfind?

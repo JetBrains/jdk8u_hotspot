@@ -178,7 +178,7 @@ const bool NMT_track_callsite = false;
 #endif // INCLUDE_NMT
 
 // debug build does not inline
-#if defined(_DEBUG_)
+#if defined(_NMT_NOINLINE_)
   #define CURRENT_PC       (NMT_track_callsite ? os::get_caller_pc(1) : 0)
   #define CALLER_PC        (NMT_track_callsite ? os::get_caller_pc(2) : 0)
   #define CALLER_CALLER_PC (NMT_track_callsite ? os::get_caller_pc(3) : 0)
@@ -539,6 +539,9 @@ class ResourceObj ALLOCATION_SUPER_CLASS_SPEC {
 #define NEW_RESOURCE_ARRAY(type, size)\
   (type*) resource_allocate_bytes((size) * sizeof(type))
 
+#define NEW_RESOURCE_ARRAY_RETURN_NULL(type, size)\
+  (type*) resource_allocate_bytes((size) * sizeof(type), AllocFailStrategy::RETURN_NULL)
+
 #define NEW_RESOURCE_ARRAY_IN_THREAD(thread, type, size)\
   (type*) resource_allocate_bytes(thread, (size) * sizeof(type))
 
@@ -609,6 +612,25 @@ protected:
 public:
   ReallocMark()   PRODUCT_RETURN;
   void check()    PRODUCT_RETURN;
+};
+
+// Helper class to allocate arrays that may become large.
+// Uses the OS malloc for allocations smaller than ArrayAllocatorMallocLimit
+// and uses mapped memory for larger allocations.
+// Most OS mallocs do something similar but Solaris malloc does not revert
+// to mapped memory for large allocations. By default ArrayAllocatorMallocLimit
+// is set so that we always use malloc except for Solaris where we set the
+// limit to get mapped memory.
+template <class E, MEMFLAGS F>
+class ArrayAllocator : StackObj {
+  char* _addr;
+  bool _use_malloc;
+  size_t _size;
+ public:
+  ArrayAllocator() : _addr(NULL), _use_malloc(false), _size(0) { }
+  ~ArrayAllocator() { free(); }
+  E* allocate(size_t length);
+  void free();
 };
 
 #endif // SHARE_VM_MEMORY_ALLOCATION_HPP

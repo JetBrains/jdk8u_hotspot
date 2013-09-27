@@ -77,6 +77,7 @@
 #include "oops/klass.hpp"
 #include "oops/markOop.hpp"
 #include "oops/methodData.hpp"
+#include "oops/methodCounters.hpp"
 #include "oops/method.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "oops/objArrayOop.hpp"
@@ -357,16 +358,17 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   nonstatic_field(MethodData,           _arg_local,                                    intx)                                  \
   nonstatic_field(MethodData,           _arg_stack,                                    intx)                                  \
   nonstatic_field(MethodData,           _arg_returned,                                 intx)                                  \
-  nonstatic_field(Method,               _constMethod,                                  ConstMethod*)                   \
-  nonstatic_field(Method,               _method_data,                                  MethodData*)                    \
-  nonstatic_field(Method,               _interpreter_invocation_count,                 int)                                   \
+  nonstatic_field(MethodCounters,       _interpreter_invocation_count,                 int)                                   \
+  nonstatic_field(MethodCounters,       _interpreter_throwout_count,                   u2)                                    \
+  nonstatic_field(MethodCounters,       _number_of_breakpoints,                        u2)                                    \
+  nonstatic_field(MethodCounters,       _invocation_counter,                           InvocationCounter)                     \
+  nonstatic_field(MethodCounters,       _backedge_counter,                             InvocationCounter)                     \
+  nonstatic_field(Method,               _constMethod,                                  ConstMethod*)                          \
+  nonstatic_field(Method,               _method_data,                                  MethodData*)                           \
+  nonstatic_field(Method,               _method_counters,                              MethodCounters*)                       \
   nonstatic_field(Method,               _access_flags,                                 AccessFlags)                           \
   nonstatic_field(Method,               _vtable_index,                                 int)                                   \
   nonstatic_field(Method,               _method_size,                                  u2)                                    \
-  nonstatic_field(Method,               _interpreter_throwout_count,                   u2)                                    \
-  nonstatic_field(Method,               _number_of_breakpoints,                        u2)                                    \
-  nonstatic_field(Method,               _invocation_counter,                           InvocationCounter)                     \
-  nonstatic_field(Method,               _backedge_counter,                             InvocationCounter)                     \
   nonproduct_nonstatic_field(Method,    _compiled_invocation_count,                    int)                                   \
   volatile_nonstatic_field(Method,      _code,                                         nmethod*)                              \
   nonstatic_field(Method,               _i2i_entry,                                    address)                               \
@@ -487,6 +489,9 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
                                                                                                                                      \
   nonstatic_field(CardGeneration,              _rs,                                           GenRemSet*)                            \
   nonstatic_field(CardGeneration,              _bts,                                          BlockOffsetSharedArray*)               \
+  nonstatic_field(CardGeneration,              _shrink_factor,                                size_t)                                \
+  nonstatic_field(CardGeneration,              _capacity_at_prologue,                         size_t)                                \
+  nonstatic_field(CardGeneration,              _used_at_prologue,                             size_t)                                \
                                                                                                                                      \
   nonstatic_field(CardTableModRefBS,           _whole_heap,                                   const MemRegion)                       \
   nonstatic_field(CardTableModRefBS,           _guard_index,                                  const size_t)                          \
@@ -557,8 +562,6 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   nonstatic_field(Space,                       _bottom,                                       HeapWord*)                             \
   nonstatic_field(Space,                       _end,                                          HeapWord*)                             \
                                                                                                                                      \
-  nonstatic_field(TenuredGeneration,           _shrink_factor,                                size_t)                                \
-  nonstatic_field(TenuredGeneration,           _capacity_at_prologue,                         size_t)                                \
   nonstatic_field(ThreadLocalAllocBuffer,      _start,                                        HeapWord*)                             \
   nonstatic_field(ThreadLocalAllocBuffer,      _top,                                          HeapWord*)                             \
   nonstatic_field(ThreadLocalAllocBuffer,      _end,                                          HeapWord*)                             \
@@ -834,6 +837,7 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   nonstatic_field(nmethod,             _lock_count,                                   jint)                                  \
   nonstatic_field(nmethod,             _stack_traversal_mark,                         long)                                  \
   nonstatic_field(nmethod,             _compile_id,                                   int)                                   \
+  nonstatic_field(nmethod,             _comp_level,                                   int)                                   \
   nonstatic_field(nmethod,             _exception_cache,                              ExceptionCache*)                       \
   nonstatic_field(nmethod,             _marked_for_deoptimization,                    bool)                                  \
                                                                                                                              \
@@ -1123,7 +1127,6 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
   c2_nonstatic_field(PhaseChaitin,       _lo_stk_degree,           uint)                                                             \
   c2_nonstatic_field(PhaseChaitin,       _hi_degree,               uint)                                                             \
   c2_nonstatic_field(PhaseChaitin,       _simplified,              uint)                                                             \
-  c2_nonstatic_field(PhaseChaitin,       _maxlrg,                  uint)                                                             \
                                                                                                                                      \
   c2_nonstatic_field(Block,              _nodes,                   Node_List)                                                        \
   c2_nonstatic_field(Block,              _succs,                   Block_Array)                                                      \
@@ -1390,6 +1393,7 @@ typedef BinaryTreeDictionary<Metablock, FreeList> MetablockTreeDictionary;
     declare_type(ConstantPoolCache, MetaspaceObj)                  \
     declare_type(MethodData, Metadata)                             \
     declare_type(Method, Metadata)                                 \
+    declare_type(MethodCounters, MetaspaceObj)                     \
     declare_type(ConstMethod, MetaspaceObj)                        \
                                                                           \
            declare_toplevel_type(Symbol)                                  \

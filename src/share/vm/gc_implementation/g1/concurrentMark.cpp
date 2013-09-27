@@ -101,6 +101,10 @@ bool CMBitMapRO::covers(ReservedSpace heap_rs) const {
 }
 #endif
 
+void CMBitMapRO::print_on_error(outputStream* st, const char* prefix) const {
+  _bm.print_on_error(st, prefix);
+}
+
 bool CMBitMap::allocate(ReservedSpace heap_rs) {
   _bmStartWord = (HeapWord*)(heap_rs.base());
   _bmWordSize  = heap_rs.size()/HeapWordSize;    // heap_rs.size() is in bytes
@@ -1269,10 +1273,9 @@ void ConcurrentMark::checkpointRootsFinal(bool clear_all_soft_refs) {
 
   if (VerifyDuringGC) {
     HandleMark hm;  // handle scope
-    gclog_or_tty->print(" VerifyDuringGC:(before)");
     Universe::heap()->prepare_for_verify();
-    Universe::verify(/* silent */ false,
-                     /* option */ VerifyOption_G1UsePrevMarking);
+    Universe::verify(VerifyOption_G1UsePrevMarking,
+                     " VerifyDuringGC:(before)");
   }
 
   G1CollectorPolicy* g1p = g1h->g1_policy();
@@ -1296,10 +1299,9 @@ void ConcurrentMark::checkpointRootsFinal(bool clear_all_soft_refs) {
     // Verify the heap w.r.t. the previous marking bitmap.
     if (VerifyDuringGC) {
       HandleMark hm;  // handle scope
-      gclog_or_tty->print(" VerifyDuringGC:(overflow)");
       Universe::heap()->prepare_for_verify();
-      Universe::verify(/* silent */ false,
-                       /* option */ VerifyOption_G1UsePrevMarking);
+      Universe::verify(VerifyOption_G1UsePrevMarking,
+                       " VerifyDuringGC:(overflow)");
     }
 
     // Clear the marking state because we will be restarting
@@ -1319,10 +1321,9 @@ void ConcurrentMark::checkpointRootsFinal(bool clear_all_soft_refs) {
 
     if (VerifyDuringGC) {
       HandleMark hm;  // handle scope
-      gclog_or_tty->print(" VerifyDuringGC:(after)");
       Universe::heap()->prepare_for_verify();
-      Universe::verify(/* silent */ false,
-                       /* option */ VerifyOption_G1UseNextMarking);
+      Universe::verify(VerifyOption_G1UseNextMarking,
+                       " VerifyDuringGC:(after)");
     }
     assert(!restart_for_overflow(), "sanity");
     // Completely reset the marking state since marking completed
@@ -1968,10 +1969,9 @@ void ConcurrentMark::cleanup() {
 
   if (VerifyDuringGC) {
     HandleMark hm;  // handle scope
-    gclog_or_tty->print(" VerifyDuringGC:(before)");
     Universe::heap()->prepare_for_verify();
-    Universe::verify(/* silent */ false,
-                     /* option */ VerifyOption_G1UsePrevMarking);
+    Universe::verify(VerifyOption_G1UsePrevMarking,
+                     " VerifyDuringGC:(before)");
   }
 
   G1CollectorPolicy* g1p = G1CollectedHeap::heap()->g1_policy();
@@ -2123,10 +2123,9 @@ void ConcurrentMark::cleanup() {
 
   if (VerifyDuringGC) {
     HandleMark hm;  // handle scope
-    gclog_or_tty->print(" VerifyDuringGC:(after)");
     Universe::heap()->prepare_for_verify();
-    Universe::verify(/* silent */ false,
-                     /* option */ VerifyOption_G1UsePrevMarking);
+    Universe::verify(VerifyOption_G1UsePrevMarking,
+                     " VerifyDuringGC:(after)");
   }
 
   g1h->verify_region_sets_optional();
@@ -3275,6 +3274,13 @@ void ConcurrentMark::print_worker_threads_on(outputStream* st) const {
   if (use_parallel_marking_threads()) {
     _parallel_workers->print_worker_threads_on(st);
   }
+}
+
+void ConcurrentMark::print_on_error(outputStream* st) const {
+  st->print_cr("Marking Bits (Prev, Next): (CMBitMap*) " PTR_FORMAT ", (CMBitMap*) " PTR_FORMAT,
+      _prevMarkBitMap, _nextMarkBitMap);
+  _prevMarkBitMap->print_on_error(st, " Prev Bits: ");
+  _nextMarkBitMap->print_on_error(st, " Next Bits: ");
 }
 
 // We take a break if someone is trying to stop the world.

@@ -377,7 +377,7 @@ void GenCollectedHeap::do_collection(bool  full,
 
   ClearedAllSoftRefs casr(do_clear_all_soft_refs, collector_policy());
 
-  const size_t metadata_prev_used = MetaspaceAux::used_in_bytes();
+  const size_t metadata_prev_used = MetaspaceAux::allocated_used_bytes();
 
   print_heap_before_gc();
 
@@ -447,8 +447,7 @@ void GenCollectedHeap::do_collection(bool  full,
             prepare_for_verify();
             prepared_for_verification = true;
           }
-          gclog_or_tty->print(" VerifyBeforeGC:");
-          Universe::verify();
+          Universe::verify(" VerifyBeforeGC:");
         }
         COMPILER2_PRESENT(DerivedPointerTable::clear());
 
@@ -519,8 +518,7 @@ void GenCollectedHeap::do_collection(bool  full,
         if (VerifyAfterGC && i >= VerifyGCLevel &&
             total_collections() >= VerifyGCStartAt) {
           HandleMark hm;  // Discard invalid handles created during verification
-          gclog_or_tty->print(" VerifyAfterGC:");
-          Universe::verify();
+          Universe::verify(" VerifyAfterGC:");
         }
 
         if (PrintGCDetails) {
@@ -556,6 +554,7 @@ void GenCollectedHeap::do_collection(bool  full,
     if (complete) {
       // Delete metaspaces for unloaded class loaders and clean up loader_data graph
       ClassLoaderDataGraph::purge();
+      MetaspaceAux::verify_metrics();
       // Resize the metaspace capacity after full collections
       MetaspaceGC::compute_new_size();
       update_full_collections_completed();
@@ -633,9 +632,8 @@ gen_process_strong_roots(int level,
 }
 
 void GenCollectedHeap::gen_process_weak_roots(OopClosure* root_closure,
-                                              CodeBlobClosure* code_roots,
-                                              OopClosure* non_root_closure) {
-  SharedHeap::process_weak_roots(root_closure, code_roots, non_root_closure);
+                                              CodeBlobClosure* code_roots) {
+  SharedHeap::process_weak_roots(root_closure, code_roots);
   // "Local" "weak" refs
   for (int i = 0; i < _n_gens; i++) {
     _gens[i]->ref_processor()->weak_oops_do(root_closure);
@@ -819,12 +817,13 @@ bool GenCollectedHeap::is_in_young(oop p) {
 // Returns "TRUE" iff "p" points into the committed areas of the heap.
 bool GenCollectedHeap::is_in(const void* p) const {
   #ifndef ASSERT
-  guarantee(VerifyBeforeGC   ||
-            VerifyDuringGC   ||
-            VerifyBeforeExit ||
-            PrintAssembly    ||
-            tty->count() != 0 ||   // already printing
-            VerifyAfterGC    ||
+  guarantee(VerifyBeforeGC      ||
+            VerifyDuringGC      ||
+            VerifyBeforeExit    ||
+            VerifyDuringStartup ||
+            PrintAssembly       ||
+            tty->count() != 0   ||   // already printing
+            VerifyAfterGC       ||
     VMError::fatal_error_in_progress(), "too expensive");
 
   #endif
@@ -1128,6 +1127,17 @@ void GenCollectedHeap::print_gc_threads_on(outputStream* st) const {
   }
   if (UseConcMarkSweepGC) {
     ConcurrentMarkSweepThread::print_all_on(st);
+  }
+#endif // INCLUDE_ALL_GCS
+}
+
+void GenCollectedHeap::print_on_error(outputStream* st) const {
+  this->CollectedHeap::print_on_error(st);
+
+#if INCLUDE_ALL_GCS
+  if (UseConcMarkSweepGC) {
+    st->cr();
+    CMSCollector::print_on_error(st);
   }
 #endif // INCLUDE_ALL_GCS
 }

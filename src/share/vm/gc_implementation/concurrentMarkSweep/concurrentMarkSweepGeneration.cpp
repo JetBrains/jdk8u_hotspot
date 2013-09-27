@@ -48,6 +48,7 @@
 #include "memory/iterator.hpp"
 #include "memory/referencePolicy.hpp"
 #include "memory/resourceArea.hpp"
+#include "memory/tenuredGeneration.hpp"
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "runtime/globals_extension.hpp"
@@ -192,7 +193,8 @@ ConcurrentMarkSweepGeneration::ConcurrentMarkSweepGeneration(
      FreeBlockDictionary<FreeChunk>::DictionaryChoice dictionaryChoice) :
   CardGeneration(rs, initial_byte_size, level, ct),
   _dilatation_factor(((double)MinChunkSize)/((double)(CollectedHeap::min_fill_size()))),
-  _debug_collection_type(Concurrent_collection_type)
+  _debug_collection_type(Concurrent_collection_type),
+  _did_compact(false)
 {
   HeapWord* bottom = (HeapWord*) _virtual_space.low();
   HeapWord* end    = (HeapWord*) _virtual_space.high();
@@ -916,7 +918,28 @@ void ConcurrentMarkSweepGeneration::compute_new_size() {
     return;
   }
 
-  size_t expand_bytes = 0;
+  // The heap has been compacted but not reset yet.
+  // Any metric such as free() or used() will be incorrect.
+
+  CardGeneration::compute_new_size();
+
+  // Reset again after a possible resizing
+  if (did_compact()) {
+    cmsSpace()->reset_after_compaction();
+  }
+}
+
+void ConcurrentMarkSweepGeneration::compute_new_size_free_list() {
+  assert_locked_or_safepoint(Heap_lock);
+
+  // If incremental collection failed, we just want to expand
+  // to the limit.
+  if (incremental_collection_failed()) {
+    clear_incremental_collection_failed();
+    grow_to_reserved();
+    return;
+  }
+
   double free_percentage = ((double) free()) / capacity();
   double desired_free_percentage = (double) MinHeapFreeRatio / 100;
   double maximum_free_percentage = (double) MaxHeapFreeRatio / 100;
@@ -925,9 +948,7 @@ void ConcurrentMarkSweepGeneration::compute_new_size() {
   if (free_percentage < desired_free_percentage) {
     size_t desired_capacity = (size_t)(used() / ((double) 1 - desired_free_percentage));
     assert(desired_capacity >= capacity(), "invalid expansion size");
-    expand_bytes = MAX2(desired_capacity - capacity(), MinHeapDeltaBytes);
-  }
-  if (expand_bytes > 0) {
+    size_t expand_bytes = MAX2(desired_capacity - capacity(), MinHeapDeltaBytes);
     if (PrintGCDetails && Verbose) {
       size_t desired_capacity = (size_t)(used() / ((double) 1 - desired_free_percentage));
       gclog_or_tty->print_cr("\nFrom compute_new_size: ");
@@ -960,6 +981,14 @@ void ConcurrentMarkSweepGeneration::compute_new_size() {
     if (PrintGCDetails && Verbose) {
       gclog_or_tty->print_cr("  Expanded free fraction %f",
         ((double) free()) / capacity());
+    }
+  } else {
+    size_t desired_capacity = (size_t)(used() / ((double) 1 - desired_free_percentage));
+    assert(desired_capacity <= capacity(), "invalid expansion size");
+    size_t shrink_bytes = capacity() - desired_capacity;
+    // Don't shrink unless the delta is greater than the minimum shrink we want
+    if (shrink_bytes >= MinHeapDeltaBytes) {
+      shrink_free_list_by(shrink_bytes);
     }
   }
 }
@@ -1547,6 +1576,8 @@ bool CMSCollector::shouldConcurrentCollect() {
   return false;
 }
 
+void CMSCollector::set_did_compact(bool v) { _cmsGen->set_did_compact(v); }
+
 // Clear _expansion_cause fields of constituent generations
 void CMSCollector::clear_expansion_cause() {
   _cmsGen->clear_expansion_cause();
@@ -1644,7 +1675,6 @@ void CMSCollector::collect(bool   full,
   }
   acquire_control_and_collect(full, clear_all_soft_refs);
   _full_gcs_since_conc_gc++;
-
 }
 
 void CMSCollector::request_full_gc(unsigned int full_gc_count) {
@@ -1826,6 +1856,7 @@ NOT_PRODUCT(
     }
   }
 
+  set_did_compact(should_compact);
   if (should_compact) {
     // If the collection is being acquired from the background
     // collector, there may be references on the discovered
@@ -1872,7 +1903,7 @@ void CMSCollector::compute_new_size() {
   assert_locked_or_safepoint(Heap_lock);
   FreelistLocker z(this);
   MetaspaceGC::compute_new_size();
-  _cmsGen->compute_new_size();
+  _cmsGen->compute_new_size_free_list();
 }
 
 // A work method used by foreground collection to determine
@@ -2413,8 +2444,7 @@ void CMSCollector::collect_in_foreground(bool clear_all_soft_refs) {
         // initial marking in checkpointRootsInitialWork has been completed
         if (VerifyDuringGC &&
             GenCollectedHeap::heap()->total_collections() >= VerifyGCStartAt) {
-          gclog_or_tty->print("Verify before initial mark: ");
-          Universe::verify();
+          Universe::verify("Verify before initial mark: ");
         }
         {
           bool res = markFromRoots(false);
@@ -2425,8 +2455,7 @@ void CMSCollector::collect_in_foreground(bool clear_all_soft_refs) {
       case FinalMarking:
         if (VerifyDuringGC &&
             GenCollectedHeap::heap()->total_collections() >= VerifyGCStartAt) {
-          gclog_or_tty->print("Verify before re-mark: ");
-          Universe::verify();
+          Universe::verify("Verify before re-mark: ");
         }
         checkpointRootsFinal(false, clear_all_soft_refs,
                              init_mark_was_synchronous);
@@ -2437,8 +2466,7 @@ void CMSCollector::collect_in_foreground(bool clear_all_soft_refs) {
         // final marking in checkpointRootsFinal has been completed
         if (VerifyDuringGC &&
             GenCollectedHeap::heap()->total_collections() >= VerifyGCStartAt) {
-          gclog_or_tty->print("Verify before sweep: ");
-          Universe::verify();
+          Universe::verify("Verify before sweep: ");
         }
         sweep(false);
         assert(_collectorState == Resizing, "Incorrect state");
@@ -2453,8 +2481,7 @@ void CMSCollector::collect_in_foreground(bool clear_all_soft_refs) {
         // The heap has been resized.
         if (VerifyDuringGC &&
             GenCollectedHeap::heap()->total_collections() >= VerifyGCStartAt) {
-          gclog_or_tty->print("Verify before reset: ");
-          Universe::verify();
+          Universe::verify("Verify before reset: ");
         }
         reset(false);
         assert(_collectorState == Idling, "Collector state should "
@@ -2601,6 +2628,10 @@ void CMSCollector::gc_prologue(bool full) {
 }
 
 void ConcurrentMarkSweepGeneration::gc_prologue(bool full) {
+
+  _capacity_at_prologue = capacity();
+  _used_at_prologue = used();
+
   // Delegate to CMScollector which knows how to coordinate between
   // this and any other CMS generations that it is responsible for
   // collecting.
@@ -2687,6 +2718,7 @@ void CMSCollector::gc_epilogue(bool full) {
     Chunk::clean_chunk_pool();
   }
 
+  set_did_compact(false);
   _between_prologue_and_epilogue = false;  // ready for next cycle
 }
 
@@ -2774,6 +2806,23 @@ bool CMSCollector::is_cms_reachable(HeapWord* addr) {
   }
 }
 
+
+void
+CMSCollector::print_on_error(outputStream* st) {
+  CMSCollector* collector = ConcurrentMarkSweepGeneration::_collector;
+  if (collector != NULL) {
+    CMSBitMap* bitmap = &collector->_markBitMap;
+    st->print_cr("Marking Bits: (CMSBitMap*) " PTR_FORMAT, bitmap);
+    bitmap->print_on_error(st, " Bits: ");
+
+    st->cr();
+
+    CMSBitMap* mut_bitmap = &collector->_modUnionTable;
+    st->print_cr("Mod Union Table: (CMSBitMap*) " PTR_FORMAT, mut_bitmap);
+    mut_bitmap->print_on_error(st, " Bits: ");
+  }
+}
+
 ////////////////////////////////////////////////////////
 // CMS Verification Support
 ////////////////////////////////////////////////////////
@@ -2801,8 +2850,8 @@ class VerifyMarkedClosure: public BitMapClosure {
   bool failed() { return _failed; }
 };
 
-bool CMSCollector::verify_after_remark() {
-  gclog_or_tty->print(" [Verifying CMS Marking... ");
+bool CMSCollector::verify_after_remark(bool silent) {
+  if (!silent) gclog_or_tty->print(" [Verifying CMS Marking... ");
   MutexLockerEx ml(verification_mark_bm()->lock(), Mutex::_no_safepoint_check_flag);
   static bool init = false;
 
@@ -2863,7 +2912,7 @@ bool CMSCollector::verify_after_remark() {
     warning("Unrecognized value %d for CMSRemarkVerifyVariant",
             CMSRemarkVerifyVariant);
   }
-  gclog_or_tty->print(" done] ");
+  if (!silent) gclog_or_tty->print(" done] ");
   return true;
 }
 
@@ -3300,6 +3349,26 @@ bool ConcurrentMarkSweepGeneration::expand_and_ensure_spooling_space(
 }
 
 
+void ConcurrentMarkSweepGeneration::shrink_by(size_t bytes) {
+  assert_locked_or_safepoint(ExpandHeap_lock);
+  // Shrink committed space
+  _virtual_space.shrink_by(bytes);
+  // Shrink space; this also shrinks the space's BOT
+  _cmsSpace->set_end((HeapWord*) _virtual_space.high());
+  size_t new_word_size = heap_word_size(_cmsSpace->capacity());
+  // Shrink the shared block offset array
+  _bts->resize(new_word_size);
+  MemRegion mr(_cmsSpace->bottom(), new_word_size);
+  // Shrink the card table
+  Universe::heap()->barrier_set()->resize_covered_region(mr);
+
+  if (Verbose && PrintGC) {
+    size_t new_mem_size = _virtual_space.committed_size();
+    size_t old_mem_size = new_mem_size + bytes;
+    gclog_or_tty->print_cr("Shrinking %s from " SIZE_FORMAT "K to " SIZE_FORMAT "K",
+                  name(), old_mem_size/K, new_mem_size/K);
+  }
+}
 
 void ConcurrentMarkSweepGeneration::shrink(size_t bytes) {
   assert_locked_or_safepoint(Heap_lock);
@@ -3351,11 +3420,12 @@ bool ConcurrentMarkSweepGeneration::grow_to_reserved() {
   return success;
 }
 
-void ConcurrentMarkSweepGeneration::shrink_by(size_t bytes) {
+void ConcurrentMarkSweepGeneration::shrink_free_list_by(size_t bytes) {
   assert_locked_or_safepoint(Heap_lock);
   assert_lock_strong(freelistLock());
-  // XXX Fix when compaction is implemented.
-  warning("Shrinking of CMS not yet implemented");
+  if (PrintGCDetails && Verbose) {
+    warning("Shrinking of CMS not yet implemented");
+  }
   return;
 }
 
@@ -5938,26 +6008,23 @@ void CMSCollector::refProcessingWork(bool asynch, bool clear_all_soft_refs) {
                                         &cmsDrainMarkingStackClosure,
                                         NULL);
     }
-    verify_work_stacks_empty();
   }
+
+  // This is the point where the entire marking should have completed.
+  verify_work_stacks_empty();
 
   if (should_unload_classes()) {
     {
       TraceTime t("class unloading", PrintGCDetails, false, gclog_or_tty);
 
-      // Follow SystemDictionary roots and unload classes
+      // Unload classes and purge the SystemDictionary.
       bool purged_class = SystemDictionary::do_unloading(&_is_alive_closure);
 
-      // Follow CodeCache roots and unload any methods marked for unloading
+      // Unload nmethods.
       CodeCache::do_unloading(&_is_alive_closure, purged_class);
 
-      cmsDrainMarkingStackClosure.do_void();
-      verify_work_stacks_empty();
-
-      // Update subklass/sibling/implementor links in KlassKlass descendants
+      // Prune dead klasses from subklass/sibling/implementor lists.
       Klass::clean_weak_klass_links(&_is_alive_closure);
-      // Nothing should have been pushed onto the working stacks.
-      verify_work_stacks_empty();
     }
 
     {
@@ -5971,11 +6038,10 @@ void CMSCollector::refProcessingWork(bool asynch, bool clear_all_soft_refs) {
   // Need to check if we really scanned the StringTable.
   if ((roots_scanning_options() & SharedHeap::SO_Strings) == 0) {
     TraceTime t("scrub string table", PrintGCDetails, false, gclog_or_tty);
-    // Now clean up stale oops in StringTable
+    // Delete entries for dead interned strings.
     StringTable::unlink(&_is_alive_closure);
   }
 
-  verify_work_stacks_empty();
   // Restore any preserved marks as a result of mark stack or
   // work queue overflow
   restore_preserved_marks_if_any();  // done single-threaded for now
@@ -6476,6 +6542,10 @@ void CMSBitMap::dirty_range_iterate_clear(MemRegion mr, MemRegionClosure* cl) {
   }
 }
 
+void CMSBitMap::print_on_error(outputStream* st, const char* prefix) const {
+  _bm.print_on_error(st, prefix);
+}
+
 #ifndef PRODUCT
 void CMSBitMap::assert_locked() const {
   CMSLockVerifier::assert_locked(lock());
@@ -6845,7 +6915,7 @@ size_t ScanMarkedObjectsAgainCarefullyClosure::do_object_careful_m(
           size = CompactibleFreeListSpace::adjustObjectSize(
                    p->oop_iterate(_scanningClosure));
         }
-        #ifdef DEBUG
+        #ifdef ASSERT
           size_t direct_size =
             CompactibleFreeListSpace::adjustObjectSize(p->size());
           assert(size == direct_size, "Inconsistency in size");
@@ -6857,7 +6927,7 @@ size_t ScanMarkedObjectsAgainCarefullyClosure::do_object_careful_m(
             assert(_bitMap->isMarked(addr+size-1),
                    "inconsistent Printezis mark");
           }
-        #endif // DEBUG
+        #endif // ASSERT
     } else {
       // an unitialized object
       assert(_bitMap->isMarked(addr+1), "missing Printezis mark?");
@@ -6999,14 +7069,14 @@ bool ScanMarkedObjectsAgainClosure::do_object_bm(oop p, MemRegion mr) {
   HeapWord* addr = (HeapWord*)p;
   assert(_span.contains(addr), "we are scanning the CMS generation");
   bool is_obj_array = false;
-  #ifdef DEBUG
+  #ifdef ASSERT
     if (!_parallel) {
       assert(_mark_stack->isEmpty(), "pre-condition (eager drainage)");
       assert(_collector->overflow_list_is_empty(),
              "overflow list should be empty");
 
     }
-  #endif // DEBUG
+  #endif // ASSERT
   if (_bit_map->isMarked(addr)) {
     // Obj arrays are precisely marked, non-arrays are not;
     // so we scan objArrays precisely and non-arrays in their
@@ -7026,14 +7096,14 @@ bool ScanMarkedObjectsAgainClosure::do_object_bm(oop p, MemRegion mr) {
       }
     }
   }
-  #ifdef DEBUG
+  #ifdef ASSERT
     if (!_parallel) {
       assert(_mark_stack->isEmpty(), "post-condition (eager drainage)");
       assert(_collector->overflow_list_is_empty(),
              "overflow list should be empty");
 
     }
-  #endif // DEBUG
+  #endif // ASSERT
   return is_obj_array;
 }
 
@@ -8244,7 +8314,7 @@ size_t SweepClosure::do_live_chunk(FreeChunk* fc) {
     assert(size == CompactibleFreeListSpace::adjustObjectSize(size),
            "alignment problem");
 
-#ifdef DEBUG
+#ifdef ASSERT
       if (oop(addr)->klass_or_null() != NULL) {
         // Ignore mark word because we are running concurrent with mutators
         assert(oop(addr)->is_oop(true), "live block should be an oop");
@@ -9071,51 +9141,6 @@ void ASConcurrentMarkSweepGeneration::update_counters(size_t used) {
     assert(gc_stats_l->kind() == GCStats::CMSGCStatsKind,
       "Wrong gc statistics type");
     counters->update_counters(gc_stats_l);
-  }
-}
-
-// The desired expansion delta is computed so that:
-// . desired free percentage or greater is used
-void ASConcurrentMarkSweepGeneration::compute_new_size() {
-  assert_locked_or_safepoint(Heap_lock);
-
-  GenCollectedHeap* gch = (GenCollectedHeap*) GenCollectedHeap::heap();
-
-  // If incremental collection failed, we just want to expand
-  // to the limit.
-  if (incremental_collection_failed()) {
-    clear_incremental_collection_failed();
-    grow_to_reserved();
-    return;
-  }
-
-  assert(UseAdaptiveSizePolicy, "Should be using adaptive sizing");
-
-  assert(gch->kind() == CollectedHeap::GenCollectedHeap,
-    "Wrong type of heap");
-  int prev_level = level() - 1;
-  assert(prev_level >= 0, "The cms generation is the lowest generation");
-  Generation* prev_gen = gch->get_gen(prev_level);
-  assert(prev_gen->kind() == Generation::ASParNew,
-    "Wrong type of young generation");
-  ParNewGeneration* younger_gen = (ParNewGeneration*) prev_gen;
-  size_t cur_eden = younger_gen->eden()->capacity();
-  CMSAdaptiveSizePolicy* size_policy = cms_size_policy();
-  size_t cur_promo = free();
-  size_policy->compute_tenured_generation_free_space(cur_promo,
-                                                       max_available(),
-                                                       cur_eden);
-  resize(cur_promo, size_policy->promo_size());
-
-  // Record the new size of the space in the cms generation
-  // that is available for promotions.  This is temporary.
-  // It should be the desired promo size.
-  size_policy->avg_cms_promo()->sample(free());
-  size_policy->avg_old_live()->sample(used());
-
-  if (UsePerfData) {
-    CMSGCAdaptivePolicyCounters* counters = gc_adaptive_policy_counters();
-    counters->update_cms_capacity_counter(capacity());
   }
 }
 

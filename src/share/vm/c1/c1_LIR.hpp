@@ -883,8 +883,9 @@ class    LIR_OpLock;
 class    LIR_OpTypeCheck;
 class    LIR_OpCompareAndSwap;
 class    LIR_OpProfileCall;
+#ifdef ASSERT
 class    LIR_OpAssert;
-
+#endif
 
 // LIR operation codes
 enum LIR_Code {
@@ -1141,7 +1142,9 @@ class LIR_Op: public CompilationResourceObj {
   virtual LIR_OpTypeCheck* as_OpTypeCheck() { return NULL; }
   virtual LIR_OpCompareAndSwap* as_OpCompareAndSwap() { return NULL; }
   virtual LIR_OpProfileCall* as_OpProfileCall() { return NULL; }
+#ifdef ASSERT
   virtual LIR_OpAssert* as_OpAssert() { return NULL; }
+#endif
 
   virtual void verify() const {}
 };

@@ -824,7 +824,7 @@ void os::init_system_properties_values() {
       // allocate new buffer and initialize
       info = (Dl_serinfo*)malloc(_info.dls_size);
       if (info == NULL) {
-        vm_exit_out_of_memory(_info.dls_size,
+        vm_exit_out_of_memory(_info.dls_size, OOM_MALLOC_ERROR,
                               "init_system_properties_values info");
       }
       info->dls_size = _info.dls_size;
@@ -866,7 +866,7 @@ void os::init_system_properties_values() {
       common_path = malloc(bufsize);
       if (common_path == NULL) {
         free(info);
-        vm_exit_out_of_memory(bufsize,
+        vm_exit_out_of_memory(bufsize, OOM_MALLOC_ERROR,
                               "init_system_properties_values common_path");
       }
       sprintf(common_path, COMMON_DIR "/lib/%s", cpu_arch);
@@ -879,7 +879,7 @@ void os::init_system_properties_values() {
       if (library_path == NULL) {
         free(info);
         free(common_path);
-        vm_exit_out_of_memory(bufsize,
+        vm_exit_out_of_memory(bufsize, OOM_MALLOC_ERROR,
                               "init_system_properties_values library_path");
       }
       library_path[0] = '\0';
@@ -1623,7 +1623,8 @@ void os::thread_local_storage_at_put(int index, void* value) {
   // %%% this is used only in threadLocalStorage.cpp
   if (thr_setspecific((thread_key_t)index, value)) {
     if (errno == ENOMEM) {
-       vm_exit_out_of_memory(SMALLINT, "thr_setspecific: out of swap space");
+       vm_exit_out_of_memory(SMALLINT, OOM_MALLOC_ERROR,
+                             "thr_setspecific: out of swap space");
     } else {
       fatal(err_msg("os::thread_local_storage_at_put: thr_setspecific failed "
                     "(%s)", strerror(errno)));
@@ -1885,6 +1886,9 @@ bool os::dll_build_name(char* buffer, size_t buflen,
   } else if (strchr(pname, *os::path_separator()) != NULL) {
     int n;
     char** pelements = split_path(pname, &n);
+    if (pelements == NULL) {
+      return false;
+    }
     for (int i = 0 ; i < n ; i++) {
       // really shouldn't be NULL but what the heck, check can't hurt
       if (pelements[i] == NULL || strlen(pelements[i]) == 0) {
@@ -1910,10 +1914,6 @@ bool os::dll_build_name(char* buffer, size_t buflen,
     retval = true;
   }
   return retval;
-}
-
-const char* os::get_current_directory(char *buf, int buflen) {
-  return getcwd(buf, buflen);
 }
 
 // check if addr is inside libjvm.so
@@ -5787,16 +5787,6 @@ int os::loadavg(double loadavg[], int nelem) {
 
 //---------------------------------------------------------------------------------
 
-static address same_page(address x, address y) {
-  intptr_t page_bits = -os::vm_page_size();
-  if ((intptr_t(x) & page_bits) == (intptr_t(y) & page_bits))
-    return x;
-  else if (x > y)
-    return (address)(intptr_t(y) | ~page_bits) + 1;
-  else
-    return (address)(intptr_t(y) & page_bits);
-}
-
 bool os::find(address addr, outputStream* st) {
   Dl_info dlinfo;
   memset(&dlinfo, 0, sizeof(dlinfo));
@@ -5822,8 +5812,8 @@ bool os::find(address addr, outputStream* st) {
 
     if (Verbose) {
       // decode some bytes around the PC
-      address begin = same_page(addr-40, addr);
-      address end   = same_page(addr+40, addr);
+      address begin = clamp_address_in_page(addr-40, addr, os::vm_page_size());
+      address end   = clamp_address_in_page(addr+40, addr, os::vm_page_size());
       address       lowest = (address) dlinfo.dli_sname;
       if (!lowest)  lowest = (address) dlinfo.dli_fbase;
       if (begin < lowest)  begin = lowest;

@@ -60,6 +60,7 @@ class CompactibleFreeListSpace;
 class FreeChunk;
 class PromotionInfo;
 class ScanMarkedObjectsAgainCarefullyClosure;
+class TenuredGeneration;
 
 // A generic CMS bit map. It's the basis for both the CMS marking bit map
 // as well as for the mod union table (in each case only a subset of the
@@ -149,6 +150,8 @@ class CMSBitMap VALUE_OBJ_CLASS_SPEC {
   HeapWord* offsetToHeapWord(size_t offset) const;
   size_t    heapWordToOffset(HeapWord* addr) const;
   size_t    heapWordDiffToOffsetDiff(size_t diff) const;
+
+  void print_on_error(outputStream* st, const char* prefix) const;
 
   // debugging
   // is this address range covered by the bit-map?
@@ -601,6 +604,8 @@ class CMSCollector: public CHeapObj<mtGC> {
   ConcurrentMarkSweepPolicy* _collector_policy;
   ConcurrentMarkSweepPolicy* collector_policy() { return _collector_policy; }
 
+  void set_did_compact(bool v);
+
   // XXX Move these to CMSStats ??? FIX ME !!!
   elapsedTimer _inter_sweep_timer;   // time between sweeps
   elapsedTimer _intra_sweep_timer;   // time _in_ sweeps
@@ -810,9 +815,6 @@ class CMSCollector: public CHeapObj<mtGC> {
   // used regions of each generation to limit the extent of sweep
   void save_sweep_limits();
 
-  // Resize the generations included in the collector.
-  void compute_new_size();
-
   // A work method used by foreground collection to determine
   // what type of collection (compacting or not, continuing or fresh)
   // it should do.
@@ -909,6 +911,9 @@ class CMSCollector: public CHeapObj<mtGC> {
   void releaseFreelistLocks() const;
   bool haveFreelistLocks() const;
 
+  // Adjust size of underlying generation
+  void compute_new_size();
+
   // GC prologue and epilogue
   void gc_prologue(bool full);
   void gc_epilogue(bool full);
@@ -983,9 +988,11 @@ class CMSCollector: public CHeapObj<mtGC> {
   CMSAdaptiveSizePolicy* size_policy();
   CMSGCAdaptivePolicyCounters* gc_adaptive_policy_counters();
 
+  static void print_on_error(outputStream* st);
+
   // debugging
   void verify();
-  bool verify_after_remark();
+  bool verify_after_remark(bool silent = VerifySilently);
   void verify_ok_to_terminate() const PRODUCT_RETURN;
   void verify_work_stacks_empty() const PRODUCT_RETURN;
   void verify_overflow_empty() const PRODUCT_RETURN;
@@ -1076,13 +1083,17 @@ class ConcurrentMarkSweepGeneration: public CardGeneration {
 
   CollectionTypes _debug_collection_type;
 
+  // True if a compactiing collection was done.
+  bool _did_compact;
+  bool did_compact() { return _did_compact; }
+
   // Fraction of current occupancy at which to start a CMS collection which
   // will collect this generation (at least).
   double _initiating_occupancy;
 
  protected:
   // Shrink generation by specified size (returns false if unable to shrink)
-  virtual void shrink_by(size_t bytes);
+  void shrink_free_list_by(size_t bytes);
 
   // Update statistics for GC
   virtual void update_gc_stats(int level, bool full);
@@ -1115,6 +1126,8 @@ class ConcurrentMarkSweepGeneration: public CardGeneration {
 
   // Adaptive size policy
   CMSAdaptiveSizePolicy* size_policy();
+
+  void set_did_compact(bool v) { _did_compact = v; }
 
   bool refs_discovery_is_atomic() const { return false; }
   bool refs_discovery_is_mt()     const {
@@ -1233,6 +1246,7 @@ class ConcurrentMarkSweepGeneration: public CardGeneration {
     CMSExpansionCause::Cause cause);
   virtual bool expand(size_t bytes, size_t expand_bytes);
   void shrink(size_t bytes);
+  void shrink_by(size_t bytes);
   HeapWord* expand_and_par_lab_allocate(CMSParGCThreadState* ps, size_t word_sz);
   bool expand_and_ensure_spooling_space(PromotionInfo* promo);
 
@@ -1293,7 +1307,13 @@ class ConcurrentMarkSweepGeneration: public CardGeneration {
   bool must_be_youngest() const { return false; }
   bool must_be_oldest()   const { return true; }
 
-  void compute_new_size();
+  // Resize the generation after a compacting GC.  The
+  // generation can be treated as a contiguous space
+  // after the compaction.
+  virtual void compute_new_size();
+  // Resize the generation after a non-compacting
+  // collection.
+  void compute_new_size_free_list();
 
   CollectionTypes debug_collection_type() { return _debug_collection_type; }
   void rotate_debug_collection_type();
@@ -1315,7 +1335,6 @@ class ASConcurrentMarkSweepGeneration : public ConcurrentMarkSweepGeneration {
   virtual void shrink_by(size_t bytes);
 
  public:
-  virtual void compute_new_size();
   ASConcurrentMarkSweepGeneration(ReservedSpace rs, size_t initial_byte_size,
                                   int level, CardTableRS* ct,
                                   bool use_adaptive_freelists,

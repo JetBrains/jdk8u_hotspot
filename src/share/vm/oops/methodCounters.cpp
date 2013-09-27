@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,22 +21,17 @@
  * questions.
  *
  */
-
 #include "precompiled.hpp"
-#include "opto/chaitin.hpp"
-#include "opto/machnode.hpp"
+#include "oops/methodCounters.hpp"
+#include "runtime/thread.inline.hpp"
 
-void PhaseRegAlloc::pd_preallocate_hook() {
-  // no action
+MethodCounters* MethodCounters::allocate(ClassLoaderData* loader_data, TRAPS) {
+  return new(loader_data, size(), false, THREAD) MethodCounters();
 }
 
-#ifdef ASSERT
-void PhaseRegAlloc::pd_postallocate_verify_hook() {
-  // no action
+void MethodCounters::clear_counters() {
+  invocation_counter()->reset();
+  backedge_counter()->reset();
+  set_interpreter_throwout_count(0);
+  set_interpreter_invocation_count(0);
 }
-#endif
-
-
-// Reconciliation History
-// chaitin_solaris.cpp  1.7 99/07/12 23:54:22
-// End

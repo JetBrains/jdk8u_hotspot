@@ -58,7 +58,9 @@ inline char* AllocateHeap(size_t size, MEMFLAGS flags, address pc = 0,
   #ifdef ASSERT
   if (PrintMallocFree) trace_heap_malloc(size, "AllocateHeap", p);
   #endif
-  if (p == NULL && alloc_failmode == AllocFailStrategy::EXIT_OOM) vm_exit_out_of_memory(size, "AllocateHeap");
+  if (p == NULL && alloc_failmode == AllocFailStrategy::EXIT_OOM) {
+    vm_exit_out_of_memory(size, OOM_MALLOC_ERROR, "AllocateHeap");
+  }
   return p;
 }
 
@@ -68,7 +70,9 @@ inline char* ReallocateHeap(char *old, size_t size, MEMFLAGS flags,
   #ifdef ASSERT
   if (PrintMallocFree) trace_heap_malloc(size, "ReallocateHeap", p);
   #endif
-  if (p == NULL && alloc_failmode == AllocFailStrategy::EXIT_OOM) vm_exit_out_of_memory(size, "ReallocateHeap");
+  if (p == NULL && alloc_failmode == AllocFailStrategy::EXIT_OOM) {
+    vm_exit_out_of_memory(size, OOM_MALLOC_ERROR, "ReallocateHeap");
+  }
   return p;
 }
 
@@ -108,5 +112,49 @@ template <MEMFLAGS F> void CHeapObj<F>::operator delete(void* p){
    FreeHeap(p, F);
 }
 
+template <class E, MEMFLAGS F>
+E* ArrayAllocator<E, F>::allocate(size_t length) {
+  assert(_addr == NULL, "Already in use");
+
+  _size = sizeof(E) * length;
+  _use_malloc = _size < ArrayAllocatorMallocLimit;
+
+  if (_use_malloc) {
+    _addr = AllocateHeap(_size, F);
+    if (_addr == NULL && _size >=  (size_t)os::vm_allocation_granularity()) {
+      // malloc failed let's try with mmap instead
+      _use_malloc = false;
+    } else {
+      return (E*)_addr;
+    }
+  }
+
+  int alignment = os::vm_allocation_granularity();
+  _size = align_size_up(_size, alignment);
+
+  _addr = os::reserve_memory(_size, NULL, alignment, F);
+  if (_addr == NULL) {
+    vm_exit_out_of_memory(_size, OOM_MMAP_ERROR, "Allocator (reserve)");
+  }
+
+  bool success = os::commit_memory(_addr, _size, false /* executable */);
+  if (!success) {
+    vm_exit_out_of_memory(_size, OOM_MMAP_ERROR, "Allocator (commit)");
+  }
+
+  return (E*)_addr;
+}
+
+template<class E, MEMFLAGS F>
+void ArrayAllocator<E, F>::free() {
+  if (_addr != NULL) {
+    if (_use_malloc) {
+      FreeHeap(_addr, F);
+    } else {
+      os::release_memory(_addr, _size);
+    }
+    _addr = NULL;
+  }
+}
 
 #endif // SHARE_VM_MEMORY_ALLOCATION_INLINE_HPP

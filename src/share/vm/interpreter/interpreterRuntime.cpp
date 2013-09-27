@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -457,7 +457,7 @@ IRT_ENTRY(address, InterpreterRuntime::exception_handler_for_exception(JavaThrea
     continuation = Interpreter::remove_activation_entry();
 #endif
     // Count this for compilation purposes
-    h_method->interpreter_throwout_increment();
+    h_method->interpreter_throwout_increment(THREAD);
   } else {
     // handler in this method => change bci/bcp to handler bci/bcp and continue there
     handler_pc = h_method->code_base() + handler_bci;
@@ -559,11 +559,6 @@ IRT_END
 // The interpreter's synchronization code is factored out so that it can
 // be shared by method invocation and synchronized blocks.
 //%note synchronization_3
-
-static void trace_locking(Handle& h_locking_obj, bool is_locking) {
-  ObjectSynchronizer::trace_locking(h_locking_obj, false, true, is_locking);
-}
-
 
 //%note monitor_1
 IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorenter(JavaThread* thread, BasicObjectLock* elem))
@@ -911,6 +906,15 @@ IRT_ENTRY(void, InterpreterRuntime::update_mdp_for_ret(JavaThread* thread, int r
   fr.interpreter_frame_set_mdp(new_mdp);
 IRT_END
 
+IRT_ENTRY(MethodCounters*, InterpreterRuntime::build_method_counters(JavaThread* thread, Method* m))
+  MethodCounters* mcs = Method::build_method_counters(m, thread);
+  if (HAS_PENDING_EXCEPTION) {
+    assert((PENDING_EXCEPTION->is_a(SystemDictionary::OutOfMemoryError_klass())), "we expect only an OOM error here");
+    CLEAR_PENDING_EXCEPTION;
+  }
+  return mcs;
+IRT_END
+
 
 IRT_ENTRY(void, InterpreterRuntime::at_safepoint(JavaThread* thread))
   // We used to need an explict preserve_arguments here for invoke bytecodes. However,
@@ -1051,7 +1055,7 @@ void SignatureHandlerLibrary::initialize() {
     return;
   }
   if (set_handler_blob() == NULL) {
-    vm_exit_out_of_memory(blob_size, "native signature handlers");
+    vm_exit_out_of_memory(blob_size, OOM_MALLOC_ERROR, "native signature handlers");
   }
 
   BufferBlob* bb = BufferBlob::create("Signature Handler Temp Buffer",
