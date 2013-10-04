@@ -2216,10 +2216,6 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
 
     __ cbz(r0, *stub->continuation());
 
-    if (copyfunc_addr != NULL) {
-      __ eon(tmp, r0, zr);
-    }
-
     // Reload values from the stack so they are where the stub
     // expects them.
     __ ldp(dst,     dst_pos, Address(sp, 0*BytesPerWord));
@@ -2227,9 +2223,10 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
     __ ldr(src,              Address(sp, 4*BytesPerWord));
 
     if (copyfunc_addr != NULL) {
-      __ subw(length, length, tmp);
-      __ addw(src_pos, src_pos, tmp);
-      __ addw(dst_pos, dst_pos, tmp);
+      __ subw(rscratch1, length, r0); // Number of oops actually copied
+      __ addw(src_pos, src_pos, rscratch1);
+      __ addw(dst_pos, dst_pos, rscratch1);
+      __ mov(length, r0); // Number of oops left to copy
     }
     __ b(*stub->entry());
 
@@ -2397,18 +2394,17 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
           __ incrementw(ExternalAddress((address)&Runtime1::_arraycopy_checkcast_attempt_cnt));
         }
 #endif
-
-        __ eon(tmp, r0, zr);
+	assert_different_registers(dst, dst_pos, length, src_pos, src, r0, rscratch1);
 
         // Restore previously spilled arguments
 	__ ldp(dst,     dst_pos, Address(sp, 0*BytesPerWord));
 	__ ldp(length,  src_pos, Address(sp, 2*BytesPerWord));
 	__ ldr(src,              Address(sp, 4*BytesPerWord));
 
-
-        __ subw(length, length, tmp);
-        __ addw(src_pos, src_pos, tmp);
-        __ addw(dst_pos, dst_pos, tmp);
+	__ subw(rscratch1, length, r0); // Number of oops actually copied
+	__ addw(src_pos, src_pos, rscratch1);
+	__ addw(dst_pos, dst_pos, rscratch1);
+	__ mov(length, r0); // Number of oops left to copy
       }
 
       __ b(*stub->entry());
