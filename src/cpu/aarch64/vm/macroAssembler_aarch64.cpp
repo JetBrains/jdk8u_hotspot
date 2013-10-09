@@ -1737,7 +1737,7 @@ void MacroAssembler::reinit_heapbase()
 // register+offset Address.
 
 void MacroAssembler::cmpxchgptr(Register oldv, Register newv, Register addr, Register tmp,
-				Label &succeed, Label &fail) {
+				Label &succeed, Label *fail) {
   // oldv holds comparison value
   // newv holds value to write in exchange
   // addr identifies memory word to compare against/update
@@ -1759,11 +1759,12 @@ void MacroAssembler::cmpxchgptr(Register oldv, Register newv, Register addr, Reg
   // if the memory word differs we return it in oldv and signal a fail
   bind(nope);
   mov(oldv, tmp);
-  b(fail);
+  if (fail)
+    b(*fail);
 }
 
 void MacroAssembler::cmpxchgw(Register oldv, Register newv, Register addr, Register tmp,
-				Label &succeed, Label &fail) {
+				Label &succeed, Label *fail) {
   // oldv holds comparison value
   // newv holds value to write in exchange
   // addr identifies memory word to compare against/update
@@ -1785,7 +1786,8 @@ void MacroAssembler::cmpxchgw(Register oldv, Register newv, Register addr, Regis
   // if the memory word differs we return it in oldv and signal a fail
   bind(nope);
   mov(oldv, tmp);
-  b(fail);
+  if (fail)
+    b(*fail);
 }
 
 void MacroAssembler::incr_allocated_bytes(Register thread,

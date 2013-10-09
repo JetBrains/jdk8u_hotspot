@@ -125,6 +125,9 @@ public:
   // the given memory state?  (The state may or may not be in(Memory).)
   Node* can_see_stored_value(Node* st, PhaseTransform* phase) const;
 
+  // True if this memory is volatile
+  bool is_volatile() const;
+
 #ifndef PRODUCT
   static void dump_adr_type(const Node* mem, const TypePtr* adr_type, outputStream *st);
   virtual void dump_spec(outputStream *st) const;

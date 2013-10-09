@@ -2756,7 +2756,7 @@ void LIR_Assembler::volatile_move_op(LIR_Opr src, LIR_Opr dest, BasicType type, 
 
       case T_CHAR:    // fall through
       case T_SHORT:
-	__ stlrw(src->as_register(), rscratch1);
+	__ stlrh(src->as_register(), rscratch1);
 	break;
 
       default:
@@ -2802,7 +2802,7 @@ void LIR_Assembler::volatile_move_op(LIR_Opr src, LIR_Opr dest, BasicType type, 
 
     case T_CHAR:    // fall through
     case T_SHORT:
-      __ ldarw(dest->as_register(), rscratch1);
+      __ ldarh(dest->as_register(), rscratch1);
       break;
 
     case T_FLOAT:
@@ -2883,10 +2883,10 @@ void LIR_Assembler::emit_assert(LIR_OpAssert* op) {
 
 void LIR_Assembler::membar() {
   COMMENT("membar");
-  __ dsb(__ SY);
+  __ membar(MacroAssembler::AnyAny);
 }
 
-void LIR_Assembler::membar_acquire() { 
+void LIR_Assembler::membar_acquire() {
   __ block_comment("membar_acquire");
 }
 
@@ -2898,7 +2898,7 @@ void LIR_Assembler::membar_loadload() { Unimplemented(); }
 
 void LIR_Assembler::membar_storestore() {
   COMMENT("membar_storestore");
-  __ dsb(__ ST);
+  __ membar(MacroAssembler::StoreStore);
 }
 
 void LIR_Assembler::membar_loadstore() { Unimplemented(); }

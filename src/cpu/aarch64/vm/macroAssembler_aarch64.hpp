@@ -1061,10 +1061,10 @@ public:
   void cmpptr(Address src1, int32_t src2) { Unimplemented(); }
 
   void cmpxchgptr(Register oldv, Register newv, Register addr, Register tmp,
-		  Label &suceed, Label &fail);
+		  Label &suceed, Label *fail);
 
   void cmpxchgw(Register oldv, Register newv, Register addr, Register tmp,
-		  Label &suceed, Label &fail);
+		  Label &suceed, Label *fail);
 
   void imulptr(Register dst, Register src) { Unimplemented(); }
 
@@ -1330,30 +1330,6 @@ public:
     ret_type type,		      // the return type for the call
     Label*   retaddr = NULL
   );
-
-  enum Membar_mask_bits {
-    StoreStore = 1 << 3,
-    LoadStore  = 1 << 2,
-    StoreLoad  = 1 << 1,
-    LoadLoad   = 1 << 0
-  };
-
-  void membar(Membar_mask_bits order_constraint) {
-    // LD     Load-Load, Load-Store
-    // ST     Store-Store
-    // SY     Any-Any
-
-    // Handle simple cases first
-    if (order_constraint == StoreStore) {
-      dsb(ST);
-    } else if (order_constraint == LoadLoad
-	|| order_constraint == LoadStore
-	|| order_constraint == (LoadLoad | LoadStore)) {
-      dsb(LD);
-    } else {
-      dsb(SY);
-    }
-  }
 
   void ldr_constant(Register dest, address const_addr) {
     guarantee(const_addr, "constant pool overflow");
