@@ -235,8 +235,10 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
                                                  sasm->must_gc_arguments());
 #ifdef BUILTIN_SIM
   if (NotifySimulator) {
-    size_t len = 65536;
-    char *name = new char[len];
+//    size_t len = 65536;
+//    char *name = new char[len];
+    size_t len = 1024;
+    char name[1024];
 
     // tell the sim about the new stub code
     AArch64Simulator *simulator = AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck);
@@ -249,7 +251,7 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
     simulator->notifyCompile(name, base);
     // code does not get relocated so just pass offset 0 and the code is live
     simulator->notifyRelocate(base, 0);
-    delete[] name;
+//    delete[] name;
   }
 #endif
   // install blob
@@ -1067,7 +1069,7 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
           ShouldNotReachHere();
         }
 
-#if defined(SPARC) || defined(PPC) || defined(TARGET_ARCH_aarch64)
+#if defined(SPARC) || defined(PPC) || defined(AARCH64)
         if (load_klass_or_mirror_patch_id ||
             stub_id == Runtime1::load_appendix_patching_id) {
           // Update the location in the nmethod with the proper
@@ -1139,7 +1141,9 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
           ICache::invalidate_range(instr_pc, *byte_count);
           NativeGeneralJump::replace_mt_safe(instr_pc, copy_buff);
 
-          if (load_klass_or_mirror_patch_id) {
+          if (load_klass_or_mirror_patch_id
+              || stub_id == Runtime1::load_appendix_patching_id
+	      || stub_id == Runtime1::access_field_patching_id) {
             relocInfo::relocType rtype;
 	    switch(stub_id) {
 	    case Runtime1::load_klass_patching_id:

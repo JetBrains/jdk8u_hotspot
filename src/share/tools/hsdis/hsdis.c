@@ -28,7 +28,6 @@
 */
 
 #include <config.h>
-#endif
 #include <libiberty.h>
 #include <bfd.h>
 #include <dis-asm.h>

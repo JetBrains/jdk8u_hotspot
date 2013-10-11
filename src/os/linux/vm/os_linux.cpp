@@ -3325,9 +3325,9 @@ size_t os::Linux::find_large_page_size() {
   // format has been changed), we'll use the largest page size supported by
   // the processor.
 
-#if !defined(ZERO)
+#ifndef ZERO
   large_page_size = IA32_ONLY(4 * M) AMD64_ONLY(2 * M) IA64_ONLY(256 * M) SPARC_ONLY(4 * M)
-                       ARM_ONLY(2 * M) PPC_ONLY(4 * M);
+                     ARM_ONLY(2 * M) PPC_ONLY(4 * M) AARCH64_ONLY(2 * M);
 #endif // ZERO
 
   FILE *fp = fopen("/proc/meminfo", "r");

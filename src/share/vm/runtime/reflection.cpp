@@ -374,8 +374,9 @@ arrayOop Reflection::reflect_new_multi_array(oop element_mirror, typeArrayOop di
   }
   klass = klass->array_klass(dim, CHECK_NULL);
   oop obj = ArrayKlass::cast(klass)->multi_allocate(len, dimensions, CHECK_NULL);
-  // obj may be NULL is one of the dimensions is 0
-  assert(obj == NULL || obj->is_array(), "just checking");
+  // ECN: obj may be NULL if one of the dimensions is 0?
+  assert(obj != NULL, "can obj be NULL here?");
+  assert(obj->is_array(), "just checking");
   return arrayOop(obj);
 }
 
