@@ -265,8 +265,7 @@ static void signal_thread_entry(JavaThread* thread, TRAPS) {
         VMThread::execute(&op1);
         Universe::print_heap_at_SIGBREAK();
         if (PrintClassHistogram) {
-          VM_GC_HeapInspection op1(gclog_or_tty, true /* force full GC before heap inspection */,
-                                   true /* need_prologue */);
+          VM_GC_HeapInspection op1(gclog_or_tty, true /* force full GC before heap inspection */);
           VMThread::execute(&op1);
         }
         if (JvmtiExport::should_post_data_dump()) {
@@ -315,6 +314,11 @@ static void signal_thread_entry(JavaThread* thread, TRAPS) {
   }
 }
 
+void os::init_before_ergo() {
+  // We need to initialize large page support here because ergonomics takes some
+  // decisions depending on large page support and the calculated large page size.
+  large_page_init();
+}
 
 void os::signal_init() {
   if (!ReduceSignalUsage) {
@@ -442,6 +446,68 @@ void* os::native_java_library() {
     }
   }
   return _native_java_library;
+}
+
+/*
+ * Support for finding Agent_On(Un)Load/Attach<_lib_name> if it exists.
+ * If check_lib == true then we are looking for an
+ * Agent_OnLoad_lib_name or Agent_OnAttach_lib_name function to determine if
+ * this library is statically linked into the image.
+ * If check_lib == false then we will look for the appropriate symbol in the
+ * executable if agent_lib->is_static_lib() == true or in the shared library
+ * referenced by 'handle'.
+ */
+void* os::find_agent_function(AgentLibrary *agent_lib, bool check_lib,
+                              const char *syms[], size_t syms_len) {
+  assert(agent_lib != NULL, "sanity check");
+  const char *lib_name;
+  void *handle = agent_lib->os_lib();
+  void *entryName = NULL;
+  char *agent_function_name;
+  size_t i;
+
+  // If checking then use the agent name otherwise test is_static_lib() to
+  // see how to process this lookup
+  lib_name = ((check_lib || agent_lib->is_static_lib()) ? agent_lib->name() : NULL);
+  for (i = 0; i < syms_len; i++) {
+    agent_function_name = build_agent_function_name(syms[i], lib_name, agent_lib->is_absolute_path());
+    if (agent_function_name == NULL) {
+      break;
+    }
+    entryName = dll_lookup(handle, agent_function_name);
+    FREE_C_HEAP_ARRAY(char, agent_function_name, mtThread);
+    if (entryName != NULL) {
+      break;
+    }
+  }
+  return entryName;
+}
+
+// See if the passed in agent is statically linked into the VM image.
+bool os::find_builtin_agent(AgentLibrary *agent_lib, const char *syms[],
+                            size_t syms_len) {
+  void *ret;
+  void *proc_handle;
+  void *save_handle;
+
+  assert(agent_lib != NULL, "sanity check");
+  if (agent_lib->name() == NULL) {
+    return false;
+  }
+  proc_handle = get_default_process_handle();
+  // Check for Agent_OnLoad/Attach_lib_name function
+  save_handle = agent_lib->os_lib();
+  // We want to look in this process' symbol table.
+  agent_lib->set_os_lib(proc_handle);
+  ret = find_agent_function(agent_lib, true, syms, syms_len);
+  if (ret != NULL) {
+    // Found an entry point like Agent_OnLoad_lib_name so we have a static agent
+    agent_lib->set_valid();
+    agent_lib->set_static_lib(true);
+    return true;
+  }
+  agent_lib->set_os_lib(save_handle);
+  return false;
 }
 
 // --------------------- heap allocation utilities ---------------------
@@ -596,6 +662,22 @@ void* os::malloc(size_t size, MEMFLAGS memflags, address caller) {
   NOT_PRODUCT(inc_stat_counter(&num_mallocs, 1));
   NOT_PRODUCT(inc_stat_counter(&alloc_bytes, size));
 
+#ifdef ASSERT
+  // checking for the WatcherThread and crash_protection first
+  // since os::malloc can be called when the libjvm.{dll,so} is
+  // first loaded and we don't have a thread yet.
+  // try to find the thread after we see that the watcher thread
+  // exists and has crash protection.
+  WatcherThread *wt = WatcherThread::watcher_thread();
+  if (wt != NULL && wt->has_crash_protection()) {
+    Thread* thread = ThreadLocalStorage::get_thread_slow();
+    if (thread == wt) {
+      assert(!wt->has_crash_protection(),
+          "Can't malloc with crash protection from WatcherThread");
+    }
+  }
+#endif
+
   if (size == 0) {
     // return a valid pointer if size is zero
     // if NULL is returned the calling functions assume out of memory.
@@ -648,10 +730,13 @@ void* os::realloc(void *memblock, size_t size, MEMFLAGS memflags, address caller
 #ifndef ASSERT
   NOT_PRODUCT(inc_stat_counter(&num_mallocs, 1));
   NOT_PRODUCT(inc_stat_counter(&alloc_bytes, size));
+  MemTracker::Tracker tkr = MemTracker::get_realloc_tracker();
   void* ptr = ::realloc(memblock, size);
   if (ptr != NULL) {
-    MemTracker::record_realloc((address)memblock, (address)ptr, size, memflags,
+    tkr.record((address)memblock, (address)ptr, size, memflags,
      caller == 0 ? CALLER_PC : caller);
+  } else {
+    tkr.discard();
   }
   return ptr;
 #else
@@ -1406,53 +1491,20 @@ bool os::is_server_class_machine() {
   return result;
 }
 
-// Read file line by line, if line is longer than bsize,
-// skip rest of line.
-int os::get_line_chars(int fd, char* buf, const size_t bsize){
-  size_t sz, i = 0;
-
-  // read until EOF, EOL or buf is full
-  while ((sz = (int) read(fd, &buf[i], 1)) == 1 && i < (bsize-2) && buf[i] != '\n') {
-     ++i;
-  }
-
-  if (buf[i] == '\n') {
-    // EOL reached so ignore EOL character and return
-
-    buf[i] = 0;
-    return (int) i;
-  }
-
-  buf[i+1] = 0;
-
-  if (sz != 1) {
-    // EOF reached. if we read chars before EOF return them and
-    // return EOF on next call otherwise return EOF
-
-    return (i == 0) ? -1 : (int) i;
-  }
-
-  // line is longer than size of buf, skip to EOL
-  char ch;
-  while (read(fd, &ch, 1) == 1 && ch != '\n') {
-    // Do nothing
-  }
-
-  // return initial part of line that fits in buf.
-  // If we reached EOF, it will be returned on next call.
-
-  return (int) i;
+void os::SuspendedThreadTask::run() {
+  assert(Threads_lock->owned_by_self() || (_thread == VMThread::vm_thread()), "must have threads lock to call this");
+  internal_do_task();
+  _done = true;
 }
 
 bool os::create_stack_guard_pages(char* addr, size_t bytes) {
   return os::pd_create_stack_guard_pages(addr, bytes);
 }
 
-
 char* os::reserve_memory(size_t bytes, char* addr, size_t alignment_hint) {
   char* result = pd_reserve_memory(bytes, addr, alignment_hint);
   if (result != NULL) {
-    MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
+    MemTracker::record_virtual_memory_reserve((address)result, bytes, mtNone, CALLER_PC);
   }
 
   return result;
@@ -1462,7 +1514,7 @@ char* os::reserve_memory(size_t bytes, char* addr, size_t alignment_hint,
    MEMFLAGS flags) {
   char* result = pd_reserve_memory(bytes, addr, alignment_hint);
   if (result != NULL) {
-    MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
+    MemTracker::record_virtual_memory_reserve((address)result, bytes, mtNone, CALLER_PC);
     MemTracker::record_virtual_memory_type((address)result, flags);
   }
 
@@ -1472,7 +1524,7 @@ char* os::reserve_memory(size_t bytes, char* addr, size_t alignment_hint,
 char* os::attempt_reserve_memory_at(size_t bytes, char* addr) {
   char* result = pd_attempt_reserve_memory_at(bytes, addr);
   if (result != NULL) {
-    MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
+    MemTracker::record_virtual_memory_reserve((address)result, bytes, mtNone, CALLER_PC);
   }
   return result;
 }
@@ -1499,18 +1551,36 @@ bool os::commit_memory(char* addr, size_t size, size_t alignment_hint,
   return res;
 }
 
+void os::commit_memory_or_exit(char* addr, size_t bytes, bool executable,
+                               const char* mesg) {
+  pd_commit_memory_or_exit(addr, bytes, executable, mesg);
+  MemTracker::record_virtual_memory_commit((address)addr, bytes, CALLER_PC);
+}
+
+void os::commit_memory_or_exit(char* addr, size_t size, size_t alignment_hint,
+                               bool executable, const char* mesg) {
+  os::pd_commit_memory_or_exit(addr, size, alignment_hint, executable, mesg);
+  MemTracker::record_virtual_memory_commit((address)addr, size, CALLER_PC);
+}
+
 bool os::uncommit_memory(char* addr, size_t bytes) {
+  MemTracker::Tracker tkr = MemTracker::get_virtual_memory_uncommit_tracker();
   bool res = pd_uncommit_memory(addr, bytes);
   if (res) {
-    MemTracker::record_virtual_memory_uncommit((address)addr, bytes);
+    tkr.record((address)addr, bytes);
+  } else {
+    tkr.discard();
   }
   return res;
 }
 
 bool os::release_memory(char* addr, size_t bytes) {
+  MemTracker::Tracker tkr = MemTracker::get_virtual_memory_release_tracker();
   bool res = pd_release_memory(addr, bytes);
   if (res) {
-    MemTracker::record_virtual_memory_release((address)addr, bytes);
+    tkr.record((address)addr, bytes);
+  } else {
+    tkr.discard();
   }
   return res;
 }
@@ -1521,8 +1591,7 @@ char* os::map_memory(int fd, const char* file_name, size_t file_offset,
                            bool allow_exec) {
   char* result = pd_map_memory(fd, file_name, file_offset, addr, bytes, read_only, allow_exec);
   if (result != NULL) {
-    MemTracker::record_virtual_memory_reserve((address)result, bytes, CALLER_PC);
-    MemTracker::record_virtual_memory_commit((address)result, bytes, CALLER_PC);
+    MemTracker::record_virtual_memory_reserve_and_commit((address)result, bytes, mtNone, CALLER_PC);
   }
   return result;
 }
@@ -1535,10 +1604,12 @@ char* os::remap_memory(int fd, const char* file_name, size_t file_offset,
 }
 
 bool os::unmap_memory(char *addr, size_t bytes) {
+  MemTracker::Tracker tkr = MemTracker::get_virtual_memory_release_tracker();
   bool result = pd_unmap_memory(addr, bytes);
   if (result) {
-    MemTracker::record_virtual_memory_uncommit((address)addr, bytes);
-    MemTracker::record_virtual_memory_release((address)addr, bytes);
+    tkr.record((address)addr, bytes);
+  } else {
+    tkr.discard();
   }
   return result;
 }
@@ -1551,3 +1622,19 @@ void os::realign_memory(char *addr, size_t bytes, size_t alignment_hint) {
   pd_realign_memory(addr, bytes, alignment_hint);
 }
 
+#ifndef TARGET_OS_FAMILY_windows
+/* try to switch state from state "from" to state "to"
+ * returns the state set after the method is complete
+ */
+os::SuspendResume::State os::SuspendResume::switch_state(os::SuspendResume::State from,
+                                                         os::SuspendResume::State to)
+{
+  os::SuspendResume::State result =
+    (os::SuspendResume::State) Atomic::cmpxchg((jint) to, (jint *) &_state, (jint) from);
+  if (result == from) {
+    // success
+    return to;
+  }
+  return result;
+}
+#endif

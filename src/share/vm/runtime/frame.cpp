@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "compiler/abstractCompiler.hpp"
 #include "compiler/disassembler.hpp"
 #include "gc_interface/collectedHeap.inline.hpp"
 #include "interpreter/interpreter.hpp"
@@ -224,9 +225,20 @@ bool frame::is_first_java_frame() const {
 
 
 bool frame::entry_frame_is_first() const {
-  return entry_frame_call_wrapper()->anchor()->last_Java_sp() == NULL;
+  return entry_frame_call_wrapper()->is_first_frame();
 }
 
+JavaCallWrapper* frame::entry_frame_call_wrapper_if_safe(JavaThread* thread) const {
+  JavaCallWrapper** jcw = entry_frame_call_wrapper_addr();
+  address addr = (address) jcw;
+
+  // addr must be within the usable part of the stack
+  if (thread->is_in_usable_stack(addr)) {
+    return *jcw;
+  }
+
+  return NULL;
+}
 
 bool frame::should_be_deoptimized() const {
   if (_deopt_state == is_deoptimized ||
@@ -390,7 +402,6 @@ void frame::interpreter_frame_set_locals(intptr_t* locs)  {
 Method* frame::interpreter_frame_method() const {
   assert(is_interpreted_frame(), "interpreted frame expected");
   Method* m = *interpreter_frame_method_addr();
-  assert(m->is_metadata(), "bad Method* in interpreter frame");
   assert(m->is_method(), "not a Method*");
   return m;
 }
@@ -552,7 +563,7 @@ void frame::print_value_on(outputStream* st, JavaThread *thread) const {
 
   st->print("%s frame (sp=" INTPTR_FORMAT " unextended sp=" INTPTR_FORMAT, print_name(), sp(), unextended_sp());
   if (sp() != NULL)
-    st->print(", fp=" INTPTR_FORMAT ", pc=" INTPTR_FORMAT, fp(), pc());
+    st->print(", fp=" INTPTR_FORMAT ", real_fp=" INTPTR_FORMAT ", pc=" INTPTR_FORMAT, fp(), real_fp(), pc());
 
   if (StubRoutines::contains(pc())) {
     st->print_cr(")");
@@ -644,7 +655,7 @@ void frame::interpreter_frame_print_on(outputStream* st) const {
 // Return whether the frame is in the VM or os indicating a Hotspot problem.
 // Otherwise, it's likely a bug in the native library that the Java code calls,
 // hopefully indicating where to submit bugs.
-static void print_C_frame(outputStream* st, char* buf, int buflen, address pc) {
+void frame::print_C_frame(outputStream* st, char* buf, int buflen, address pc) {
   // C/C++ frame
   bool in_vm = os::address_is_in_vm(pc);
   st->print(in_vm ? "V" : "C");
@@ -713,10 +724,14 @@ void frame::print_on_error(outputStream* st, char* buf, int buflen, bool verbose
     } else if (_cb->is_buffer_blob()) {
       st->print("v  ~BufferBlob::%s", ((BufferBlob *)_cb)->name());
     } else if (_cb->is_nmethod()) {
-      Method* m = ((nmethod *)_cb)->method();
+      nmethod* nm = (nmethod*)_cb;
+      Method* m = nm->method();
       if (m != NULL) {
         m->name_and_sig_as_C_string(buf, buflen);
-        st->print("J  %s", buf);
+        st->print("J %d%s %s %s (%d bytes) @ " PTR_FORMAT " [" PTR_FORMAT "+0x%x]",
+                  nm->compile_id(), (nm->is_osr_method() ? "%" : ""),
+                  ((nm->compiler() != NULL) ? nm->compiler()->name() : ""),
+                  buf, m->code_size(), _pc, _cb->code_begin(), _pc - _cb->code_begin());
       } else {
         st->print("J  " PTR_FORMAT, pc());
       }
@@ -1011,6 +1026,7 @@ class CompiledArgumentOopFinder: public SignatureInfo {
   OopClosure*     _f;
   int             _offset;        // the current offset, incremented with each argument
   bool            _has_receiver;  // true if the callee has a receiver
+  bool            _has_appendix;  // true if the call has an appendix
   frame           _fr;
   RegisterMap*    _reg_map;
   int             _arg_size;
@@ -1030,19 +1046,20 @@ class CompiledArgumentOopFinder: public SignatureInfo {
   }
 
  public:
-  CompiledArgumentOopFinder(Symbol* signature, bool has_receiver, OopClosure* f, frame fr,  const RegisterMap* reg_map)
+  CompiledArgumentOopFinder(Symbol* signature, bool has_receiver, bool has_appendix, OopClosure* f, frame fr,  const RegisterMap* reg_map)
     : SignatureInfo(signature) {
 
     // initialize CompiledArgumentOopFinder
     _f         = f;
     _offset    = 0;
     _has_receiver = has_receiver;
+    _has_appendix = has_appendix;
     _fr        = fr;
     _reg_map   = (RegisterMap*)reg_map;
-    _arg_size  = ArgumentSizeComputer(signature).size() + (has_receiver ? 1 : 0);
+    _arg_size  = ArgumentSizeComputer(signature).size() + (has_receiver ? 1 : 0) + (has_appendix ? 1 : 0);
 
     int arg_size;
-    _regs = SharedRuntime::find_callee_arguments(signature, has_receiver, &arg_size);
+    _regs = SharedRuntime::find_callee_arguments(signature, has_receiver, has_appendix, &arg_size);
     assert(arg_size == _arg_size, "wrong arg size");
   }
 
@@ -1052,12 +1069,16 @@ class CompiledArgumentOopFinder: public SignatureInfo {
       _offset++;
     }
     iterate_parameters();
+    if (_has_appendix) {
+      handle_oop_offset();
+      _offset++;
+    }
   }
 };
 
-void frame::oops_compiled_arguments_do(Symbol* signature, bool has_receiver, const RegisterMap* reg_map, OopClosure* f) {
+void frame::oops_compiled_arguments_do(Symbol* signature, bool has_receiver, bool has_appendix, const RegisterMap* reg_map, OopClosure* f) {
   ResourceMark rm;
-  CompiledArgumentOopFinder finder(signature, has_receiver, f, *this, reg_map);
+  CompiledArgumentOopFinder finder(signature, has_receiver, has_appendix, f, *this, reg_map);
   finder.oops_do();
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -265,7 +265,7 @@ class nmethod : public CodeBlob {
           int comp_level);
 
   // helper methods
-  void* operator new(size_t size, int nmethod_size);
+  void* operator new(size_t size, int nmethod_size) throw();
 
   const char* reloc_string_for(u_char* begin, u_char* end);
   // Returns true if this thread changed the state of the nmethod or
@@ -566,7 +566,7 @@ public:
   void preserve_callee_argument_oops(frame fr, const RegisterMap *reg_map,
                                      OopClosure* f);
   void oops_do(OopClosure* f) { oops_do(f, false); }
-  void oops_do(OopClosure* f, bool do_strong_roots_only);
+  void oops_do(OopClosure* f, bool allow_zombie);
   bool detect_scavenge_root_oops();
   void verify_scavenge_root_oops() PRODUCT_RETURN;
 

@@ -27,6 +27,7 @@
 
 #include "utilities/utf8.hpp"
 #include "memory/allocation.hpp"
+#include "runtime/atomic.hpp"
 
 // A Symbol is a canonicalized string.
 // All Symbols reside in global SymbolTable and are reference counted.
@@ -44,7 +45,7 @@
 // in the SymbolTable bucket (the _literal field in HashtableEntry)
 // that points to the Symbol.  All other stores of a Symbol*
 // to a field of a persistent variable (e.g., the _name filed in
-// FieldAccessInfo or _ptr in a CPSlot) is reference counted.
+// fieldDescriptor or _ptr in a CPSlot) is reference counted.
 //
 // 1) The lookup of a "name" in the SymbolTable either creates a Symbol F for
 // "name" and returns a pointer to F or finds a pre-existing Symbol F for
@@ -101,14 +102,22 @@
 // type without virtual functions.
 class ClassLoaderData;
 
-class Symbol : public MetaspaceObj {
+// We separate the fields in SymbolBase from Symbol::_body so that
+// Symbol::size(int) can correctly calculate the space needed.
+class SymbolBase : public MetaspaceObj {
+ public:
+  ATOMIC_SHORT_PAIR(
+    volatile short _refcount,  // needs atomic operation
+    unsigned short _length     // number of UTF8 characters in the symbol (does not need atomic op)
+  );
+  int            _identity_hash;
+};
+
+class Symbol : private SymbolBase {
   friend class VMStructs;
   friend class SymbolTable;
   friend class MoveSymbols;
  private:
-  volatile int   _refcount;
-  int            _identity_hash;
-  unsigned short _length; // number of UTF8 characters in the symbol
   jbyte _body[1];
 
   enum {
@@ -117,7 +126,7 @@ class Symbol : public MetaspaceObj {
   };
 
   static int size(int length) {
-    size_t sz = heap_word_size(sizeof(Symbol) + (length > 0 ? length - 1 : 0));
+    size_t sz = heap_word_size(sizeof(SymbolBase) + (length > 0 ? length : 0));
     return align_object_size(sz);
   }
 
@@ -127,9 +136,9 @@ class Symbol : public MetaspaceObj {
   }
 
   Symbol(const u1* name, int length, int refcount);
-  void* operator new(size_t size, int len, TRAPS);
-  void* operator new(size_t size, int len, Arena* arena, TRAPS);
-  void* operator new(size_t size, int len, ClassLoaderData* loader_data, TRAPS);
+  void* operator new(size_t size, int len, TRAPS) throw();
+  void* operator new(size_t size, int len, Arena* arena, TRAPS) throw();
+  void* operator new(size_t size, int len, ClassLoaderData* loader_data, TRAPS) throw();
 
   void  operator delete(void* p);
 

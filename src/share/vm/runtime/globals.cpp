@@ -73,12 +73,6 @@ bool Flag::is_unlocked() const {
       strcmp(kind, "{C2 diagnostic}") == 0 ||
       strcmp(kind, "{ARCH diagnostic}") == 0 ||
       strcmp(kind, "{Shark diagnostic}") == 0) {
-    if (strcmp(name, "EnableInvokeDynamic") == 0 && UnlockExperimentalVMOptions && !UnlockDiagnosticVMOptions) {
-      // transitional logic to allow tests to run until they are changed
-      static int warned;
-      if (++warned == 1)  warning("Use -XX:+UnlockDiagnosticVMOptions before EnableInvokeDynamic flag");
-      return true;
-    }
     return UnlockDiagnosticVMOptions;
   } else if (strcmp(kind, "{experimental}") == 0 ||
              strcmp(kind, "{C2 experimental}") == 0 ||
@@ -211,6 +205,7 @@ void Flag::print_as_flag(outputStream* st) {
 
 #define C1_PRODUCT_FLAG_STRUCT(type, name, value, doc) { #type, XSTR(name), &name, NOT_PRODUCT_ARG(doc) "{C1 product}", DEFAULT },
 #define C1_PD_PRODUCT_FLAG_STRUCT(type, name, doc)     { #type, XSTR(name), &name, NOT_PRODUCT_ARG(doc) "{C1 pd product}", DEFAULT },
+#define C1_DIAGNOSTIC_FLAG_STRUCT(type, name, value, doc) { #type, XSTR(name), &name, NOT_PRODUCT_ARG(doc) "{C1 diagnostic}", DEFAULT },
 #ifdef PRODUCT
   #define C1_DEVELOP_FLAG_STRUCT(type, name, value, doc) /* flag is constant */
   #define C1_PD_DEVELOP_FLAG_STRUCT(type, name, doc)     /* flag is constant */
@@ -266,7 +261,7 @@ static Flag flagTable[] = {
  G1_FLAGS(RUNTIME_DEVELOP_FLAG_STRUCT, RUNTIME_PD_DEVELOP_FLAG_STRUCT, RUNTIME_PRODUCT_FLAG_STRUCT, RUNTIME_PD_PRODUCT_FLAG_STRUCT, RUNTIME_DIAGNOSTIC_FLAG_STRUCT, RUNTIME_EXPERIMENTAL_FLAG_STRUCT, RUNTIME_NOTPRODUCT_FLAG_STRUCT, RUNTIME_MANAGEABLE_FLAG_STRUCT, RUNTIME_PRODUCT_RW_FLAG_STRUCT)
 #endif // INCLUDE_ALL_GCS
 #ifdef COMPILER1
- C1_FLAGS(C1_DEVELOP_FLAG_STRUCT, C1_PD_DEVELOP_FLAG_STRUCT, C1_PRODUCT_FLAG_STRUCT, C1_PD_PRODUCT_FLAG_STRUCT, C1_NOTPRODUCT_FLAG_STRUCT)
+ C1_FLAGS(C1_DEVELOP_FLAG_STRUCT, C1_PD_DEVELOP_FLAG_STRUCT, C1_PRODUCT_FLAG_STRUCT, C1_PD_PRODUCT_FLAG_STRUCT, C1_DIAGNOSTIC_FLAG_STRUCT, C1_NOTPRODUCT_FLAG_STRUCT)
 #endif
 #ifdef COMPILER2
  C2_FLAGS(C2_DEVELOP_FLAG_STRUCT, C2_PD_DEVELOP_FLAG_STRUCT, C2_PRODUCT_FLAG_STRUCT, C2_PD_PRODUCT_FLAG_STRUCT, C2_DIAGNOSTIC_FLAG_STRUCT, C2_EXPERIMENTAL_FLAG_STRUCT, C2_NOTPRODUCT_FLAG_STRUCT)
@@ -282,14 +277,14 @@ static Flag flagTable[] = {
 Flag* Flag::flags = flagTable;
 size_t Flag::numFlags = (sizeof(flagTable) / sizeof(Flag));
 
-inline bool str_equal(const char* s, char* q, size_t len) {
+inline bool str_equal(const char* s, const char* q, size_t len) {
   // s is null terminated, q is not!
   if (strlen(s) != (unsigned int) len) return false;
   return strncmp(s, q, len) == 0;
 }
 
 // Search the flag table for a named flag
-Flag* Flag::find_flag(char* name, size_t length, bool allow_locked) {
+Flag* Flag::find_flag(const char* name, size_t length, bool allow_locked) {
   for (Flag* current = &flagTable[0]; current->name != NULL; current++) {
     if (str_equal(current->name, name, length)) {
       // Found a matching entry.  Report locked flags only if allowed.
@@ -305,6 +300,52 @@ Flag* Flag::find_flag(char* name, size_t length, bool allow_locked) {
   }
   // Flag name is not in the flag table
   return NULL;
+}
+
+// Compute string similarity based on Dice's coefficient
+static float str_similar(const char* str1, const char* str2, size_t len2) {
+  int len1 = (int) strlen(str1);
+  int total = len1 + (int) len2;
+
+  int hit = 0;
+
+  for (int i = 0; i < len1 -1; ++i) {
+    for (int j = 0; j < (int) len2 -1; ++j) {
+      if ((str1[i] == str2[j]) && (str1[i+1] == str2[j+1])) {
+        ++hit;
+        break;
+      }
+    }
+  }
+
+  return 2.0f * (float) hit / (float) total;
+}
+
+Flag* Flag::fuzzy_match(const char* name, size_t length, bool allow_locked) {
+  float VMOptionsFuzzyMatchSimilarity = 0.7f;
+  Flag* match = NULL;
+  float score;
+  float max_score = -1;
+
+  for (Flag* current = &flagTable[0]; current->name != NULL; current++) {
+    score = str_similar(current->name, name, length);
+    if (score > max_score) {
+      max_score = score;
+      match = current;
+    }
+  }
+
+  if (!(match->is_unlocked() || match->is_unlocker())) {
+    if (!allow_locked) {
+      return NULL;
+    }
+  }
+
+  if (max_score < VMOptionsFuzzyMatchSimilarity) {
+    return NULL;
+  }
+
+  return match;
 }
 
 // Returns the address of the index'th element

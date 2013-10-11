@@ -74,7 +74,7 @@ Method* Method::allocate(ClassLoaderData* loader_data,
 
   int size = Method::size(access_flags.is_native());
 
-  return new (loader_data, size, false, THREAD) Method(cm, access_flags, size);
+  return new (loader_data, size, false, MetaspaceObj::MethodType, THREAD) Method(cm, access_flags, size);
 }
 
 Method::Method(ConstMethod* xconst, AccessFlags access_flags, int size) {
@@ -514,24 +514,31 @@ bool Method::compute_has_loops_flag() {
   return _access_flags.has_loops();
 }
 
+bool Method::is_final_method(AccessFlags class_access_flags) const {
+  // or "does_not_require_vtable_entry"
+  // overpass can occur, is not final (reuses vtable entry)
+  // private methods get vtable entries for backward class compatibility.
+  if (is_overpass())  return false;
+  return is_final() || class_access_flags.is_final();
+}
 
 bool Method::is_final_method() const {
-  // %%% Should return true for private methods also,
-  // since there is no way to override them.
-  return is_final() || method_holder()->is_final();
+  return is_final_method(method_holder()->access_flags());
 }
 
-
-bool Method::is_strict_method() const {
-  return is_strict();
-}
-
-
-bool Method::can_be_statically_bound() const {
-  if (is_final_method())  return true;
+bool Method::can_be_statically_bound(AccessFlags class_access_flags) const {
+  if (is_final_method(class_access_flags))  return true;
+#ifdef ASSERT
+  bool is_nonv = (vtable_index() == nonvirtual_vtable_index);
+  if (class_access_flags.is_interface())  assert(is_nonv == is_static(), err_msg("is_nonv=%s", is_nonv));
+#endif
+  assert(valid_vtable_index() || valid_itable_index(), "method must be linked before we ask this question");
   return vtable_index() == nonvirtual_vtable_index;
 }
 
+bool Method::can_be_statically_bound() const {
+  return can_be_statically_bound(method_holder()->access_flags());
+}
 
 bool Method::is_accessor() const {
   if (code_size() != 5) return false;
@@ -737,11 +744,22 @@ void Method::print_made_not_compilable(int comp_level, bool is_osr, bool report,
   }
 }
 
+bool Method::is_always_compilable() const {
+  // Generated adapters must be compiled
+  if (is_method_handle_intrinsic() && is_synthetic()) {
+    assert(!is_not_c1_compilable(), "sanity check");
+    assert(!is_not_c2_compilable(), "sanity check");
+    return true;
+  }
+
+  return false;
+}
+
 bool Method::is_not_compilable(int comp_level) const {
   if (number_of_breakpoints() > 0)
     return true;
-  if (is_method_handle_intrinsic())
-    return !is_synthetic();  // the generated adapters must be compiled
+  if (is_always_compilable())
+    return false;
   if (comp_level == CompLevel_any)
     return is_not_c1_compilable() || is_not_c2_compilable();
   if (is_c1_compile(comp_level))
@@ -753,6 +771,10 @@ bool Method::is_not_compilable(int comp_level) const {
 
 // call this when compiler finds that this method is not compilable
 void Method::set_not_compilable(int comp_level, bool report, const char* reason) {
+  if (is_always_compilable()) {
+    // Don't mark a method which should be always compilable
+    return;
+  }
   print_made_not_compilable(comp_level, /*is_osr*/ false, report, reason);
   if (comp_level == CompLevel_all) {
     set_not_c1_compilable();
@@ -764,6 +786,7 @@ void Method::set_not_compilable(int comp_level, bool report, const char* reason)
       set_not_c2_compilable();
   }
   CompilationPolicy::policy()->disable_compilation(this);
+  assert(!CompilationPolicy::can_be_compiled(this, comp_level), "sanity check");
 }
 
 bool Method::is_not_osr_compilable(int comp_level) const {
@@ -790,6 +813,7 @@ void Method::set_not_osr_compilable(int comp_level, bool report, const char* rea
       set_not_c2_osr_compilable();
   }
   CompilationPolicy::policy()->disable_compilation(this);
+  assert(!CompilationPolicy::can_be_osr_compiled(this, comp_level), "sanity check");
 }
 
 // Revert to using the interpreter and clear out the nmethod
@@ -849,7 +873,9 @@ void Method::link_method(methodHandle h_method, TRAPS) {
   assert(entry != NULL, "interpreter entry must be non-null");
   // Sets both _i2i_entry and _from_interpreted_entry
   set_interpreter_entry(entry);
-  if (is_native() && !is_method_handle_intrinsic()) {
+
+  // Don't overwrite already registered native entries.
+  if (is_native() && !has_native_function()) {
     set_native_function(
       SharedRuntime::native_method_throw_unsatisfied_link_error_entry(),
       !native_bind_event_is_interesting);
@@ -965,7 +991,7 @@ bool Method::is_overridden_in(Klass* k) const {
 
   assert(ik->is_subclass_of(method_holder()), "should be subklass");
   assert(ik->vtable() != NULL, "vtable should exist");
-  if (vtable_index() == nonvirtual_vtable_index) {
+  if (!has_vtable_index()) {
     return false;
   } else {
     Method* vt_m = ik->method_at_vtable(vtable_index());
@@ -996,7 +1022,6 @@ bool Method::should_not_be_cached() const {
 bool Method::is_ignored_by_security_stack_walk() const {
   const bool use_new_reflection = JDK_Version::is_gte_jdk14x_version() && UseNewReflection;
 
-  assert(intrinsic_id() != vmIntrinsics::_invoke || Universe::reflect_invoke_cache()->is_same_method((Method*)this), "sanity");
   if (intrinsic_id() == vmIntrinsics::_invoke) {
     // This is Method.invoke() -- ignore it
     return true;
@@ -1178,6 +1203,7 @@ methodHandle Method::clone_with_new_data(methodHandle m, u_char* new_code, int n
   newm->constMethod()->set_constMethod_size(new_const_method_size);
   newm->set_method_size(new_method_size);
   assert(newm->code_size() == new_code_length, "check");
+  assert(newm->method_parameters_length() == method_parameters_len, "check");
   assert(newm->checked_exceptions_length() == checked_exceptions_len, "check");
   assert(newm->exception_table_length() == exception_table_len, "check");
   assert(newm->localvariable_table_length() == localvariable_len, "check");
@@ -1188,6 +1214,12 @@ methodHandle Method::clone_with_new_data(methodHandle m, u_char* new_code, int n
     memcpy(newm->compressed_linenumber_table(),
            new_compressed_linenumber_table,
            new_compressed_linenumber_size);
+  }
+  // Copy method_parameters
+  if (method_parameters_len > 0) {
+    memcpy(newm->method_parameters_start(),
+           m->method_parameters_start(),
+           method_parameters_len * sizeof(MethodParametersElement));
   }
   // Copy checked_exceptions
   if (checked_exceptions_len > 0) {
@@ -1598,7 +1630,7 @@ int Method::backedge_count() {
 }
 
 int Method::highest_comp_level() const {
-  MethodData* mdo = method_data();
+  const MethodData* mdo = method_data();
   if (mdo != NULL) {
     return mdo->highest_comp_level();
   } else {
@@ -1607,7 +1639,7 @@ int Method::highest_comp_level() const {
 }
 
 int Method::highest_osr_comp_level() const {
-  MethodData* mdo = method_data();
+  const MethodData* mdo = method_data();
   if (mdo != NULL) {
     return mdo->highest_osr_comp_level();
   } else {
@@ -1951,7 +1983,7 @@ void Method::print_on(outputStream* st) const {
 
 void Method::print_value_on(outputStream* st) const {
   assert(is_method(), "must be method");
-  st->print_cr(internal_name());
+  st->print(internal_name());
   print_address_on(st);
   st->print(" ");
   name()->print_value_on(st);
@@ -1959,6 +1991,7 @@ void Method::print_value_on(outputStream* st) const {
   signature()->print_value_on(st);
   st->print(" in ");
   method_holder()->print_value_on(st);
+  if (WizardMode) st->print("#%d", _vtable_index);
   if (WizardMode) st->print("[%d,%d]", size_of_parameters(), max_locals());
   if (WizardMode && code() != NULL) st->print(" ((nmethod*)%p)", code());
 }
@@ -1984,14 +2017,9 @@ void Method::collect_statistics(KlassSizeStats *sz) const {
 
 void Method::verify_on(outputStream* st) {
   guarantee(is_method(), "object must be method");
-  guarantee(is_metadata(),  "should be metadata");
   guarantee(constants()->is_constantPool(), "should be constant pool");
-  guarantee(constants()->is_metadata(), "should be metadata");
   guarantee(constMethod()->is_constMethod(), "should be ConstMethod*");
-  guarantee(constMethod()->is_metadata(), "should be metadata");
   MethodData* md = method_data();
-  guarantee(md == NULL ||
-      md->is_metadata(), "should be metadata");
   guarantee(md == NULL ||
       md->is_methodData(), "should be method data");
 }

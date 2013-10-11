@@ -641,17 +641,21 @@ JRT_LEAF(BasicType, Deoptimization::unpack_frames(JavaThread* thread, int exec_m
       // at an uncommon trap for an invoke (where the compiler
       // generates debug info before the invoke has executed)
       Bytecodes::Code cur_code = str.next();
-      if (cur_code == Bytecodes::_invokevirtual ||
-          cur_code == Bytecodes::_invokespecial ||
-          cur_code == Bytecodes::_invokestatic  ||
-          cur_code == Bytecodes::_invokeinterface) {
+      if (cur_code == Bytecodes::_invokevirtual   ||
+          cur_code == Bytecodes::_invokespecial   ||
+          cur_code == Bytecodes::_invokestatic    ||
+          cur_code == Bytecodes::_invokeinterface ||
+          cur_code == Bytecodes::_invokedynamic) {
         Bytecode_invoke invoke(mh, iframe->interpreter_frame_bci());
         Symbol* signature = invoke.signature();
         ArgumentSizeComputer asc(signature);
         cur_invoke_parameter_size = asc.size();
-        if (cur_code != Bytecodes::_invokestatic) {
+        if (invoke.has_receiver()) {
           // Add in receiver
           ++cur_invoke_parameter_size;
+        }
+        if (i != 0 && !invoke.is_invokedynamic() && MethodHandles::has_member_arg(invoke.klass(), invoke.name())) {
+          callee_size_of_parameters++;
         }
       }
       if (str.bci() < max_bci) {
@@ -667,6 +671,7 @@ JRT_LEAF(BasicType, Deoptimization::unpack_frames(JavaThread* thread, int exec_m
             case Bytecodes::_invokespecial:
             case Bytecodes::_invokestatic:
             case Bytecodes::_invokeinterface:
+            case Bytecodes::_invokedynamic:
             case Bytecodes::_athrow:
               break;
             default: {
@@ -1752,7 +1757,7 @@ int Deoptimization::trap_state_set_recompiled(int trap_state, bool z) {
   else    return trap_state & ~DS_RECOMPILE_BIT;
 }
 //---------------------------format_trap_state---------------------------------
-// This is used for debugging and diagnostics, including hotspot.log output.
+// This is used for debugging and diagnostics, including LogFile output.
 const char* Deoptimization::format_trap_state(char* buf, size_t buflen,
                                               int trap_state) {
   DeoptReason reason      = trap_state_reason(trap_state);
@@ -1829,7 +1834,7 @@ const char* Deoptimization::trap_action_name(int action) {
   return buf;
 }
 
-// This is used for debugging and diagnostics, including hotspot.log output.
+// This is used for debugging and diagnostics, including LogFile output.
 const char* Deoptimization::format_trap_request(char* buf, size_t buflen,
                                                 int trap_request) {
   jint unloaded_class_index = trap_request_index(trap_request);

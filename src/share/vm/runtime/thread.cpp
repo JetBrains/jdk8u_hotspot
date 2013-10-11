@@ -45,7 +45,6 @@
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiThreadState.hpp"
 #include "prims/privilegedStack.hpp"
-#include "runtime/aprofiler.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/biasedLocking.hpp"
 #include "runtime/deoptimization.hpp"
@@ -77,7 +76,8 @@
 #include "services/management.hpp"
 #include "services/memTracker.hpp"
 #include "services/threadService.hpp"
-#include "trace/traceEventTypes.hpp"
+#include "trace/tracing.hpp"
+#include "trace/traceMacros.hpp"
 #include "utilities/defaultStream.hpp"
 #include "utilities/dtrace.hpp"
 #include "utilities/events.hpp"
@@ -218,8 +218,9 @@ Thread::Thread() {
   // allocated data structures
   set_osthread(NULL);
   set_resource_area(new (mtThread)ResourceArea());
+  DEBUG_ONLY(_current_resource_mark = NULL;)
   set_handle_area(new (mtThread) HandleArea(NULL));
-  set_metadata_handles(new (ResourceObj::C_HEAP, mtClass) GrowableArray<Metadata*>(300, true));
+  set_metadata_handles(new (ResourceObj::C_HEAP, mtClass) GrowableArray<Metadata*>(30, true));
   set_active_handles(NULL);
   set_free_handle_block(NULL);
   set_last_handle_mark(NULL);
@@ -238,7 +239,6 @@ Thread::Thread() {
   CHECK_UNHANDLED_OOPS_ONLY(_gc_locked_out_count = 0;)
   _jvmti_env_iteration_count = 0;
   set_allocated_bytes(0);
-  set_trace_buffer(NULL);
   _vm_operation_started_count = 0;
   _vm_operation_completed_count = 0;
   _current_pending_monitor = NULL;
@@ -332,6 +332,8 @@ void Thread::record_stack_base_and_size() {
 Thread::~Thread() {
   // Reclaim the objectmonitors from the omFreeList of the moribund thread.
   ObjectSynchronizer::omFlush (this) ;
+
+  EVENT_THREAD_DESTRUCT(this);
 
   // stack_base can be NULL if the thread is never started or exited before
   // record_stack_base_and_size called. Although, we would like to ensure
@@ -954,6 +956,14 @@ bool Thread::is_in_stack(address adr) const {
 }
 
 
+bool Thread::is_in_usable_stack(address adr) const {
+  size_t stack_guard_size = os::uses_stack_guard_pages() ? (StackYellowPages + StackRedPages) * os::vm_page_size() : 0;
+  size_t usable_stack_size = _stack_size - stack_guard_size;
+
+  return ((adr < stack_base()) && (adr >= stack_base() - usable_stack_size));
+}
+
+
 // We had to move these methods here, because vm threads get into ObjectSynchronizer::enter
 // However, there is a note in JavaThread::is_lock_owned() about the VM threads not being
 // used for compilation in the future. If that change is made, the need for these methods
@@ -1218,7 +1228,7 @@ WatcherThread* WatcherThread::_watcher_thread   = NULL;
 bool WatcherThread::_startable = false;
 volatile bool  WatcherThread::_should_terminate = false;
 
-WatcherThread::WatcherThread() : Thread() {
+WatcherThread::WatcherThread() : Thread(), _crash_protection(NULL) {
   assert(watcher_thread() == NULL, "we can only allocate one WatcherThread");
   if (os::create_thread(this, os::watcher_thread)) {
     _watcher_thread = this;
@@ -1659,9 +1669,11 @@ void JavaThread::run() {
     JvmtiExport::post_thread_start(this);
   }
 
-  EVENT_BEGIN(TraceEventThreadStart, event);
-  EVENT_COMMIT(event,
-     EVENT_SET(event, javalangthread, java_lang_Thread::thread_id(this->threadObj())));
+  EventThreadStart event;
+  if (event.should_commit()) {
+     event.set_javalangthread(java_lang_Thread::thread_id(this->threadObj()));
+     event.commit();
+  }
 
   // We call another function to do the rest so we are sure that the stack addresses used
   // from there will be lower than the stack base just computed
@@ -1791,9 +1803,11 @@ void JavaThread::exit(bool destroy_vm, ExitType exit_type) {
 
     // Called before the java thread exit since we want to read info
     // from java_lang_Thread object
-    EVENT_BEGIN(TraceEventThreadEnd, event);
-    EVENT_COMMIT(event,
-        EVENT_SET(event, javalangthread, java_lang_Thread::thread_id(this->threadObj())));
+    EventThreadEnd event;
+    if (event.should_commit()) {
+        event.set_javalangthread(java_lang_Thread::thread_id(this->threadObj()));
+        event.commit();
+    }
 
     // Call after last event on thread
     EVENT_THREAD_EXIT(this);
@@ -3317,6 +3331,11 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   jint parse_result = Arguments::parse(args);
   if (parse_result != JNI_OK) return parse_result;
 
+  os::init_before_ergo();
+
+  jint ergo_result = Arguments::apply_ergo();
+  if (ergo_result != JNI_OK) return ergo_result;
+
   if (PauseAtStartup) {
     os::pause();
   }
@@ -3478,44 +3497,6 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
 
     initialize_class(vmSymbols::java_lang_String(), CHECK_0);
 
-    if (AggressiveOpts) {
-      {
-        // Forcibly initialize java/util/HashMap and mutate the private
-        // static final "frontCacheEnabled" field before we start creating instances
-#ifdef ASSERT
-        Klass* tmp_k = SystemDictionary::find(vmSymbols::java_util_HashMap(), Handle(), Handle(), CHECK_0);
-        assert(tmp_k == NULL, "java/util/HashMap should not be loaded yet");
-#endif
-        Klass* k_o = SystemDictionary::resolve_or_null(vmSymbols::java_util_HashMap(), Handle(), Handle(), CHECK_0);
-        KlassHandle k = KlassHandle(THREAD, k_o);
-        guarantee(k.not_null(), "Must find java/util/HashMap");
-        instanceKlassHandle ik = instanceKlassHandle(THREAD, k());
-        ik->initialize(CHECK_0);
-        fieldDescriptor fd;
-        // Possible we might not find this field; if so, don't break
-        if (ik->find_local_field(vmSymbols::frontCacheEnabled_name(), vmSymbols::bool_signature(), &fd)) {
-          k()->java_mirror()->bool_field_put(fd.offset(), true);
-        }
-      }
-
-      if (UseStringCache) {
-        // Forcibly initialize java/lang/StringValue and mutate the private
-        // static final "stringCacheEnabled" field before we start creating instances
-        Klass* k_o = SystemDictionary::resolve_or_null(vmSymbols::java_lang_StringValue(), Handle(), Handle(), CHECK_0);
-        // Possible that StringValue isn't present: if so, silently don't break
-        if (k_o != NULL) {
-          KlassHandle k = KlassHandle(THREAD, k_o);
-          instanceKlassHandle ik = instanceKlassHandle(THREAD, k());
-          ik->initialize(CHECK_0);
-          fieldDescriptor fd;
-          // Possible we might not find this field: if so, silently don't break
-          if (ik->find_local_field(vmSymbols::stringCacheEnabled_name(), vmSymbols::bool_signature(), &fd)) {
-            k()->java_mirror()->bool_field_put(fd.offset(), true);
-          }
-        }
-      }
-    }
-
     // Initialize java_lang.System (needed before creating the thread)
     initialize_class(vmSymbols::java_lang_System(), CHECK_0);
     initialize_class(vmSymbols::java_lang_ThreadGroup(), CHECK_0);
@@ -3633,6 +3614,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
 
   // Start Attach Listener if +StartAttachListener or it can't be started lazily
   if (!DisableAttachMechanism) {
+    AttachListener::vm_start();
     if (StartAttachListener || AttachListener::init_at_startup()) {
       AttachListener::init();
     }
@@ -3648,8 +3630,8 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // Notify JVMTI agents that VM initialization is complete - nop if no agents.
   JvmtiExport::post_vm_initialized();
 
-  if (!TRACE_START()) {
-    vm_exit_during_initialization(Handle(THREAD, PENDING_EXCEPTION));
+  if (TRACE_START() != JNI_OK) {
+    vm_exit_during_initialization("Failed to start tracing backend.");
   }
 
   if (CleanChunkPoolAsync) {
@@ -3660,6 +3642,16 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
 #if defined(COMPILER1) || defined(COMPILER2) || defined(SHARK)
   CompileBroker::compilation_init();
 #endif
+
+  if (EnableInvokeDynamic) {
+    // Pre-initialize some JSR292 core classes to avoid deadlock during class loading.
+    // It is done after compilers are initialized, because otherwise compilations of
+    // signature polymorphic MH intrinsics can be missed
+    // (see SystemDictionary::find_method_handle_intrinsic).
+    initialize_class(vmSymbols::java_lang_invoke_MethodHandle(), CHECK_0);
+    initialize_class(vmSymbols::java_lang_invoke_MemberName(), CHECK_0);
+    initialize_class(vmSymbols::java_lang_invoke_MethodHandleNatives(), CHECK_0);
+  }
 
 #if INCLUDE_MANAGEMENT
   Management::initialize(THREAD);
@@ -3673,7 +3665,6 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   }
 
   if (Arguments::has_profile())       FlatProfiler::engage(main_thread, true);
-  if (Arguments::has_alloc_profile()) AllocationProfiler::engage();
   if (MemProfiling)                   MemProfiler::engage();
   StatSampler::engage();
   if (CheckJNICalls)                  JniPeriodicChecker::engage();
@@ -3722,15 +3713,18 @@ extern "C" {
 // num_symbol_entries must be passed-in since only the caller knows the number of symbols in the array.
 static OnLoadEntry_t lookup_on_load(AgentLibrary* agent, const char *on_load_symbols[], size_t num_symbol_entries) {
   OnLoadEntry_t on_load_entry = NULL;
-  void *library = agent->os_lib();  // check if we have looked it up before
+  void *library = NULL;
 
-  if (library == NULL) {
+  if (!agent->valid()) {
     char buffer[JVM_MAXPATHLEN];
     char ebuf[1024];
     const char *name = agent->name();
     const char *msg = "Could not find agent library ";
 
-    if (agent->is_absolute_path()) {
+    // First check to see if agent is statically linked into executable
+    if (os::find_builtin_agent(agent, on_load_symbols, num_symbol_entries)) {
+      library = agent->os_lib();
+    } else if (agent->is_absolute_path()) {
       library = os::dll_load(name, ebuf, sizeof ebuf);
       if (library == NULL) {
         const char *sub_msg = " in absolute path, with error: ";
@@ -3764,13 +3758,15 @@ static OnLoadEntry_t lookup_on_load(AgentLibrary* agent, const char *on_load_sym
       }
     }
     agent->set_os_lib(library);
+    agent->set_valid();
   }
 
   // Find the OnLoad function.
-  for (size_t symbol_index = 0; symbol_index < num_symbol_entries; symbol_index++) {
-    on_load_entry = CAST_TO_FN_PTR(OnLoadEntry_t, os::dll_lookup(library, on_load_symbols[symbol_index]));
-    if (on_load_entry != NULL) break;
-  }
+  on_load_entry =
+    CAST_TO_FN_PTR(OnLoadEntry_t, os::find_agent_function(agent,
+                                                          false,
+                                                          on_load_symbols,
+                                                          num_symbol_entries));
   return on_load_entry;
 }
 
@@ -3845,22 +3841,23 @@ extern "C" {
 void Threads::shutdown_vm_agents() {
   // Send any Agent_OnUnload notifications
   const char *on_unload_symbols[] = AGENT_ONUNLOAD_SYMBOLS;
+  size_t num_symbol_entries = ARRAY_SIZE(on_unload_symbols);
   extern struct JavaVM_ main_vm;
   for (AgentLibrary* agent = Arguments::agents(); agent != NULL; agent = agent->next()) {
 
     // Find the Agent_OnUnload function.
-    for (uint symbol_index = 0; symbol_index < ARRAY_SIZE(on_unload_symbols); symbol_index++) {
-      Agent_OnUnload_t unload_entry = CAST_TO_FN_PTR(Agent_OnUnload_t,
-               os::dll_lookup(agent->os_lib(), on_unload_symbols[symbol_index]));
+    Agent_OnUnload_t unload_entry = CAST_TO_FN_PTR(Agent_OnUnload_t,
+      os::find_agent_function(agent,
+      false,
+      on_unload_symbols,
+      num_symbol_entries));
 
-      // Invoke the Agent_OnUnload function
-      if (unload_entry != NULL) {
-        JavaThread* thread = JavaThread::current();
-        ThreadToNativeFromVM ttn(thread);
-        HandleMark hm(thread);
-        (*unload_entry)(&main_vm);
-        break;
-      }
+    // Invoke the Agent_OnUnload function
+    if (unload_entry != NULL) {
+      JavaThread* thread = JavaThread::current();
+      ThreadToNativeFromVM ttn(thread);
+      HandleMark hm(thread);
+      (*unload_entry)(&main_vm);
     }
   }
 }

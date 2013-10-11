@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -879,6 +879,7 @@ class    LIR_OpCall;
 class      LIR_OpJavaCall;
 class      LIR_OpRTCall;
 class    LIR_OpArrayCopy;
+class    LIR_OpUpdateCRC32;
 class    LIR_OpLock;
 class    LIR_OpTypeCheck;
 class    LIR_OpCompareAndSwap;
@@ -984,6 +985,9 @@ enum LIR_Code {
   , begin_opArrayCopy
       , lir_arraycopy
   , end_opArrayCopy
+  , begin_opUpdateCRC32
+      , lir_updatecrc32
+  , end_opUpdateCRC32
   , begin_opLock
     , lir_lock
     , lir_unlock
@@ -1139,6 +1143,7 @@ class LIR_Op: public CompilationResourceObj {
   virtual LIR_Op2* as_Op2() { return NULL; }
   virtual LIR_Op3* as_Op3() { return NULL; }
   virtual LIR_OpArrayCopy* as_OpArrayCopy() { return NULL; }
+  virtual LIR_OpUpdateCRC32* as_OpUpdateCRC32() { return NULL; }
   virtual LIR_OpTypeCheck* as_OpTypeCheck() { return NULL; }
   virtual LIR_OpCompareAndSwap* as_OpCompareAndSwap() { return NULL; }
   virtual LIR_OpProfileCall* as_OpProfileCall() { return NULL; }
@@ -1208,8 +1213,6 @@ class LIR_OpJavaCall: public LIR_OpCall {
   bool is_invokedynamic() const                  { return code() == lir_dynamic_call; }
   bool is_method_handle_invoke() const {
     return
-      is_invokedynamic()  // An invokedynamic is always a MethodHandle call site.
-      ||
       method()->is_compiled_lambda_form()  // Java-generated adapter
       ||
       method()->is_method_handle_intrinsic();  // JVM-generated MH intrinsic
@@ -1295,6 +1298,25 @@ public:
   void print_instr(outputStream* out) const PRODUCT_RETURN;
 };
 
+// LIR_OpUpdateCRC32
+class LIR_OpUpdateCRC32: public LIR_Op {
+  friend class LIR_OpVisitState;
+
+private:
+  LIR_Opr   _crc;
+  LIR_Opr   _val;
+
+public:
+
+  LIR_OpUpdateCRC32(LIR_Opr crc, LIR_Opr val, LIR_Opr res);
+
+  LIR_Opr crc() const                            { return _crc; }
+  LIR_Opr val() const                            { return _val; }
+
+  virtual void emit_code(LIR_Assembler* masm);
+  virtual LIR_OpUpdateCRC32* as_OpUpdateCRC32()  { return this; }
+  void print_instr(outputStream* out) const PRODUCT_RETURN;
+};
 
 // --------------------------------------------------
 // LIR_Op0
@@ -2220,6 +2242,8 @@ class LIR_List: public CompilationResourceObj {
   void breakpoint()                                                  { append(new LIR_Op0(lir_breakpoint)); }
 
   void arraycopy(LIR_Opr src, LIR_Opr src_pos, LIR_Opr dst, LIR_Opr dst_pos, LIR_Opr length, LIR_Opr tmp, ciArrayKlass* expected_type, int flags, CodeEmitInfo* info) { append(new LIR_OpArrayCopy(src, src_pos, dst, dst_pos, length, tmp, expected_type, flags, info)); }
+
+  void update_crc32(LIR_Opr crc, LIR_Opr val, LIR_Opr res)  { append(new LIR_OpUpdateCRC32(crc, val, res)); }
 
   void fpop_raw()                                { append(new LIR_Op0(lir_fpop_raw)); }
 

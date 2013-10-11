@@ -41,13 +41,11 @@ SOURCE.AD = $(OUTDIR)/$(OS)_$(Platform_arch_model).ad
 
 ifeq ("${Platform_arch_model}", "${Platform_arch}")
   SOURCES.AD = \
-  $(call altsrc-replace,$(HS_COMMON_SRC)/cpu/$(ARCH)/vm/$(Platform_arch_model).ad) \
-  $(call altsrc-replace,$(HS_COMMON_SRC)/os_cpu/$(OS)_$(ARCH)/vm/$(OS)_$(Platform_arch_model).ad)
+  $(call altsrc-replace,$(HS_COMMON_SRC)/cpu/$(ARCH)/vm/$(Platform_arch_model).ad) 
 else
   SOURCES.AD = \
   $(call altsrc-replace,$(HS_COMMON_SRC)/cpu/$(ARCH)/vm/$(Platform_arch_model).ad) \
-  $(call altsrc-replace,$(HS_COMMON_SRC)/cpu/$(ARCH)/vm/$(Platform_arch).ad) \
-  $(call altsrc-replace,$(HS_COMMON_SRC)/os_cpu/$(OS)_$(ARCH)/vm/$(OS)_$(Platform_arch_model).ad)
+  $(call altsrc-replace,$(HS_COMMON_SRC)/cpu/$(ARCH)/vm/$(Platform_arch).ad) 
 endif
 
 EXEC	= $(OUTDIR)/adlc
@@ -69,7 +67,7 @@ CXXFLAGS += -DASSERT
 # CFLAGS_WARN holds compiler options to suppress/enable warnings.
 # Compiler warnings are treated as errors
 ifneq ($(COMPILER_WARNINGS_FATAL),false)
-  CFLAGS_WARN = -Werror
+  CFLAGS_WARN = $(WARNINGS_ARE_ERRORS)
 endif
 CFLAGS += $(CFLAGS_WARN)
 

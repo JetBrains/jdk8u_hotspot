@@ -265,8 +265,6 @@ ciObject* ciObjectFactory::get(oop key) {
 ciMetadata* ciObjectFactory::get_metadata(Metadata* key) {
   ASSERT_IN_VM;
 
-  assert(key == NULL || key->is_metadata(), "must be");
-
 #ifdef ASSERT
   if (CIObjectFactoryVerify) {
     Metadata* last = NULL;
@@ -565,7 +563,10 @@ ciInstance* ciObjectFactory::get_unloaded_method_type_constant(ciSymbol* signatu
   return get_unloaded_instance(ciEnv::_MethodType_klass->as_instance_klass());
 }
 
-
+ciInstance* ciObjectFactory::get_unloaded_object_constant() {
+  if (ciEnv::_Object_klass == NULL)  return NULL;
+  return get_unloaded_instance(ciEnv::_Object_klass->as_instance_klass());
+}
 
 //------------------------------------------------------------------
 // ciObjectFactory::get_empty_methodData

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -125,6 +125,7 @@ class CallGenerator : public ResourceObj {
   static CallGenerator* for_late_inline(ciMethod* m, CallGenerator* inline_cg);
   static CallGenerator* for_mh_late_inline(ciMethod* caller, ciMethod* callee, bool input_not_const);
   static CallGenerator* for_string_late_inline(ciMethod* m, CallGenerator* inline_cg);
+  static CallGenerator* for_boxing_late_inline(ciMethod* m, CallGenerator* inline_cg);
 
   // How to make a call but defer the decision whether to inline or not.
   static CallGenerator* for_warm_call(WarmCallInfo* ci,
@@ -158,8 +159,9 @@ class CallGenerator : public ResourceObj {
   virtual void print_inlining_late(const char* msg) { ShouldNotReachHere(); }
 
   static void print_inlining(Compile* C, ciMethod* callee, int inline_level, int bci, const char* msg) {
-    if (PrintInlining)
+    if (C->print_inlining()) {
       C->print_inlining(callee, inline_level, bci, msg);
+    }
   }
 };
 
@@ -259,7 +261,7 @@ class WarmCallInfo : public ResourceObj {
   // Because WarmInfo objects live over the entire lifetime of the
   // Compile object, they are allocated into the comp_arena, which
   // does not get resource marked or reset during the compile process
-  void *operator new( size_t x, Compile* C ) { return C->comp_arena()->Amalloc(x); }
+  void *operator new( size_t x, Compile* C ) throw() { return C->comp_arena()->Amalloc(x); }
   void operator delete( void * ) { } // fast deallocation
 
   static WarmCallInfo* always_hot();

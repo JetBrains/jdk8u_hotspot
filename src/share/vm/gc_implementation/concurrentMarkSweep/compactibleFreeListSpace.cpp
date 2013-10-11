@@ -153,8 +153,6 @@ CompactibleFreeListSpace::CompactibleFreeListSpace(BlockOffsetSharedArray* bs,
       _indexedFreeListParLocks[i] = new Mutex(Mutex::leaf - 1, // == ExpandHeap_lock - 1
                                               "a freelist par lock",
                                               true);
-      if (_indexedFreeListParLocks[i] == NULL)
-        vm_exit_during_initialization("Could not allocate a par lock");
       DEBUG_ONLY(
         _indexedFreeList[i].set_protecting_lock(_indexedFreeListParLocks[i]);
       )
@@ -285,6 +283,7 @@ void CompactibleFreeListSpace::reset(MemRegion mr) {
       _bt.verify_not_unallocated((HeapWord*)fc, fc->size());
       _indexedFreeList[mr.word_size()].return_chunk_at_head(fc);
     }
+    coalBirth(mr.word_size());
   }
   _promoInfo.reset();
   _smallLinearAllocBlock._ptr = NULL;
@@ -1762,7 +1761,7 @@ CompactibleFreeListSpace::addChunkToFreeListsAtEndRecordingStats(
   }
   ec->set_size(size);
   debug_only(ec->mangleFreed(size));
-  if (size < SmallForDictionary) {
+  if (size < SmallForDictionary && ParallelGCThreads != 0) {
     lock = _indexedFreeListParLocks[size];
   }
   MutexLockerEx x(lock, Mutex::_no_safepoint_check_flag);
@@ -2017,12 +2016,6 @@ oop_since_save_marks_iterate##nv_suffix(OopClosureType* blk) {              \
 }
 
 ALL_SINCE_SAVE_MARKS_CLOSURES(CFLS_OOP_SINCE_SAVE_MARKS_DEFN)
-
-
-void CompactibleFreeListSpace::object_iterate_since_last_GC(ObjectClosure* cl) {
-  // ugghh... how would one do this efficiently for a non-contiguous space?
-  guarantee(false, "NYI");
-}
 
 bool CompactibleFreeListSpace::linearAllocationWouldFail() const {
   return _smallLinearAllocBlock._word_size == 0;

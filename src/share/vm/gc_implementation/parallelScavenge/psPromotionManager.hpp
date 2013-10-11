@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,14 +26,18 @@
 #define SHARE_VM_GC_IMPLEMENTATION_PARALLELSCAVENGE_PSPROMOTIONMANAGER_HPP
 
 #include "gc_implementation/parallelScavenge/psPromotionLAB.hpp"
+#include "gc_implementation/shared/gcTrace.hpp"
+#include "gc_implementation/shared/copyFailedInfo.hpp"
 #include "memory/allocation.hpp"
+#include "memory/padded.hpp"
+#include "utilities/globalDefinitions.hpp"
 #include "utilities/taskqueue.hpp"
 
 //
 // psPromotionManager is used by a single thread to manage object survival
 // during a scavenge. The promotion manager contains thread local data only.
 //
-// NOTE! Be carefull when allocating the stacks on cheap. If you are going
+// NOTE! Be careful when allocating the stacks on cheap. If you are going
 // to use a promotion manager in more than one thread, the stacks MUST be
 // on cheap. This can lead to memory leaks, though, as they are not auto
 // deallocated.
@@ -49,14 +53,14 @@ class MutableSpace;
 class PSOldGen;
 class ParCompactionManager;
 
-class PSPromotionManager : public CHeapObj<mtGC> {
+class PSPromotionManager VALUE_OBJ_CLASS_SPEC {
   friend class PSScavenge;
   friend class PSRefProcTaskExecutor;
  private:
-  static PSPromotionManager**         _manager_array;
-  static OopStarTaskQueueSet*         _stack_array_depth;
-  static PSOldGen*                    _old_gen;
-  static MutableSpace*                _young_space;
+  static PaddedEnd<PSPromotionManager>* _manager_array;
+  static OopStarTaskQueueSet*           _stack_array_depth;
+  static PSOldGen*                      _old_gen;
+  static MutableSpace*                  _young_space;
 
 #if TASKQUEUE_STATS
   size_t                              _masked_pushes;
@@ -84,6 +88,8 @@ class PSPromotionManager : public CHeapObj<mtGC> {
 
   uint                                _array_chunk_size;
   uint                                _min_array_size_for_chunking;
+
+  PromotionFailedInfo                 _promotion_failed_info;
 
   // Accessors
   static PSOldGen* old_gen()         { return _old_gen; }
@@ -149,7 +155,7 @@ class PSPromotionManager : public CHeapObj<mtGC> {
   static void initialize();
 
   static void pre_scavenge();
-  static void post_scavenge();
+  static bool post_scavenge(YoungGCTracer& gc_tracer);
 
   static PSPromotionManager* gc_thread_promotion_manager(int index);
   static PSPromotionManager* vm_thread_promotion_manager();

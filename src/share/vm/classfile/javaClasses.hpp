@@ -182,6 +182,7 @@ class java_lang_String : AllStatic {
   static unsigned int hash_string(oop java_string);
 
   static bool equals(oop java_string, jchar* chars, int len);
+  static bool equals(oop str1, oop str2);
 
   // Conversion between '.' and '/' formats
   static Handle externalize_classname(Handle java_string, TRAPS) { return char_converter(java_string, '/', '.', THREAD); }
@@ -208,7 +209,10 @@ class java_lang_String : AllStatic {
   macro(java_lang_Class, klass,                  intptr_signature,  false) \
   macro(java_lang_Class, array_klass,            intptr_signature,  false) \
   macro(java_lang_Class, oop_size,               int_signature,     false) \
-  macro(java_lang_Class, static_oop_field_count, int_signature,     false)
+  macro(java_lang_Class, static_oop_field_count, int_signature,     false) \
+  macro(java_lang_Class, protection_domain,      object_signature,  false) \
+  macro(java_lang_Class, init_lock,              object_signature,  false) \
+  macro(java_lang_Class, signers,                object_signature,  false)
 
 class java_lang_Class : AllStatic {
   friend class VMStructs;
@@ -222,15 +226,21 @@ class java_lang_Class : AllStatic {
   static int _oop_size_offset;
   static int _static_oop_field_count_offset;
 
+  static int _protection_domain_offset;
+  static int _init_lock_offset;
+  static int _signers_offset;
+
   static bool offsets_computed;
   static int classRedefinedCount_offset;
   static GrowableArray<Klass*>* _fixup_mirror_list;
 
+  static void set_init_lock(oop java_class, oop init_lock);
+  static void set_protection_domain(oop java_class, oop protection_domain);
  public:
   static void compute_offsets();
 
   // Instance creation
-  static oop  create_mirror(KlassHandle k, TRAPS);
+  static oop  create_mirror(KlassHandle k, Handle protection_domain, TRAPS);
   static void fixup_mirror(KlassHandle k, TRAPS);
   static oop  create_basic_type_mirror(const char* basic_type_name, BasicType type, TRAPS);
   // Conversion
@@ -261,6 +271,12 @@ class java_lang_Class : AllStatic {
   // Support for classRedefinedCount field
   static int classRedefinedCount(oop the_class_mirror);
   static void set_classRedefinedCount(oop the_class_mirror, int value);
+
+  // Support for embedded per-class oops
+  static oop  protection_domain(oop java_class);
+  static oop  init_lock(oop java_class);
+  static objArrayOop  signers(oop java_class);
+  static void set_signers(oop java_class, objArrayOop signers);
 
   static int oop_size(oop java_class);
   static void set_oop_size(oop java_class, int size);
@@ -961,6 +977,32 @@ class java_lang_invoke_MethodHandle: AllStatic {
   static int form_offset_in_bytes()             { return _form_offset; }
 };
 
+// Interface to java.lang.invoke.DirectMethodHandle objects
+
+class java_lang_invoke_DirectMethodHandle: AllStatic {
+  friend class JavaClasses;
+
+ private:
+  static int _member_offset;               // the MemberName of this DMH
+
+  static void compute_offsets();
+
+ public:
+  // Accessors
+  static oop  member(oop mh);
+
+  // Testers
+  static bool is_subclass(Klass* klass) {
+    return klass->is_subclass_of(SystemDictionary::DirectMethodHandle_klass());
+  }
+  static bool is_instance(oop obj) {
+    return obj != NULL && is_subclass(obj->klass());
+  }
+
+  // Accessors for code generation:
+  static int member_offset_in_bytes()           { return _member_offset; }
+};
+
 // Interface to java.lang.invoke.LambdaForm objects
 // (These are a private interface for managing adapter code generation.)
 
@@ -1152,10 +1194,13 @@ class java_security_AccessControlContext: AllStatic {
   static int _context_offset;
   static int _privilegedContext_offset;
   static int _isPrivileged_offset;
+  static int _isAuthorized_offset;
 
   static void compute_offsets();
  public:
   static oop create(objArrayHandle context, bool isPrivileged, Handle privileged_context, TRAPS);
+
+  static bool is_authorized(Handle context);
 
   // Debugging/initialization
   friend class JavaClasses;
@@ -1216,17 +1261,21 @@ class java_lang_System : AllStatic {
   enum {
    hc_static_in_offset  = 0,
    hc_static_out_offset = 1,
-   hc_static_err_offset = 2
+   hc_static_err_offset = 2,
+   hc_static_security_offset = 3
   };
 
   static int  static_in_offset;
   static int static_out_offset;
   static int static_err_offset;
+  static int static_security_offset;
 
  public:
   static int  in_offset_in_bytes();
   static int out_offset_in_bytes();
   static int err_offset_in_bytes();
+
+  static bool has_security_manager();
 
   // Debugging
   friend class JavaClasses;

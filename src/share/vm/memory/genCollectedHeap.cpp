@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,6 +28,7 @@
 #include "classfile/vmSymbols.hpp"
 #include "code/icBuffer.hpp"
 #include "gc_implementation/shared/collectorCounters.hpp"
+#include "gc_implementation/shared/gcTraceTime.hpp"
 #include "gc_implementation/shared/vmGCOperations.hpp"
 #include "gc_interface/collectedHeap.inline.hpp"
 #include "memory/filemap.hpp"
@@ -41,7 +42,6 @@
 #include "memory/space.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/oop.inline2.hpp"
-#include "runtime/aprofiler.hpp"
 #include "runtime/biasedLocking.hpp"
 #include "runtime/fprofiler.hpp"
 #include "runtime/handles.hpp"
@@ -95,13 +95,13 @@ jint GenCollectedHeap::initialize() {
   guarantee(HeapWordSize == wordSize, "HeapWordSize must equal wordSize");
 
   // The heap must be at least as aligned as generations.
-  size_t alignment = Generation::GenGrain;
+  size_t gen_alignment = Generation::GenGrain;
 
   _gen_specs = gen_policy()->generations();
 
   // Make sure the sizes are all aligned.
   for (i = 0; i < _n_gens; i++) {
-    _gen_specs[i]->align(alignment);
+    _gen_specs[i]->align(gen_alignment);
   }
 
   // Allocate space for the heap.
@@ -109,9 +109,11 @@ jint GenCollectedHeap::initialize() {
   char* heap_address;
   size_t total_reserved = 0;
   int n_covered_regions = 0;
-  ReservedSpace heap_rs(0);
+  ReservedSpace heap_rs;
 
-  heap_address = allocate(alignment, &total_reserved,
+  size_t heap_alignment = collector_policy()->max_alignment();
+
+  heap_address = allocate(heap_alignment, &total_reserved,
                           &n_covered_regions, &heap_rs);
 
   if (!heap_rs.is_reserved()) {
@@ -168,6 +170,8 @@ char* GenCollectedHeap::allocate(size_t alignment,
   const size_t pageSize = UseLargePages ?
       os::large_page_size() : os::vm_page_size();
 
+  assert(alignment % pageSize == 0, "Must be");
+
   for (int i = 0; i < _n_gens; i++) {
     total_reserved += _gen_specs[i]->max_size();
     if (total_reserved < _gen_specs[i]->max_size()) {
@@ -175,24 +179,17 @@ char* GenCollectedHeap::allocate(size_t alignment,
     }
     n_covered_regions += _gen_specs[i]->n_covered_regions();
   }
-  assert(total_reserved % pageSize == 0,
-         err_msg("Gen size; total_reserved=" SIZE_FORMAT ", pageSize="
-                 SIZE_FORMAT, total_reserved, pageSize));
+  assert(total_reserved % alignment == 0,
+         err_msg("Gen size; total_reserved=" SIZE_FORMAT ", alignment="
+                 SIZE_FORMAT, total_reserved, alignment));
 
   // Needed until the cardtable is fixed to have the right number
   // of covered regions.
   n_covered_regions += 2;
 
-  if (UseLargePages) {
-    assert(total_reserved != 0, "total_reserved cannot be 0");
-    total_reserved = round_to(total_reserved, os::large_page_size());
-    if (total_reserved < os::large_page_size()) {
-      vm_exit_during_initialization(overflow_msg);
-    }
-  }
+  *_total_reserved = total_reserved;
+  *_n_covered_regions = n_covered_regions;
 
-      *_total_reserved = total_reserved;
-      *_n_covered_regions = n_covered_regions;
   *heap_rs = Universe::reserve_heap(total_reserved, alignment);
   return heap_rs->base();
 }
@@ -388,7 +385,7 @@ void GenCollectedHeap::do_collection(bool  full,
     const char* gc_cause_prefix = complete ? "Full GC" : "GC";
     gclog_or_tty->date_stamp(PrintGC && PrintGCDateStamps);
     TraceCPUTime tcpu(PrintGCDetails, true, gclog_or_tty);
-    TraceTime t(GCCauseString(gc_cause_prefix, gc_cause()), PrintGCDetails, false, gclog_or_tty);
+    GCTraceTime t(GCCauseString(gc_cause_prefix, gc_cause()), PrintGCDetails, false, NULL);
 
     gc_prologue(complete);
     increment_total_collections(complete);
@@ -417,10 +414,11 @@ void GenCollectedHeap::do_collection(bool  full,
             // The full_collections increment was missed above.
             increment_total_full_collections();
           }
-          pre_full_gc_dump();    // do any pre full gc dumps
+          pre_full_gc_dump(NULL);    // do any pre full gc dumps
         }
         // Timer for individual generations. Last argument is false: no CR
-        TraceTime t1(_gens[i]->short_name(), PrintGCDetails, false, gclog_or_tty);
+        // FIXME: We should try to start the timing earlier to cover more of the GC pause
+        GCTraceTime t1(_gens[i]->short_name(), PrintGCDetails, false, NULL);
         TraceCollectorStats tcs(_gens[i]->counters());
         TraceMemoryManagerStats tmms(_gens[i]->kind(),gc_cause());
 
@@ -534,7 +532,8 @@ void GenCollectedHeap::do_collection(bool  full,
     complete = complete || (max_level_collected == n_gens() - 1);
 
     if (complete) { // We did a "major" collection
-      post_full_gc_dump();   // do any post full gc dumps
+      // FIXME: See comment at pre_full_gc_dump call
+      post_full_gc_dump(NULL);   // do any post full gc dumps
     }
 
     if (PrintGCDetails) {
@@ -870,12 +869,6 @@ void GenCollectedHeap::safe_object_iterate(ObjectClosure* cl) {
   }
 }
 
-void GenCollectedHeap::object_iterate_since_last_GC(ObjectClosure* cl) {
-  for (int i = 0; i < _n_gens; i++) {
-    _gens[i]->object_iterate_since_last_GC(cl);
-  }
-}
-
 Space* GenCollectedHeap::space_containing(const void* addr) const {
   for (int i = 0; i < _n_gens; i++) {
     Space* res = _gens[i]->space_containing(addr);
@@ -1074,13 +1067,13 @@ GenCollectedHeap* GenCollectedHeap::heap() {
 
 
 void GenCollectedHeap::prepare_for_compaction() {
-  Generation* scanning_gen = _gens[_n_gens-1];
+  guarantee(_n_gens = 2, "Wrong number of generations");
+  Generation* old_gen = _gens[1];
   // Start by compacting into same gen.
-  CompactPoint cp(scanning_gen, NULL, NULL);
-  while (scanning_gen != NULL) {
-    scanning_gen->prepare_for_compaction(&cp);
-    scanning_gen = prev_gen(scanning_gen);
-  }
+  CompactPoint cp(old_gen, NULL, NULL);
+  old_gen->prepare_for_compaction(&cp);
+  Generation* young_gen = _gens[0];
+  young_gen->prepare_for_compaction(&cp);
 }
 
 GCStats* GenCollectedHeap::gc_stats(int level) const {
@@ -1183,8 +1176,6 @@ void GenCollectedHeap::gc_prologue(bool full) {
   CollectedHeap::accumulate_statistics_all_tlabs();
   ensure_parsability(true);   // retire TLABs
 
-  // Call allocation profiler
-  AllocationProfiler::iterate_since_last_gc();
   // Walk generations
   GenGCPrologueClosure blk(full);
   generation_iterate(&blk, false);  // not old-to-young.
@@ -1217,6 +1208,7 @@ void GenCollectedHeap::gc_epilogue(bool full) {
   }
 
   MetaspaceCounters::update_performance_counters();
+  CompressedClassSpaceCounters::update_performance_counters();
 
   always_do_update_barrier = UseConcMarkSweepGC;
 };
@@ -1251,27 +1243,14 @@ void GenCollectedHeap::ensure_parsability(bool retire_tlabs) {
   generation_iterate(&ep_cl, false);
 }
 
-oop GenCollectedHeap::handle_failed_promotion(Generation* gen,
+oop GenCollectedHeap::handle_failed_promotion(Generation* old_gen,
                                               oop obj,
                                               size_t obj_size) {
+  guarantee(old_gen->level() == 1, "We only get here with an old generation");
   assert(obj_size == (size_t)obj->size(), "bad obj_size passed in");
   HeapWord* result = NULL;
 
-  // First give each higher generation a chance to allocate the promoted object.
-  Generation* allocator = next_gen(gen);
-  if (allocator != NULL) {
-    do {
-      result = allocator->allocate(obj_size, false);
-    } while (result == NULL && (allocator = next_gen(allocator)) != NULL);
-  }
-
-  if (result == NULL) {
-    // Then give gen and higher generations a chance to expand and allocate the
-    // object.
-    do {
-      result = gen->expand_and_allocate(obj_size, false);
-    } while (result == NULL && (gen = next_gen(gen)) != NULL);
-  }
+  result = old_gen->expand_and_allocate(obj_size, false);
 
   if (result != NULL) {
     Copy::aligned_disjoint_words((HeapWord*)obj, result, obj_size);

@@ -25,7 +25,6 @@
 #include "precompiled.hpp"
 #include "classfile/bytecodeAssembler.hpp"
 #include "classfile/defaultMethods.hpp"
-#include "classfile/genericSignatures.hpp"
 #include "classfile/symbolTable.hpp"
 #include "memory/allocation.hpp"
 #include "memory/metadataFactory.hpp"
@@ -73,14 +72,6 @@ class PseudoScope : public ResourceObj {
       _marks.at(i)->destroy();
     }
   }
-};
-
-class ContextMark : public PseudoScopeMark {
- private:
-  generic::Context::Mark _mark;
- public:
-  ContextMark(const generic::Context::Mark& cm) : _mark(cm) {}
-  virtual void destroy() { _mark.destroy(); }
 };
 
 #ifndef PRODUCT
@@ -318,17 +309,17 @@ class KeepAliveVisitor : public HierarchyVisitor<KeepAliveVisitor> {
   }
 };
 
+
 // A method family contains a set of all methods that implement a single
-// language-level method.  Because of erasure, these methods may have different
-// signatures.  As members of the set are collected while walking over the
+// erased method. As members of the set are collected while walking over the
 // hierarchy, they are tagged with a qualification state.  The qualification
 // state for an erased method is set to disqualified if there exists a path
 // from the root of hierarchy to the method that contains an interleaving
-// language-equivalent method defined in an interface.
+// erased method defined in an interface.
+
 class MethodFamily : public ResourceObj {
  private:
 
-  generic::MethodDescriptor* _descriptor; // language-level description
   GrowableArray<Pair<Method*,QualifiedState> > _members;
   ResourceHashtable<Method*, int> _member_index;
 
@@ -358,15 +349,8 @@ class MethodFamily : public ResourceObj {
 
  public:
 
-  MethodFamily(generic::MethodDescriptor* canonical_desc)
-      : _descriptor(canonical_desc), _selected_target(NULL),
-        _exception_message(NULL) {}
-
-  generic::MethodDescriptor* descriptor() const { return _descriptor; }
-
-  bool descriptor_matches(generic::MethodDescriptor* md, generic::Context* ctx) {
-    return descriptor()->covariant_match(md, ctx);
-  }
+  MethodFamily()
+      : _selected_target(NULL), _exception_message(NULL) {}
 
   void set_target_if_empty(Method* m) {
     if (_selected_target == NULL && !m->is_overpass()) {
@@ -441,16 +425,10 @@ class MethodFamily : public ResourceObj {
   }
 
 #ifndef PRODUCT
-  void print_on(outputStream* str) const {
-    print_on(str, 0);
-  }
-
-  void print_on(outputStream* str, int indent) const {
+  void print_sig_on(outputStream* str, Symbol* signature, int indent) const {
     streamIndentor si(str, indent * 2);
 
-    generic::Context ctx(NULL); // empty, as _descriptor already canonicalized
-    TempNewSymbol family = descriptor()->reify_signature(&ctx, Thread::current());
-    str->indent().print_cr("Logical Method %s:", family->as_C_string());
+    str->indent().print_cr("Logical Method %s:", signature->as_C_string());
 
     streamIndentor si2(str);
     for (int i = 0; i < _members.length(); ++i) {
@@ -472,6 +450,10 @@ class MethodFamily : public ResourceObj {
     streamIndentor si(str, indent * 2);
     str->indent().print("Selected method: ");
     print_method(str, _selected_target);
+    Klass* method_holder = _selected_target->method_holder();
+    if (!method_holder->is_interface()) {
+      tty->print(" : in superclass");
+    }
     str->print_cr("");
   }
 
@@ -516,34 +498,38 @@ Symbol* MethodFamily::generate_conflicts_message(GrowableArray<Method*>* methods
   return SymbolTable::new_symbol(ss.base(), (int)ss.size(), CHECK_NULL);
 }
 
+
 class StateRestorer;
 
-// StatefulMethodFamily is a wrapper around MethodFamily that maintains the
+// StatefulMethodFamily is a wrapper around a MethodFamily that maintains the
 // qualification state during hierarchy visitation, and applies that state
-// when adding members to the MethodFamily.
+// when adding members to the MethodFamily
 class StatefulMethodFamily : public ResourceObj {
   friend class StateRestorer;
  private:
-  MethodFamily* _method;
   QualifiedState _qualification_state;
 
   void set_qualification_state(QualifiedState state) {
     _qualification_state = state;
   }
 
+ protected:
+  MethodFamily* _method_family;
+
  public:
-  StatefulMethodFamily(generic::MethodDescriptor* md, generic::Context* ctx) {
-    _method = new MethodFamily(md->canonicalize(ctx));
-    _qualification_state = QUALIFIED;
+  StatefulMethodFamily() {
+   _method_family = new MethodFamily();
+   _qualification_state = QUALIFIED;
   }
 
-  void set_target_if_empty(Method* m) { _method->set_target_if_empty(m); }
-
-  MethodFamily* get_method_family() { return _method; }
-
-  bool descriptor_matches(generic::MethodDescriptor* md, generic::Context* ctx) {
-    return _method->descriptor_matches(md, ctx);
+  StatefulMethodFamily(MethodFamily* mf) {
+   _method_family = mf;
+   _qualification_state = QUALIFIED;
   }
+
+  void set_target_if_empty(Method* m) { _method_family->set_target_if_empty(m); }
+
+  MethodFamily* get_method_family() { return _method_family; }
 
   StateRestorer* record_method_and_dq_further(Method* mo);
 };
@@ -563,48 +549,15 @@ class StateRestorer : public PseudoScopeMark {
 StateRestorer* StatefulMethodFamily::record_method_and_dq_further(Method* mo) {
   StateRestorer* mark = new StateRestorer(this, _qualification_state);
   if (_qualification_state == QUALIFIED) {
-    _method->record_qualified_method(mo);
+    _method_family->record_qualified_method(mo);
   } else {
-    _method->record_disqualified_method(mo);
+    _method_family->record_disqualified_method(mo);
   }
   // Everything found "above"??? this method in the hierarchy walk is set to
   // disqualified
   set_qualification_state(DISQUALIFIED);
   return mark;
 }
-
-class StatefulMethodFamilies : public ResourceObj {
- private:
-  GrowableArray<StatefulMethodFamily*> _methods;
-
- public:
-  StatefulMethodFamily* find_matching(
-      generic::MethodDescriptor* md, generic::Context* ctx) {
-    for (int i = 0; i < _methods.length(); ++i) {
-      StatefulMethodFamily* existing = _methods.at(i);
-      if (existing->descriptor_matches(md, ctx)) {
-        return existing;
-      }
-    }
-    return NULL;
-  }
-
-  StatefulMethodFamily* find_matching_or_create(
-      generic::MethodDescriptor* md, generic::Context* ctx) {
-    StatefulMethodFamily* method = find_matching(md, ctx);
-    if (method == NULL) {
-      method = new StatefulMethodFamily(md, ctx);
-      _methods.append(method);
-    }
-    return method;
-  }
-
-  void extract_families_into(GrowableArray<MethodFamily*>* array) {
-    for (int i = 0; i < _methods.length(); ++i) {
-      array->append(_methods.at(i)->get_method_family());
-    }
-  }
-};
 
 // Represents a location corresponding to a vtable slot for methods that
 // neither the class nor any of it's ancestors provide an implementaion.
@@ -683,27 +636,26 @@ static GrowableArray<EmptyVtableSlot*>* find_empty_vtable_slots(
   return slots;
 }
 
-// Iterates over the type hierarchy looking for all methods with a specific
-// method name.  The result of this is a set of method families each of
-// which is populated with a set of methods that implement the same
-// language-level signature.
-class FindMethodsByName : public HierarchyVisitor<FindMethodsByName> {
+// Iterates over the superinterface type hierarchy looking for all methods
+// with a specific erased signature.
+class FindMethodsByErasedSig : public HierarchyVisitor<FindMethodsByErasedSig> {
  private:
   // Context data
-  Thread* THREAD;
-  generic::DescriptorCache* _cache;
   Symbol* _method_name;
-  generic::Context* _ctx;
-  StatefulMethodFamilies _families;
+  Symbol* _method_signature;
+  StatefulMethodFamily*  _family;
 
  public:
+  FindMethodsByErasedSig(Symbol* name, Symbol* signature) :
+      _method_name(name), _method_signature(signature),
+      _family(NULL) {}
 
-  FindMethodsByName(generic::DescriptorCache* cache, Symbol* name,
-      generic::Context* ctx, Thread* thread) :
-    _cache(cache), _method_name(name), _ctx(ctx), THREAD(thread) {}
-
-  void get_discovered_families(GrowableArray<MethodFamily*>* methods) {
-    _families.extract_families_into(methods);
+  void get_discovered_family(MethodFamily** family) {
+      if (_family != NULL) {
+        *family = _family->get_method_family();
+      } else {
+        *family = NULL;
+      }
   }
 
   void* new_node_data(InstanceKlass* cls) { return new PseudoScope(); }
@@ -711,92 +663,69 @@ class FindMethodsByName : public HierarchyVisitor<FindMethodsByName> {
     PseudoScope::cast(node_data)->destroy();
   }
 
+  // Find all methods on this hierarchy that match this
+  // method's erased (name, signature)
   bool visit() {
     PseudoScope* scope = PseudoScope::cast(current_data());
-    InstanceKlass* klass = current_class();
-    InstanceKlass* sub = current_depth() > 0 ? class_at_depth(1) : NULL;
+    InstanceKlass* iklass = current_class();
 
-    ContextMark* cm = new ContextMark(_ctx->mark());
-    scope->add_mark(cm); // will restore context when scope is freed
+    Method* m = iklass->find_method(_method_name, _method_signature);
+    if (m != NULL) {
+      if (_family == NULL) {
+        _family = new StatefulMethodFamily();
+      }
 
-    _ctx->apply_type_arguments(sub, klass, THREAD);
-
-    int start, end = 0;
-    start = klass->find_method_by_name(_method_name, &end);
-    if (start != -1) {
-      for (int i = start; i < end; ++i) {
-        Method* m = klass->methods()->at(i);
-        // This gets the method's parameter list with its generic type
-        // parameters resolved
-        generic::MethodDescriptor* md = _cache->descriptor_for(m, THREAD);
-
-        // Find all methods on this hierarchy that match this method
-        // (name, signature).   This class collects other families of this
-        // method name.
-        StatefulMethodFamily* family =
-            _families.find_matching_or_create(md, _ctx);
-
-        if (klass->is_interface()) {
-          // ???
-          StateRestorer* restorer = family->record_method_and_dq_further(m);
-          scope->add_mark(restorer);
-        } else {
-          // This is the rule that methods in classes "win" (bad word) over
-          // methods in interfaces.  This works because of single inheritance
-          family->set_target_if_empty(m);
-        }
+      if (iklass->is_interface()) {
+        StateRestorer* restorer = _family->record_method_and_dq_further(m);
+        scope->add_mark(restorer);
+      } else {
+        // This is the rule that methods in classes "win" (bad word) over
+        // methods in interfaces. This works because of single inheritance
+        _family->set_target_if_empty(m);
       }
     }
     return true;
   }
+
 };
 
-#ifndef PRODUCT
-static void print_families(
-    GrowableArray<MethodFamily*>* methods, Symbol* match) {
-  streamIndentor si(tty, 4);
-  if (methods->length() == 0) {
-    tty->indent();
-    tty->print_cr("No Logical Method found");
-  }
-  for (int i = 0; i < methods->length(); ++i) {
-    tty->indent();
-    MethodFamily* lm = methods->at(i);
-    if (lm->contains_signature(match)) {
-      tty->print_cr("<Matching>");
-    } else {
-      tty->print_cr("<Non-Matching>");
-    }
-    lm->print_on(tty, 1);
+
+
+static void create_overpasses(
+    GrowableArray<EmptyVtableSlot*>* slots, InstanceKlass* klass, TRAPS);
+
+static void generate_erased_defaults(
+     InstanceKlass* klass, GrowableArray<EmptyVtableSlot*>* empty_slots,
+     EmptyVtableSlot* slot, TRAPS) {
+
+  // sets up a set of methods with the same exact erased signature
+  FindMethodsByErasedSig visitor(slot->name(), slot->signature());
+  visitor.run(klass);
+
+  MethodFamily* family;
+  visitor.get_discovered_family(&family);
+  if (family != NULL) {
+    family->determine_target(klass, CHECK);
+    slot->bind_family(family);
   }
 }
-#endif // ndef PRODUCT
 
 static void merge_in_new_methods(InstanceKlass* klass,
     GrowableArray<Method*>* new_methods, TRAPS);
-static void create_overpasses(
-    GrowableArray<EmptyVtableSlot*>* slots, InstanceKlass* klass, TRAPS);
 
 // This is the guts of the default methods implementation.  This is called just
 // after the classfile has been parsed if some ancestor has default methods.
 //
 // First if finds any name/signature slots that need any implementation (either
 // because they are miranda or a superclass's implementation is an overpass
-// itself).  For each slot, iterate over the hierarchy, using generic signature
-// information to partition any methods that match the name into method families
-// where each family contains methods whose signatures are equivalent at the
-// language level (i.e., their reified parameters match and return values are
-// covariant). Check those sets to see if they contain a signature that matches
-// the slot we're looking at (if we're lucky, there might be other empty slots
-// that we can fill using the same analysis).
+// itself).  For each slot, iterate over the hierarchy, to see if they contain a
+// signature that matches the slot we are looking at.
 //
 // For each slot filled, we generate an overpass method that either calls the
 // unique default method candidate using invokespecial, or throws an exception
 // (in the case of no default method candidates, or more than one valid
-// candidate).  These methods are then added to the class's method list.  If
-// the method set we're using contains methods (qualified or not) with a
-// different runtime signature than the method we're creating, then we have to
-// create bridges with those signatures too.
+// candidate).  These methods are then added to the class's method list.
+// The JVM does not create bridges nor handle generic signatures here.
 void DefaultMethods::generate_default_methods(
     InstanceKlass* klass, GrowableArray<Method*>* mirandas, TRAPS) {
 
@@ -806,8 +735,6 @@ void DefaultMethods::generate_default_methods(
   // embedded resource mark under here as that memory can't be used outside
   // whatever scope it's in.
   ResourceMark rm(THREAD);
-
-  generic::DescriptorCache cache;
 
   // Keep entire hierarchy alive for the duration of the computation
   KeepAliveRegistrar keepAlive(THREAD);
@@ -837,47 +764,9 @@ void DefaultMethods::generate_default_methods(
       tty->print_cr("");
     }
 #endif // ndef PRODUCT
-    if (slot->is_bound()) {
-#ifndef PRODUCT
-      if (TraceDefaultMethods) {
-        streamIndentor si(tty, 4);
-        tty->indent().print_cr("Already bound to logical method:");
-        slot->get_binding()->print_on(tty, 1);
-      }
-#endif // ndef PRODUCT
-      continue; // covered by previous processing
-    }
 
-    generic::Context ctx(&cache);
-    FindMethodsByName visitor(&cache, slot->name(), &ctx, CHECK);
-    visitor.run(klass);
-
-    GrowableArray<MethodFamily*> discovered_families;
-    visitor.get_discovered_families(&discovered_families);
-
-#ifndef PRODUCT
-    if (TraceDefaultMethods) {
-      print_families(&discovered_families, slot->signature());
-    }
-#endif // ndef PRODUCT
-
-    // Find and populate any other slots that match the discovered families
-    for (int j = i; j < empty_slots->length(); ++j) {
-      EmptyVtableSlot* open_slot = empty_slots->at(j);
-
-      if (slot->name() == open_slot->name()) {
-        for (int k = 0; k < discovered_families.length(); ++k) {
-          MethodFamily* lm = discovered_families.at(k);
-
-          if (lm->contains_signature(open_slot->signature())) {
-            lm->determine_target(klass, CHECK);
-            open_slot->bind_family(lm);
-          }
-        }
-      }
-    }
-  }
-
+    generate_erased_defaults(klass, empty_slots, slot, CHECK);
+ }
 #ifndef PRODUCT
   if (TraceDefaultMethods) {
     tty->print_cr("Creating overpasses...");
@@ -893,15 +782,14 @@ void DefaultMethods::generate_default_methods(
 #endif // ndef PRODUCT
 }
 
-
 /**
- * Generic analysis was used upon interface '_target' and found a unique
- * default method candidate with generic signature '_method_desc'.  This
+ * Interface inheritance rules were used to find a unique default method
+ * candidate for the resolved class. This
  * method is only viable if it would also be in the set of default method
  * candidates if we ran a full analysis on the current class.
  *
  * The only reason that the method would not be in the set of candidates for
- * the current class is if that there's another covariantly matching method
+ * the current class is if that there's another matching method
  * which is "more specific" than the found method -- i.e., one could find a
  * path in the interface hierarchy in which the matching method appears
  * before we get to '_target'.
@@ -912,49 +800,22 @@ void DefaultMethods::generate_default_methods(
  * the selected method along that path.
  */
 class ShadowChecker : public HierarchyVisitor<ShadowChecker> {
- private:
-  generic::DescriptorCache* _cache;
+ protected:
   Thread* THREAD;
 
   InstanceKlass* _target;
 
   Symbol* _method_name;
   InstanceKlass* _method_holder;
-  generic::MethodDescriptor* _method_desc;
   bool _found_shadow;
 
-  bool path_has_shadow() {
-    generic::Context ctx(_cache);
-
-    for (int i = current_depth() - 1; i > 0; --i) {
-      InstanceKlass* ik = class_at_depth(i);
-      InstanceKlass* sub = class_at_depth(i + 1);
-      ctx.apply_type_arguments(sub, ik, THREAD);
-
-      if (ik->is_interface()) {
-        int end;
-        int start = ik->find_method_by_name(_method_name, &end);
-        if (start != -1) {
-          for (int j = start; j < end; ++j) {
-            Method* mo = ik->methods()->at(j);
-            generic::MethodDescriptor* md = _cache->descriptor_for(mo, THREAD);
-            if (_method_desc->covariant_match(md, &ctx)) {
-              return true;
-            }
-          }
-        }
-      }
-    }
-    return false;
-  }
 
  public:
 
-  ShadowChecker(generic::DescriptorCache* cache, Thread* thread,
-      Symbol* name, InstanceKlass* holder, generic::MethodDescriptor* desc,
-      InstanceKlass* target)
-    : _cache(cache), THREAD(thread), _method_name(name), _method_holder(holder),
-      _method_desc(desc), _target(target), _found_shadow(false) {}
+  ShadowChecker(Thread* thread, Symbol* name, InstanceKlass* holder,
+                InstanceKlass* target)
+                : THREAD(thread), _method_name(name), _method_holder(holder),
+                _target(target), _found_shadow(false) {}
 
   void* new_node_data(InstanceKlass* cls) { return NULL; }
   void free_node_data(void* data) { return; }
@@ -975,14 +836,105 @@ class ShadowChecker : public HierarchyVisitor<ShadowChecker> {
     return true;
   }
 
+  virtual bool path_has_shadow() = 0;
   bool found_shadow() { return _found_shadow; }
 };
 
+// Used for Invokespecial.
+// Invokespecial is allowed to invoke a concrete interface method
+// and can be used to disambuiguate among qualified candidates,
+// which are methods in immediate superinterfaces,
+// but may not be used to invoke a candidate that would be shadowed
+// from the perspective of the caller.
+// Invokespecial is also used in the overpass generation today
+// We re-run the shadowchecker because we can't distinguish this case,
+// but it should return the same answer, since the overpass target
+// is now the invokespecial caller.
+class ErasedShadowChecker : public ShadowChecker {
+ private:
+  bool path_has_shadow() {
+
+    for (int i = current_depth() - 1; i > 0; --i) {
+      InstanceKlass* ik = class_at_depth(i);
+
+      if (ik->is_interface()) {
+        int end;
+        int start = ik->find_method_by_name(_method_name, &end);
+        if (start != -1) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+ public:
+
+  ErasedShadowChecker(Thread* thread, Symbol* name, InstanceKlass* holder,
+                InstanceKlass* target)
+    : ShadowChecker(thread, name, holder, target) {}
+};
+
+// Find the unique qualified candidate from the perspective of the super_class
+// which is the resolved_klass, which must be an immediate superinterface
+// of klass
+Method* find_erased_super_default(InstanceKlass* current_class, InstanceKlass* super_class, Symbol* method_name, Symbol* sig, TRAPS) {
+
+  FindMethodsByErasedSig visitor(method_name, sig);
+  visitor.run(super_class);      // find candidates from resolved_klass
+
+  MethodFamily* family;
+  visitor.get_discovered_family(&family);
+
+  if (family != NULL) {
+    family->determine_target(current_class, CHECK_NULL);  // get target from current_class
+
+    if (family->has_target()) {
+      Method* target = family->get_selected_target();
+      InstanceKlass* holder = InstanceKlass::cast(target->method_holder());
+
+      // Verify that the identified method is valid from the context of
+      // the current class, which is the caller class for invokespecial
+      // link resolution, i.e. ensure there it is not shadowed.
+      // You can use invokespecial to disambiguate interface methods, but
+      // you can not use it to skip over an interface method that would shadow it.
+      ErasedShadowChecker checker(THREAD, target->name(), holder, super_class);
+      checker.run(current_class);
+
+      if (checker.found_shadow()) {
+#ifndef PRODUCT
+        if (TraceDefaultMethods) {
+          tty->print_cr("    Only candidate found was shadowed.");
+        }
+#endif // ndef PRODUCT
+        THROW_MSG_(vmSymbols::java_lang_AbstractMethodError(),
+                   "Accessible default method not found", NULL);
+      } else {
+#ifndef PRODUCT
+        if (TraceDefaultMethods) {
+          family->print_sig_on(tty, target->signature(), 1);
+        }
+#endif // ndef PRODUCT
+        return target;
+      }
+    } else {
+      assert(family->throws_exception(), "must have target or throw");
+      THROW_MSG_(vmSymbols::java_lang_AbstractMethodError(),
+                 family->get_exception_message()->as_C_string(), NULL);
+   }
+  } else {
+    // no method found
+    ResourceMark rm(THREAD);
+    THROW_MSG_(vmSymbols::java_lang_NoSuchMethodError(),
+              Method::name_and_sig_as_C_string(current_class,
+                                               method_name, sig), NULL);
+  }
+}
 // This is called during linktime when we find an invokespecial call that
 // refers to a direct superinterface.  It indicates that we should find the
 // default method in the hierarchy of that superinterface, and if that method
 // would have been a candidate from the point of view of 'this' class, then we
 // return that method.
+// This logic assumes that the super is a direct superclass of the caller
 Method* DefaultMethods::find_super_default(
     Klass* cls, Klass* super, Symbol* method_name, Symbol* sig, TRAPS) {
 
@@ -991,90 +943,52 @@ Method* DefaultMethods::find_super_default(
   assert(cls != NULL && super != NULL, "Need real classes");
 
   InstanceKlass* current_class = InstanceKlass::cast(cls);
-  InstanceKlass* direction = InstanceKlass::cast(super);
+  InstanceKlass* super_class = InstanceKlass::cast(super);
 
   // Keep entire hierarchy alive for the duration of the computation
   KeepAliveRegistrar keepAlive(THREAD);
   KeepAliveVisitor loadKeepAlive(&keepAlive);
-  loadKeepAlive.run(current_class);
+  loadKeepAlive.run(current_class);   // get hierarchy from current class
 
 #ifndef PRODUCT
   if (TraceDefaultMethods) {
     tty->print_cr("Finding super default method %s.%s%s from %s",
-      direction->name()->as_C_string(),
+      super_class->name()->as_C_string(),
       method_name->as_C_string(), sig->as_C_string(),
       current_class->name()->as_C_string());
   }
 #endif // ndef PRODUCT
 
-  if (!direction->is_interface()) {
-    // We should not be here
-    return NULL;
-  }
+  assert(super_class->is_interface(), "only call for default methods");
 
-  generic::DescriptorCache cache;
-  generic::Context ctx(&cache);
-
-  // Prime the initial generic context for current -> direction
-  ctx.apply_type_arguments(current_class, direction, CHECK_NULL);
-
-  FindMethodsByName visitor(&cache, method_name, &ctx, CHECK_NULL);
-  visitor.run(direction);
-
-  GrowableArray<MethodFamily*> families;
-  visitor.get_discovered_families(&families);
+  Method* target = NULL;
+  target = find_erased_super_default(current_class, super_class,
+                                     method_name, sig, CHECK_NULL);
 
 #ifndef PRODUCT
-  if (TraceDefaultMethods) {
-    print_families(&families, sig);
-  }
-#endif // ndef PRODUCT
-
-  MethodFamily* selected_family = NULL;
-
-  for (int i = 0; i < families.length(); ++i) {
-    MethodFamily* lm = families.at(i);
-    if (lm->contains_signature(sig)) {
-      lm->determine_target(current_class, CHECK_NULL);
-      selected_family = lm;
+  if (target != NULL) {
+    if (TraceDefaultMethods) {
+      tty->print("    Returning ");
+      print_method(tty, target, true);
+      tty->print_cr("");
     }
   }
-
-  if (selected_family->has_target()) {
-    Method* target = selected_family->get_selected_target();
-    InstanceKlass* holder = InstanceKlass::cast(target->method_holder());
-
-    // Verify that the identified method is valid from the context of
-    // the current class
-    ShadowChecker checker(&cache, THREAD, target->name(),
-        holder, selected_family->descriptor(), direction);
-    checker.run(current_class);
-
-    if (checker.found_shadow()) {
-#ifndef PRODUCT
-      if (TraceDefaultMethods) {
-        tty->print_cr("    Only candidate found was shadowed.");
-      }
 #endif // ndef PRODUCT
-      THROW_MSG_(vmSymbols::java_lang_AbstractMethodError(),
-                 "Accessible default method not found", NULL);
-    } else {
-#ifndef PRODUCT
-      if (TraceDefaultMethods) {
-        tty->print("    Returning ");
-        print_method(tty, target, true);
-        tty->print_cr("");
-      }
-#endif // ndef PRODUCT
-      return target;
-    }
-  } else {
-    assert(selected_family->throws_exception(), "must have target or throw");
-    THROW_MSG_(vmSymbols::java_lang_AbstractMethodError(),
-               selected_family->get_exception_message()->as_C_string(), NULL);
-  }
+  return target;
 }
 
+#ifndef PRODUCT
+// Return true is broad type is a covariant return of narrow type
+static bool covariant_return_type(BasicType narrow, BasicType broad) {
+  if (narrow == broad) {
+    return true;
+  }
+  if (broad == T_OBJECT) {
+    return true;
+  }
+  return false;
+}
+#endif // ndef PRODUCT
 
 static int assemble_redirect(
     BytecodeConstantPool* cp, BytecodeBuffer* buffer,
@@ -1103,7 +1017,7 @@ static int assemble_redirect(
     out.next();
   }
   assert(out.at_return_type(), "Parameter counts do not match");
-  assert(in.type() == out.type(), "Return types are not compatible");
+  assert(covariant_return_type(out.type(), in.type()), "Return types are not compatible");
 
   if (parameter_count == 1 && (in.type() == T_LONG || in.type() == T_DOUBLE)) {
     ++parameter_count; // need room for return value
@@ -1144,9 +1058,14 @@ static Method* new_method(
     Symbol* sig, AccessFlags flags, int max_stack, int params,
     ConstMethod::MethodType mt, TRAPS) {
 
-  address code_start = static_cast<address>(bytecodes->adr_at(0));
-  int code_length = bytecodes->length();
+  address code_start = 0;
+  int code_length = 0;
   InlineTableSizes sizes;
+
+  if (bytecodes != NULL && bytecodes->length() > 0) {
+    code_start = static_cast<address>(bytecodes->adr_at(0));
+    code_length = bytecodes->length();
+  }
 
   Method* m = Method::allocate(cp->pool_holder()->class_loader_data(),
                                code_length, flags, &sizes,
@@ -1226,19 +1145,23 @@ static void create_overpasses(
 #endif // ndef PRODUCT
       if (method->has_target()) {
         Method* selected = method->get_selected_target();
-        max_stack = assemble_redirect(
+        if (selected->method_holder()->is_interface()) {
+          max_stack = assemble_redirect(
             &bpool, &buffer, slot->signature(), selected, CHECK);
+        }
       } else if (method->throws_exception()) {
         max_stack = assemble_abstract_method_error(
             &bpool, &buffer, method->get_exception_message(), CHECK);
       }
-      AccessFlags flags = accessFlags_from(
+      if (max_stack != 0) {
+        AccessFlags flags = accessFlags_from(
           JVM_ACC_PUBLIC | JVM_ACC_SYNTHETIC | JVM_ACC_BRIDGE);
-      Method* m = new_method(&bpool, &buffer, slot->name(), slot->signature(),
+        Method* m = new_method(&bpool, &buffer, slot->name(), slot->signature(),
           flags, max_stack, slot->size_of_parameters(),
           ConstMethod::OVERPASS, CHECK);
-      if (m != NULL) {
-        overpasses.push(m);
+        if (m != NULL) {
+          overpasses.push(m);
+        }
       }
     }
   }
@@ -1349,6 +1272,7 @@ static void merge_in_new_methods(InstanceKlass* klass,
 
   // Replace klass methods with new merged lists
   klass->set_methods(merged_methods);
+  klass->set_initial_method_idnum(new_size);
 
   ClassLoaderData* cld = klass->class_loader_data();
   MetadataFactory::free_array(cld, original_methods);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -26,10 +26,12 @@
 #define SHARE_VM_GC_IMPLEMENTATION_G1_G1COLLECTEDHEAP_HPP
 
 #include "gc_implementation/g1/concurrentMark.hpp"
+#include "gc_implementation/g1/evacuationInfo.hpp"
 #include "gc_implementation/g1/g1AllocRegion.hpp"
 #include "gc_implementation/g1/g1HRPrinter.hpp"
-#include "gc_implementation/g1/g1RemSet.hpp"
 #include "gc_implementation/g1/g1MonitoringSupport.hpp"
+#include "gc_implementation/g1/g1RemSet.hpp"
+#include "gc_implementation/g1/g1YCTypes.hpp"
 #include "gc_implementation/g1/heapRegionSeq.hpp"
 #include "gc_implementation/g1/heapRegionSets.hpp"
 #include "gc_implementation/shared/hSpaceCounters.hpp"
@@ -44,6 +46,7 @@
 // may combine concurrent marking with parallel, incremental compaction of
 // heap subsets that will yield large amounts of garbage.
 
+// Forward declarations
 class HeapRegion;
 class HRRSCleanupTask;
 class GenerationSpec;
@@ -61,7 +64,13 @@ class HeapRegionRemSetIterator;
 class ConcurrentMark;
 class ConcurrentMarkThread;
 class ConcurrentG1Refine;
+class ConcurrentGCTimer;
 class GenerationCounters;
+class STWGCTimer;
+class G1NewTracer;
+class G1OldTracer;
+class EvacuationFailedInfo;
+class nmethod;
 
 typedef OverflowTaskQueue<StarTask, mtGC>         RefToScanQueue;
 typedef GenericTaskQueueSet<RefToScanQueue, mtGC> RefToScanQueueSet;
@@ -156,19 +165,6 @@ public:
     : G1AllocRegion("Mutator Alloc Region", false /* bot_updates */) { }
 };
 
-// The G1 STW is alive closure.
-// An instance is embedded into the G1CH and used as the
-// (optional) _is_alive_non_header closure in the STW
-// reference processor. It is also extensively used during
-// refence processing during STW evacuation pauses.
-class G1STWIsAliveClosure: public BoolObjectClosure {
-  G1CollectedHeap* _g1;
-public:
-  G1STWIsAliveClosure(G1CollectedHeap* g1) : _g1(g1) {}
-  void do_object(oop p) { assert(false, "Do not call."); }
-  bool do_object_b(oop p);
-};
-
 class SurvivorGCAllocRegion : public G1AllocRegion {
 protected:
   virtual HeapRegion* allocate_new_region(size_t word_size, bool force);
@@ -185,6 +181,18 @@ protected:
 public:
   OldGCAllocRegion()
   : G1AllocRegion("Old GC Alloc Region", true /* bot_updates */) { }
+};
+
+// The G1 STW is alive closure.
+// An instance is embedded into the G1CH and used as the
+// (optional) _is_alive_non_header closure in the STW
+// reference processor. It is also extensively used during
+// reference processing during STW evacuation pauses.
+class G1STWIsAliveClosure: public BoolObjectClosure {
+  G1CollectedHeap* _g1;
+public:
+  G1STWIsAliveClosure(G1CollectedHeap* g1) : _g1(g1) {}
+  bool do_object_b(oop p);
 };
 
 class RefineCardTableEntryClosure;
@@ -324,10 +332,10 @@ private:
   void release_mutator_alloc_region();
 
   // It initializes the GC alloc regions at the start of a GC.
-  void init_gc_alloc_regions();
+  void init_gc_alloc_regions(EvacuationInfo& evacuation_info);
 
   // It releases the GC alloc regions at the end of a GC.
-  void release_gc_alloc_regions(uint no_of_gc_workers);
+  void release_gc_alloc_regions(uint no_of_gc_workers, EvacuationInfo& evacuation_info);
 
   // It does any cleanup that needs to be done on the GC alloc regions
   // before a Full GC.
@@ -389,6 +397,8 @@ private:
   // Keeps track of how many "old marking cycles" (i.e., Full GCs or
   // concurrent cycles) we have completed.
   volatile unsigned int _old_marking_cycles_completed;
+
+  bool _concurrent_cycle_started;
 
   // This is a non-product method that is helpful for testing. It is
   // called at the end of a GC and artificially expands the heap by
@@ -594,11 +604,6 @@ protected:
   // may not be a humongous - it must fit into a single heap region.
   HeapWord* par_allocate_during_gc(GCAllocPurpose purpose, size_t word_size);
 
-  HeapWord* allocate_during_gc_slow(GCAllocPurpose purpose,
-                                    HeapRegion*    alloc_region,
-                                    bool           par,
-                                    size_t         word_size);
-
   // Ensure that no further allocations can happen in "r", bearing in mind
   // that parallel threads might be attempting allocations.
   void par_allocate_remaining_space(HeapRegion* r);
@@ -740,6 +745,12 @@ public:
     return _old_marking_cycles_completed;
   }
 
+  void register_concurrent_cycle_start(jlong start_time);
+  void register_concurrent_cycle_end();
+  void trace_heap_after_concurrent_cycle();
+
+  G1YCType yc_type();
+
   G1HRPrinter* hr_printer() { return &_hr_printer; }
 
 protected:
@@ -765,9 +776,10 @@ protected:
   // it has to be read while holding the Heap_lock. Currently, both
   // methods that call do_collection_pause() release the Heap_lock
   // before the call, so it's easy to read gc_count_before just before.
-  HeapWord* do_collection_pause(size_t       word_size,
-                                unsigned int gc_count_before,
-                                bool*        succeeded);
+  HeapWord* do_collection_pause(size_t         word_size,
+                                unsigned int   gc_count_before,
+                                bool*          succeeded,
+                                GCCause::Cause gc_cause);
 
   // The guts of the incremental collection pause, executed by the vm
   // thread. It returns false if it is unable to do the collection due
@@ -775,7 +787,7 @@ protected:
   bool do_collection_pause_at_safepoint(double target_pause_time_ms);
 
   // Actually do the work of evacuating the collection set.
-  void evacuate_collection_set();
+  void evacuate_collection_set(EvacuationInfo& evacuation_info);
 
   // The g1 remembered set of the heap.
   G1RemSet* _g1_rem_set;
@@ -800,7 +812,7 @@ protected:
 
   // After a collection pause, make the regions in the CS into free
   // regions.
-  void free_collection_set(HeapRegion* cs_head);
+  void free_collection_set(HeapRegion* cs_head, EvacuationInfo& evacuation_info);
 
   // Abandon the current collection set without recording policy
   // statistics or updating free lists.
@@ -869,9 +881,7 @@ protected:
   // True iff a evacuation has failed in the current collection.
   bool _evacuation_failed;
 
-  // Set the attribute indicating whether evacuation has failed in the
-  // current collection.
-  void set_evacuation_failed(bool b) { _evacuation_failed = b; }
+  EvacuationFailedInfo* _evacuation_failed_info_array;
 
   // Failed evacuations cause some logical from-space objects to have
   // forwarding pointers to themselves.  Reset them.
@@ -913,7 +923,7 @@ protected:
   void finalize_for_evac_failure();
 
   // An attempt to evacuate "obj" has failed; take necessary steps.
-  oop handle_evacuation_failure_par(OopsInHeapRegionClosure* cl, oop obj);
+  oop handle_evacuation_failure_par(G1ParScanThreadState* _par_scan_state, oop obj);
   void handle_evacuation_failure_common(oop obj, markOop m);
 
 #ifndef PRODUCT
@@ -945,13 +955,13 @@ protected:
   inline bool evacuation_should_fail();
 
   // Reset the G1EvacuationFailureALot counters.  Should be called at
-  // the end of an evacuation pause in which an evacuation failure ocurred.
+  // the end of an evacuation pause in which an evacuation failure occurred.
   inline void reset_evacuation_should_fail();
 #endif // !PRODUCT
 
   // ("Weak") Reference processing support.
   //
-  // G1 has 2 instances of the referece processor class. One
+  // G1 has 2 instances of the reference processor class. One
   // (_ref_processor_cm) handles reference object discovery
   // and subsequent processing during concurrent marking cycles.
   //
@@ -1000,6 +1010,12 @@ protected:
 
   // The (stw) reference processor...
   ReferenceProcessor* _ref_processor_stw;
+
+  STWGCTimer* _gc_timer_stw;
+  ConcurrentGCTimer* _gc_timer_cm;
+
+  G1OldTracer* _gc_tracer_cm;
+  G1NewTracer* _gc_tracer_stw;
 
   // During reference object discovery, the _is_alive_non_header
   // closure (if non-null) is applied to the referent object to
@@ -1076,6 +1092,9 @@ public:
   // specified by the policy object.
   jint initialize();
 
+  // Return the (conservative) maximum heap alignment for any G1 heap
+  static size_t conservative_max_heap_alignment();
+
   // Initialize weak reference processing.
   virtual void ref_processing_init();
 
@@ -1146,8 +1165,11 @@ public:
   // The STW reference processor....
   ReferenceProcessor* ref_processor_stw() const { return _ref_processor_stw; }
 
-  // The Concurent Marking reference processor...
+  // The Concurrent Marking reference processor...
   ReferenceProcessor* ref_processor_cm() const { return _ref_processor_cm; }
+
+  ConcurrentGCTimer* gc_timer_cm() const { return _gc_timer_cm; }
+  G1OldTracer* gc_tracer_cm() const { return _gc_tracer_cm; }
 
   virtual size_t capacity() const;
   virtual size_t used() const;
@@ -1206,7 +1228,7 @@ public:
 
   // verify_region_sets_optional() is planted in the code for
   // list verification in non-product builds (and it can be enabled in
-  // product builds by definning HEAP_REGION_SET_FORCE_VERIFY to be 1).
+  // product builds by defining HEAP_REGION_SET_FORCE_VERIFY to be 1).
 #if HEAP_REGION_SET_FORCE_VERIFY
   void verify_region_sets_optional() {
     verify_region_sets();
@@ -1272,7 +1294,7 @@ public:
   // The same as above but assume that the caller holds the Heap_lock.
   void collect_locked(GCCause::Cause cause);
 
-  // True iff a evacuation has failed in the most-recent collection.
+  // True iff an evacuation has failed in the most-recent collection.
   bool evacuation_failed() { return _evacuation_failed; }
 
   // It will free a region if it has allocated objects in it that are
@@ -1343,11 +1365,6 @@ public:
   virtual void safe_object_iterate(ObjectClosure* cl) {
     object_iterate(cl);
   }
-
-  // Iterate over all objects allocated since the last collection, calling
-  // "cl.do_object" on each.  The heap must have been initialized properly
-  // to support this function, or else this call will fail.
-  virtual void object_iterate_since_last_GC(ObjectClosure* cl);
 
   // Iterate over all spaces in use in the heap, in ascending address order.
   virtual void space_iterate(SpaceClosure* cl);
@@ -1538,41 +1555,6 @@ public:
 
   virtual jlong millis_since_last_gc();
 
-  // Perform any cleanup actions necessary before allowing a verification.
-  virtual void prepare_for_verify();
-
-  // Perform verification.
-
-  // vo == UsePrevMarking  -> use "prev" marking information,
-  // vo == UseNextMarking -> use "next" marking information
-  // vo == UseMarkWord    -> use the mark word in the object header
-  //
-  // NOTE: Only the "prev" marking information is guaranteed to be
-  // consistent most of the time, so most calls to this should use
-  // vo == UsePrevMarking.
-  // Currently, there is only one case where this is called with
-  // vo == UseNextMarking, which is to verify the "next" marking
-  // information at the end of remark.
-  // Currently there is only one place where this is called with
-  // vo == UseMarkWord, which is to verify the marking during a
-  // full GC.
-  void verify(bool silent, VerifyOption vo);
-
-  // Override; it uses the "prev" marking information
-  virtual void verify(bool silent);
-  virtual void print_on(outputStream* st) const;
-  virtual void print_extended_on(outputStream* st) const;
-  virtual void print_on_error(outputStream* st) const;
-
-  virtual void print_gc_threads_on(outputStream* st) const;
-  virtual void gc_threads_do(ThreadClosure* tc) const;
-
-  // Override
-  void print_tracing_info() const;
-
-  // The following two methods are helpful for debugging RSet issues.
-  void print_cset_rsets() PRODUCT_RETURN;
-  void print_all_rsets() PRODUCT_RETURN;
 
   // Convenience function to be used in situations where the heap type can be
   // asserted to be this type.
@@ -1649,13 +1631,86 @@ public:
     else return is_obj_ill(obj, hr);
   }
 
+  bool allocated_since_marking(oop obj, HeapRegion* hr, VerifyOption vo);
+  HeapWord* top_at_mark_start(HeapRegion* hr, VerifyOption vo);
+  bool is_marked(oop obj, VerifyOption vo);
+  const char* top_at_mark_start_str(VerifyOption vo);
+
+  ConcurrentMark* concurrent_mark() const { return _cm; }
+
+  // Refinement
+
+  ConcurrentG1Refine* concurrent_g1_refine() const { return _cg1r; }
+
+  // The dirty cards region list is used to record a subset of regions
+  // whose cards need clearing. The list if populated during the
+  // remembered set scanning and drained during the card table
+  // cleanup. Although the methods are reentrant, population/draining
+  // phases must not overlap. For synchronization purposes the last
+  // element on the list points to itself.
+  HeapRegion* _dirty_cards_region_list;
+  void push_dirty_cards_region(HeapRegion* hr);
+  HeapRegion* pop_dirty_cards_region();
+
+  // Optimized nmethod scanning support routines
+
+  // Register the given nmethod with the G1 heap
+  virtual void register_nmethod(nmethod* nm);
+
+  // Unregister the given nmethod from the G1 heap
+  virtual void unregister_nmethod(nmethod* nm);
+
+  // Migrate the nmethods in the code root lists of the regions
+  // in the collection set to regions in to-space. In the event
+  // of an evacuation failure, nmethods that reference objects
+  // that were not successfullly evacuated are not migrated.
+  void migrate_strong_code_roots();
+
+  // During an initial mark pause, mark all the code roots that
+  // point into regions *not* in the collection set.
+  void mark_strong_code_roots(uint worker_id);
+
+  // Rebuild the stong code root lists for each region
+  // after a full GC
+  void rebuild_strong_code_roots();
+
+  // Verification
+
+  // The following is just to alert the verification code
+  // that a full collection has occurred and that the
+  // remembered sets are no longer up to date.
+  bool _full_collection;
+  void set_full_collection() { _full_collection = true;}
+  void clear_full_collection() {_full_collection = false;}
+  bool full_collection() {return _full_collection;}
+
+  // Perform any cleanup actions necessary before allowing a verification.
+  virtual void prepare_for_verify();
+
+  // Perform verification.
+
+  // vo == UsePrevMarking  -> use "prev" marking information,
+  // vo == UseNextMarking -> use "next" marking information
+  // vo == UseMarkWord    -> use the mark word in the object header
+  //
+  // NOTE: Only the "prev" marking information is guaranteed to be
+  // consistent most of the time, so most calls to this should use
+  // vo == UsePrevMarking.
+  // Currently, there is only one case where this is called with
+  // vo == UseNextMarking, which is to verify the "next" marking
+  // information at the end of remark.
+  // Currently there is only one place where this is called with
+  // vo == UseMarkWord, which is to verify the marking during a
+  // full GC.
+  void verify(bool silent, VerifyOption vo);
+
+  // Override; it uses the "prev" marking information
+  virtual void verify(bool silent);
+
   // The methods below are here for convenience and dispatch the
   // appropriate method depending on value of the given VerifyOption
-  // parameter. The options for that parameter are:
-  //
-  // vo == UsePrevMarking -> use "prev" marking information,
-  // vo == UseNextMarking -> use "next" marking information,
-  // vo == UseMarkWord    -> use mark word from object header
+  // parameter. The values for that parameter, and their meanings,
+  // are the same as those above.
 
   bool is_obj_dead_cond(const oop obj,
                         const HeapRegion* hr,
@@ -1680,31 +1735,21 @@ public:
     return false; // keep some compilers happy
   }
 
-  bool allocated_since_marking(oop obj, HeapRegion* hr, VerifyOption vo);
-  HeapWord* top_at_mark_start(HeapRegion* hr, VerifyOption vo);
-  bool is_marked(oop obj, VerifyOption vo);
-  const char* top_at_mark_start_str(VerifyOption vo);
+  // Printing
 
-  // The following is just to alert the verification code
-  // that a full collection has occurred and that the
-  // remembered sets are no longer up to date.
-  bool _full_collection;
-  void set_full_collection() { _full_collection = true;}
-  void clear_full_collection() {_full_collection = false;}
-  bool full_collection() {return _full_collection;}
+  virtual void print_on(outputStream* st) const;
+  virtual void print_extended_on(outputStream* st) const;
+  virtual void print_on_error(outputStream* st) const;
 
-  ConcurrentMark* concurrent_mark() const { return _cm; }
-  ConcurrentG1Refine* concurrent_g1_refine() const { return _cg1r; }
+  virtual void print_gc_threads_on(outputStream* st) const;
+  virtual void gc_threads_do(ThreadClosure* tc) const;
 
-  // The dirty cards region list is used to record a subset of regions
-  // whose cards need clearing. The list if populated during the
-  // remembered set scanning and drained during the card table
-  // cleanup. Although the methods are reentrant, population/draining
-  // phases must not overlap. For synchronization purposes the last
-  // element on the list points to itself.
-  HeapRegion* _dirty_cards_region_list;
-  void push_dirty_cards_region(HeapRegion* hr);
-  HeapRegion* pop_dirty_cards_region();
+  // Override
+  void print_tracing_info() const;
+
+  // The following two methods are helpful for debugging RSet issues.
+  void print_cset_rsets() PRODUCT_RETURN;
+  void print_all_rsets() PRODUCT_RETURN;
 
 public:
   void stop_conc_gc_threads();
@@ -1734,6 +1779,95 @@ public:
     ParGCAllocBuffer::retire(end_of_gc, retain);
     _retired = true;
   }
+
+  bool is_retired() {
+    return _retired;
+  }
+};
+
+class G1ParGCAllocBufferContainer {
+protected:
+  static int const _priority_max = 2;
+  G1ParGCAllocBuffer* _priority_buffer[_priority_max];
+
+public:
+  G1ParGCAllocBufferContainer(size_t gclab_word_size) {
+    for (int pr = 0; pr < _priority_max; ++pr) {
+      _priority_buffer[pr] = new G1ParGCAllocBuffer(gclab_word_size);
+    }
+  }
+
+  ~G1ParGCAllocBufferContainer() {
+    for (int pr = 0; pr < _priority_max; ++pr) {
+      assert(_priority_buffer[pr]->is_retired(), "alloc buffers should all retire at this point.");
+      delete _priority_buffer[pr];
+    }
+  }
+
+  HeapWord* allocate(size_t word_sz) {
+    HeapWord* obj;
+    for (int pr = 0; pr < _priority_max; ++pr) {
+      obj = _priority_buffer[pr]->allocate(word_sz);
+      if (obj != NULL) return obj;
+    }
+    return obj;
+  }
+
+  bool contains(void* addr) {
+    for (int pr = 0; pr < _priority_max; ++pr) {
+      if (_priority_buffer[pr]->contains(addr)) return true;
+    }
+    return false;
+  }
+
+  void undo_allocation(HeapWord* obj, size_t word_sz) {
+    bool finish_undo;
+    for (int pr = 0; pr < _priority_max; ++pr) {
+      if (_priority_buffer[pr]->contains(obj)) {
+        _priority_buffer[pr]->undo_allocation(obj, word_sz);
+        finish_undo = true;
+      }
+    }
+    if (!finish_undo) ShouldNotReachHere();
+  }
+
+  size_t words_remaining() {
+    size_t result = 0;
+    for (int pr = 0; pr < _priority_max; ++pr) {
+      result += _priority_buffer[pr]->words_remaining();
+    }
+    return result;
+  }
+
+  size_t words_remaining_in_retired_buffer() {
+    G1ParGCAllocBuffer* retired = _priority_buffer[0];
+    return retired->words_remaining();
+  }
+
+  void flush_stats_and_retire(PLABStats* stats, bool end_of_gc, bool retain) {
+    for (int pr = 0; pr < _priority_max; ++pr) {
+      _priority_buffer[pr]->flush_stats_and_retire(stats, end_of_gc, retain);
+    }
+  }
+
+  void update(bool end_of_gc, bool retain, HeapWord* buf, size_t word_sz) {
+    G1ParGCAllocBuffer* retired_and_set = _priority_buffer[0];
+    retired_and_set->retire(end_of_gc, retain);
+    retired_and_set->set_buf(buf);
+    retired_and_set->set_word_size(word_sz);
+    adjust_priority_order();
+  }
+
+private:
+  void adjust_priority_order() {
+    G1ParGCAllocBuffer* retired_and_set = _priority_buffer[0];
+
+    int last = _priority_max - 1;
+    for (int pr = 0; pr < last; ++pr) {
+      _priority_buffer[pr] = _priority_buffer[pr + 1];
+    }
+    _priority_buffer[last] = retired_and_set;
+  }
 };
 
 class G1ParScanThreadState : public StackObj {
@@ -1744,9 +1878,9 @@ protected:
   CardTableModRefBS* _ct_bs;
   G1RemSet* _g1_rem;
 
-  G1ParGCAllocBuffer  _surviving_alloc_buffer;
-  G1ParGCAllocBuffer  _tenured_alloc_buffer;
-  G1ParGCAllocBuffer* _alloc_buffers[GCAllocPurposeCount];
+  G1ParGCAllocBufferContainer  _surviving_alloc_buffer;
+  G1ParGCAllocBufferContainer  _tenured_alloc_buffer;
+  G1ParGCAllocBufferContainer* _alloc_buffers[GCAllocPurposeCount];
   ageTable            _age_table;
 
   size_t           _alloc_buffer_waste;
@@ -1756,7 +1890,7 @@ protected:
   G1ParScanHeapEvacClosure*     _evac_cl;
   G1ParScanPartialArrayClosure* _partial_scan_cl;
 
-  int _hash_seed;
+  int  _hash_seed;
   uint _queue_num;
 
   size_t _term_attempts;
@@ -1810,7 +1944,7 @@ public:
   RefToScanQueue*   refs()            { return _refs;             }
   ageTable*         age_table()       { return &_age_table;       }
 
-  G1ParGCAllocBuffer* alloc_buffer(GCAllocPurpose purpose) {
+  G1ParGCAllocBufferContainer* alloc_buffer(GCAllocPurpose purpose) {
     return _alloc_buffers[purpose];
   }
 
@@ -1840,15 +1974,13 @@ public:
     HeapWord* obj = NULL;
     size_t gclab_word_size = _g1h->desired_plab_sz(purpose);
     if (word_sz * 100 < gclab_word_size * ParallelGCBufferWastePct) {
-      G1ParGCAllocBuffer* alloc_buf = alloc_buffer(purpose);
-      add_to_alloc_buffer_waste(alloc_buf->words_remaining());
-      alloc_buf->retire(false /* end_of_gc */, false /* retain */);
+      G1ParGCAllocBufferContainer* alloc_buf = alloc_buffer(purpose);
 
       HeapWord* buf = _g1h->par_allocate_during_gc(purpose, gclab_word_size);
       if (buf == NULL) return NULL; // Let caller handle allocation failure.
-      // Otherwise.
-      alloc_buf->set_word_size(gclab_word_size);
-      alloc_buf->set_buf(buf);
+
+      add_to_alloc_buffer_waste(alloc_buf->words_remaining_in_retired_buffer());
+      alloc_buf->update(false /* end_of_gc */, false /* retain */, buf, gclab_word_size);
 
       obj = alloc_buf->allocate(word_sz);
       assert(obj != NULL, "buffer was definitely big enough...");
@@ -1960,7 +2092,6 @@ public:
     }
   }
 
-public:
   void trim_queue();
 };
 

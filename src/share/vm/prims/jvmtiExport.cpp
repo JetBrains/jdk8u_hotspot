@@ -41,6 +41,7 @@
 #include "prims/jvmtiRawMonitor.hpp"
 #include "prims/jvmtiTagMap.hpp"
 #include "prims/jvmtiThreadState.inline.hpp"
+#include "prims/jvmtiRedefineClasses.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/handles.hpp"
 #include "runtime/interfaceSupport.hpp"
@@ -516,8 +517,7 @@ class JvmtiClassFileLoadHookPoster : public StackObj {
   jint                 _curr_len;
   unsigned char *      _curr_data;
   JvmtiEnv *           _curr_env;
-  jint *               _cached_length_ptr;
-  unsigned char **     _cached_data_ptr;
+  JvmtiCachedClassFileData ** _cached_class_file_ptr;
   JvmtiThreadState *   _state;
   KlassHandle *        _h_class_being_redefined;
   JvmtiClassLoadKind   _load_kind;
@@ -526,8 +526,7 @@ class JvmtiClassFileLoadHookPoster : public StackObj {
   inline JvmtiClassFileLoadHookPoster(Symbol* h_name, Handle class_loader,
                                       Handle h_protection_domain,
                                       unsigned char **data_ptr, unsigned char **end_ptr,
-                                      unsigned char **cached_data_ptr,
-                                      jint *cached_length_ptr) {
+                                      JvmtiCachedClassFileData **cache_ptr) {
     _h_name = h_name;
     _class_loader = class_loader;
     _h_protection_domain = h_protection_domain;
@@ -537,8 +536,7 @@ class JvmtiClassFileLoadHookPoster : public StackObj {
     _curr_len = *end_ptr - *data_ptr;
     _curr_data = *data_ptr;
     _curr_env = NULL;
-    _cached_length_ptr = cached_length_ptr;
-    _cached_data_ptr = cached_data_ptr;
+    _cached_class_file_ptr = cache_ptr;
 
     _state = _thread->jvmti_thread_state();
     if (_state != NULL) {
@@ -615,12 +613,20 @@ class JvmtiClassFileLoadHookPoster : public StackObj {
     }
     if (new_data != NULL) {
       // this agent has modified class data.
-      if (caching_needed && *_cached_data_ptr == NULL) {
+      if (caching_needed && *_cached_class_file_ptr == NULL) {
         // data has been changed by the new retransformable agent
         // and it hasn't already been cached, cache it
-        *_cached_data_ptr = (unsigned char *)os::malloc(_curr_len, mtInternal);
-        memcpy(*_cached_data_ptr, _curr_data, _curr_len);
-        *_cached_length_ptr = _curr_len;
+        JvmtiCachedClassFileData *p;
+        p = (JvmtiCachedClassFileData *)os::malloc(
+          offset_of(JvmtiCachedClassFileData, data) + _curr_len, mtInternal);
+        if (p == NULL) {
+          vm_exit_out_of_memory(offset_of(JvmtiCachedClassFileData, data) + _curr_len,
+            OOM_MALLOC_ERROR,
+            "unable to allocate cached copy of original class bytes");
+        }
+        p->length = _curr_len;
+        memcpy(p->data, _curr_data, _curr_len);
+        *_cached_class_file_ptr = p;
       }
 
       if (_curr_data != *_data_ptr) {
@@ -659,13 +665,11 @@ void JvmtiExport::post_class_file_load_hook(Symbol* h_name,
                                             Handle h_protection_domain,
                                             unsigned char **data_ptr,
                                             unsigned char **end_ptr,
-                                            unsigned char **cached_data_ptr,
-                                            jint *cached_length_ptr) {
+                                            JvmtiCachedClassFileData **cache_ptr) {
   JvmtiClassFileLoadHookPoster poster(h_name, class_loader,
                                       h_protection_domain,
                                       data_ptr, end_ptr,
-                                      cached_data_ptr,
-                                      cached_length_ptr);
+                                      cache_ptr);
   poster.post();
 }
 
@@ -1625,15 +1629,19 @@ void JvmtiExport::post_raw_field_modification(JavaThread *thread, Method* method
     }
   }
 
+  assert(sig_type != '[', "array should have sig_type == 'L'");
+  bool handle_created = false;
+
   // convert oop to JNI handle.
-  if (sig_type == 'L' || sig_type == '[') {
+  if (sig_type == 'L') {
+    handle_created = true;
     value->l = (jobject)JNIHandles::make_local(thread, (oop)value->l);
   }
 
   post_field_modification(thread, method, location, field_klass, object, field, sig_type, value);
 
   // Destroy the JNI handle allocated above.
-  if (sig_type == 'L') {
+  if (handle_created) {
     JNIHandles::destroy_local(value->l);
   }
 }
@@ -2187,6 +2195,8 @@ jint JvmtiExport::load_agent_library(AttachOperation* op, outputStream* st) {
   char buffer[JVM_MAXPATHLEN];
   void* library = NULL;
   jint result = JNI_ERR;
+  const char *on_attach_symbols[] = AGENT_ONATTACH_SYMBOLS;
+  size_t num_symbol_entries = ARRAY_SIZE(on_attach_symbols);
 
   // get agent name and options
   const char* agent = op->arg(0);
@@ -2196,43 +2206,48 @@ jint JvmtiExport::load_agent_library(AttachOperation* op, outputStream* st) {
   // The abs paramter should be "true" or "false"
   bool is_absolute_path = (absParam != NULL) && (strcmp(absParam,"true")==0);
 
+  // Initially marked as invalid. It will be set to valid if we can find the agent
+  AgentLibrary *agent_lib = new AgentLibrary(agent, options, is_absolute_path, NULL);
 
-  // If the path is absolute we attempt to load the library. Otherwise we try to
-  // load it from the standard dll directory.
+  // Check for statically linked in agent. If not found then if the path is
+  // absolute we attempt to load the library. Otherwise we try to load it
+  // from the standard dll directory.
 
-  if (is_absolute_path) {
-    library = os::dll_load(agent, ebuf, sizeof ebuf);
-  } else {
-    // Try to load the agent from the standard dll directory
-    if (os::dll_build_name(buffer, sizeof(buffer), Arguments::get_dll_dir(),
-                           agent)) {
-      library = os::dll_load(buffer, ebuf, sizeof ebuf);
-    }
-    if (library == NULL) {
-      // not found - try local path
-      char ns[1] = {0};
-      if (os::dll_build_name(buffer, sizeof(buffer), ns, agent)) {
+  if (!os::find_builtin_agent(agent_lib, on_attach_symbols, num_symbol_entries)) {
+    if (is_absolute_path) {
+      library = os::dll_load(agent, ebuf, sizeof ebuf);
+    } else {
+      // Try to load the agent from the standard dll directory
+      if (os::dll_build_name(buffer, sizeof(buffer), Arguments::get_dll_dir(),
+                             agent)) {
         library = os::dll_load(buffer, ebuf, sizeof ebuf);
       }
+      if (library == NULL) {
+        // not found - try local path
+        char ns[1] = {0};
+        if (os::dll_build_name(buffer, sizeof(buffer), ns, agent)) {
+          library = os::dll_load(buffer, ebuf, sizeof ebuf);
+        }
+      }
+    }
+    if (library != NULL) {
+      agent_lib->set_os_lib(library);
+      agent_lib->set_valid();
     }
   }
-
   // If the library was loaded then we attempt to invoke the Agent_OnAttach
   // function
-  if (library != NULL) {
-
+  if (agent_lib->valid()) {
     // Lookup the Agent_OnAttach function
     OnAttachEntry_t on_attach_entry = NULL;
-    const char *on_attach_symbols[] = AGENT_ONATTACH_SYMBOLS;
-    for (uint symbol_index = 0; symbol_index < ARRAY_SIZE(on_attach_symbols); symbol_index++) {
-      on_attach_entry =
-        CAST_TO_FN_PTR(OnAttachEntry_t, os::dll_lookup(library, on_attach_symbols[symbol_index]));
-      if (on_attach_entry != NULL) break;
-    }
-
+    on_attach_entry = CAST_TO_FN_PTR(OnAttachEntry_t,
+       os::find_agent_function(agent_lib, false, on_attach_symbols, num_symbol_entries));
     if (on_attach_entry == NULL) {
       // Agent_OnAttach missing - unload library
-      os::dll_unload(library);
+      if (!agent_lib->is_static_lib()) {
+        os::dll_unload(library);
+      }
+      delete agent_lib;
     } else {
       // Invoke the Agent_OnAttach function
       JavaThread* THREAD = JavaThread::current();
@@ -2252,7 +2267,9 @@ jint JvmtiExport::load_agent_library(AttachOperation* op, outputStream* st) {
       // If OnAttach returns JNI_OK then we add it to the list of
       // agent libraries so that we can call Agent_OnUnload later.
       if (result == JNI_OK) {
-        Arguments::add_loaded_agent(agent, (char*)options, is_absolute_path, library);
+        Arguments::add_loaded_agent(agent_lib);
+      } else {
+        delete agent_lib;
       }
 
       // Agent_OnAttach executed so completion status is JNI_OK

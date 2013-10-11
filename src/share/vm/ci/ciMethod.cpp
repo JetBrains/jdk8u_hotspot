@@ -286,7 +286,10 @@ int ciMethod::itable_index() {
   check_is_loaded();
   assert(holder()->is_linked(), "must be linked");
   VM_ENTRY_MARK;
-  return klassItable::compute_itable_index(get_Method());
+  Method* m = get_Method();
+  if (!m->has_itable_index())
+    return Method::nonvirtual_vtable_index;
+  return m->itable_index();
 }
 #endif // SHARK
 
@@ -1137,6 +1140,10 @@ bool ciMethod::is_klass_loaded(int refinfo_index, bool must_be_resolved) const {
 // ------------------------------------------------------------------
 // ciMethod::check_call
 bool ciMethod::check_call(int refinfo_index, bool is_static) const {
+  // This method is used only in C2 from InlineTree::ok_to_inline,
+  // and is only used under -Xcomp or -XX:CompileTheWorld.
+  // It appears to fail when applied to an invokeinterface call site.
+  // FIXME: Remove this method and resolve_method_statically; refactor to use the other LinkResolver entry points.
   VM_ENTRY_MARK;
   {
     EXCEPTION_MARK;
@@ -1178,6 +1185,44 @@ bool ciMethod::has_loops      () const {         FETCH_FLAG_FROM_VM(has_loops); 
 bool ciMethod::has_jsrs       () const {         FETCH_FLAG_FROM_VM(has_jsrs);  }
 bool ciMethod::is_accessor    () const {         FETCH_FLAG_FROM_VM(is_accessor); }
 bool ciMethod::is_initializer () const {         FETCH_FLAG_FROM_VM(is_initializer); }
+
+bool ciMethod::is_boxing_method() const {
+  if (holder()->is_box_klass()) {
+    switch (intrinsic_id()) {
+      case vmIntrinsics::_Boolean_valueOf:
+      case vmIntrinsics::_Byte_valueOf:
+      case vmIntrinsics::_Character_valueOf:
+      case vmIntrinsics::_Short_valueOf:
+      case vmIntrinsics::_Integer_valueOf:
+      case vmIntrinsics::_Long_valueOf:
+      case vmIntrinsics::_Float_valueOf:
+      case vmIntrinsics::_Double_valueOf:
+        return true;
+      default:
+        return false;
+    }
+  }
+  return false;
+}
+
+bool ciMethod::is_unboxing_method() const {
+  if (holder()->is_box_klass()) {
+    switch (intrinsic_id()) {
+      case vmIntrinsics::_booleanValue:
+      case vmIntrinsics::_byteValue:
+      case vmIntrinsics::_charValue:
+      case vmIntrinsics::_shortValue:
+      case vmIntrinsics::_intValue:
+      case vmIntrinsics::_longValue:
+      case vmIntrinsics::_floatValue:
+      case vmIntrinsics::_doubleValue:
+        return true;
+      default:
+        return false;
+    }
+  }
+  return false;
+}
 
 BCEscapeAnalyzer  *ciMethod::get_bcea() {
 #ifdef COMPILER2

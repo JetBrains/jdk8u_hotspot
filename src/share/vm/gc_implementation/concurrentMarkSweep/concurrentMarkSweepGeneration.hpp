@@ -25,8 +25,10 @@
 #ifndef SHARE_VM_GC_IMPLEMENTATION_CONCURRENTMARKSWEEP_CONCURRENTMARKSWEEPGENERATION_HPP
 #define SHARE_VM_GC_IMPLEMENTATION_CONCURRENTMARKSWEEP_CONCURRENTMARKSWEEPGENERATION_HPP
 
+#include "gc_implementation/shared/gcHeapSummary.hpp"
 #include "gc_implementation/shared/gSpaceCounters.hpp"
 #include "gc_implementation/shared/gcStats.hpp"
+#include "gc_implementation/shared/gcWhen.hpp"
 #include "gc_implementation/shared/generationCounters.hpp"
 #include "memory/freeBlockDictionary.hpp"
 #include "memory/generation.hpp"
@@ -53,6 +55,8 @@
 class CMSAdaptiveSizePolicy;
 class CMSConcMarkingTask;
 class CMSGCAdaptivePolicyCounters;
+class CMSTracer;
+class ConcurrentGCTimer;
 class ConcurrentMarkSweepGeneration;
 class ConcurrentMarkSweepPolicy;
 class ConcurrentMarkSweepThread;
@@ -61,6 +65,7 @@ class FreeChunk;
 class PromotionInfo;
 class ScanMarkedObjectsAgainCarefullyClosure;
 class TenuredGeneration;
+class SerialOldTracer;
 
 // A generic CMS bit map. It's the basis for both the CMS marking bit map
 // as well as for the mod union table (in each case only a subset of the
@@ -485,10 +490,6 @@ class CMSIsAliveClosure: public BoolObjectClosure {
     assert(!span.is_empty(), "Empty span could spell trouble");
   }
 
-  void do_object(oop obj) {
-    assert(false, "not to be invoked");
-  }
-
   bool do_object_b(oop obj);
 };
 
@@ -514,6 +515,8 @@ class CMSCollector: public CHeapObj<mtGC> {
   friend class ConcurrentMarkSweepThread;
   friend class ConcurrentMarkSweepGeneration;
   friend class CompactibleFreeListSpace;
+  friend class CMSParMarkTask;
+  friend class CMSParInitialMarkTask;
   friend class CMSParRemarkTask;
   friend class CMSConcMarkingTask;
   friend class CMSRefProcTaskProxy;
@@ -571,8 +574,9 @@ class CMSCollector: public CHeapObj<mtGC> {
   bool _completed_initialization;
 
   // In support of ExplicitGCInvokesConcurrent
-  static   bool _full_gc_requested;
-  unsigned int  _collection_count_start;
+  static bool _full_gc_requested;
+  static GCCause::Cause _full_gc_cause;
+  unsigned int _collection_count_start;
 
   // Should we unload classes this concurrent cycle?
   bool _should_unload_classes;
@@ -612,6 +616,20 @@ class CMSCollector: public CHeapObj<mtGC> {
   // padded decaying average estimates of the above
   AdaptivePaddedAverage _inter_sweep_estimate;
   AdaptivePaddedAverage _intra_sweep_estimate;
+
+  CMSTracer* _gc_tracer_cm;
+  ConcurrentGCTimer* _gc_timer_cm;
+
+  bool _cms_start_registered;
+
+  GCHeapSummary _last_heap_summary;
+  MetaspaceSummary _last_metaspace_summary;
+
+  void register_foreground_gc_start(GCCause::Cause cause);
+  void register_gc_start(GCCause::Cause cause);
+  void register_gc_end();
+  void save_heap_summary();
+  void report_heap_summary(GCWhen::Type when);
 
  protected:
   ConcurrentMarkSweepGeneration* _cmsGen;  // old gen (CMS)
@@ -733,6 +751,7 @@ class CMSCollector: public CHeapObj<mtGC> {
   Generation* _young_gen;  // the younger gen
   HeapWord** _top_addr;    // ... Top of Eden
   HeapWord** _end_addr;    // ... End of Eden
+  Mutex*     _eden_chunk_lock;
   HeapWord** _eden_chunk_array; // ... Eden partitioning array
   size_t     _eden_chunk_index; // ... top (exclusive) of array
   size_t     _eden_chunk_capacity;  // ... max entries in array
@@ -831,6 +850,10 @@ class CMSCollector: public CHeapObj<mtGC> {
   void do_mark_sweep_work(bool clear_all_soft_refs,
     CollectorState first_state, bool should_start_over);
 
+  // Work methods for reporting concurrent mode interruption or failure
+  bool is_external_interruption();
+  void report_concurrent_mode_interruption();
+
   // If the backgrould GC is active, acquire control from the background
   // GC and do the collection.
   void acquire_control_and_collect(bool   full, bool clear_all_soft_refs);
@@ -880,11 +903,11 @@ class CMSCollector: public CHeapObj<mtGC> {
                bool   clear_all_soft_refs,
                size_t size,
                bool   tlab);
-  void collect_in_background(bool clear_all_soft_refs);
-  void collect_in_foreground(bool clear_all_soft_refs);
+  void collect_in_background(bool clear_all_soft_refs, GCCause::Cause cause);
+  void collect_in_foreground(bool clear_all_soft_refs, GCCause::Cause cause);
 
   // In support of ExplicitGCInvokesConcurrent
-  static void request_full_gc(unsigned int full_gc_count);
+  static void request_full_gc(unsigned int full_gc_count, GCCause::Cause cause);
   // Should we unload classes in a particular concurrent cycle?
   bool should_unload_classes() const {
     return _should_unload_classes;
@@ -930,6 +953,7 @@ class CMSCollector: public CHeapObj<mtGC> {
 
   // Support for parallel remark of survivor space
   void* get_data_recorder(int thr_num);
+  void sample_eden_chunk();
 
   CMSBitMap* markBitMap()  { return &_markBitMap; }
   void directAllocated(HeapWord* start, size_t size);
@@ -1007,6 +1031,8 @@ class CMSCollector: public CHeapObj<mtGC> {
 
   // Initialization errors
   bool completed_initialization() { return _completed_initialization; }
+
+  void print_eden_and_survivor_chunk_arrays();
 };
 
 class CMSExpansionCause : public AllStatic  {
@@ -1253,7 +1279,6 @@ class ConcurrentMarkSweepGeneration: public CardGeneration {
   // Iteration support and related enquiries
   void save_marks();
   bool no_allocs_since_save_marks();
-  void object_iterate_since_last_GC(ObjectClosure* cl);
   void younger_refs_iterate(OopsInGenClosure* cl);
 
   // Iteration support specific to CMS generations
@@ -1297,6 +1322,10 @@ class ConcurrentMarkSweepGeneration: public CardGeneration {
   void* get_data_recorder(int thr_num) {
     //Delegate to collector
     return collector()->get_data_recorder(thr_num);
+  }
+  void sample_eden_chunk() {
+    //Delegate to collector
+    return collector()->sample_eden_chunk();
   }
 
   // Printing
@@ -1536,9 +1565,6 @@ class ScanMarkedObjectsAgainClosure: public UpwardsObjectClosure {
     _bit_map(bit_map),
     _par_scan_closure(cl) { }
 
-  void do_object(oop obj) {
-    guarantee(false, "Call do_object_b(oop, MemRegion) instead");
-  }
   bool do_object_b(oop obj) {
     guarantee(false, "Call do_object_b(oop, MemRegion) form instead");
     return false;

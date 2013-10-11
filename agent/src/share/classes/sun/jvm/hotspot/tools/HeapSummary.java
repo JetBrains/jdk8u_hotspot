@@ -29,11 +29,20 @@ import sun.jvm.hotspot.gc_interface.*;
 import sun.jvm.hotspot.gc_implementation.g1.*;
 import sun.jvm.hotspot.gc_implementation.parallelScavenge.*;
 import sun.jvm.hotspot.gc_implementation.shared.*;
+import sun.jvm.hotspot.debugger.JVMDebugger;
 import sun.jvm.hotspot.memory.*;
 import sun.jvm.hotspot.oops.*;
 import sun.jvm.hotspot.runtime.*;
 
 public class HeapSummary extends Tool {
+
+   public HeapSummary() {
+      super();
+   }
+
+   public HeapSummary(JVMDebugger d) {
+      super(d);
+   }
 
    public static void main(String[] args) {
       HeapSummary hs = new HeapSummary();
@@ -57,18 +66,18 @@ public class HeapSummary extends Tool {
       printGCAlgorithm(flagMap);
       System.out.println();
       System.out.println("Heap Configuration:");
-      printValue("MinHeapFreeRatio   = ", getFlagValue("MinHeapFreeRatio", flagMap));
-      printValue("MaxHeapFreeRatio   = ", getFlagValue("MaxHeapFreeRatio", flagMap));
-      printValMB("MaxHeapSize        = ", getFlagValue("MaxHeapSize", flagMap));
-      printValMB("NewSize            = ", getFlagValue("NewSize", flagMap));
-      printValMB("MaxNewSize         = ", getFlagValue("MaxNewSize", flagMap));
-      printValMB("OldSize            = ", getFlagValue("OldSize", flagMap));
-      printValue("NewRatio           = ", getFlagValue("NewRatio", flagMap));
-      printValue("SurvivorRatio      = ", getFlagValue("SurvivorRatio", flagMap));
-      printValMB("MetaspaceSize      = ", getFlagValue("MetaspaceSize", flagMap));
-      printValMB("ClassMetaspaceSize = ", getFlagValue("ClassMetaspaceSize", flagMap));
-      printValMB("MaxMetaspaceSize   = ", getFlagValue("MaxMetaspaceSize", flagMap));
-      printValMB("G1HeapRegionSize   = ", HeapRegion.grainBytes());
+      printValue("MinHeapFreeRatio         = ", getFlagValue("MinHeapFreeRatio", flagMap));
+      printValue("MaxHeapFreeRatio         = ", getFlagValue("MaxHeapFreeRatio", flagMap));
+      printValMB("MaxHeapSize              = ", getFlagValue("MaxHeapSize", flagMap));
+      printValMB("NewSize                  = ", getFlagValue("NewSize", flagMap));
+      printValMB("MaxNewSize               = ", getFlagValue("MaxNewSize", flagMap));
+      printValMB("OldSize                  = ", getFlagValue("OldSize", flagMap));
+      printValue("NewRatio                 = ", getFlagValue("NewRatio", flagMap));
+      printValue("SurvivorRatio            = ", getFlagValue("SurvivorRatio", flagMap));
+      printValMB("MetaspaceSize            = ", getFlagValue("MetaspaceSize", flagMap));
+      printValMB("CompressedClassSpaceSize = ", getFlagValue("CompressedClassSpaceSize", flagMap));
+      printValMB("MaxMetaspaceSize         = ", getFlagValue("MaxMetaspaceSize", flagMap));
+      printValMB("G1HeapRegionSize         = ", HeapRegion.grainBytes());
 
       System.out.println();
       System.out.println("Heap Usage:");

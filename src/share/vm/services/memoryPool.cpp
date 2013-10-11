@@ -25,6 +25,7 @@
 #include "precompiled.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "classfile/vmSymbols.hpp"
+#include "memory/metaspace.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/javaCalls.hpp"
@@ -33,6 +34,7 @@
 #include "services/memoryManager.hpp"
 #include "services/memoryPool.hpp"
 #include "utilities/macros.hpp"
+#include "utilities/globalDefinitions.hpp"
 
 MemoryPool::MemoryPool(const char* name,
                        PoolType type,
@@ -255,4 +257,33 @@ MemoryUsage CodeHeapPool::get_memory_usage() {
   size_t maxSize   = (available_for_allocation() ? max_size() : 0);
 
   return MemoryUsage(initial_size(), used, committed, maxSize);
+}
+
+MetaspacePool::MetaspacePool() :
+  MemoryPool("Metaspace", NonHeap, 0, calculate_max_size(), true, false) { }
+
+MemoryUsage MetaspacePool::get_memory_usage() {
+  size_t committed = MetaspaceAux::committed_bytes();
+  return MemoryUsage(initial_size(), used_in_bytes(), committed, max_size());
+}
+
+size_t MetaspacePool::used_in_bytes() {
+  return MetaspaceAux::allocated_used_bytes();
+}
+
+size_t MetaspacePool::calculate_max_size() const {
+  return FLAG_IS_CMDLINE(MaxMetaspaceSize) ? MaxMetaspaceSize :
+                                             MemoryUsage::undefined_size();
+}
+
+CompressedKlassSpacePool::CompressedKlassSpacePool() :
+  MemoryPool("Compressed Class Space", NonHeap, 0, CompressedClassSpaceSize, true, false) { }
+
+size_t CompressedKlassSpacePool::used_in_bytes() {
+  return MetaspaceAux::allocated_used_bytes(Metaspace::ClassType);
+}
+
+MemoryUsage CompressedKlassSpacePool::get_memory_usage() {
+  size_t committed = MetaspaceAux::committed_bytes(Metaspace::ClassType);
+  return MemoryUsage(initial_size(), used_in_bytes(), committed, max_size());
 }

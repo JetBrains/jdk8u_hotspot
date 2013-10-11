@@ -47,6 +47,11 @@
 
 // CollectorPolicy methods.
 
+// Align down. If the aligning result in 0, return 'alignment'.
+static size_t restricted_align_down(size_t size, size_t alignment) {
+  return MAX2(alignment, align_size_down_(size, alignment));
+}
+
 void CollectorPolicy::initialize_flags() {
   assert(max_alignment() >= min_alignment(),
       err_msg("max_alignment: " SIZE_FORMAT " less than min_alignment: " SIZE_FORMAT,
@@ -59,18 +64,24 @@ void CollectorPolicy::initialize_flags() {
     vm_exit_during_initialization("Incompatible initial and maximum heap sizes specified");
   }
 
-  if (MetaspaceSize > MaxMetaspaceSize) {
-    MaxMetaspaceSize = MetaspaceSize;
-  }
-  MetaspaceSize = MAX2(min_alignment(), align_size_down_(MetaspaceSize, min_alignment()));
-  // Don't increase Metaspace size limit above specified.
-  MaxMetaspaceSize = align_size_down(MaxMetaspaceSize, max_alignment());
-  if (MetaspaceSize > MaxMetaspaceSize) {
-    MetaspaceSize = MaxMetaspaceSize;
+  if (!is_size_aligned(MaxMetaspaceSize, max_alignment())) {
+    FLAG_SET_ERGO(uintx, MaxMetaspaceSize,
+        restricted_align_down(MaxMetaspaceSize, max_alignment()));
   }
 
-  MinMetaspaceExpansion = MAX2(min_alignment(), align_size_down_(MinMetaspaceExpansion, min_alignment()));
-  MaxMetaspaceExpansion = MAX2(min_alignment(), align_size_down_(MaxMetaspaceExpansion, min_alignment()));
+  if (MetaspaceSize > MaxMetaspaceSize) {
+    FLAG_SET_ERGO(uintx, MetaspaceSize, MaxMetaspaceSize);
+  }
+
+  if (!is_size_aligned(MetaspaceSize, min_alignment())) {
+    FLAG_SET_ERGO(uintx, MetaspaceSize,
+        restricted_align_down(MetaspaceSize, min_alignment()));
+  }
+
+  assert(MetaspaceSize <= MaxMetaspaceSize, "Must be");
+
+  MinMetaspaceExpansion = restricted_align_down(MinMetaspaceExpansion, min_alignment());
+  MaxMetaspaceExpansion = restricted_align_down(MaxMetaspaceExpansion, min_alignment());
 
   MinHeapDeltaBytes = align_size_up(MinHeapDeltaBytes, min_alignment());
 
@@ -145,6 +156,30 @@ void CollectorPolicy::cleared_all_soft_refs() {
   _all_soft_refs_clear = true;
 }
 
+size_t CollectorPolicy::compute_max_alignment() {
+  // The card marking array and the offset arrays for old generations are
+  // committed in os pages as well. Make sure they are entirely full (to
+  // avoid partial page problems), e.g. if 512 bytes heap corresponds to 1
+  // byte entry and the os page size is 4096, the maximum heap size should
+  // be 512*4096 = 2MB aligned.
+
+  // There is only the GenRemSet in Hotspot and only the GenRemSet::CardTable
+  // is supported.
+  // Requirements of any new remembered set implementations must be added here.
+  size_t alignment = GenRemSet::max_alignment_constraint(GenRemSet::CardTable);
+
+  // Parallel GC does its own alignment of the generations to avoid requiring a
+  // large page (256M on some platforms) for the permanent generation.  The
+  // other collectors should also be updated to do their own alignment and then
+  // this use of lcm() should be removed.
+  if (UseLargePages && !UseParallelGC) {
+      // in presence of large pages we have to make sure that our
+      // alignment is large page aware
+      alignment = lcm(os::large_page_size(), alignment);
+  }
+
+  return alignment;
+}
 
 // GenCollectorPolicy methods.
 
@@ -173,27 +208,6 @@ void GenCollectorPolicy::initialize_size_policy(size_t init_eden_size,
                                         init_survivor_size,
                                         max_gc_pause_sec,
                                         GCTimeRatio);
-}
-
-size_t GenCollectorPolicy::compute_max_alignment() {
-  // The card marking array and the offset arrays for old generations are
-  // committed in os pages as well. Make sure they are entirely full (to
-  // avoid partial page problems), e.g. if 512 bytes heap corresponds to 1
-  // byte entry and the os page size is 4096, the maximum heap size should
-  // be 512*4096 = 2MB aligned.
-  size_t alignment = GenRemSet::max_alignment_constraint(rem_set_name());
-
-  // Parallel GC does its own alignment of the generations to avoid requiring a
-  // large page (256M on some platforms) for the permanent generation.  The
-  // other collectors should also be updated to do their own alignment and then
-  // this use of lcm() should be removed.
-  if (UseLargePages && !UseParallelGC) {
-      // in presence of large pages we have to make sure that our
-      // alignment is large page aware
-      alignment = lcm(os::large_page_size(), alignment);
-  }
-
-  return alignment;
 }
 
 void GenCollectorPolicy::initialize_flags() {
@@ -241,6 +255,27 @@ void TwoGenerationCollectorPolicy::initialize_flags() {
     MaxHeapSize = calculated_heapsize;
     InitialHeapSize = calculated_heapsize;
   }
+  MaxHeapSize = align_size_up(MaxHeapSize, max_alignment());
+
+  // adjust max heap size if necessary
+  if (NewSize + OldSize > MaxHeapSize) {
+    if (FLAG_IS_CMDLINE(MaxHeapSize)) {
+      // somebody set a maximum heap size with the intention that we should not
+      // exceed it. Adjust New/OldSize as necessary.
+      uintx calculated_size = NewSize + OldSize;
+      double shrink_factor = (double) MaxHeapSize / calculated_size;
+      // align
+      NewSize = align_size_down((uintx) (NewSize * shrink_factor), min_alignment());
+      // OldSize is already aligned because above we aligned MaxHeapSize to
+      // max_alignment(), and we just made sure that NewSize is aligned to
+      // min_alignment(). In initialize_flags() we verified that max_alignment()
+      // is a multiple of min_alignment().
+      OldSize = MaxHeapSize - NewSize;
+    } else {
+      MaxHeapSize = NewSize + OldSize;
+    }
+  }
+  // need to do this again
   MaxHeapSize = align_size_up(MaxHeapSize, max_alignment());
 
   // adjust max heap size if necessary
@@ -731,7 +766,7 @@ HeapWord* GenCollectorPolicy::satisfy_failed_allocation(size_t size,
   // free memory should be here, especially if they are expensive. If this
   // attempt fails, an OOM exception will be thrown.
   {
-    IntFlagSetting flag_change(MarkSweepAlwaysCompactCount, 1); // Make sure the heap is fully compacted
+    UIntFlagSetting flag_change(MarkSweepAlwaysCompactCount, 1); // Make sure the heap is fully compacted
 
     gch->do_collection(true             /* full */,
                        true             /* clear_all_soft_refs */,
@@ -856,7 +891,7 @@ MarkSweepPolicy::MarkSweepPolicy() {
 }
 
 void MarkSweepPolicy::initialize_generations() {
-  _generations = new GenerationSpecPtr[number_of_generations()];
+  _generations = NEW_C_HEAP_ARRAY3(GenerationSpecPtr, number_of_generations(), mtGC, 0, AllocFailStrategy::RETURN_NULL);
   if (_generations == NULL)
     vm_exit_during_initialization("Unable to allocate gen spec");
 

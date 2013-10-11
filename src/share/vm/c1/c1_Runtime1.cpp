@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -327,6 +327,7 @@ const char* Runtime1::name_for_address(address entry) {
 #ifdef TRACE_HAVE_INTRINSICS
   FUNCTION_CASE(entry, TRACE_TIME_METHOD);
 #endif
+  FUNCTION_CASE(entry, StubRoutines::updateBytesCRC32());
 
 #undef FUNCTION_CASE
 
@@ -736,10 +737,10 @@ static Klass* resolve_field_return_klass(methodHandle caller, int bci, TRAPS) {
   Bytecodes::Code code       = field_access.code();
 
   // We must load class, initialize class and resolvethe field
-  FieldAccessInfo result; // initialize class if needed
+  fieldDescriptor result; // initialize class if needed
   constantPoolHandle constants(THREAD, caller->constants());
-  LinkResolver::resolve_field(result, constants, field_access.index(), Bytecodes::java_code(code), false, CHECK_NULL);
-  return result.klass()();
+  LinkResolver::resolve_field_access(result, constants, field_access.index(), Bytecodes::java_code(code), CHECK_NULL);
+  return result.field_holder();
 }
 
 
@@ -846,17 +847,18 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
   KlassHandle init_klass(THREAD, NULL); // klass needed by load_klass_patching code
   KlassHandle load_klass(THREAD, NULL); // klass needed by load_klass_patching code
   Handle mirror(THREAD, NULL);                    // oop needed by load_mirror_patching code
+  Handle appendix(THREAD, NULL);                  // oop needed by appendix_patching code
   bool load_klass_or_mirror_patch_id =
     (stub_id == Runtime1::load_klass_patching_id || stub_id == Runtime1::load_mirror_patching_id);
 
   if (stub_id == Runtime1::access_field_patching_id) {
 
     Bytecode_field field_access(caller_method, bci);
-    FieldAccessInfo result; // initialize class if needed
+    fieldDescriptor result; // initialize class if needed
     Bytecodes::Code code = field_access.code();
     constantPoolHandle constants(THREAD, caller_method->constants());
-    LinkResolver::resolve_field(result, constants, field_access.index(), Bytecodes::java_code(code), false, CHECK);
-    patch_field_offset = result.field_offset();
+    LinkResolver::resolve_field_access(result, constants, field_access.index(), Bytecodes::java_code(code), CHECK);
+    patch_field_offset = result.offset();
 
     // If we're patching a field which is volatile then at compile it
     // must not have been know to be volatile, so the generated code
@@ -915,10 +917,32 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
           mirror = Handle(THREAD, m);
         }
         break;
-      default: Unimplemented();
+      default: fatal("unexpected bytecode for load_klass_or_mirror_patch_id");
     }
     // convert to handle
     load_klass = KlassHandle(THREAD, k);
+  } else if (stub_id == load_appendix_patching_id) {
+    Bytecode_invoke bytecode(caller_method, bci);
+    Bytecodes::Code bc = bytecode.invoke_code();
+
+    CallInfo info;
+    constantPoolHandle pool(thread, caller_method->constants());
+    int index = bytecode.index();
+    LinkResolver::resolve_invoke(info, Handle(), pool, index, bc, CHECK);
+    appendix = info.resolved_appendix();
+    switch (bc) {
+      case Bytecodes::_invokehandle: {
+        int cache_index = ConstantPool::decode_cpcache_index(index, true);
+        assert(cache_index >= 0 && cache_index < pool->cache()->length(), "unexpected cache index");
+        pool->cache()->entry_at(cache_index)->set_method_handle(pool, info);
+        break;
+      }
+      case Bytecodes::_invokedynamic: {
+        pool->invokedynamic_cp_cache_entry_at(index)->set_dynamic_call(pool, info);
+        break;
+      }
+      default: fatal("unexpected bytecode for load_appendix_patching_id");
+    }
   } else {
     ShouldNotReachHere();
   }
@@ -940,16 +964,6 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
     Deoptimization::deoptimize_frame(thread, caller_frame.id());
 
     // Return to the now deoptimized frame.
-  }
-
-  // If we are patching in a non-perm oop, make sure the nmethod
-  // is on the right list.
-  if (ScavengeRootsInCode && mirror.not_null() && mirror()->is_scavengable()) {
-    MutexLockerEx ml_code (CodeCache_lock, Mutex::_no_safepoint_check_flag);
-    nmethod* nm = CodeCache::find_nmethod(caller_frame.pc());
-    guarantee(nm != NULL, "only nmethods can contain non-perm oops");
-    if (!nm->on_scavenge_root_list())
-      CodeCache::add_scavenge_root_nmethod(nm);
   }
 
   // Now copy code back
@@ -1028,8 +1042,8 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
                    n_copy->data() == (intptr_t)Universe::non_oop_word(),
                    "illegal init value");
             if (stub_id == Runtime1::load_klass_patching_id) {
-            assert(load_klass() != NULL, "klass not set");
-            n_copy->set_data((intx) (load_klass()));
+              assert(load_klass() != NULL, "klass not set");
+              n_copy->set_data((intx) (load_klass()));
             } else {
               assert(mirror() != NULL, "klass not set");
               n_copy->set_data((intx) (mirror()));
@@ -1038,43 +1052,55 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
             if (TracePatching) {
               Disassembler::decode(copy_buff, copy_buff + *byte_count, tty);
             }
+          }
+        } else if (stub_id == Runtime1::load_appendix_patching_id) {
+          NativeMovConstReg* n_copy = nativeMovConstReg_at(copy_buff);
+          assert(n_copy->data() == 0 ||
+                 n_copy->data() == (intptr_t)Universe::non_oop_word(),
+                 "illegal init value");
+          n_copy->set_data((intx) (appendix()));
 
-#if defined(SPARC) || defined(PPC) || defined(TARGET_ARCH_aarch64)
-            // Update the location in the nmethod with the proper
-            // metadata.  When the code was generated, a NULL was stuffed
-            // in the metadata table and that table needs to be update to
-            // have the right value.  On intel the value is kept
-            // directly in the instruction instead of in the metadata
-            // table, so set_data above effectively updated the value.
-            nmethod* nm = CodeCache::find_nmethod(instr_pc);
-            assert(nm != NULL, "invalid nmethod_pc");
-            RelocIterator mds(nm, copy_buff, copy_buff + 1);
-            bool found = false;
-            while (mds.next() && !found) {
-              if (mds.type() == relocInfo::oop_type) {
-                assert(stub_id == Runtime1::load_mirror_patching_id, "wrong stub id");
-                oop_Relocation* r = mds.oop_reloc();
-                oop* oop_adr = r->oop_addr();
-                *oop_adr = mirror();
-                r->fix_oop_relocation();
-                found = true;
-              } else if (mds.type() == relocInfo::metadata_type) {
-                assert(stub_id == Runtime1::load_klass_patching_id, "wrong stub id");
-                metadata_Relocation* r = mds.metadata_reloc();
-                Metadata** metadata_adr = r->metadata_addr();
-                *metadata_adr = load_klass();
-                r->fix_metadata_relocation();
-                found = true;
-              }
-            }
-            assert(found, "the metadata must exist!");
-#endif
-
+          if (TracePatching) {
+            Disassembler::decode(copy_buff, copy_buff + *byte_count, tty);
           }
         } else {
           ShouldNotReachHere();
         }
 
+#if defined(SPARC) || defined(PPC) || defined(TARGET_ARCH_aarch64)
+        if (load_klass_or_mirror_patch_id ||
+            stub_id == Runtime1::load_appendix_patching_id) {
+          // Update the location in the nmethod with the proper
+          // metadata.  When the code was generated, a NULL was stuffed
+          // in the metadata table and that table needs to be update to
+          // have the right value.  On intel the value is kept
+          // directly in the instruction instead of in the metadata
+          // table, so set_data above effectively updated the value.
+          nmethod* nm = CodeCache::find_nmethod(instr_pc);
+          assert(nm != NULL, "invalid nmethod_pc");
+          RelocIterator mds(nm, copy_buff, copy_buff + 1);
+          bool found = false;
+          while (mds.next() && !found) {
+            if (mds.type() == relocInfo::oop_type) {
+              assert(stub_id == Runtime1::load_mirror_patching_id ||
+                     stub_id == Runtime1::load_appendix_patching_id, "wrong stub id");
+              oop_Relocation* r = mds.oop_reloc();
+              oop* oop_adr = r->oop_addr();
+              *oop_adr = stub_id == Runtime1::load_mirror_patching_id ? mirror() : appendix();
+              r->fix_oop_relocation();
+              found = true;
+            } else if (mds.type() == relocInfo::metadata_type) {
+              assert(stub_id == Runtime1::load_klass_patching_id, "wrong stub id");
+              metadata_Relocation* r = mds.metadata_reloc();
+              Metadata** metadata_adr = r->metadata_addr();
+              *metadata_adr = load_klass();
+              r->fix_metadata_relocation();
+              found = true;
+            }
+          }
+          assert(found, "the metadata must exist!");
+        }
+#endif
         if (do_patch) {
           // replace instructions
           // first replace the tail, then the call
@@ -1113,8 +1139,7 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
           ICache::invalidate_range(instr_pc, *byte_count);
           NativeGeneralJump::replace_mt_safe(instr_pc, copy_buff);
 
-          if (load_klass_or_mirror_patch_id
-	      || stub_id == Runtime1::access_field_patching_id) {
+          if (load_klass_or_mirror_patch_id) {
             relocInfo::relocType rtype;
 	    switch(stub_id) {
 	    case Runtime1::load_klass_patching_id:
@@ -1183,6 +1208,21 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
     }
   }
 
+  // If we are patching in a non-perm oop, make sure the nmethod
+  // is on the right list.
+  if (ScavengeRootsInCode && ((mirror.not_null() && mirror()->is_scavengable()) ||
+                              (appendix.not_null() && appendix->is_scavengable()))) {
+    MutexLockerEx ml_code (CodeCache_lock, Mutex::_no_safepoint_check_flag);
+    nmethod* nm = CodeCache::find_nmethod(caller_frame.pc());
+    guarantee(nm != NULL, "only nmethods can contain non-perm oops");
+    if (!nm->on_scavenge_root_list()) {
+      CodeCache::add_scavenge_root_nmethod(nm);
+    }
+
+    // Since we've patched some oops in the nmethod,
+    // (re)register it with the heap.
+    Universe::heap()->register_nmethod(nm);
+  }
 JRT_END
 
 //
@@ -1233,6 +1273,24 @@ int Runtime1::move_mirror_patching(JavaThread* thread) {
   return caller_is_deopted();
 }
 
+int Runtime1::move_appendix_patching(JavaThread* thread) {
+//
+// NOTE: we are still in Java
+//
+  Thread* THREAD = thread;
+  debug_only(NoHandleMark nhm;)
+  {
+    // Enter VM mode
+
+    ResetNoHandleMark rnhm;
+    patch_code(thread, load_appendix_patching_id);
+  }
+  // Back in JAVA, use no oops DON'T safepoint
+
+  // Return true if calling code is deoptimized
+
+  return caller_is_deopted();
+}
 //
 // Entry point for compiled code. We want to patch a nmethod.
 // We don't do a normal VM transition here because we want to
@@ -1321,7 +1379,7 @@ JRT_LEAF(int, Runtime1::arraycopy(oopDesc* src, int src_pos, oopDesc* dst, int d
 
   if (length == 0) return ac_ok;
   if (src->is_typeArray()) {
-    Klass* const klass_oop = src->klass();
+    Klass* klass_oop = src->klass();
     if (klass_oop != dst->klass()) return ac_failed;
     TypeArrayKlass* klass = TypeArrayKlass::cast(klass_oop);
     const int l2es = klass->log2_element_size();

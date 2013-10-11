@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -34,7 +34,9 @@
 
 // Note that MemRegions are passed by value, not by reference.
 // The intent is that they remain very small and contain no
-// objects.
+// objects. _ValueObj should never be allocated in heap but we do
+// create MemRegions (in CardTableModRefBS) in heap so operator
+// new and operator new [] added for this special case.
 
 class MetaWord;
 
@@ -92,6 +94,10 @@ public:
   size_t word_size() const { return _word_size; }
 
   bool is_empty() const { return word_size() == 0; }
+  void* operator new(size_t size) throw();
+  void* operator new [](size_t size) throw();
+  void  operator delete(void* p);
+  void  operator delete [](void* p);
 };
 
 // For iteration over MemRegion's.
@@ -105,13 +111,13 @@ public:
 
 class MemRegionClosureRO: public MemRegionClosure {
 public:
-  void* operator new(size_t size, ResourceObj::allocation_type type, MEMFLAGS flags) {
+  void* operator new(size_t size, ResourceObj::allocation_type type, MEMFLAGS flags) throw() {
         return ResourceObj::operator new(size, type, flags);
   }
-  void* operator new(size_t size, Arena *arena) {
+  void* operator new(size_t size, Arena *arena) throw() {
         return ResourceObj::operator new(size, arena);
   }
-  void* operator new(size_t size) {
+  void* operator new(size_t size) throw() {
         return ResourceObj::operator new(size);
   }
 

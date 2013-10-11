@@ -101,6 +101,9 @@ import sun.jvm.hotspot.utilities.soql.JSJavaFactoryImpl;
 import sun.jvm.hotspot.utilities.soql.JSJavaScriptEngine;
 
 public class CommandProcessor {
+
+    volatile boolean quit;
+
     public abstract static class DebuggerInterface {
         public abstract HotSpotAgent getAgent();
         public abstract boolean isAttached();
@@ -1135,7 +1138,7 @@ public class CommandProcessor {
                     usage();
                 } else {
                     debugger.detach();
-                    System.exit(0);
+                    quit = true;
                 }
             }
         },
@@ -1210,6 +1213,7 @@ public class CommandProcessor {
                 }
                 HotSpotTypeDataBase db = (HotSpotTypeDataBase)agent.getTypeDataBase();
                 if (t.countTokens() == 1) {
+                    String name = t.nextToken();
                     out.println("intConstant " + name + " " + db.lookupIntConstant(name));
                 } else if (t.countTokens() == 0) {
                     Iterator i = db.getIntConstants();
@@ -1232,6 +1236,7 @@ public class CommandProcessor {
                 }
                 HotSpotTypeDataBase db = (HotSpotTypeDataBase)agent.getTypeDataBase();
                 if (t.countTokens() == 1) {
+                    String name = t.nextToken();
                     out.println("longConstant " + name + " " + db.lookupLongConstant(name));
                 } else if (t.countTokens() == 0) {
                     Iterator i = db.getLongConstants();
@@ -1714,7 +1719,7 @@ public class CommandProcessor {
                         }
                         protected void quit() {
                             debugger.detach();
-                            System.exit(0);
+                            quit = true;
                         }
                         protected BufferedReader getInputReader() {
                             return in;
@@ -1781,7 +1786,7 @@ public class CommandProcessor {
 
     public void run(boolean prompt) {
         // Process interactive commands.
-        while (true) {
+        while (!quit) {
             if (prompt) printPrompt();
             String ln = null;
             try {

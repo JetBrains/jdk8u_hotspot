@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,10 +36,12 @@
 #include "libadt/vectset.hpp"
 #include "memory/resourceArea.hpp"
 #include "opto/idealGraphPrinter.hpp"
+#include "opto/phasetype.hpp"
 #include "opto/phase.hpp"
 #include "opto/regmask.hpp"
 #include "runtime/deoptimization.hpp"
 #include "runtime/vmThread.hpp"
+#include "trace/tracing.hpp"
 
 class Block;
 class Bundle;
@@ -70,6 +72,7 @@ class Scope;
 class StartNode;
 class SafePointNode;
 class JVMState;
+class Type;
 class TypeData;
 class TypePtr;
 class TypeOopPtr;
@@ -117,6 +120,7 @@ class Compile : public Phase {
     int             _index;         // unique index, used with MergeMemNode
     const TypePtr*  _adr_type;      // normalized address type
     ciField*        _field;         // relevant instance field, or null if none
+    const Type*     _element;       // relevant array element type, or null if none
     bool            _is_rewritable; // false if the memory is write-once only
     int             _general_index; // if this is type is an instance, the general
                                     // type that this is an instance of
@@ -127,6 +131,7 @@ class Compile : public Phase {
     int             index()         const { return _index; }
     const TypePtr*  adr_type()      const { return _adr_type; }
     ciField*        field()         const { return _field; }
+    const Type*     element()       const { return _element; }
     bool            is_rewritable() const { return _is_rewritable; }
     bool            is_volatile()   const { return (_field ? _field->is_volatile() : false); }
     int             general_index() const { return (_general_index != 0) ? _general_index : _index; }
@@ -135,7 +140,14 @@ class Compile : public Phase {
     void set_field(ciField* f) {
       assert(!_field,"");
       _field = f;
-      if (f->is_final())  _is_rewritable = false;
+      if (f->is_final() || f->is_stable()) {
+        // In the case of @Stable, multiple writes are possible but may be assumed to be no-ops.
+        _is_rewritable = false;
+      }
+    }
+    void set_element(const Type* e) {
+      assert(_element == NULL, "");
+      _element = e;
     }
 
     void print_on(outputStream* st) PRODUCT_RETURN;
@@ -262,6 +274,7 @@ class Compile : public Phase {
   const bool            _save_argument_registers; // save/restore arg regs for trampolines
   const bool            _subsume_loads;         // Load can be matched as part of a larger op.
   const bool            _do_escape_analysis;    // Do escape analysis.
+  const bool            _eliminate_boxing;      // Do boxing elimination.
   ciMethod*             _method;                // The method being compiled.
   int                   _entry_bci;             // entry bci for osr methods.
   const TypeFunc*       _tf;                    // My kind of signature
@@ -287,6 +300,7 @@ class Compile : public Phase {
   bool                  _has_split_ifs;         // True if the method _may_ have some split-if
   bool                  _has_unsafe_access;     // True if the method _may_ produce faults in unsafe loads or stores.
   bool                  _has_stringbuilder;     // True StringBuffers or StringBuilders are allocated
+  bool                  _has_boxed_value;       // True if a boxed object is allocated
   int                   _max_vector_size;       // Maximum size of generated vectors
   uint                  _trap_hist[trapHistLength];  // Cumulative traps
   bool                  _trap_can_recompile;    // Have we emitted a recompiling trap?
@@ -298,6 +312,8 @@ class Compile : public Phase {
   bool                  _do_method_data_update; // True if we generate code to update MethodData*s
   int                   _AliasLevel;            // Locally-adjusted version of AliasLevel flag.
   bool                  _print_assembly;        // True if we should dump assembly code for this compilation
+  bool                  _print_inlining;        // True if we should print inlining for this compilation
+  bool                  _print_intrinsics;      // True if we should print intrinsics for this compilation
 #ifndef PRODUCT
   bool                  _trace_opto_output;
   bool                  _parsed_irreducible_loop; // True if ciTypeFlow detected irreducible loops during parsing
@@ -319,6 +335,7 @@ class Compile : public Phase {
 #ifndef PRODUCT
   IdealGraphPrinter*    _printer;
 #endif
+
 
   // Node management
   uint                  _unique;                // Counter for unique Node indices
@@ -375,6 +392,8 @@ class Compile : public Phase {
                                                       // main parsing has finished.
   GrowableArray<CallGenerator*> _string_late_inlines; // same but for string operations
 
+  GrowableArray<CallGenerator*> _boxing_late_inlines; // same but for boxing operations
+
   int                           _late_inlines_pos;    // Where in the queue should the next late inlining candidate go (emulate depth first inlining)
   uint                          _number_of_mh_late_inlines; // number of method handle late inlining still pending
 
@@ -397,7 +416,7 @@ class Compile : public Phase {
   };
 
   GrowableArray<PrintInliningBuffer>* _print_inlining_list;
-  int _print_inlining;
+  int _print_inlining_idx;
 
   // Only keep nodes in the expensive node list that need to be optimized
   void cleanup_expensive_nodes(PhaseIterGVN &igvn);
@@ -409,24 +428,24 @@ class Compile : public Phase {
  public:
 
   outputStream* print_inlining_stream() const {
-    return _print_inlining_list->at(_print_inlining).ss();
+    return _print_inlining_list->adr_at(_print_inlining_idx)->ss();
   }
 
   void print_inlining_skip(CallGenerator* cg) {
-    if (PrintInlining) {
-      _print_inlining_list->at(_print_inlining).set_cg(cg);
-      _print_inlining++;
-      _print_inlining_list->insert_before(_print_inlining, PrintInliningBuffer());
+    if (_print_inlining) {
+      _print_inlining_list->adr_at(_print_inlining_idx)->set_cg(cg);
+      _print_inlining_idx++;
+      _print_inlining_list->insert_before(_print_inlining_idx, PrintInliningBuffer());
     }
   }
 
   void print_inlining_insert(CallGenerator* cg) {
-    if (PrintInlining) {
+    if (_print_inlining) {
       for (int i = 0; i < _print_inlining_list->length(); i++) {
-        if (_print_inlining_list->at(i).cg() == cg) {
+        if (_print_inlining_list->adr_at(i)->cg() == cg) {
           _print_inlining_list->insert_before(i+1, PrintInliningBuffer());
-          _print_inlining = i+1;
-          _print_inlining_list->at(i).set_cg(NULL);
+          _print_inlining_idx = i+1;
+          _print_inlining_list->adr_at(i)->set_cg(NULL);
           return;
         }
       }
@@ -486,8 +505,12 @@ class Compile : public Phase {
   // instructions that subsume a load may result in an unschedulable
   // instruction sequence.
   bool              subsume_loads() const       { return _subsume_loads; }
-  // Do escape analysis.
+  /** Do escape analysis. */
   bool              do_escape_analysis() const  { return _do_escape_analysis; }
+  /** Do boxing elimination. */
+  bool              eliminate_boxing() const    { return _eliminate_boxing; }
+  /** Do aggressive boxing elimination. */
+  bool              aggressive_unboxing() const { return _eliminate_boxing && AggressiveUnboxing; }
   bool              save_argument_registers() const { return _save_argument_registers; }
 
 
@@ -527,6 +550,8 @@ class Compile : public Phase {
   void          set_has_unsafe_access(bool z)   { _has_unsafe_access = z; }
   bool              has_stringbuilder() const   { return _has_stringbuilder; }
   void          set_has_stringbuilder(bool z)   { _has_stringbuilder = z; }
+  bool              has_boxed_value() const     { return _has_boxed_value; }
+  void          set_has_boxed_value(bool z)     { _has_boxed_value = z; }
   int               max_vector_size() const     { return _max_vector_size; }
   void          set_max_vector_size(int s)      { _max_vector_size = s; }
   void          set_trap_count(uint r, uint c)  { assert(r < trapHistLength, "oob");        _trap_hist[r] = c; }
@@ -549,6 +574,10 @@ class Compile : public Phase {
   int               AliasLevel() const          { return _AliasLevel; }
   bool              print_assembly() const       { return _print_assembly; }
   void          set_print_assembly(bool z)       { _print_assembly = z; }
+  bool              print_inlining() const       { return _print_inlining; }
+  void          set_print_inlining(bool z)       { _print_inlining = z; }
+  bool              print_intrinsics() const     { return _print_intrinsics; }
+  void          set_print_intrinsics(bool z)     { _print_intrinsics = z; }
   // check the CompilerOracle for special behaviours for this compile
   bool          method_has_option(const char * option) {
     return method() != NULL && method()->has_option(option);
@@ -563,28 +592,54 @@ class Compile : public Phase {
   bool              has_method_handle_invokes() const { return _has_method_handle_invokes;     }
   void          set_has_method_handle_invokes(bool z) {        _has_method_handle_invokes = z; }
 
+  jlong _latest_stage_start_counter;
+
   void begin_method() {
 #ifndef PRODUCT
     if (_printer) _printer->begin_method(this);
 #endif
+    C->_latest_stage_start_counter = os::elapsed_counter();
   }
-  void print_method(const char * name, int level = 1) {
+
+  void print_method(CompilerPhaseType cpt, int level = 1) {
+    EventCompilerPhase event(UNTIMED);
+    if (event.should_commit()) {
+      event.set_starttime(C->_latest_stage_start_counter);
+      event.set_endtime(os::elapsed_counter());
+      event.set_phase((u1) cpt);
+      event.set_compileID(C->_compile_id);
+      event.set_phaseLevel(level);
+      event.commit();
+    }
+
+
 #ifndef PRODUCT
-    if (_printer) _printer->print_method(this, name, level);
+    if (_printer) _printer->print_method(this, CompilerPhaseTypeHelper::to_string(cpt), level);
 #endif
+    C->_latest_stage_start_counter = os::elapsed_counter();
   }
-  void end_method() {
+
+  void end_method(int level = 1) {
+    EventCompilerPhase event(UNTIMED);
+    if (event.should_commit()) {
+      event.set_starttime(C->_latest_stage_start_counter);
+      event.set_endtime(os::elapsed_counter());
+      event.set_phase((u1) PHASE_END);
+      event.set_compileID(C->_compile_id);
+      event.set_phaseLevel(level);
+      event.commit();
+    }
 #ifndef PRODUCT
     if (_printer) _printer->end_method();
 #endif
   }
 
-  int           macro_count()                   { return _macro_nodes->length(); }
-  int           predicate_count()               { return _predicate_opaqs->length();}
-  int           expensive_count()               { return _expensive_nodes->length(); }
-  Node*         macro_node(int idx)             { return _macro_nodes->at(idx); }
-  Node*         predicate_opaque1_node(int idx) { return _predicate_opaqs->at(idx);}
-  Node*         expensive_node(int idx)         { return _expensive_nodes->at(idx); }
+  int           macro_count()             const { return _macro_nodes->length(); }
+  int           predicate_count()         const { return _predicate_opaqs->length();}
+  int           expensive_count()         const { return _expensive_nodes->length(); }
+  Node*         macro_node(int idx)       const { return _macro_nodes->at(idx); }
+  Node*         predicate_opaque1_node(int idx) const { return _predicate_opaqs->at(idx);}
+  Node*         expensive_node(int idx)   const { return _expensive_nodes->at(idx); }
   ConnectionGraph* congraph()                   { return _congraph;}
   void set_congraph(ConnectionGraph* congraph)  { _congraph = congraph;}
   void add_macro_node(Node * n) {
@@ -766,7 +821,12 @@ class Compile : public Phase {
   // Decide how to build a call.
   // The profile factor is a discount to apply to this site's interp. profile.
   CallGenerator*    call_generator(ciMethod* call_method, int vtable_index, bool call_does_dispatch, JVMState* jvms, bool allow_inline, float profile_factor, bool allow_intrinsics = true, bool delayed_forbidden = false);
-  bool should_delay_inlining(ciMethod* call_method, JVMState* jvms);
+  bool should_delay_inlining(ciMethod* call_method, JVMState* jvms) {
+    return should_delay_string_inlining(call_method, jvms) ||
+           should_delay_boxing_inlining(call_method, jvms);
+  }
+  bool should_delay_string_inlining(ciMethod* call_method, JVMState* jvms);
+  bool should_delay_boxing_inlining(ciMethod* call_method, JVMState* jvms);
 
   // Helper functions to identify inlining potential at call-site
   ciMethod* optimize_virtual_call(ciMethod* caller, int bci, ciInstanceKlass* klass,
@@ -822,6 +882,10 @@ class Compile : public Phase {
     _string_late_inlines.push(cg);
   }
 
+  void              add_boxing_late_inline(CallGenerator* cg) {
+    _boxing_late_inlines.push(cg);
+  }
+
   void remove_useless_late_inlines(GrowableArray<CallGenerator*>* inlines, Unique_Node_List &useful);
 
   void dump_inlining();
@@ -841,6 +905,7 @@ class Compile : public Phase {
   void inline_incrementally_one(PhaseIterGVN& igvn);
   void inline_incrementally(PhaseIterGVN& igvn);
   void inline_string_calls(bool parse_time);
+  void inline_boxing_calls(PhaseIterGVN& igvn);
 
   // Matching, CFG layout, allocation, code generation
   PhaseCFG*         cfg()                       { return _cfg; }
@@ -913,7 +978,8 @@ class Compile : public Phase {
   // replacement, entry_bci indicates the bytecode for which to compile a
   // continuation.
   Compile(ciEnv* ci_env, C2Compiler* compiler, ciMethod* target,
-          int entry_bci, bool subsume_loads, bool do_escape_analysis);
+          int entry_bci, bool subsume_loads, bool do_escape_analysis,
+          bool eliminate_boxing);
 
   // Second major entry point.  From the TypeFunc signature, generate code
   // to pass arguments from the Java calling convention to the C calling

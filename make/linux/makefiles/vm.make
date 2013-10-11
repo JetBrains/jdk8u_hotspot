@@ -1,5 +1,5 @@
 #
-# Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -19,7 +19,7 @@
 # Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
 # or visit www.oracle.com if you need additional information or have any
 # questions.
-#  
+#
 #
 
 # Rules to build JVM and related libraries, included from vm.make in the build
@@ -46,13 +46,14 @@ ifeq ($(findstring true, $(JVM_VARIANT_ZERO) $(JVM_VARIANT_ZEROSHARK)), true)
   include $(MAKEFILES_DIR)/zeroshark.make
 else
   include $(MAKEFILES_DIR)/$(BUILDARCH).make
+  -include $(HS_ALT_MAKE)/$(Platform_os_family)/makefiles/$(BUILDARCH).make
 endif
 
 # set VPATH so make knows where to look for source files
 # Src_Dirs_V is everything in src/share/vm/*, plus the right os/*/vm and cpu/*/vm
 # The adfiles directory contains ad_<arch>.[ch]pp.
 # The jvmtifiles directory contains jvmti*.[ch]pp
-Src_Dirs_V += $(GENERATED)/adfiles $(GENERATED)/jvmtifiles
+Src_Dirs_V += $(GENERATED)/adfiles $(GENERATED)/jvmtifiles $(GENERATED)/tracefiles
 VPATH += $(Src_Dirs_V:%=%:)
 
 # set INCLUDES for C preprocessor.
@@ -72,7 +73,7 @@ else
   endif
 endif
 
-# HOTSPOT_RELEASE_VERSION and HOTSPOT_BUILD_VERSION are defined 
+# HOTSPOT_RELEASE_VERSION and HOTSPOT_BUILD_VERSION are defined
 # in $(GAMMADIR)/make/defs.make
 ifeq ($(HOTSPOT_BUILD_VERSION),)
   BUILD_VERSION = -DHOTSPOT_RELEASE_VERSION="\"$(HOTSPOT_RELEASE_VERSION)\""
@@ -99,7 +100,7 @@ CXXFLAGS =           \
 
 # This is VERY important! The version define must only be supplied to vm_version.o
 # If not, ccache will not re-use the cache at all, since the version string might contain
-# a time and date. 
+# a time and date.
 CXXFLAGS/vm_version.o += ${JRE_VERSION}
 
 CXXFLAGS/BYFILE = $(CXXFLAGS/$@)
@@ -107,12 +108,10 @@ CXXFLAGS/BYFILE = $(CXXFLAGS/$@)
 # File specific flags
 CXXFLAGS += $(CXXFLAGS/BYFILE)
 
-
-ifndef JAVASE_EMBEDDED 
-ifneq (${ARCH},arm)
-CFLAGS += -DINCLUDE_TRACE
-endif
-endif
+# Large File Support
+ifneq ($(LP64), 1)
+CXXFLAGS/ostream.o += -D_FILE_OFFSET_BITS=64
+endif # ifneq ($(LP64), 1)
 
 # CFLAGS_WARN holds compiler options to suppress/enable warnings.
 CFLAGS += $(CFLAGS_WARN/BYFILE)
@@ -163,16 +162,14 @@ SOURCE_PATHS+=$(HS_COMMON_SRC)/os/posix/vm
 SOURCE_PATHS+=$(HS_COMMON_SRC)/cpu/$(Platform_arch)/vm
 SOURCE_PATHS+=$(HS_COMMON_SRC)/os_cpu/$(Platform_os_arch)/vm
 
-ifndef JAVASE_EMBEDDED 
-ifneq (${ARCH},arm)
-SOURCE_PATHS+=$(shell if [ -d $(HS_ALT_SRC)/share/vm/jfr ]; then \
+CORE_PATHS=$(foreach path,$(SOURCE_PATHS),$(call altsrc,$(path)) $(path))
+CORE_PATHS+=$(GENERATED)/jvmtifiles $(GENERATED)/tracefiles
+
+ifneq ($(INCLUDE_TRACE), false)
+CORE_PATHS+=$(shell if [ -d $(HS_ALT_SRC)/share/vm/jfr ]; then \
   find $(HS_ALT_SRC)/share/vm/jfr -type d; \
   fi)
 endif
-endif
-
-CORE_PATHS=$(foreach path,$(SOURCE_PATHS),$(call altsrc,$(path)) $(path))
-CORE_PATHS+=$(GENERATED)/jvmtifiles
 
 COMPILER1_PATHS := $(call altsrc,$(HS_COMMON_SRC)/share/vm/c1)
 COMPILER1_PATHS += $(HS_COMMON_SRC)/share/vm/c1
@@ -219,6 +216,12 @@ endif
 ifeq ($(Platform_arch_model), x86_64)
 Src_Files_EXCLUDE += \*x86_32\*
 endif
+
+# Alternate vm.make
+# This has to be included here to allow changes to the source
+# directories and excluded files before they are expanded
+# by the definition of Src_Files.
+-include $(HS_ALT_MAKE)/$(Platform_os_family)/makefiles/vm.make
 
 # Locate all source files in the given directory, excluding files in Src_Files_EXCLUDE.
 define findsrc
@@ -335,7 +338,7 @@ endif
 # With more recent Redhat releases (or the cutting edge version Fedora), if
 # SELinux is configured to be enabled, the runtime linker will fail to apply
 # the text relocation to libjvm.so considering that it is built as a non-PIC
-# DSO. To workaround that, we run chcon to libjvm.so after it is built. See 
+# DSO. To workaround that, we run chcon to libjvm.so after it is built. See
 # details in bug 6538311.
 $(LIBJVM): $(LIBJVM.o) $(LIBJVM_MAPFILE) $(LD_SCRIPT)
 	$(QUIETLY) {                                                    \
@@ -391,9 +394,6 @@ install_jvm: $(LIBJVM)
 #----------------------------------------------------------------------
 # Other files
 
-# Gamma launcher
-include $(MAKEFILES_DIR)/launcher.make
-
 # Signal interposition library
 include $(MAKEFILES_DIR)/jsig.make
 
@@ -406,4 +406,4 @@ build: $(LIBJVM) $(LAUNCHER) $(LIBJSIG) $(LIBJVM_DB) $(BUILDLIBSAPROC) dtraceChe
 
 install: install_jvm install_jsig install_saproc
 
-.PHONY: default build install install_jvm
+.PHONY: default build install install_jvm $(HS_ALT_MAKE)/$(Platform_os_family)/makefiles/$(BUILDARCH).make $(HS_ALT_MAKE)/$(Platform_os_family)/makefiles/vm.make

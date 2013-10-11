@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -246,11 +246,18 @@ private:
   // Set if one bucket is out of balance due to hash algorithm deficiency
   static bool _needs_rehashing;
 
+  // Claimed high water mark for parallel chunked scanning
+  static volatile int _parallel_claimed_idx;
+
   static oop intern(Handle string_or_null, jchar* chars, int length, TRAPS);
   oop basic_add(int index, Handle string_or_null, jchar* name, int len,
                 unsigned int hashValue, TRAPS);
 
   oop lookup(int index, jchar* chars, int length, unsigned int hashValue);
+
+  // Apply the give oop closure to the entries to the buckets
+  // in the range [start_idx, end_idx).
+  static void buckets_do(OopClosure* f, int start_idx, int end_idx);
 
   StringTable() : Hashtable<oop, mtSymbol>((int)StringTableSize,
                               sizeof (HashtableEntry<oop, mtSymbol>)) {}
@@ -272,10 +279,16 @@ public:
 
   // GC support
   //   Delete pointers to otherwise-unreachable objects.
-  static void unlink(BoolObjectClosure* cl);
+  static void unlink_or_oops_do(BoolObjectClosure* cl, OopClosure* f);
+  static void unlink(BoolObjectClosure* cl) {
+    unlink_or_oops_do(cl, NULL);
+  }
 
-  // Invoke "f->do_oop" on the locations of all oops in the table.
+  // Serially invoke "f->do_oop" on the locations of all oops in the table.
   static void oops_do(OopClosure* f);
+
+  // Possibly parallel version of the above
+  static void possibly_parallel_oops_do(OopClosure* f);
 
   // Hashing algorithm, used as the hash value used by the
   //     StringTable for bucket selection and comparison (stored in the
@@ -298,6 +311,26 @@ public:
   static void verify();
   static void dump(outputStream* st);
 
+  enum VerifyMesgModes {
+    _verify_quietly    = 0,
+    _verify_with_mesgs = 1
+  };
+
+  enum VerifyRetTypes {
+    _verify_pass          = 0,
+    _verify_fail_continue = 1,
+    _verify_fail_done     = 2
+  };
+
+  static VerifyRetTypes compare_entries(int bkt1, int e_cnt1,
+                                        HashtableEntry<oop, mtSymbol>* e_ptr1,
+                                        int bkt2, int e_cnt2,
+                                        HashtableEntry<oop, mtSymbol>* e_ptr2);
+  static VerifyRetTypes verify_entry(int bkt, int e_cnt,
+                                     HashtableEntry<oop, mtSymbol>* e_ptr,
+                                     VerifyMesgModes mesg_mode);
+  static int verify_and_compare_entries();
+
   // Sharing
   static void copy_buckets(char** top, char*end) {
     the_table()->Hashtable<oop, mtSymbol>::copy_buckets(top, end);
@@ -312,5 +345,8 @@ public:
   // Rehash the symbol table if it gets out of balance
   static void rehash_table();
   static bool needs_rehashing() { return _needs_rehashing; }
+
+  // Parallel chunked scanning
+  static void clear_parallel_claimed_index() { _parallel_claimed_idx = 0; }
 };
 #endif // SHARE_VM_CLASSFILE_SYMBOLTABLE_HPP

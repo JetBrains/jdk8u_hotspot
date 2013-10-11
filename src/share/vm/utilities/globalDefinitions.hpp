@@ -362,6 +362,8 @@ const int KlassAlignment           = KlassAlignmentInBytes / HeapWordSize;
 // Klass encoding metaspace max size
 const uint64_t KlassEncodingMetaspaceMax = (uint64_t(max_juint) + 1) << LogKlassAlignmentInBytes;
 
+const jlong CompressedKlassPointersBase = NOT_LP64(0) LP64_ONLY(CONST64(0x800000000));  // 32*G
+
 // Machine dependent stuff
 
 #ifdef TARGET_ARCH_x86
@@ -383,6 +385,14 @@ const uint64_t KlassEncodingMetaspaceMax = (uint64_t(max_juint) + 1) << LogKlass
 # include "globalDefinitions_ppc.hpp"
 #endif
 
+/*
+ * If a platform does not support native stack walking
+ * the platform specific globalDefinitions (above)
+ * can set PLATFORM_NATIVE_STACK_WALKING_SUPPORTED to 0
+ */
+#ifndef PLATFORM_NATIVE_STACK_WALKING_SUPPORTED
+#define PLATFORM_NATIVE_STACK_WALKING_SUPPORTED 1
+#endif
 
 // The byte alignment to be used by Arena::Amalloc.  See bugid 4169348.
 // Note: this value must be a power of 2
@@ -395,6 +405,14 @@ const uint64_t KlassEncodingMetaspaceMax = (uint64_t(max_juint) + 1) << LogKlass
 
 #define align_size_up_(size, alignment) (((size) + ((alignment) - 1)) & ~((alignment) - 1))
 
+inline bool is_size_aligned(size_t size, size_t alignment) {
+  return align_size_up_(size, alignment) == size;
+}
+
+inline bool is_ptr_aligned(void* ptr, size_t alignment) {
+  return align_size_up_((intptr_t)ptr, (intptr_t)alignment) == (intptr_t)ptr;
+}
+
 inline intptr_t align_size_up(intptr_t size, intptr_t alignment) {
   return align_size_up_(size, alignment);
 }
@@ -403,6 +421,16 @@ inline intptr_t align_size_up(intptr_t size, intptr_t alignment) {
 
 inline intptr_t align_size_down(intptr_t size, intptr_t alignment) {
   return align_size_down_(size, alignment);
+}
+
+#define is_size_aligned_(size, alignment) ((size) == (align_size_up_(size, alignment)))
+
+inline void* align_ptr_up(void* ptr, size_t alignment) {
+  return (void*)align_size_up((intptr_t)ptr, (intptr_t)alignment);
+}
+
+inline void* align_ptr_down(void* ptr, size_t alignment) {
+  return (void*)align_size_down((intptr_t)ptr, (intptr_t)alignment);
 }
 
 // Align objects by rounding up their size, in HeapWord units.
@@ -421,6 +449,10 @@ inline bool is_object_aligned(intptr_t addr) {
 
 inline intptr_t align_object_offset(intptr_t offset) {
   return align_size_up(offset, HeapWordsPerLong);
+}
+
+inline void* align_pointer_up(const void* addr, size_t size) {
+  return (void*) align_size_up_((uintptr_t)addr, size);
 }
 
 // Clamp an address to be within a specific page
@@ -444,32 +476,6 @@ inline address clamp_address_in_page(address addr, address page_address, intptr_
 // The expected size in bytes of a cache line, used to pad data structures.
 #define DEFAULT_CACHE_LINE_SIZE 64
 
-// Bytes needed to pad type to avoid cache-line sharing; alignment should be the
-// expected cache line size (a power of two).  The first addend avoids sharing
-// when the start address is not a multiple of alignment; the second maintains
-// alignment of starting addresses that happen to be a multiple.
-#define PADDING_SIZE(type, alignment)                           \
-  ((alignment) + align_size_up_(sizeof(type), alignment))
-
-// Templates to create a subclass padded to avoid cache line sharing.  These are
-// effective only when applied to derived-most (leaf) classes.
-
-// When no args are passed to the base ctor.
-template <class T, size_t alignment = DEFAULT_CACHE_LINE_SIZE>
-class Padded: public T {
-private:
-  char _pad_buf_[PADDING_SIZE(T, alignment)];
-};
-
-// When either 0 or 1 args may be passed to the base ctor.
-template <class T, typename Arg1T, size_t alignment = DEFAULT_CACHE_LINE_SIZE>
-class Padded01: public T {
-public:
-  Padded01(): T() { }
-  Padded01(Arg1T arg1): T(arg1) { }
-private:
-  char _pad_buf_[PADDING_SIZE(T, alignment)];
-};
 
 //----------------------------------------------------------------------------------------------------
 // Utility macros for compilers
@@ -756,18 +762,6 @@ inline BasicType as_BasicType(TosState state) {
 // Helper function to convert BasicType info into TosState
 // Note: Cannot define here as it uses global constant at the time being.
 TosState as_TosState(BasicType type);
-
-
-// ReferenceType is used to distinguish between java/lang/ref/Reference subclasses
-
-enum ReferenceType {
- REF_NONE,      // Regular class
- REF_OTHER,     // Subclass of java/lang/ref/Reference, but not subclass of one of the classes below
- REF_SOFT,      // Subclass of java/lang/ref/SoftReference
- REF_WEAK,      // Subclass of java/lang/ref/WeakReference
- REF_FINAL,     // Subclass of java/lang/ref/FinalReference
- REF_PHANTOM    // Subclass of java/lang/ref/PhantomReference
-};
 
 
 // JavaThreadState keeps track of which part of the code a thread is executing in. This

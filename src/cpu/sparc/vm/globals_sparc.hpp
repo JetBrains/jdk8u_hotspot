@@ -74,7 +74,7 @@ define_pd_global(bool, RewriteFrequentPairs, true);
 define_pd_global(bool, UseMembar,            false);
 
 // GC Ergo Flags
-define_pd_global(intx, CMSYoungGenPerWorker, 16*M);  // default max size of CMS young gen, per GC worker thread
+define_pd_global(uintx, CMSYoungGenPerWorker, 16*M);  // default max size of CMS young gen, per GC worker thread
 
 #define ARCH_FLAGS(develop, product, diagnostic, experimental, notproduct) \
                                                                             \
@@ -110,8 +110,5 @@ define_pd_global(intx, CMSYoungGenPerWorker, 16*M);  // default max size of CMS 
                                                                             \
   product(uintx,  ArraycopyDstPrefetchDistance, 0,                          \
           "Distance to prefetch destination array in arracopy")             \
-                                                                            \
-  develop(intx, V8AtomicOperationUnderLockSpinCount,    50,                 \
-          "Number of times to spin wait on a v8 atomic operation lock")     \
 
 #endif // CPU_SPARC_VM_GLOBALS_SPARC_HPP

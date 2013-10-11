@@ -458,7 +458,7 @@ void JVMState::format(PhaseRegAlloc *regalloc, const Node *n, outputStream* st) 
       st->print("={");
       uint nf = spobj->n_fields();
       if (nf > 0) {
-        uint first_ind = spobj->first_index();
+        uint first_ind = spobj->first_index(mcall->jvms());
         Node* fld_node = mcall->in(first_ind);
         ciField* cifield;
         if (iklass != NULL) {
@@ -523,7 +523,9 @@ void JVMState::dump_spec(outputStream *st) const {
 
 
 void JVMState::dump_on(outputStream* st) const {
-  if (_map && !((uintptr_t)_map & 1)) {
+  bool print_map = _map && !((uintptr_t)_map & 1) &&
+                  ((caller() == NULL) || (caller()->map() != _map));
+  if (print_map) {
     if (_map->len() > _map->req()) {  // _map->has_exceptions()
       Node* ex = _map->in(_map->req());  // _map->next_exception()
       // skip the first one; it's already being printed
@@ -532,7 +534,10 @@ void JVMState::dump_on(outputStream* st) const {
         ex->dump(1);
       }
     }
-    _map->dump(2);
+    _map->dump(Verbose ? 2 : 1);
+  }
+  if (caller() != NULL) {
+    caller()->dump_on(st);
   }
   st->print("JVMS depth=%d loc=%d stk=%d arg=%d mon=%d scalar=%d end=%d mondepth=%d sp=%d bci=%d reexecute=%s method=",
              depth(), locoff(), stkoff(), argoff(), monoff(), scloff(), endoff(), monitor_depth(), sp(), bci(), should_reexecute()?"true":"false");
@@ -545,9 +550,6 @@ void JVMState::dump_on(outputStream* st) const {
       st->print("    bc: ");
       _method->print_codes_on(bci(), bci()+1, st);
     }
-  }
-  if (caller() != NULL) {
-    caller()->dump_on(st);
   }
 }
 
@@ -582,6 +584,15 @@ JVMState* JVMState::clone_deep(Compile* C) const {
   assert(n->depth() == depth(), "sanity");
   assert(n->debug_depth() == debug_depth(), "sanity");
   return n;
+}
+
+/**
+ * Reset map for all callers
+ */
+void JVMState::set_map_deep(SafePointNode* map) {
+  for (JVMState* p = this; p->_caller != NULL; p = p->_caller) {
+    p->set_map(map);
+  }
 }
 
 //=============================================================================
@@ -663,17 +674,49 @@ uint CallNode::match_edge(uint idx) const {
 // Determine whether the call could modify the field of the specified
 // instance at the specified offset.
 //
-bool CallNode::may_modify(const TypePtr *addr_t, PhaseTransform *phase) {
-  const TypeOopPtr *adrInst_t  = addr_t->isa_oopptr();
-
-  // If not an OopPtr or not an instance type, assume the worst.
-  // Note: currently this method is called only for instance types.
-  if (adrInst_t == NULL || !adrInst_t->is_known_instance()) {
-    return true;
+bool CallNode::may_modify(const TypeOopPtr *t_oop, PhaseTransform *phase) {
+  assert((t_oop != NULL), "sanity");
+  if (t_oop->is_known_instance()) {
+    // The instance_id is set only for scalar-replaceable allocations which
+    // are not passed as arguments according to Escape Analysis.
+    return false;
   }
-  // The instance_id is set only for scalar-replaceable allocations which
-  // are not passed as arguments according to Escape Analysis.
-  return false;
+  if (t_oop->is_ptr_to_boxed_value()) {
+    ciKlass* boxing_klass = t_oop->klass();
+    if (is_CallStaticJava() && as_CallStaticJava()->is_boxing_method()) {
+      // Skip unrelated boxing methods.
+      Node* proj = proj_out(TypeFunc::Parms);
+      if ((proj == NULL) || (phase->type(proj)->is_instptr()->klass() != boxing_klass)) {
+        return false;
+      }
+    }
+    if (is_CallJava() && as_CallJava()->method() != NULL) {
+      ciMethod* meth = as_CallJava()->method();
+      if (meth->is_accessor()) {
+        return false;
+      }
+      // May modify (by reflection) if an boxing object is passed
+      // as argument or returned.
+      if (returns_pointer() && (proj_out(TypeFunc::Parms) != NULL)) {
+        Node* proj = proj_out(TypeFunc::Parms);
+        const TypeInstPtr* inst_t = phase->type(proj)->isa_instptr();
+        if ((inst_t != NULL) && (!inst_t->klass_is_exact() ||
+                                 (inst_t->klass() == boxing_klass))) {
+          return true;
+        }
+      }
+      const TypeTuple* d = tf()->domain();
+      for (uint i = TypeFunc::Parms; i < d->cnt(); i++) {
+        const TypeInstPtr* inst_t = d->field_at(i)->isa_instptr();
+        if ((inst_t != NULL) && (!inst_t->klass_is_exact() ||
+                                 (inst_t->klass() == boxing_klass))) {
+          return true;
+        }
+      }
+      return false;
+    }
+  }
+  return true;
 }
 
 // Does this call have a direct reference to n other than debug information?
@@ -1037,28 +1080,29 @@ void SafePointNode::push_monitor(const FastLockNode *lock) {
   assert(req() == jvms()->endoff(), "correct sizing");
   int nextmon = jvms()->scloff();
   if (GenerateSynchronizationCode) {
-    add_req(lock->box_node());
-    add_req(lock->obj_node());
+    ins_req(nextmon,   lock->box_node());
+    ins_req(nextmon+1, lock->obj_node());
   } else {
     Node* top = Compile::current()->top();
-    add_req(top);
-    add_req(top);
+    ins_req(nextmon, top);
+    ins_req(nextmon, top);
   }
-  jvms()->set_scloff(nextmon+MonitorEdges);
+  jvms()->set_scloff(nextmon + MonitorEdges);
   jvms()->set_endoff(req());
 }
 
 void SafePointNode::pop_monitor() {
   // Delete last monitor from debug info
   debug_only(int num_before_pop = jvms()->nof_monitors());
-  const int MonitorEdges = (1<<JVMState::logMonitorEdges);
+  const int MonitorEdges = 2;
+  assert(JVMState::logMonitorEdges == exact_log2(MonitorEdges), "correct MonitorEdges");
   int scloff = jvms()->scloff();
   int endoff = jvms()->endoff();
   int new_scloff = scloff - MonitorEdges;
   int new_endoff = endoff - MonitorEdges;
   jvms()->set_scloff(new_scloff);
   jvms()->set_endoff(new_endoff);
-  while (scloff > new_scloff)  del_req(--scloff);
+  while (scloff > new_scloff)  del_req_ordered(--scloff);
   assert(jvms()->nof_monitors() == num_before_pop-1, "");
 }
 
@@ -1123,13 +1167,12 @@ uint SafePointScalarObjectNode::match_edge(uint idx) const {
 }
 
 SafePointScalarObjectNode*
-SafePointScalarObjectNode::clone(int jvms_adj, Dict* sosn_map) const {
+SafePointScalarObjectNode::clone(Dict* sosn_map) const {
   void* cached = (*sosn_map)[(void*)this];
   if (cached != NULL) {
     return (SafePointScalarObjectNode*)cached;
   }
   SafePointScalarObjectNode* res = (SafePointScalarObjectNode*)Node::clone();
-  res->_first_index += jvms_adj;
   sosn_map->Insert((void*)this, (void*)res);
   return res;
 }
@@ -1154,6 +1197,7 @@ AllocateNode::AllocateNode(Compile* C, const TypeFunc *atype,
   init_class_id(Class_Allocate);
   init_flags(Flag_is_macro);
   _is_scalar_replaceable = false;
+  _is_non_escaping = false;
   Node *topnode = C->top();
 
   init_req( TypeFunc::Control  , ctrl );
@@ -1169,8 +1213,6 @@ AllocateNode::AllocateNode(Compile* C, const TypeFunc *atype,
 }
 
 //=============================================================================
-uint AllocateArrayNode::size_of() const { return sizeof(*this); }
-
 Node* AllocateArrayNode::Ideal(PhaseGVN *phase, bool can_reshape) {
   if (remove_dead_region(phase, can_reshape))  return this;
   // Don't bother trying to transform a dead node
@@ -1235,6 +1277,8 @@ Node *AllocateArrayNode::make_ideal_length(const TypeOopPtr* oop_type, PhaseTran
       //   - the narrow_length is 0
       //   - the narrow_length is not wider than length
       assert(narrow_length_type == TypeInt::ZERO ||
+             length_type->is_con() && narrow_length_type->is_con() &&
+                (narrow_length_type->_hi <= length_type->_lo) ||
              (narrow_length_type->_hi <= length_type->_hi &&
               narrow_length_type->_lo >= length_type->_lo),
              "narrow type must be narrower than length type");

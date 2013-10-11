@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -169,7 +169,7 @@ protected:
 
 public:
 
-  inline void* operator new( size_t x ) {
+  inline void* operator new( size_t x ) throw() {
     Compile* compile = Compile::current();
     compile->set_type_last_size(x);
     void *temp = compile->type_arena()->Amalloc_D(x);
@@ -233,6 +233,9 @@ public:
   // compressed oop references.
   bool is_ptr_to_narrowoop() const;
   bool is_ptr_to_narrowklass() const;
+
+  bool is_ptr_to_boxing_obj() const;
+
 
   // Convenience access
   float getf() const;
@@ -368,6 +371,10 @@ public:
 
   // Mapping from CI type system to compiler type:
   static const Type* get_typeflow_type(ciType* type);
+
+  static const Type* make_from_constant(ciConstant constant,
+                                        bool require_constant = false,
+                                        bool is_autobox_cache = false);
 
 private:
   // support arrays
@@ -585,8 +592,8 @@ public:
 //------------------------------TypeAry----------------------------------------
 // Class of Array Types
 class TypeAry : public Type {
-  TypeAry( const Type *elem, const TypeInt *size) : Type(Array),
-    _elem(elem), _size(size) {}
+  TypeAry(const Type* elem, const TypeInt* size, bool stable) : Type(Array),
+      _elem(elem), _size(size), _stable(stable) {}
 public:
   virtual bool eq( const Type *t ) const;
   virtual int  hash() const;             // Type specific hashing
@@ -596,10 +603,11 @@ public:
 private:
   const Type *_elem;            // Element type of array
   const TypeInt *_size;         // Elements in array
+  const bool _stable;           // Are elements @Stable?
   friend class TypeAryPtr;
 
 public:
-  static const TypeAry *make(  const Type *elem, const TypeInt *size);
+  static const TypeAry* make(const Type* elem, const TypeInt* size, bool stable = false);
 
   virtual const Type *xmeet( const Type *t ) const;
   virtual const Type *xdual() const;    // Compute dual right now.
@@ -794,6 +802,7 @@ protected:
   bool          _klass_is_exact;
   bool          _is_ptr_to_narrowoop;
   bool          _is_ptr_to_narrowklass;
+  bool          _is_ptr_to_boxed_value;
 
   // If not InstanceTop or InstanceBot, indicates that this is
   // a particular instance of this type which is distinct.
@@ -826,7 +835,9 @@ public:
   // If the object cannot be rendered as a constant,
   // may return a non-singleton type.
   // If require_constant, produce a NULL if a singleton is not possible.
-  static const TypeOopPtr* make_from_constant(ciObject* o, bool require_constant = false);
+  static const TypeOopPtr* make_from_constant(ciObject* o,
+                                              bool require_constant = false,
+                                              bool not_null_elements = false);
 
   // Make a generic (unclassed) pointer to an oop.
   static const TypeOopPtr* make(PTR ptr, int offset, int instance_id);
@@ -839,7 +850,7 @@ public:
   // compressed oop references.
   bool is_ptr_to_narrowoop_nv() const { return _is_ptr_to_narrowoop; }
   bool is_ptr_to_narrowklass_nv() const { return _is_ptr_to_narrowklass; }
-
+  bool is_ptr_to_boxed_value()   const { return _is_ptr_to_boxed_value; }
   bool is_known_instance()       const { return _instance_id > 0; }
   int  instance_id()             const { return _instance_id; }
   bool is_known_instance_field() const { return is_known_instance() && _offset >= 0; }
@@ -912,6 +923,9 @@ class TypeInstPtr : public TypeOopPtr {
   // Make a pointer to an oop.
   static const TypeInstPtr *make(PTR ptr, ciKlass* k, bool xk, ciObject* o, int offset, int instance_id = InstanceBot );
 
+  /** Create constant type for a constant boxed value */
+  const Type* get_const_boxed_value() const;
+
   // If this is a java.lang.Class constant, return the type for it or NULL.
   // Pass to Type::get_const_type to turn it to a type, which will usually
   // be a TypeInstPtr, but may also be a TypeInt::INT for int.class, etc.
@@ -943,7 +957,12 @@ class TypeInstPtr : public TypeOopPtr {
 //------------------------------TypeAryPtr-------------------------------------
 // Class of Java array pointers
 class TypeAryPtr : public TypeOopPtr {
-  TypeAryPtr( PTR ptr, ciObject* o, const TypeAry *ary, ciKlass* k, bool xk, int offset, int instance_id ) : TypeOopPtr(AryPtr,ptr,k,xk,o,offset, instance_id), _ary(ary) {
+  TypeAryPtr( PTR ptr, ciObject* o, const TypeAry *ary, ciKlass* k, bool xk,
+              int offset, int instance_id, bool is_autobox_cache )
+  : TypeOopPtr(AryPtr,ptr,k,xk,o,offset, instance_id),
+    _ary(ary),
+    _is_autobox_cache(is_autobox_cache)
+ {
 #ifdef ASSERT
     if (k != NULL) {
       // Verify that specified klass and TypeAryPtr::klass() follow the same rules.
@@ -964,6 +983,7 @@ class TypeAryPtr : public TypeOopPtr {
   virtual bool eq( const Type *t ) const;
   virtual int hash() const;     // Type specific hashing
   const TypeAry *_ary;          // Array we point into
+  const bool     _is_autobox_cache;
 
   ciKlass* compute_klass(DEBUG_ONLY(bool verify = false)) const;
 
@@ -973,10 +993,13 @@ public:
   const TypeAry* ary() const  { return _ary; }
   const Type*    elem() const { return _ary->_elem; }
   const TypeInt* size() const { return _ary->_size; }
+  bool      is_stable() const { return _ary->_stable; }
+
+  bool is_autobox_cache() const { return _is_autobox_cache; }
 
   static const TypeAryPtr *make( PTR ptr, const TypeAry *ary, ciKlass* k, bool xk, int offset, int instance_id = InstanceBot);
   // Constant pointer to array
-  static const TypeAryPtr *make( PTR ptr, ciObject* o, const TypeAry *ary, ciKlass* k, bool xk, int offset, int instance_id = InstanceBot);
+  static const TypeAryPtr *make( PTR ptr, ciObject* o, const TypeAry *ary, ciKlass* k, bool xk, int offset, int instance_id = InstanceBot, bool is_autobox_cache = false);
 
   // Return a 'ptr' version of this type
   virtual const Type *cast_to_ptr_type(PTR ptr) const;
@@ -993,6 +1016,9 @@ public:
 
   virtual const Type *xmeet( const Type *t ) const;
   virtual const Type *xdual() const;    // Compute dual right now.
+
+  const TypeAryPtr* cast_to_stable(bool stable, int stable_dimension = 1) const;
+  int stable_dimension() const;
 
   // Convenience common pre-built types.
   static const TypeAryPtr *RANGE;
@@ -1502,6 +1528,13 @@ inline bool Type::is_floatingpoint() const {
       (_base == DoubleCon) || (_base == DoubleBot) )
     return true;
   return false;
+}
+
+inline bool Type::is_ptr_to_boxing_obj() const {
+  const TypeInstPtr* tp = isa_instptr();
+  return (tp != NULL) && (tp->offset() == 0) &&
+         tp->klass()->is_instance_klass()  &&
+         tp->klass()->as_instance_klass()->is_box_klass();
 }
 
 

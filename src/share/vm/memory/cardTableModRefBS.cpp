@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -80,15 +80,11 @@ CardTableModRefBS::CardTableModRefBS(MemRegion whole_heap,
 
   _covered   = new MemRegion[max_covered_regions];
   _committed = new MemRegion[max_covered_regions];
-  if (_covered == NULL || _committed == NULL)
+  if (_covered == NULL || _committed == NULL) {
     vm_exit_during_initialization("couldn't alloc card table covered region set.");
-  int i;
-  for (i = 0; i < max_covered_regions; i++) {
-    _covered[i].set_word_size(0);
-    _committed[i].set_word_size(0);
   }
-  _cur_covered_regions = 0;
 
+  _cur_covered_regions = 0;
   const size_t rs_align = _page_size == (size_t) os::vm_page_size() ? 0 :
     MAX2(_page_size, (size_t) os::vm_allocation_granularity());
   ReservedSpace heap_rs(_byte_map_size, rs_align, false);
@@ -114,11 +110,8 @@ CardTableModRefBS::CardTableModRefBS(MemRegion whole_heap,
   jbyte* guard_card = &_byte_map[_guard_index];
   uintptr_t guard_page = align_size_down((uintptr_t)guard_card, _page_size);
   _guard_region = MemRegion((HeapWord*)guard_page, _page_size);
-  if (!os::commit_memory((char*)guard_page, _page_size, _page_size)) {
-    // Do better than this for Merlin
-    vm_exit_out_of_memory(_page_size, OOM_MMAP_ERROR, "card table last card");
-  }
-
+  os::commit_memory_or_exit((char*)guard_page, _page_size, _page_size,
+                            !ExecMem, "card table last card");
   *guard_card = last_card;
 
    _lowest_non_clean =
@@ -134,7 +127,7 @@ CardTableModRefBS::CardTableModRefBS(MemRegion whole_heap,
       || _lowest_non_clean_base_chunk_index == NULL
       || _last_LNC_resizing_collection == NULL)
     vm_exit_during_initialization("couldn't allocate an LNC array.");
-  for (i = 0; i < max_covered_regions; i++) {
+  for (int i = 0; i < max_covered_regions; i++) {
     _lowest_non_clean[i] = NULL;
     _lowest_non_clean_chunk_size[i] = 0;
     _last_LNC_resizing_collection[i] = -1;
@@ -150,6 +143,33 @@ CardTableModRefBS::CardTableModRefBS(MemRegion whole_heap,
     gclog_or_tty->print_cr("  "
                   "  byte_map_base: " INTPTR_FORMAT,
                   byte_map_base);
+  }
+}
+
+CardTableModRefBS::~CardTableModRefBS() {
+  if (_covered) {
+    delete[] _covered;
+    _covered = NULL;
+  }
+  if (_committed) {
+    delete[] _committed;
+    _committed = NULL;
+  }
+  if (_lowest_non_clean) {
+    FREE_C_HEAP_ARRAY(CardArr, _lowest_non_clean, mtGC);
+    _lowest_non_clean = NULL;
+  }
+  if (_lowest_non_clean_chunk_size) {
+    FREE_C_HEAP_ARRAY(size_t, _lowest_non_clean_chunk_size, mtGC);
+    _lowest_non_clean_chunk_size = NULL;
+  }
+  if (_lowest_non_clean_base_chunk_index) {
+    FREE_C_HEAP_ARRAY(uintptr_t, _lowest_non_clean_base_chunk_index, mtGC);
+    _lowest_non_clean_base_chunk_index = NULL;
+  }
+  if (_last_LNC_resizing_collection) {
+    FREE_C_HEAP_ARRAY(int, _last_LNC_resizing_collection, mtGC);
+    _last_LNC_resizing_collection = NULL;
   }
 }
 
@@ -289,12 +309,9 @@ void CardTableModRefBS::resize_covered_region(MemRegion new_region) {
         MemRegion(cur_committed.end(), new_end_for_commit);
 
       assert(!new_committed.is_empty(), "Region should not be empty here");
-      if (!os::commit_memory((char*)new_committed.start(),
-                             new_committed.byte_size(), _page_size)) {
-        // Do better than this for Merlin
-        vm_exit_out_of_memory(new_committed.byte_size(), OOM_MMAP_ERROR,
-                "card table expansion");
-      }
+      os::commit_memory_or_exit((char*)new_committed.start(),
+                                new_committed.byte_size(), _page_size,
+                                !ExecMem, "card table expansion");
     // Use new_end_aligned (as opposed to new_end_for_commit) because
     // the cur_committed region may include the guard region.
     } else if (new_end_aligned < cur_committed.end()) {
@@ -395,7 +412,7 @@ void CardTableModRefBS::resize_covered_region(MemRegion new_region) {
   }
   // Touch the last card of the covered region to show that it
   // is committed (or SEGV).
-  debug_only(*byte_for(_covered[ind].last());)
+  debug_only((void) (*byte_for(_covered[ind].last()));)
   debug_only(verify_guard();)
 }
 

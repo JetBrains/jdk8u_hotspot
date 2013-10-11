@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,6 +30,7 @@
 #include "interpreter/interpreter.hpp"
 #include "memory/cardTableModRefBS.hpp"
 #include "memory/resourceArea.hpp"
+#include "memory/universe.hpp"
 #include "prims/methodHandles.hpp"
 #include "runtime/biasedLocking.hpp"
 #include "runtime/interfaceSupport.hpp"
@@ -1634,7 +1635,7 @@ void MacroAssembler::call_VM_base(Register oop_result,
 #ifdef ASSERT
   // TraceBytecodes does not use r12 but saves it over the call, so don't verify
   // r12 is the heapbase.
-  LP64_ONLY(if ((UseCompressedOops || UseCompressedKlassPointers) && !TraceBytecodes) verify_heapbase("call_VM_base: heap base corrupted?");)
+  LP64_ONLY(if ((UseCompressedOops || UseCompressedClassPointers) && !TraceBytecodes) verify_heapbase("call_VM_base: heap base corrupted?");)
 #endif // ASSERT
 
   assert(java_thread != oop_result  , "cannot use the same register for java_thread & oop_result");
@@ -2791,6 +2792,15 @@ void MacroAssembler::movdqu(XMMRegister dst, AddressLiteral src) {
   } else {
     lea(rscratch1, src);
     Assembler::movdqu(dst, Address(rscratch1, 0));
+  }
+}
+
+void MacroAssembler::movdqa(XMMRegister dst, AddressLiteral src) {
+  if (reachable(src)) {
+    Assembler::movdqa(dst, as_Address(src));
+  } else {
+    lea(rscratch1, src);
+    Assembler::movdqa(dst, Address(rscratch1, 0));
   }
 }
 
@@ -4792,7 +4802,7 @@ void MacroAssembler::restore_cpu_control_state_after_jni() {
 
 void MacroAssembler::load_klass(Register dst, Register src) {
 #ifdef _LP64
-  if (UseCompressedKlassPointers) {
+  if (UseCompressedClassPointers) {
     movl(dst, Address(src, oopDesc::klass_offset_in_bytes()));
     decode_klass_not_null(dst);
   } else
@@ -4801,28 +4811,13 @@ void MacroAssembler::load_klass(Register dst, Register src) {
 }
 
 void MacroAssembler::load_prototype_header(Register dst, Register src) {
-#ifdef _LP64
-  if (UseCompressedKlassPointers) {
-    assert (Universe::heap() != NULL, "java heap should be initialized");
-    movl(dst, Address(src, oopDesc::klass_offset_in_bytes()));
-    if (Universe::narrow_klass_shift() != 0) {
-      assert(LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
-      assert(LogKlassAlignmentInBytes == Address::times_8, "klass not aligned on 64bits?");
-      movq(dst, Address(r12_heapbase, dst, Address::times_8, Klass::prototype_header_offset()));
-    } else {
-      movq(dst, Address(dst, Klass::prototype_header_offset()));
-    }
-  } else
-#endif
-  {
-    movptr(dst, Address(src, oopDesc::klass_offset_in_bytes()));
-    movptr(dst, Address(dst, Klass::prototype_header_offset()));
-  }
+  load_klass(dst, src);
+  movptr(dst, Address(dst, Klass::prototype_header_offset()));
 }
 
 void MacroAssembler::store_klass(Register dst, Register src) {
 #ifdef _LP64
-  if (UseCompressedKlassPointers) {
+  if (UseCompressedClassPointers) {
     encode_klass_not_null(src);
     movl(Address(dst, oopDesc::klass_offset_in_bytes()), src);
   } else
@@ -4897,7 +4892,7 @@ void MacroAssembler::store_heap_oop_null(Address dst) {
 
 #ifdef _LP64
 void MacroAssembler::store_klass_gap(Register dst, Register src) {
-  if (UseCompressedKlassPointers) {
+  if (UseCompressedClassPointers) {
     // Store to klass gap in destination
     movl(Address(dst, oopDesc::klass_gap_offset_in_bytes()), src);
   }
@@ -4905,7 +4900,7 @@ void MacroAssembler::store_klass_gap(Register dst, Register src) {
 
 #ifdef ASSERT
 void MacroAssembler::verify_heapbase(const char* msg) {
-  assert (UseCompressedOops || UseCompressedKlassPointers, "should be compressed");
+  assert (UseCompressedOops, "should be compressed");
   assert (Universe::heap() != NULL, "java heap should be initialized");
   if (CheckCompressedOops) {
     Label ok;
@@ -5049,69 +5044,80 @@ void  MacroAssembler::decode_heap_oop_not_null(Register dst, Register src) {
 }
 
 void MacroAssembler::encode_klass_not_null(Register r) {
-  assert(Metaspace::is_initialized(), "metaspace should be initialized");
-#ifdef ASSERT
-  verify_heapbase("MacroAssembler::encode_klass_not_null: heap base corrupted?");
-#endif
-  if (Universe::narrow_klass_base() != NULL) {
-    subq(r, r12_heapbase);
-  }
+  assert(Universe::narrow_klass_base() != NULL, "Base should be initialized");
+  // Use r12 as a scratch register in which to temporarily load the narrow_klass_base.
+  assert(r != r12_heapbase, "Encoding a klass in r12");
+  mov64(r12_heapbase, (int64_t)Universe::narrow_klass_base());
+  subq(r, r12_heapbase);
   if (Universe::narrow_klass_shift() != 0) {
     assert (LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
     shrq(r, LogKlassAlignmentInBytes);
   }
+  reinit_heapbase();
 }
 
 void MacroAssembler::encode_klass_not_null(Register dst, Register src) {
-  assert(Metaspace::is_initialized(), "metaspace should be initialized");
-#ifdef ASSERT
-  verify_heapbase("MacroAssembler::encode_klass_not_null2: heap base corrupted?");
-#endif
-  if (dst != src) {
-    movq(dst, src);
-  }
-  if (Universe::narrow_klass_base() != NULL) {
-    subq(dst, r12_heapbase);
-  }
-  if (Universe::narrow_klass_shift() != 0) {
-    assert (LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
-    shrq(dst, LogKlassAlignmentInBytes);
+  if (dst == src) {
+    encode_klass_not_null(src);
+  } else {
+    mov64(dst, (int64_t)Universe::narrow_klass_base());
+    negq(dst);
+    addq(dst, src);
+    if (Universe::narrow_klass_shift() != 0) {
+      assert (LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
+      shrq(dst, LogKlassAlignmentInBytes);
+    }
   }
 }
 
+// Function instr_size_for_decode_klass_not_null() counts the instructions
+// generated by decode_klass_not_null(register r) and reinit_heapbase(),
+// when (Universe::heap() != NULL).  Hence, if the instructions they
+// generate change, then this method needs to be updated.
+int MacroAssembler::instr_size_for_decode_klass_not_null() {
+  assert (UseCompressedClassPointers, "only for compressed klass ptrs");
+  // mov64 + addq + shlq? + mov64  (for reinit_heapbase()).
+  return (Universe::narrow_klass_shift() == 0 ? 20 : 24);
+}
+
+// !!! If the instructions that get generated here change then function
+// instr_size_for_decode_klass_not_null() needs to get updated.
 void  MacroAssembler::decode_klass_not_null(Register r) {
-  assert(Metaspace::is_initialized(), "metaspace should be initialized");
   // Note: it will change flags
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
+  assert(Universe::narrow_klass_base() != NULL, "Base should be initialized");
+  assert (UseCompressedClassPointers, "should only be used for compressed headers");
+  assert(r != r12_heapbase, "Decoding a klass in r12");
   // Cannot assert, unverified entry point counts instructions (see .ad file)
   // vtableStubs also counts instructions in pd_code_size_limit.
   // Also do not verify_oop as this is called by verify_oop.
   if (Universe::narrow_klass_shift() != 0) {
     assert(LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
     shlq(r, LogKlassAlignmentInBytes);
-    if (Universe::narrow_klass_base() != NULL) {
-      addq(r, r12_heapbase);
-    }
-  } else {
-    assert (Universe::narrow_klass_base() == NULL, "sanity");
   }
+  // Use r12 as a scratch register in which to temporarily load the narrow_klass_base.
+  mov64(r12_heapbase, (int64_t)Universe::narrow_klass_base());
+  addq(r, r12_heapbase);
+  reinit_heapbase();
 }
 
 void  MacroAssembler::decode_klass_not_null(Register dst, Register src) {
-  assert(Metaspace::is_initialized(), "metaspace should be initialized");
   // Note: it will change flags
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
-  // Cannot assert, unverified entry point counts instructions (see .ad file)
-  // vtableStubs also counts instructions in pd_code_size_limit.
-  // Also do not verify_oop as this is called by verify_oop.
-  if (Universe::narrow_klass_shift() != 0) {
-    assert(LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
-    assert(LogKlassAlignmentInBytes == Address::times_8, "klass not aligned on 64bits?");
-    leaq(dst, Address(r12_heapbase, src, Address::times_8, 0));
+  assert(Universe::narrow_klass_base() != NULL, "Base should be initialized");
+  assert (UseCompressedClassPointers, "should only be used for compressed headers");
+  if (dst == src) {
+    decode_klass_not_null(dst);
   } else {
-    assert (Universe::narrow_klass_base() == NULL, "sanity");
-    if (dst != src) {
-      movq(dst, src);
+    // Cannot assert, unverified entry point counts instructions (see .ad file)
+    // vtableStubs also counts instructions in pd_code_size_limit.
+    // Also do not verify_oop as this is called by verify_oop.
+
+    mov64(dst, (int64_t)Universe::narrow_klass_base());
+    if (Universe::narrow_klass_shift() != 0) {
+      assert(LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
+      assert(LogKlassAlignmentInBytes == Address::times_8, "klass not aligned on 64bits?");
+      leaq(dst, Address(dst, src, Address::times_8, 0));
+    } else {
+      addq(dst, src);
     }
   }
 }
@@ -5135,19 +5141,19 @@ void  MacroAssembler::set_narrow_oop(Address dst, jobject obj) {
 }
 
 void  MacroAssembler::set_narrow_klass(Register dst, Klass* k) {
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
+  assert (UseCompressedClassPointers, "should only be used for compressed headers");
   assert (oop_recorder() != NULL, "this assembler needs an OopRecorder");
   int klass_index = oop_recorder()->find_index(k);
   RelocationHolder rspec = metadata_Relocation::spec(klass_index);
-  mov_narrow_oop(dst, oopDesc::encode_klass(k), rspec);
+  mov_narrow_oop(dst, Klass::encode_klass(k), rspec);
 }
 
 void  MacroAssembler::set_narrow_klass(Address dst, Klass* k) {
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
+  assert (UseCompressedClassPointers, "should only be used for compressed headers");
   assert (oop_recorder() != NULL, "this assembler needs an OopRecorder");
   int klass_index = oop_recorder()->find_index(k);
   RelocationHolder rspec = metadata_Relocation::spec(klass_index);
-  mov_narrow_oop(dst, oopDesc::encode_klass(k), rspec);
+  mov_narrow_oop(dst, Klass::encode_klass(k), rspec);
 }
 
 void  MacroAssembler::cmp_narrow_oop(Register dst, jobject obj) {
@@ -5169,26 +5175,35 @@ void  MacroAssembler::cmp_narrow_oop(Address dst, jobject obj) {
 }
 
 void  MacroAssembler::cmp_narrow_klass(Register dst, Klass* k) {
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
+  assert (UseCompressedClassPointers, "should only be used for compressed headers");
   assert (oop_recorder() != NULL, "this assembler needs an OopRecorder");
   int klass_index = oop_recorder()->find_index(k);
   RelocationHolder rspec = metadata_Relocation::spec(klass_index);
-  Assembler::cmp_narrow_oop(dst, oopDesc::encode_klass(k), rspec);
+  Assembler::cmp_narrow_oop(dst, Klass::encode_klass(k), rspec);
 }
 
 void  MacroAssembler::cmp_narrow_klass(Address dst, Klass* k) {
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
+  assert (UseCompressedClassPointers, "should only be used for compressed headers");
   assert (oop_recorder() != NULL, "this assembler needs an OopRecorder");
   int klass_index = oop_recorder()->find_index(k);
   RelocationHolder rspec = metadata_Relocation::spec(klass_index);
-  Assembler::cmp_narrow_oop(dst, oopDesc::encode_klass(k), rspec);
+  Assembler::cmp_narrow_oop(dst, Klass::encode_klass(k), rspec);
 }
 
 void MacroAssembler::reinit_heapbase() {
-  if (UseCompressedOops || UseCompressedKlassPointers) {
-    movptr(r12_heapbase, ExternalAddress((address)Universe::narrow_ptrs_base_addr()));
+  if (UseCompressedOops || UseCompressedClassPointers) {
+    if (Universe::heap() != NULL) {
+      if (Universe::narrow_oop_base() == NULL) {
+        MacroAssembler::xorptr(r12_heapbase, r12_heapbase);
+      } else {
+        mov64(r12_heapbase, (int64_t)Universe::narrow_ptrs_base());
+      }
+    } else {
+      movptr(r12_heapbase, ExternalAddress((address)Universe::narrow_ptrs_base_addr()));
+    }
   }
 }
+
 #endif // _LP64
 
 
@@ -6386,6 +6401,193 @@ void MacroAssembler::encode_iso_array(Register src, Register dst, Register len,
   bind(L_copy_1_char_exit);
   addptr(result, len); // len is negative count of not processed elements
   bind(L_done);
+}
+
+/**
+ * Emits code to update CRC-32 with a byte value according to constants in table
+ *
+ * @param [in,out]crc   Register containing the crc.
+ * @param [in]val       Register containing the byte to fold into the CRC.
+ * @param [in]table     Register containing the table of crc constants.
+ *
+ * uint32_t crc;
+ * val = crc_table[(val ^ crc) & 0xFF];
+ * crc = val ^ (crc >> 8);
+ *
+ */
+void MacroAssembler::update_byte_crc32(Register crc, Register val, Register table) {
+  xorl(val, crc);
+  andl(val, 0xFF);
+  shrl(crc, 8); // unsigned shift
+  xorl(crc, Address(table, val, Address::times_4, 0));
+}
+
+/**
+ * Fold 128-bit data chunk
+ */
+void MacroAssembler::fold_128bit_crc32(XMMRegister xcrc, XMMRegister xK, XMMRegister xtmp, Register buf, int offset) {
+  vpclmulhdq(xtmp, xK, xcrc); // [123:64]
+  vpclmulldq(xcrc, xK, xcrc); // [63:0]
+  vpxor(xcrc, xcrc, Address(buf, offset), false /* vector256 */);
+  pxor(xcrc, xtmp);
+}
+
+void MacroAssembler::fold_128bit_crc32(XMMRegister xcrc, XMMRegister xK, XMMRegister xtmp, XMMRegister xbuf) {
+  vpclmulhdq(xtmp, xK, xcrc);
+  vpclmulldq(xcrc, xK, xcrc);
+  pxor(xcrc, xbuf);
+  pxor(xcrc, xtmp);
+}
+
+/**
+ * 8-bit folds to compute 32-bit CRC
+ *
+ * uint64_t xcrc;
+ * timesXtoThe32[xcrc & 0xFF] ^ (xcrc >> 8);
+ */
+void MacroAssembler::fold_8bit_crc32(XMMRegister xcrc, Register table, XMMRegister xtmp, Register tmp) {
+  movdl(tmp, xcrc);
+  andl(tmp, 0xFF);
+  movdl(xtmp, Address(table, tmp, Address::times_4, 0));
+  psrldq(xcrc, 1); // unsigned shift one byte
+  pxor(xcrc, xtmp);
+}
+
+/**
+ * uint32_t crc;
+ * timesXtoThe32[crc & 0xFF] ^ (crc >> 8);
+ */
+void MacroAssembler::fold_8bit_crc32(Register crc, Register table, Register tmp) {
+  movl(tmp, crc);
+  andl(tmp, 0xFF);
+  shrl(crc, 8);
+  xorl(crc, Address(table, tmp, Address::times_4, 0));
+}
+
+/**
+ * @param crc   register containing existing CRC (32-bit)
+ * @param buf   register pointing to input byte buffer (byte*)
+ * @param len   register containing number of bytes
+ * @param table register that will contain address of CRC table
+ * @param tmp   scratch register
+ */
+void MacroAssembler::kernel_crc32(Register crc, Register buf, Register len, Register table, Register tmp) {
+  assert_different_registers(crc, buf, len, table, tmp, rax);
+
+  Label L_tail, L_tail_restore, L_tail_loop, L_exit, L_align_loop, L_aligned;
+  Label L_fold_tail, L_fold_128b, L_fold_512b, L_fold_512b_loop, L_fold_tail_loop;
+
+  lea(table, ExternalAddress(StubRoutines::crc_table_addr()));
+  notl(crc); // ~crc
+  cmpl(len, 16);
+  jcc(Assembler::less, L_tail);
+
+  // Align buffer to 16 bytes
+  movl(tmp, buf);
+  andl(tmp, 0xF);
+  jccb(Assembler::zero, L_aligned);
+  subl(tmp,  16);
+  addl(len, tmp);
+
+  align(4);
+  BIND(L_align_loop);
+  movsbl(rax, Address(buf, 0)); // load byte with sign extension
+  update_byte_crc32(crc, rax, table);
+  increment(buf);
+  incrementl(tmp);
+  jccb(Assembler::less, L_align_loop);
+
+  BIND(L_aligned);
+  movl(tmp, len); // save
+  shrl(len, 4);
+  jcc(Assembler::zero, L_tail_restore);
+
+  // Fold crc into first bytes of vector
+  movdqa(xmm1, Address(buf, 0));
+  movdl(rax, xmm1);
+  xorl(crc, rax);
+  pinsrd(xmm1, crc, 0);
+  addptr(buf, 16);
+  subl(len, 4); // len > 0
+  jcc(Assembler::less, L_fold_tail);
+
+  movdqa(xmm2, Address(buf,  0));
+  movdqa(xmm3, Address(buf, 16));
+  movdqa(xmm4, Address(buf, 32));
+  addptr(buf, 48);
+  subl(len, 3);
+  jcc(Assembler::lessEqual, L_fold_512b);
+
+  // Fold total 512 bits of polynomial on each iteration,
+  // 128 bits per each of 4 parallel streams.
+  movdqu(xmm0, ExternalAddress(StubRoutines::x86::crc_by128_masks_addr() + 32));
+
+  align(32);
+  BIND(L_fold_512b_loop);
+  fold_128bit_crc32(xmm1, xmm0, xmm5, buf,  0);
+  fold_128bit_crc32(xmm2, xmm0, xmm5, buf, 16);
+  fold_128bit_crc32(xmm3, xmm0, xmm5, buf, 32);
+  fold_128bit_crc32(xmm4, xmm0, xmm5, buf, 48);
+  addptr(buf, 64);
+  subl(len, 4);
+  jcc(Assembler::greater, L_fold_512b_loop);
+
+  // Fold 512 bits to 128 bits.
+  BIND(L_fold_512b);
+  movdqu(xmm0, ExternalAddress(StubRoutines::x86::crc_by128_masks_addr() + 16));
+  fold_128bit_crc32(xmm1, xmm0, xmm5, xmm2);
+  fold_128bit_crc32(xmm1, xmm0, xmm5, xmm3);
+  fold_128bit_crc32(xmm1, xmm0, xmm5, xmm4);
+
+  // Fold the rest of 128 bits data chunks
+  BIND(L_fold_tail);
+  addl(len, 3);
+  jccb(Assembler::lessEqual, L_fold_128b);
+  movdqu(xmm0, ExternalAddress(StubRoutines::x86::crc_by128_masks_addr() + 16));
+
+  BIND(L_fold_tail_loop);
+  fold_128bit_crc32(xmm1, xmm0, xmm5, buf,  0);
+  addptr(buf, 16);
+  decrementl(len);
+  jccb(Assembler::greater, L_fold_tail_loop);
+
+  // Fold 128 bits in xmm1 down into 32 bits in crc register.
+  BIND(L_fold_128b);
+  movdqu(xmm0, ExternalAddress(StubRoutines::x86::crc_by128_masks_addr()));
+  vpclmulqdq(xmm2, xmm0, xmm1, 0x1);
+  vpand(xmm3, xmm0, xmm2, false /* vector256 */);
+  vpclmulqdq(xmm0, xmm0, xmm3, 0x1);
+  psrldq(xmm1, 8);
+  psrldq(xmm2, 4);
+  pxor(xmm0, xmm1);
+  pxor(xmm0, xmm2);
+
+  // 8 8-bit folds to compute 32-bit CRC.
+  for (int j = 0; j < 4; j++) {
+    fold_8bit_crc32(xmm0, table, xmm1, rax);
+  }
+  movdl(crc, xmm0); // mov 32 bits to general register
+  for (int j = 0; j < 4; j++) {
+    fold_8bit_crc32(crc, table, rax);
+  }
+
+  BIND(L_tail_restore);
+  movl(len, tmp); // restore
+  BIND(L_tail);
+  andl(len, 0xf);
+  jccb(Assembler::zero, L_exit);
+
+  // Fold the rest of bytes
+  align(4);
+  BIND(L_tail_loop);
+  movsbl(rax, Address(buf, 0)); // load byte with sign extension
+  update_byte_crc32(crc, rax, table);
+  increment(buf);
+  decrementl(len);
+  jccb(Assembler::greater, L_tail_loop);
+
+  BIND(L_exit);
+  notl(crc); // ~c
 }
 
 #undef BIND

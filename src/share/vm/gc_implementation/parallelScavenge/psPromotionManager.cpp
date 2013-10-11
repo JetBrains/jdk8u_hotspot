@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2002, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2002, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -27,15 +27,18 @@
 #include "gc_implementation/parallelScavenge/psOldGen.hpp"
 #include "gc_implementation/parallelScavenge/psPromotionManager.inline.hpp"
 #include "gc_implementation/parallelScavenge/psScavenge.inline.hpp"
+#include "gc_implementation/shared/gcTrace.hpp"
 #include "gc_implementation/shared/mutableSpace.hpp"
+#include "memory/allocation.inline.hpp"
 #include "memory/memRegion.hpp"
+#include "memory/padded.inline.hpp"
 #include "oops/oop.inline.hpp"
 #include "oops/oop.psgc.inline.hpp"
 
-PSPromotionManager**         PSPromotionManager::_manager_array = NULL;
-OopStarTaskQueueSet*         PSPromotionManager::_stack_array_depth = NULL;
-PSOldGen*                    PSPromotionManager::_old_gen = NULL;
-MutableSpace*                PSPromotionManager::_young_space = NULL;
+PaddedEnd<PSPromotionManager>* PSPromotionManager::_manager_array = NULL;
+OopStarTaskQueueSet*           PSPromotionManager::_stack_array_depth = NULL;
+PSOldGen*                      PSPromotionManager::_old_gen = NULL;
+MutableSpace*                  PSPromotionManager::_young_space = NULL;
 
 void PSPromotionManager::initialize() {
   ParallelScavengeHeap* heap = (ParallelScavengeHeap*)Universe::heap();
@@ -44,35 +47,32 @@ void PSPromotionManager::initialize() {
   _old_gen = heap->old_gen();
   _young_space = heap->young_gen()->to_space();
 
+  // To prevent false sharing, we pad the PSPromotionManagers
+  // and make sure that the first instance starts at a cache line.
   assert(_manager_array == NULL, "Attempt to initialize twice");
-  _manager_array = NEW_C_HEAP_ARRAY(PSPromotionManager*, ParallelGCThreads+1, mtGC);
+  _manager_array = PaddedArray<PSPromotionManager, mtGC>::create_unfreeable(ParallelGCThreads + 1);
   guarantee(_manager_array != NULL, "Could not initialize promotion manager");
 
   _stack_array_depth = new OopStarTaskQueueSet(ParallelGCThreads);
-  guarantee(_stack_array_depth != NULL, "Cound not initialize promotion manager");
+  guarantee(_stack_array_depth != NULL, "Could not initialize promotion manager");
 
   // Create and register the PSPromotionManager(s) for the worker threads.
   for(uint i=0; i<ParallelGCThreads; i++) {
-    _manager_array[i] = new PSPromotionManager();
-    guarantee(_manager_array[i] != NULL, "Could not create PSPromotionManager");
-    stack_array_depth()->register_queue(i, _manager_array[i]->claimed_stack_depth());
+    stack_array_depth()->register_queue(i, _manager_array[i].claimed_stack_depth());
   }
-
   // The VMThread gets its own PSPromotionManager, which is not available
   // for work stealing.
-  _manager_array[ParallelGCThreads] = new PSPromotionManager();
-  guarantee(_manager_array[ParallelGCThreads] != NULL, "Could not create PSPromotionManager");
 }
 
 PSPromotionManager* PSPromotionManager::gc_thread_promotion_manager(int index) {
   assert(index >= 0 && index < (int)ParallelGCThreads, "index out of range");
   assert(_manager_array != NULL, "Sanity");
-  return _manager_array[index];
+  return &_manager_array[index];
 }
 
 PSPromotionManager* PSPromotionManager::vm_thread_promotion_manager() {
   assert(_manager_array != NULL, "Sanity");
-  return _manager_array[ParallelGCThreads];
+  return &_manager_array[ParallelGCThreads];
 }
 
 void PSPromotionManager::pre_scavenge() {
@@ -86,13 +86,20 @@ void PSPromotionManager::pre_scavenge() {
   }
 }
 
-void PSPromotionManager::post_scavenge() {
+bool PSPromotionManager::post_scavenge(YoungGCTracer& gc_tracer) {
+  bool promotion_failure_occurred = false;
+
   TASKQUEUE_STATS_ONLY(if (PrintGCDetails && ParallelGCVerbose) print_stats());
   for (uint i = 0; i < ParallelGCThreads + 1; i++) {
     PSPromotionManager* manager = manager_array(i);
     assert(manager->claimed_stack_depth()->is_empty(), "should be empty");
+    if (manager->_promotion_failed_info.has_failed()) {
+      gc_tracer.report_promotion_failed(manager->_promotion_failed_info);
+      promotion_failure_occurred = true;
+    }
     manager->flush_labs();
   }
+  return promotion_failure_occurred;
 }
 
 #if TASKQUEUE_STATS
@@ -186,6 +193,8 @@ void PSPromotionManager::reset() {
   lab_base = old_gen()->object_space()->top();
   _old_lab.initialize(MemRegion(lab_base, (size_t)0));
   _old_gen_is_full = false;
+
+  _promotion_failed_info.reset();
 
   TASKQUEUE_STATS_ONLY(reset_stats());
 }
@@ -304,6 +313,8 @@ oop PSPromotionManager::oop_promotion_failed(oop obj, markOop obj_mark) {
   if (obj->cas_forward_to(obj, obj_mark)) {
     // We won any races, we "own" this object.
     assert(obj == obj->forwardee(), "Sanity");
+
+    _promotion_failed_info.register_copy_failure(obj->size());
 
     obj->push_contents(this);
 

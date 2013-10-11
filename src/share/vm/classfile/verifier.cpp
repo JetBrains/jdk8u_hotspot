@@ -191,6 +191,10 @@ bool Verifier::verify(instanceKlassHandle klass, Verifier::Mode mode, bool shoul
 bool Verifier::is_eligible_for_verification(instanceKlassHandle klass, bool should_verify_class) {
   Symbol* name = klass->name();
   Klass* refl_magic_klass = SystemDictionary::reflect_MagicAccessorImpl_klass();
+  Klass* lambda_magic_klass = SystemDictionary::lambda_MagicLambdaImpl_klass();
+
+  bool is_reflect = refl_magic_klass != NULL && klass->is_subtype_of(refl_magic_klass);
+  bool is_lambda = lambda_magic_klass != NULL && klass->is_subtype_of(lambda_magic_klass);
 
   return (should_verify_for(klass->class_loader(), should_verify_class) &&
     // return if the class is a bootstrapping class
@@ -213,9 +217,9 @@ bool Verifier::is_eligible_for_verification(instanceKlassHandle klass, bool shou
     // sun/reflect/SerializationConstructorAccessor.
     // NOTE: this is called too early in the bootstrapping process to be
     // guarded by Universe::is_gte_jdk14x_version()/UseNewReflection.
-    (refl_magic_klass == NULL ||
-     !klass->is_subtype_of(refl_magic_klass) ||
-     VerifyReflectionBytecodes)
+    // Also for lambda generated code, gte jdk8
+    (!is_reflect || VerifyReflectionBytecodes) &&
+    (!is_lambda || VerifyLambdaBytecodes)
   );
 }
 
@@ -365,7 +369,7 @@ void TypeOrigin::print_on(outputStream* str) const {
 }
 #endif
 
-void ErrorContext::details(outputStream* ss, Method* method) const {
+void ErrorContext::details(outputStream* ss, const Method* method) const {
   if (is_valid()) {
     ss->print_cr("");
     ss->print_cr("Exception Details:");
@@ -438,7 +442,7 @@ void ErrorContext::reason_details(outputStream* ss) const {
   ss->print_cr("");
 }
 
-void ErrorContext::location_details(outputStream* ss, Method* method) const {
+void ErrorContext::location_details(outputStream* ss, const Method* method) const {
   if (_bci != -1 && method != NULL) {
     streamIndentor si(ss);
     const char* bytecode_name = "<invalid>";
@@ -473,7 +477,7 @@ void ErrorContext::frame_details(outputStream* ss) const {
   }
 }
 
-void ErrorContext::bytecode_details(outputStream* ss, Method* method) const {
+void ErrorContext::bytecode_details(outputStream* ss, const Method* method) const {
   if (method != NULL) {
     streamIndentor si(ss);
     ss->indent().print_cr("Bytecode:");
@@ -482,7 +486,7 @@ void ErrorContext::bytecode_details(outputStream* ss, Method* method) const {
   }
 }
 
-void ErrorContext::handler_details(outputStream* ss, Method* method) const {
+void ErrorContext::handler_details(outputStream* ss, const Method* method) const {
   if (method != NULL) {
     streamIndentor si(ss);
     ExceptionTable table(method);
@@ -497,7 +501,7 @@ void ErrorContext::handler_details(outputStream* ss, Method* method) const {
   }
 }
 
-void ErrorContext::stackmap_details(outputStream* ss, Method* method) const {
+void ErrorContext::stackmap_details(outputStream* ss, const Method* method) const {
   if (method != NULL && method->has_stackmap_table()) {
     streamIndentor si(ss);
     ss->indent().print_cr("Stackmap Table:");
@@ -2321,9 +2325,6 @@ void ClassVerifier::verify_invoke_instructions(
       types = 1 << JVM_CONSTANT_InvokeDynamic;
       break;
     case Bytecodes::_invokespecial:
-      types = (1 << JVM_CONSTANT_InterfaceMethodref) |
-              (1 << JVM_CONSTANT_Methodref);
-      break;
     case Bytecodes::_invokestatic:
       types = (_klass->major_version() < STATIC_METHOD_IN_INTERFACE_MAJOR_VERSION) ?
         (1 << JVM_CONSTANT_Methodref) :

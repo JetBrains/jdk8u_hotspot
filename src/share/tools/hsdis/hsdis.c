@@ -27,7 +27,6 @@
    HotSpot PrintAssembly option.
 */
 
-#ifdef TARGET_ARCH_aarch64
 #include <config.h>
 #endif
 #include <libiberty.h>

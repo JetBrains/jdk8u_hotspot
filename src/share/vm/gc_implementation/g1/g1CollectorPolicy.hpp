@@ -175,7 +175,6 @@ private:
   CollectionSetChooser* _collectionSetChooser;
 
   double _full_collection_start_sec;
-  size_t _cur_collection_pause_used_at_start_bytes;
   uint   _cur_collection_pause_used_regions_at_start;
 
   // These exclude marking times.
@@ -194,7 +193,6 @@ private:
 
   uint _young_list_target_length;
   uint _young_list_fixed_length;
-  size_t _prev_eden_capacity; // used for logging
 
   // The max number of regions we can extend the eden by while the GC
   // locker is active. This should be >= _young_list_target_length;
@@ -673,7 +671,7 @@ public:
 
   // Record the start and end of an evacuation pause.
   void record_collection_pause_start(double start_time_sec);
-  void record_collection_pause_end(double pause_time_ms);
+  void record_collection_pause_end(double pause_time_ms, EvacuationInfo& evacuation_info);
 
   // Record the start and end of a full collection.
   void record_full_collection_start();
@@ -693,11 +691,11 @@ public:
 
   // Records the information about the heap size for reporting in
   // print_detailed_heap_transition
-  void record_heap_size_info_at_start();
+  void record_heap_size_info_at_start(bool full);
 
   // Print heap sizing transition (with less and more detail).
   void print_heap_transition();
-  void print_detailed_heap_transition();
+  void print_detailed_heap_transition(bool full = false);
 
   void record_stop_world_start();
   void record_concurrent_pause();
@@ -722,7 +720,7 @@ public:
   // Choose a new collection set.  Marks the chosen regions as being
   // "in_collection_set", and links them together.  The head and number of
   // the collection set are available via access methods.
-  void finalize_cset(double target_pause_time_ms);
+  void finalize_cset(double target_pause_time_ms, EvacuationInfo& evacuation_info);
 
   // The head of the list (via "next_in_collection_set()") representing the
   // current collection set.
@@ -861,9 +859,16 @@ private:
   uint _max_survivor_regions;
 
   // For reporting purposes.
-  size_t _eden_bytes_before_gc;
-  size_t _survivor_bytes_before_gc;
-  size_t _capacity_before_gc;
+  // The value of _heap_bytes_before_gc is also used to calculate
+  // the cost of copying.
+
+  size_t _eden_used_bytes_before_gc;         // Eden occupancy before GC
+  size_t _survivor_used_bytes_before_gc;     // Survivor occupancy before GC
+  size_t _heap_used_bytes_before_gc;         // Heap occupancy before GC
+  size_t _metaspace_used_bytes_before_gc;    // Metaspace occupancy before GC
+
+  size_t _eden_capacity_bytes_before_gc;     // Eden capacity before GC
+  size_t _heap_capacity_bytes_before_gc;     // Heap capacity before GC
 
   // The amount of survivor regions after a collection.
   uint _recorded_survivor_regions;
@@ -874,6 +879,7 @@ private:
   ageTable _survivors_age_table;
 
 public:
+  uint tenuring_threshold() const { return _tenuring_threshold; }
 
   inline GCAllocPurpose
     evacuation_destination(HeapRegion* src_region, uint age, size_t word_sz) {

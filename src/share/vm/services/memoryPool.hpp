@@ -222,4 +222,19 @@ public:
   size_t used_in_bytes()            { return _codeHeap->allocated_capacity(); }
 };
 
+class MetaspacePool : public MemoryPool {
+  size_t calculate_max_size() const;
+ public:
+  MetaspacePool();
+  MemoryUsage get_memory_usage();
+  size_t used_in_bytes();
+};
+
+class CompressedKlassSpacePool : public MemoryPool {
+ public:
+  CompressedKlassSpacePool();
+  MemoryUsage get_memory_usage();
+  size_t used_in_bytes();
+};
+
 #endif // SHARE_VM_SERVICES_MEMORYPOOL_HPP

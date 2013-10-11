@@ -85,31 +85,40 @@ inline void FreeHeap(void* p, MEMFLAGS memflags = mtInternal) {
 
 
 template <MEMFLAGS F> void* CHeapObj<F>::operator new(size_t size,
-      address caller_pc){
-#ifdef ASSERT
+      address caller_pc) throw() {
     void* p = (void*)AllocateHeap(size, F, (caller_pc != 0 ? caller_pc : CALLER_PC));
+#ifdef ASSERT
     if (PrintMallocFree) trace_heap_malloc(size, "CHeapObj-new", p);
-    return p;
-#else
-    return (void *) AllocateHeap(size, F, (caller_pc != 0 ? caller_pc : CALLER_PC));
 #endif
+    return p;
   }
 
 template <MEMFLAGS F> void* CHeapObj<F>::operator new (size_t size,
-  const std::nothrow_t&  nothrow_constant, address caller_pc) {
-#ifdef ASSERT
+  const std::nothrow_t&  nothrow_constant, address caller_pc) throw() {
   void* p = (void*)AllocateHeap(size, F, (caller_pc != 0 ? caller_pc : CALLER_PC),
       AllocFailStrategy::RETURN_NULL);
+#ifdef ASSERT
     if (PrintMallocFree) trace_heap_malloc(size, "CHeapObj-new", p);
-    return p;
-#else
-  return (void *) AllocateHeap(size, F, (caller_pc != 0 ? caller_pc : CALLER_PC),
-      AllocFailStrategy::RETURN_NULL);
 #endif
+    return p;
+}
+
+template <MEMFLAGS F> void* CHeapObj<F>::operator new [](size_t size,
+      address caller_pc) throw() {
+    return CHeapObj<F>::operator new(size, caller_pc);
+}
+
+template <MEMFLAGS F> void* CHeapObj<F>::operator new [](size_t size,
+  const std::nothrow_t&  nothrow_constant, address caller_pc) throw() {
+    return CHeapObj<F>::operator new(size, nothrow_constant, caller_pc);
 }
 
 template <MEMFLAGS F> void CHeapObj<F>::operator delete(void* p){
-   FreeHeap(p, F);
+    FreeHeap(p, F);
+}
+
+template <MEMFLAGS F> void CHeapObj<F>::operator delete [](void* p){
+    FreeHeap(p, F);
 }
 
 template <class E, MEMFLAGS F>
@@ -137,10 +146,7 @@ E* ArrayAllocator<E, F>::allocate(size_t length) {
     vm_exit_out_of_memory(_size, OOM_MMAP_ERROR, "Allocator (reserve)");
   }
 
-  bool success = os::commit_memory(_addr, _size, false /* executable */);
-  if (!success) {
-    vm_exit_out_of_memory(_size, OOM_MMAP_ERROR, "Allocator (commit)");
-  }
+  os::commit_memory_or_exit(_addr, _size, !ExecMem, "Allocator (commit)");
 
   return (E*)_addr;
 }

@@ -89,7 +89,10 @@ negative_test() {
 # $1 - initial error_code
 common_tests() {
     positive_test $1 "COMMON :: THE SAME FLAGS"
-    positive_test `expr $1 + 1` "COMMON :: TIERED" -XX:+TieredCompilation
+    if [ $tiered_available -eq 1 ]
+    then
+        positive_test `expr $1 + 1` "COMMON :: TIERED" -XX:+TieredCompilation
+    fi
 }
 
 # $1 - initial error_code
@@ -115,8 +118,11 @@ client_tests() {
     then
         negative_test $1 "SERVER :: NON-TIERED" -XX:-TieredCompilation \
                 -server
-        positive_test `expr $1 + 1` "SERVER :: TIERED" -XX:+TieredCompilation \
-                -server
+        if [ $tiered_available -eq 1 ]
+        then
+            positive_test `expr $1 + 1` "SERVER :: TIERED" -XX:+TieredCompilation \
+                    -server
+        fi
     fi
     nontiered_tests `expr $1 + 2` $client_level 
 }
@@ -167,6 +173,9 @@ client_available=`${JAVA} ${TESTVMOPTS} -client -Xinternalversion 2>&1 | \
         grep -c Client`
 server_available=`${JAVA} ${TESTVMOPTS} -server -Xinternalversion 2>&1 | \
         grep -c Server`
+tiered_available=`${JAVA} ${TESTVMOPTS} -XX:+TieredCompilation -XX:+PrintFlagsFinal -version | \
+        grep TieredCompilation | \
+        grep -c true`
 is_tiered=`${JAVA} ${TESTVMOPTS} -XX:+PrintFlagsFinal -version | \
         grep TieredCompilation | \
         grep -c true`
@@ -177,13 +186,22 @@ server_level=4
 
 echo "client_available=$client_available"
 echo "server_available=$server_available"
+echo "tiered_available=$tiered_available"
 echo "is_tiered=$is_tiered"
 
 # crash vm in compiler thread with generation replay data and 'small' dump-file
 # $@ - additional vm opts
 generate_replay() {
-    # enable core dump
-    ulimit -c unlimited
+    if [ $VM_OS != "windows" ]
+    then
+        # enable core dump
+        ulimit -c unlimited
+
+        if [ $VM_OS = "solaris" ]
+        then
+            coreadm -p core $$
+        fi
+    fi
 
     cmd="${JAVA} ${TESTVMOPTS} $@ \
             -Xms8m \
@@ -206,29 +224,24 @@ generate_replay() {
     echo GENERATION OF REPLAY.TXT:
     echo $cmd
 
-    ${cmd} 2>&1 > crash.out
+    ${cmd} > crash.out 2>&1
     
     core_locations=`grep -i core crash.out | grep "location:" | \
             sed -e 's/.*location: //'`
     rm crash.out 
     # processing core locations for *nix
-    if [ $OS != "windows" ]
+    if [ $VM_OS != "windows" ]
     then
         # remove 'or' between '/core.<pid>' and 'core'
         core_locations=`echo $core_locations | \
                 sed -e 's/\([^ ]*\) or \([^ ]*\)/\1 \2/'`
         # add <core_path>/core.<pid> core.<pid>
-        core=`echo $core_locations | awk '{print $1}'`
-        dir=`dirname $core`
-        core=`basename $core`
-        if [ -n ${core} ]
+        core_with_dir=`echo $core_locations | awk '{print $1}'`
+        dir=`dirname $core_with_dir`
+        core_with_pid=`echo $core_locations | awk '{print $2}'`
+        if [ -n ${core_with_pid} ]
         then
-            core_locations="$core_locations $dir${FS}$core"
-        fi
-        core=`echo $core_locations | awk '{print $2}'`
-        if [ -n ${core} ]
-        then
-            core_locations="$core_locations $dir${FS}$core"
+            core_locations="$core_locations $dir${FS}$core_with_pid $core_with_pid"
         fi
     fi
 

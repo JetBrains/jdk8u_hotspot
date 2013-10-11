@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,13 +53,13 @@ template <class E, int SIZE> class FixedSizeMemPointerArray :
     }
   }
 
-  void* operator new(size_t size, const std::nothrow_t& nothrow_constant) {
+  void* operator new(size_t size, const std::nothrow_t& nothrow_constant) throw() {
     // the instance is part of memRecorder, needs to be tagged with 'otNMTRecorder'
     // to avoid recursion
     return os::malloc(size, (mtNMT | otNMTRecorder));
   }
 
-  void* operator new(size_t size) {
+  void* operator new(size_t size) throw() {
     assert(false, "use nothrow version");
     return NULL;
   }
@@ -220,7 +220,7 @@ class MemRecorder : public CHeapObj<mtNMT|otNMTRecorder> {
   ~MemRecorder();
 
   // record a memory operation
-  bool record(address addr, MEMFLAGS flags, size_t size, address caller_pc = 0);
+  bool record(address addr, MEMFLAGS flags, size_t size, jint seq, address caller_pc = 0);
 
   // linked list support
   inline void set_next(MemRecorder* rec) {

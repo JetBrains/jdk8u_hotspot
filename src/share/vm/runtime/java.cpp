@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,7 +42,6 @@
 #include "oops/oop.inline.hpp"
 #include "oops/symbol.hpp"
 #include "prims/jvmtiExport.hpp"
-#include "runtime/aprofiler.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/biasedLocking.hpp"
 #include "runtime/compilationPolicy.hpp"
@@ -60,7 +59,6 @@
 #include "services/memReporter.hpp"
 #include "services/memTracker.hpp"
 #include "trace/tracing.hpp"
-#include "trace/traceEventTypes.hpp"
 #include "utilities/dtrace.hpp"
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/histogram.hpp"
@@ -513,16 +511,6 @@ void before_exit(JavaThread * thread) {
     }
   }
 
-
-  if (Arguments::has_alloc_profile()) {
-    HandleMark hm;
-    // Do one last collection to enumerate all the objects
-    // allocated since the last one.
-    Universe::heap()->collect(GCCause::_allocation_profiler);
-    AllocationProfiler::disengage();
-    AllocationProfiler::print(0);
-  }
-
   if (PrintBytecodeHistogram) {
     BytecodeHistogram::print();
   }
@@ -531,9 +519,12 @@ void before_exit(JavaThread * thread) {
     JvmtiExport::post_thread_end(thread);
   }
 
-  EVENT_BEGIN(TraceEventThreadEnd, event);
-  EVENT_COMMIT(event,
-      EVENT_SET(event, javalangthread, java_lang_Thread::thread_id(thread->threadObj())));
+
+  EventThreadEnd event;
+  if (event.should_commit()) {
+      event.set_javalangthread(java_lang_Thread::thread_id(thread->threadObj()));
+      event.commit();
+  }
 
   // Always call even when there are not JVMTI environments yet, since environments
   // may be attached late and JVMTI must track phases of VM execution
@@ -555,6 +546,19 @@ void before_exit(JavaThread * thread) {
   // Shutdown NMT before exit. Otherwise,
   // it will run into trouble when system destroys static variables.
   MemTracker::shutdown(MemTracker::NMT_normal);
+
+  if (VerifyStringTableAtExit) {
+    int fail_cnt = 0;
+    {
+      MutexLocker ml(StringTable_lock);
+      fail_cnt = StringTable::verify_and_compare_entries();
+    }
+
+    if (fail_cnt != 0) {
+      tty->print_cr("ERROR: fail_cnt=%d", fail_cnt);
+      guarantee(fail_cnt == 0, "unexpected StringTable verification failures");
+    }
+  }
 
   #undef BEFORE_EXIT_NOT_RUN
   #undef BEFORE_EXIT_RUNNING

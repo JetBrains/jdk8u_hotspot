@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -96,6 +96,9 @@ class VMError : public StackObj {
     return (id != OOM_MALLOC_ERROR) && (id != OOM_MMAP_ERROR);
   }
 
+  static fdStream out;
+  static fdStream log; // error log used by VMError::report_and_die()
+
 public:
 
   // Constructor for crashes
@@ -133,6 +136,10 @@ public:
 
   // check to see if fatal error reporting is in progress
   static bool fatal_error_in_progress() { return first_error != NULL; }
+
+  static jlong get_first_error_tid() {
+    return first_error_tid;
+  }
 };
 
 #endif // SHARE_VM_UTILITIES_VMERROR_HPP

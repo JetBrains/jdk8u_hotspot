@@ -59,6 +59,7 @@
 #include "services/attachListener.hpp"
 #include "services/management.hpp"
 #include "services/threadService.hpp"
+#include "trace/tracing.hpp"
 #include "utilities/copy.hpp"
 #include "utilities/defaultStream.hpp"
 #include "utilities/dtrace.hpp"
@@ -1072,11 +1073,7 @@ JVM_ENTRY(jobjectArray, JVM_GetClassSigners(JNIEnv *env, jclass cls))
     return NULL;
   }
 
-  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(cls));
-  objArrayOop signers = NULL;
-  if (k->oop_is_instance()) {
-    signers = InstanceKlass::cast(k)->signers();
-  }
+  objArrayOop signers = java_lang_Class::signers(JNIHandles::resolve_non_null(cls));
 
   // If there are no signers set in the class, or if the class
   // is an array, return NULL.
@@ -1102,7 +1099,7 @@ JVM_ENTRY(void, JVM_SetClassSigners(JNIEnv *env, jclass cls, jobjectArray signer
     // be called with an array.  Only the bootstrap loader creates arrays.
     Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve_non_null(cls));
     if (k->oop_is_instance()) {
-      InstanceKlass::cast(k)->set_signers(objArrayOop(JNIHandles::resolve(signers)));
+      java_lang_Class::set_signers(k->java_mirror(), objArrayOop(JNIHandles::resolve(signers)));
     }
   }
 JVM_END
@@ -1119,31 +1116,61 @@ JVM_ENTRY(jobject, JVM_GetProtectionDomain(JNIEnv *env, jclass cls))
     return NULL;
   }
 
-  Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve(cls));
-  return (jobject) JNIHandles::make_local(env, k->protection_domain());
+  oop pd = java_lang_Class::protection_domain(JNIHandles::resolve(cls));
+  return (jobject) JNIHandles::make_local(env, pd);
 JVM_END
 
 
-// Obsolete since 1.2 (Class.setProtectionDomain removed), although
-// still defined in core libraries as of 1.5.
-JVM_ENTRY(void, JVM_SetProtectionDomain(JNIEnv *env, jclass cls, jobject protection_domain))
-  JVMWrapper("JVM_SetProtectionDomain");
-  if (JNIHandles::resolve(cls) == NULL) {
-    THROW(vmSymbols::java_lang_NullPointerException());
-  }
-  if (!java_lang_Class::is_primitive(JNIHandles::resolve(cls))) {
-    // Call is ignored for primitive types
-    Klass* k = java_lang_Class::as_Klass(JNIHandles::resolve(cls));
+static bool is_authorized(Handle context, instanceKlassHandle klass, TRAPS) {
+  // If there is a security manager and protection domain, check the access
+  // in the protection domain, otherwise it is authorized.
+  if (java_lang_System::has_security_manager()) {
 
-    // cls won't be an array, as this called only from ClassLoader.defineClass
-    if (k->oop_is_instance()) {
-      oop pd = JNIHandles::resolve(protection_domain);
-      assert(pd == NULL || pd->is_oop(), "just checking");
-      InstanceKlass::cast(k)->set_protection_domain(pd);
+    // For bootstrapping, if pd implies method isn't in the JDK, allow
+    // this context to revert to older behavior.
+    // In this case the isAuthorized field in AccessControlContext is also not
+    // present.
+    if (Universe::protection_domain_implies_method() == NULL) {
+      return true;
+    }
+
+    // Whitelist certain access control contexts
+    if (java_security_AccessControlContext::is_authorized(context)) {
+      return true;
+    }
+
+    oop prot = klass->protection_domain();
+    if (prot != NULL) {
+      // Call pd.implies(new SecurityPermission("createAccessControlContext"))
+      // in the new wrapper.
+      methodHandle m(THREAD, Universe::protection_domain_implies_method());
+      Handle h_prot(THREAD, prot);
+      JavaValue result(T_BOOLEAN);
+      JavaCallArguments args(h_prot);
+      JavaCalls::call(&result, m, &args, CHECK_false);
+      return (result.get_jboolean() != 0);
     }
   }
-JVM_END
+  return true;
+}
 
+// Create an AccessControlContext with a protection domain with null codesource
+// and null permissions - which gives no permissions.
+oop create_dummy_access_control_context(TRAPS) {
+  InstanceKlass* pd_klass = InstanceKlass::cast(SystemDictionary::ProtectionDomain_klass());
+  // new ProtectionDomain(null,null);
+  oop null_protection_domain = pd_klass->allocate_instance(CHECK_NULL);
+  Handle null_pd(THREAD, null_protection_domain);
+
+  // new ProtectionDomain[] {pd};
+  objArrayOop context = oopFactory::new_objArray(pd_klass, 1, CHECK_NULL);
+  context->obj_at_put(0, null_pd());
+
+  // new AccessControlContext(new ProtectionDomain[] {pd})
+  objArrayHandle h_context(THREAD, context);
+  oop result = java_security_AccessControlContext::create(h_context, false, Handle(), CHECK_NULL);
+  return result;
+}
 
 JVM_ENTRY(jobject, JVM_DoPrivileged(JNIEnv *env, jclass cls, jobject action, jobject context, jboolean wrapException))
   JVMWrapper("JVM_DoPrivileged");
@@ -1152,8 +1179,29 @@ JVM_ENTRY(jobject, JVM_DoPrivileged(JNIEnv *env, jclass cls, jobject action, job
     THROW_MSG_0(vmSymbols::java_lang_NullPointerException(), "Null action");
   }
 
-  // Stack allocated list of privileged stack elements
-  PrivilegedElement pi;
+  // Compute the frame initiating the do privileged operation and setup the privileged stack
+  vframeStream vfst(thread);
+  vfst.security_get_caller_frame(1);
+
+  if (vfst.at_end()) {
+    THROW_MSG_0(vmSymbols::java_lang_InternalError(), "no caller?");
+  }
+
+  Method* method        = vfst.method();
+  instanceKlassHandle klass (THREAD, method->method_holder());
+
+  // Check that action object understands "Object run()"
+  Handle h_context;
+  if (context != NULL) {
+    h_context = Handle(THREAD, JNIHandles::resolve(context));
+    bool authorized = is_authorized(h_context, klass, CHECK_NULL);
+    if (!authorized) {
+      // Create an unprivileged access control object and call it's run function
+      // instead.
+      oop noprivs = create_dummy_access_control_context(CHECK_NULL);
+      h_context = Handle(THREAD, noprivs);
+    }
+  }
 
   // Check that action object understands "Object run()"
   Handle object (THREAD, JNIHandles::resolve(action));
@@ -1167,12 +1215,10 @@ JVM_ENTRY(jobject, JVM_DoPrivileged(JNIEnv *env, jclass cls, jobject action, job
     THROW_MSG_0(vmSymbols::java_lang_InternalError(), "No run method");
   }
 
-  // Compute the frame initiating the do privileged operation and setup the privileged stack
-  vframeStream vfst(thread);
-  vfst.security_get_caller_frame(1);
-
+  // Stack allocated list of privileged stack elements
+  PrivilegedElement pi;
   if (!vfst.at_end()) {
-    pi.initialize(&vfst, JNIHandles::resolve(context), thread->privileged_stack_top(), CHECK_NULL);
+    pi.initialize(&vfst, h_context(), thread->privileged_stack_top(), CHECK_NULL);
     thread->set_privileged_stack_top(&pi);
   }
 
@@ -1710,7 +1756,7 @@ JVM_ENTRY(jobjectArray, JVM_GetMethodParameters(JNIEnv *env, jobject method))
     for (int i = 0; i < num_params; i++) {
       MethodParametersElement* params = mh->method_parameters_start();
       // For a 0 index, give a NULL symbol
-      Symbol* const sym = 0 != params[i].name_cp_index ?
+      Symbol* sym = 0 != params[i].name_cp_index ?
         mh->constants()->symbol_at(params[i].name_cp_index) : NULL;
       int flags = params[i].flags;
       oop param = Reflection::new_parameter(reflected_method, i, sym,
@@ -1778,7 +1824,7 @@ JVM_ENTRY(jobjectArray, JVM_GetClassDeclaredFields(JNIEnv *env, jclass ofClass, 
     }
 
     if (!publicOnly || fs.access_flags().is_public()) {
-      fd.initialize(k(), fs.index());
+      fd.reinitialize(k(), fs.index());
       oop field = Reflection::new_field(&fd, UseNewReflection, CHECK_NULL);
       result->obj_at_put(out_idx, field);
       ++out_idx;
@@ -1789,16 +1835,27 @@ JVM_ENTRY(jobjectArray, JVM_GetClassDeclaredFields(JNIEnv *env, jclass ofClass, 
 }
 JVM_END
 
-JVM_ENTRY(jobjectArray, JVM_GetClassDeclaredMethods(JNIEnv *env, jclass ofClass, jboolean publicOnly))
-{
-  JVMWrapper("JVM_GetClassDeclaredMethods");
+static bool select_method(methodHandle method, bool want_constructor) {
+  if (want_constructor) {
+    return (method->is_initializer() && !method->is_static());
+  } else {
+    return  (!method->is_initializer() && !method->is_overpass());
+  }
+}
+
+static jobjectArray get_class_declared_methods_helper(
+                                  JNIEnv *env,
+                                  jclass ofClass, jboolean publicOnly,
+                                  bool want_constructor,
+                                  Klass* klass, TRAPS) {
+
   JvmtiVMObjectAllocEventCollector oam;
 
   // Exclude primitive types and array types
   if (java_lang_Class::is_primitive(JNIHandles::resolve_non_null(ofClass))
       || java_lang_Class::as_Klass(JNIHandles::resolve_non_null(ofClass))->oop_is_array()) {
     // Return empty array
-    oop res = oopFactory::new_objArray(SystemDictionary::reflect_Method_klass(), 0, CHECK_NULL);
+    oop res = oopFactory::new_objArray(klass, 0, CHECK_NULL);
     return (jobjectArray) JNIHandles::make_local(env, res);
   }
 
@@ -1809,87 +1866,67 @@ JVM_ENTRY(jobjectArray, JVM_GetClassDeclaredMethods(JNIEnv *env, jclass ofClass,
 
   Array<Method*>* methods = k->methods();
   int methods_length = methods->length();
+
+  // Save original method_idnum in case of redefinition, which can change
+  // the idnum of obsolete methods.  The new method will have the same idnum
+  // but if we refresh the methods array, the counts will be wrong.
+  ResourceMark rm(THREAD);
+  GrowableArray<int>* idnums = new GrowableArray<int>(methods_length);
   int num_methods = 0;
 
-  int i;
-  for (i = 0; i < methods_length; i++) {
+  for (int i = 0; i < methods_length; i++) {
     methodHandle method(THREAD, methods->at(i));
-    if (!method->is_initializer() && !method->is_overpass()) {
+    if (select_method(method, want_constructor)) {
       if (!publicOnly || method->is_public()) {
+        idnums->push(method->method_idnum());
         ++num_methods;
       }
     }
   }
 
   // Allocate result
-  objArrayOop r = oopFactory::new_objArray(SystemDictionary::reflect_Method_klass(), num_methods, CHECK_NULL);
+  objArrayOop r = oopFactory::new_objArray(klass, num_methods, CHECK_NULL);
   objArrayHandle result (THREAD, r);
 
-  int out_idx = 0;
-  for (i = 0; i < methods_length; i++) {
-    methodHandle method(THREAD, methods->at(i));
-    if (!method->is_initializer() && !method->is_overpass()) {
-      if (!publicOnly || method->is_public()) {
-        oop m = Reflection::new_method(method, UseNewReflection, false, CHECK_NULL);
-        result->obj_at_put(out_idx, m);
-        ++out_idx;
+  // Now just put the methods that we selected above, but go by their idnum
+  // in case of redefinition.  The methods can be redefined at any safepoint,
+  // so above when allocating the oop array and below when creating reflect
+  // objects.
+  for (int i = 0; i < num_methods; i++) {
+    methodHandle method(THREAD, k->method_with_idnum(idnums->at(i)));
+    if (method.is_null()) {
+      // Method may have been deleted and seems this API can handle null
+      // Otherwise should probably put a method that throws NSME
+      result->obj_at_put(i, NULL);
+    } else {
+      oop m;
+      if (want_constructor) {
+        m = Reflection::new_constructor(method, CHECK_NULL);
+      } else {
+        m = Reflection::new_method(method, UseNewReflection, false, CHECK_NULL);
       }
+      result->obj_at_put(i, m);
     }
   }
-  assert(out_idx == num_methods, "just checking");
+
   return (jobjectArray) JNIHandles::make_local(env, result());
+}
+
+JVM_ENTRY(jobjectArray, JVM_GetClassDeclaredMethods(JNIEnv *env, jclass ofClass, jboolean publicOnly))
+{
+  JVMWrapper("JVM_GetClassDeclaredMethods");
+  return get_class_declared_methods_helper(env, ofClass, publicOnly,
+                                           /*want_constructor*/ false,
+                                           SystemDictionary::reflect_Method_klass(), THREAD);
 }
 JVM_END
 
 JVM_ENTRY(jobjectArray, JVM_GetClassDeclaredConstructors(JNIEnv *env, jclass ofClass, jboolean publicOnly))
 {
   JVMWrapper("JVM_GetClassDeclaredConstructors");
-  JvmtiVMObjectAllocEventCollector oam;
-
-  // Exclude primitive types and array types
-  if (java_lang_Class::is_primitive(JNIHandles::resolve_non_null(ofClass))
-      || java_lang_Class::as_Klass(JNIHandles::resolve_non_null(ofClass))->oop_is_array()) {
-    // Return empty array
-    oop res = oopFactory::new_objArray(SystemDictionary::reflect_Constructor_klass(), 0 , CHECK_NULL);
-    return (jobjectArray) JNIHandles::make_local(env, res);
-  }
-
-  instanceKlassHandle k(THREAD, java_lang_Class::as_Klass(JNIHandles::resolve_non_null(ofClass)));
-
-  // Ensure class is linked
-  k->link_class(CHECK_NULL);
-
-  Array<Method*>* methods = k->methods();
-  int methods_length = methods->length();
-  int num_constructors = 0;
-
-  int i;
-  for (i = 0; i < methods_length; i++) {
-    methodHandle method(THREAD, methods->at(i));
-    if (method->is_initializer() && !method->is_static()) {
-      if (!publicOnly || method->is_public()) {
-        ++num_constructors;
-      }
-    }
-  }
-
-  // Allocate result
-  objArrayOop r = oopFactory::new_objArray(SystemDictionary::reflect_Constructor_klass(), num_constructors, CHECK_NULL);
-  objArrayHandle result(THREAD, r);
-
-  int out_idx = 0;
-  for (i = 0; i < methods_length; i++) {
-    methodHandle method(THREAD, methods->at(i));
-    if (method->is_initializer() && !method->is_static()) {
-      if (!publicOnly || method->is_public()) {
-        oop m = Reflection::new_constructor(method, CHECK_NULL);
-        result->obj_at_put(out_idx, m);
-        ++out_idx;
-      }
-    }
-  }
-  assert(out_idx == num_constructors, "just checking");
-  return (jobjectArray) JNIHandles::make_local(env, result());
+  return get_class_declared_methods_helper(env, ofClass, publicOnly,
+                                           /*want_constructor*/ true,
+                                           SystemDictionary::reflect_Constructor_klass(), THREAD);
 }
 JVM_END
 
@@ -3003,6 +3040,8 @@ JVM_ENTRY(void, JVM_Sleep(JNIEnv* env, jclass threadClass, jlong millis))
                              millis);
 #endif /* USDT2 */
 
+  EventThreadSleep event;
+
   if (millis == 0) {
     // When ConvertSleepToYield is on, this matches the classic VM implementation of
     // JVM_Sleep. Critical for similar threading behaviour (Win32)
@@ -3023,6 +3062,10 @@ JVM_ENTRY(void, JVM_Sleep(JNIEnv* env, jclass threadClass, jlong millis))
       // An asynchronous exception (e.g., ThreadDeathException) could have been thrown on
       // us while we were sleeping. We do not overwrite those.
       if (!HAS_PENDING_EXCEPTION) {
+        if (event.should_commit()) {
+          event.set_time(millis);
+          event.commit();
+        }
 #ifndef USDT2
         HS_DTRACE_PROBE1(hotspot, thread__sleep__end,1);
 #else /* USDT2 */
@@ -3035,6 +3078,10 @@ JVM_ENTRY(void, JVM_Sleep(JNIEnv* env, jclass threadClass, jlong millis))
       }
     }
     thread->osthread()->set_state(old_state);
+  }
+  if (event.should_commit()) {
+    event.set_time(millis);
+    event.commit();
   }
 #ifndef USDT2
   HS_DTRACE_PROBE1(hotspot, thread__sleep__end,0);
@@ -3234,24 +3281,10 @@ JVM_ENTRY(jobject, JVM_CurrentClassLoader(JNIEnv *env))
 JVM_END
 
 
-// Utility object for collecting method holders walking down the stack
-class KlassLink: public ResourceObj {
- public:
-  KlassHandle klass;
-  KlassLink*  next;
-
-  KlassLink(KlassHandle k) { klass = k; next = NULL; }
-};
-
-
 JVM_ENTRY(jobjectArray, JVM_GetClassContext(JNIEnv *env))
   JVMWrapper("JVM_GetClassContext");
   ResourceMark rm(THREAD);
   JvmtiVMObjectAllocEventCollector oam;
-  // Collect linked list of (handles to) method holders
-  KlassLink* first = NULL;
-  KlassLink* last  = NULL;
-  int depth = 0;
   vframeStream vfst(thread);
 
   if (SystemDictionary::reflect_CallerSensitive_klass() != NULL) {
@@ -3265,32 +3298,23 @@ JVM_ENTRY(jobjectArray, JVM_GetClassContext(JNIEnv *env))
   }
 
   // Collect method holders
+  GrowableArray<KlassHandle>* klass_array = new GrowableArray<KlassHandle>();
   for (; !vfst.at_end(); vfst.security_next()) {
     Method* m = vfst.method();
     // Native frames are not returned
     if (!m->is_ignored_by_security_stack_walk() && !m->is_native()) {
       Klass* holder = m->method_holder();
       assert(holder->is_klass(), "just checking");
-      depth++;
-      KlassLink* l = new KlassLink(KlassHandle(thread, holder));
-      if (first == NULL) {
-        first = last = l;
-      } else {
-        last->next = l;
-        last = l;
-      }
+      klass_array->append(holder);
     }
   }
 
   // Create result array of type [Ljava/lang/Class;
-  objArrayOop result = oopFactory::new_objArray(SystemDictionary::Class_klass(), depth, CHECK_NULL);
+  objArrayOop result = oopFactory::new_objArray(SystemDictionary::Class_klass(), klass_array->length(), CHECK_NULL);
   // Fill in mirrors corresponding to method holders
-  int index = 0;
-  while (first != NULL) {
-    result->obj_at_put(index++, first->klass()->java_mirror());
-    first = first->next;
+  for (int i = 0; i < klass_array->length(); i++) {
+    result->obj_at_put(i, klass_array->at(i)->java_mirror());
   }
-  assert(index == depth, "just checking");
 
   return (jobjectArray) JNIHandles::make_local(env, result);
 JVM_END

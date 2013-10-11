@@ -28,7 +28,6 @@
 #include "classfile/classLoaderData.hpp"
 #include "classfile/classLoaderData.inline.hpp"
 #include "classfile/defaultMethods.hpp"
-#include "classfile/genericSignatures.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/symbolTable.hpp"
 #include "classfile/systemDictionary.hpp"
@@ -39,6 +38,7 @@
 #include "memory/gcLocker.hpp"
 #include "memory/metadataFactory.hpp"
 #include "memory/oopFactory.hpp"
+#include "memory/referenceType.hpp"
 #include "memory/universe.inline.hpp"
 #include "oops/constantPool.hpp"
 #include "oops/fieldStreams.hpp"
@@ -444,8 +444,8 @@ constantPoolHandle ClassFileParser::parse_constant_pool(TRAPS) {
             break;
           case JVM_REF_invokeStatic:
           case JVM_REF_invokeSpecial:
-            check_property(
-               tag.is_method() || tag.is_interface_method(),
+            check_property(tag.is_method() ||
+                           ((_major_version >= JAVA_8_VERSION) && tag.is_interface_method()),
                "Invalid constant pool index %u in class file %s (not a method)",
                ref_index, CHECK_(nullHandle));
              break;
@@ -888,6 +888,7 @@ void ClassFileParser::parse_field_attributes(u2 attributes_count,
   int runtime_visible_type_annotations_length = 0;
   u1* runtime_invisible_type_annotations = NULL;
   int runtime_invisible_type_annotations_length = 0;
+  bool runtime_invisible_type_annotations_exists = false;
   while (attributes_count--) {
     cfs->guarantee_more(6, CHECK);  // attribute_name_index, attribute_length
     u2 attribute_name_index = cfs->get_u2_fast();
@@ -946,15 +947,27 @@ void ClassFileParser::parse_field_attributes(u2 attributes_count,
         assert(runtime_invisible_annotations != NULL, "null invisible annotations");
         cfs->skip_u1(runtime_invisible_annotations_length, CHECK);
       } else if (attribute_name == vmSymbols::tag_runtime_visible_type_annotations()) {
+        if (runtime_visible_type_annotations != NULL) {
+          classfile_parse_error(
+            "Multiple RuntimeVisibleTypeAnnotations attributes for field in class file %s", CHECK);
+        }
         runtime_visible_type_annotations_length = attribute_length;
         runtime_visible_type_annotations = cfs->get_u1_buffer();
         assert(runtime_visible_type_annotations != NULL, "null visible type annotations");
         cfs->skip_u1(runtime_visible_type_annotations_length, CHECK);
-      } else if (PreserveAllAnnotations && attribute_name == vmSymbols::tag_runtime_invisible_type_annotations()) {
-        runtime_invisible_type_annotations_length = attribute_length;
-        runtime_invisible_type_annotations = cfs->get_u1_buffer();
-        assert(runtime_invisible_type_annotations != NULL, "null invisible type annotations");
-        cfs->skip_u1(runtime_invisible_type_annotations_length, CHECK);
+      } else if (attribute_name == vmSymbols::tag_runtime_invisible_type_annotations()) {
+        if (runtime_invisible_type_annotations_exists) {
+          classfile_parse_error(
+            "Multiple RuntimeInvisibleTypeAnnotations attributes for field in class file %s", CHECK);
+        } else {
+          runtime_invisible_type_annotations_exists = true;
+        }
+        if (PreserveAllAnnotations) {
+          runtime_invisible_type_annotations_length = attribute_length;
+          runtime_invisible_type_annotations = cfs->get_u1_buffer();
+          assert(runtime_invisible_type_annotations != NULL, "null invisible type annotations");
+        }
+        cfs->skip_u1(attribute_length, CHECK);
       } else {
         cfs->skip_u1(attribute_length, CHECK);  // Skip unknown attributes
       }
@@ -1719,15 +1732,28 @@ void ClassFileParser::parse_annotations(u1* buffer, int limit,
     coll->set_annotation(id);
 
     if (id == AnnotationCollector::_sun_misc_Contended) {
+      // @Contended can optionally specify the contention group.
+      //
+      // Contended group defines the equivalence class over the fields:
+      // the fields within the same contended group are not treated distinct.
+      // The only exception is default group, which does not incur the
+      // equivalence. Naturally, contention group for classes is meaningless.
+      //
+      // While the contention group is specified as String, annotation
+      // values are already interned, and we might as well use the constant
+      // pool index as the group tag.
+      //
+      u2 group_index = 0; // default contended group
       if (count == 1
           && s_size == (index - index0)  // match size
           && s_tag_val == *(abase + tag_off)
           && member == vmSymbols::value_name()) {
-        u2 group_index = Bytes::get_Java_u2(abase + s_con_off);
-        coll->set_contended_group(group_index);
-      } else {
-        coll->set_contended_group(0); // default contended group
+        group_index = Bytes::get_Java_u2(abase + s_con_off);
+        if (_cp->symbol_at(group_index)->utf8_length() == 0) {
+          group_index = 0; // default contended group
+        }
       }
+      coll->set_contended_group(group_index);
     }
   }
 }
@@ -1761,6 +1787,10 @@ ClassFileParser::AnnotationCollector::annotation_index(ClassLoaderData* loader_d
     if (_location != _in_method)  break;  // only allow for methods
     if (!privileged)              break;  // only allow in privileged code
     return _method_LambdaForm_Hidden;
+  case vmSymbols::VM_SYMBOL_ENUM_NAME(sun_invoke_Stable_signature):
+    if (_location != _in_field)   break;  // only allow for fields
+    if (!privileged)              break;  // only allow in privileged code
+    return _field_Stable;
   case vmSymbols::VM_SYMBOL_ENUM_NAME(sun_misc_Contended_signature):
     if (_location != _in_field && _location != _in_class)          break;  // only allow for fields and classes
     if (!EnableContended || (RestrictContended && !privileged))    break;  // honor privileges
@@ -1773,6 +1803,8 @@ ClassFileParser::AnnotationCollector::annotation_index(ClassLoaderData* loader_d
 void ClassFileParser::FieldAnnotationCollector::apply_to(FieldInfo* f) {
   if (is_contended())
     f->set_contended_group(contended_group());
+  if (is_stable())
+    f->set_stable(true);
 }
 
 ClassFileParser::FieldAnnotationCollector::~FieldAnnotationCollector() {
@@ -2047,6 +2079,7 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
   int runtime_visible_type_annotations_length = 0;
   u1* runtime_invisible_type_annotations = NULL;
   int runtime_invisible_type_annotations_length = 0;
+  bool runtime_invisible_type_annotations_exists = false;
   u1* annotation_default = NULL;
   int annotation_default_length = 0;
 
@@ -2303,16 +2336,30 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
         assert(annotation_default != NULL, "null annotation default");
         cfs->skip_u1(annotation_default_length, CHECK_(nullHandle));
       } else if (method_attribute_name == vmSymbols::tag_runtime_visible_type_annotations()) {
+        if (runtime_visible_type_annotations != NULL) {
+          classfile_parse_error(
+            "Multiple RuntimeVisibleTypeAnnotations attributes for method in class file %s",
+            CHECK_(nullHandle));
+        }
         runtime_visible_type_annotations_length = method_attribute_length;
         runtime_visible_type_annotations = cfs->get_u1_buffer();
         assert(runtime_visible_type_annotations != NULL, "null visible type annotations");
         // No need for the VM to parse Type annotations
         cfs->skip_u1(runtime_visible_type_annotations_length, CHECK_(nullHandle));
-      } else if (PreserveAllAnnotations && method_attribute_name == vmSymbols::tag_runtime_invisible_type_annotations()) {
-        runtime_invisible_type_annotations_length = method_attribute_length;
-        runtime_invisible_type_annotations = cfs->get_u1_buffer();
-        assert(runtime_invisible_type_annotations != NULL, "null invisible type annotations");
-        cfs->skip_u1(runtime_invisible_type_annotations_length, CHECK_(nullHandle));
+      } else if (method_attribute_name == vmSymbols::tag_runtime_invisible_type_annotations()) {
+        if (runtime_invisible_type_annotations_exists) {
+          classfile_parse_error(
+            "Multiple RuntimeInvisibleTypeAnnotations attributes for method in class file %s",
+            CHECK_(nullHandle));
+        } else {
+          runtime_invisible_type_annotations_exists = true;
+        }
+        if (PreserveAllAnnotations) {
+          runtime_invisible_type_annotations_length = method_attribute_length;
+          runtime_invisible_type_annotations = cfs->get_u1_buffer();
+          assert(runtime_invisible_type_annotations != NULL, "null invisible type annotations");
+        }
+        cfs->skip_u1(method_attribute_length, CHECK_(nullHandle));
       } else {
         // Skip unknown attributes
         cfs->skip_u1(method_attribute_length, CHECK_(nullHandle));
@@ -2576,7 +2623,7 @@ void ClassFileParser::parse_classfile_sourcefile_attribute(TRAPS) {
     valid_symbol_at(sourcefile_index),
     "Invalid SourceFile attribute at constant pool index %u in class file %s",
     sourcefile_index, CHECK);
-  set_class_sourcefile(_cp->symbol_at(sourcefile_index));
+  set_class_sourcefile_index(sourcefile_index);
 }
 
 
@@ -2714,7 +2761,7 @@ void ClassFileParser::parse_classfile_signature_attribute(TRAPS) {
     valid_symbol_at(signature_index),
     "Invalid constant pool index %u in Signature attribute in class file %s",
     signature_index, CHECK);
-  set_class_generic_signature(_cp->symbol_at(signature_index));
+  set_class_generic_signature_index(signature_index);
 }
 
 void ClassFileParser::parse_classfile_bootstrap_methods_attribute(u4 attribute_byte_length, TRAPS) {
@@ -2805,6 +2852,7 @@ void ClassFileParser::parse_classfile_attributes(ClassFileParser::ClassAnnotatio
   int runtime_visible_type_annotations_length = 0;
   u1* runtime_invisible_type_annotations = NULL;
   int runtime_invisible_type_annotations_length = 0;
+  bool runtime_invisible_type_annotations_exists = false;
   u1* inner_classes_attribute_start = NULL;
   u4  inner_classes_attribute_length = 0;
   u2  enclosing_method_class_index = 0;
@@ -2908,16 +2956,28 @@ void ClassFileParser::parse_classfile_attributes(ClassFileParser::ClassAnnotatio
         parsed_bootstrap_methods_attribute = true;
         parse_classfile_bootstrap_methods_attribute(attribute_length, CHECK);
       } else if (tag == vmSymbols::tag_runtime_visible_type_annotations()) {
+        if (runtime_visible_type_annotations != NULL) {
+          classfile_parse_error(
+            "Multiple RuntimeVisibleTypeAnnotations attributes in class file %s", CHECK);
+        }
         runtime_visible_type_annotations_length = attribute_length;
         runtime_visible_type_annotations = cfs->get_u1_buffer();
         assert(runtime_visible_type_annotations != NULL, "null visible type annotations");
         // No need for the VM to parse Type annotations
         cfs->skip_u1(runtime_visible_type_annotations_length, CHECK);
-      } else if (PreserveAllAnnotations && tag == vmSymbols::tag_runtime_invisible_type_annotations()) {
-        runtime_invisible_type_annotations_length = attribute_length;
-        runtime_invisible_type_annotations = cfs->get_u1_buffer();
-        assert(runtime_invisible_type_annotations != NULL, "null invisible type annotations");
-        cfs->skip_u1(runtime_invisible_type_annotations_length, CHECK);
+      } else if (tag == vmSymbols::tag_runtime_invisible_type_annotations()) {
+        if (runtime_invisible_type_annotations_exists) {
+          classfile_parse_error(
+            "Multiple RuntimeInvisibleTypeAnnotations attributes in class file %s", CHECK);
+        } else {
+          runtime_invisible_type_annotations_exists = true;
+        }
+        if (PreserveAllAnnotations) {
+          runtime_invisible_type_annotations_length = attribute_length;
+          runtime_invisible_type_annotations = cfs->get_u1_buffer();
+          assert(runtime_invisible_type_annotations != NULL, "null invisible type annotations");
+        }
+        cfs->skip_u1(attribute_length, CHECK);
       } else {
         // Unknown attribute
         cfs->skip_u1(attribute_length, CHECK);
@@ -2961,13 +3021,11 @@ void ClassFileParser::parse_classfile_attributes(ClassFileParser::ClassAnnotatio
 void ClassFileParser::apply_parsed_class_attributes(instanceKlassHandle k) {
   if (_synthetic_flag)
     k->set_is_synthetic();
-  if (_sourcefile != NULL) {
-    _sourcefile->increment_refcount();
-    k->set_source_file_name(_sourcefile);
+  if (_sourcefile_index != 0) {
+    k->set_source_file_name_index(_sourcefile_index);
   }
-  if (_generic_signature != NULL) {
-    _generic_signature->increment_refcount();
-    k->set_generic_signature(_generic_signature);
+  if (_generic_signature_index != 0) {
+    k->set_generic_signature_index(_generic_signature_index);
   }
   if (_sde_buffer != NULL) {
     k->set_source_debug_extension(_sde_buffer, _sde_length);
@@ -3027,35 +3085,6 @@ AnnotationArray* ClassFileParser::assemble_annotations(u1* runtime_visible_annot
   return annotations;
 }
 
-
-#ifndef PRODUCT
-static void parseAndPrintGenericSignatures(
-    instanceKlassHandle this_klass, TRAPS) {
-  assert(ParseAllGenericSignatures == true, "Shouldn't call otherwise");
-  ResourceMark rm;
-
-  if (this_klass->generic_signature() != NULL) {
-    using namespace generic;
-    ClassDescriptor* spec = ClassDescriptor::parse_generic_signature(this_klass(), CHECK);
-
-    tty->print_cr("Parsing %s", this_klass->generic_signature()->as_C_string());
-    spec->print_on(tty);
-
-    for (int i = 0; i < this_klass->methods()->length(); ++i) {
-      Method* m = this_klass->methods()->at(i);
-      MethodDescriptor* method_spec = MethodDescriptor::parse_generic_signature(m, spec);
-      Symbol* sig = m->generic_signature();
-      if (sig == NULL) {
-        sig = m->signature();
-      }
-      tty->print_cr("Parsing %s", sig->as_C_string());
-      method_spec->print_on(tty);
-    }
-  }
-}
-#endif // ndef PRODUCT
-
-
 instanceKlassHandle ClassFileParser::parse_super_class(int super_class_index,
                                                        TRAPS) {
   instanceKlassHandle super_klass;
@@ -3108,15 +3137,8 @@ void ClassFileParser::layout_fields(Handle class_loader,
                                     FieldLayoutInfo* info,
                                     TRAPS) {
 
-  // get the padding width from the option
-  // TODO: Ask VM about specific CPU we are running on
-  int pad_size = ContendedPaddingWidth;
-
   // Field size and offset computation
   int nonstatic_field_size = _super_klass() == NULL ? 0 : _super_klass()->nonstatic_field_size();
-#ifndef PRODUCT
-  int orig_nonstatic_field_size = 0;
-#endif
   int next_static_oop_offset;
   int next_static_double_offset;
   int next_static_word_offset;
@@ -3127,13 +3149,14 @@ void ClassFileParser::layout_fields(Handle class_loader,
   int next_nonstatic_word_offset;
   int next_nonstatic_short_offset;
   int next_nonstatic_byte_offset;
-  int next_nonstatic_type_offset;
   int first_nonstatic_oop_offset;
-  int first_nonstatic_field_offset;
   int next_nonstatic_field_offset;
   int next_nonstatic_padded_offset;
 
   // Count the contended fields by type.
+  //
+  // We ignore static fields, because @Contended is not supported for them.
+  // The layout code below will also ignore the static fields.
   int nonstatic_contended_count = 0;
   FieldAllocationCount fac_contended;
   for (AllFieldStream fs(_fields, _cp); !fs.done(); fs.next()) {
@@ -3145,7 +3168,6 @@ void ClassFileParser::layout_fields(Handle class_loader,
       }
     }
   }
-  int contended_count = nonstatic_contended_count;
 
 
   // Calculate the starting byte offsets
@@ -3165,61 +3187,60 @@ void ClassFileParser::layout_fields(Handle class_loader,
   next_static_byte_offset     = next_static_short_offset +
                                 ((fac->count[STATIC_SHORT]) * BytesPerShort);
 
-  first_nonstatic_field_offset = instanceOopDesc::base_offset_in_bytes() +
-                                 nonstatic_field_size * heapOopSize;
+  int nonstatic_fields_start  = instanceOopDesc::base_offset_in_bytes() +
+                                nonstatic_field_size * heapOopSize;
 
-  // class is contended, pad before all the fields
-  if (parsed_annotations->is_contended()) {
-    first_nonstatic_field_offset += pad_size;
+  next_nonstatic_field_offset = nonstatic_fields_start;
+
+  bool is_contended_class     = parsed_annotations->is_contended();
+
+  // Class is contended, pad before all the fields
+  if (is_contended_class) {
+    next_nonstatic_field_offset += ContendedPaddingWidth;
   }
 
-  next_nonstatic_field_offset = first_nonstatic_field_offset;
-
+  // Compute the non-contended fields count.
+  // The packing code below relies on these counts to determine if some field
+  // can be squeezed into the alignment gap. Contended fields are obviously
+  // exempt from that.
   unsigned int nonstatic_double_count = fac->count[NONSTATIC_DOUBLE] - fac_contended.count[NONSTATIC_DOUBLE];
   unsigned int nonstatic_word_count   = fac->count[NONSTATIC_WORD]   - fac_contended.count[NONSTATIC_WORD];
   unsigned int nonstatic_short_count  = fac->count[NONSTATIC_SHORT]  - fac_contended.count[NONSTATIC_SHORT];
   unsigned int nonstatic_byte_count   = fac->count[NONSTATIC_BYTE]   - fac_contended.count[NONSTATIC_BYTE];
   unsigned int nonstatic_oop_count    = fac->count[NONSTATIC_OOP]    - fac_contended.count[NONSTATIC_OOP];
 
+  // Total non-static fields count, including every contended field
+  unsigned int nonstatic_fields_count = fac->count[NONSTATIC_DOUBLE] + fac->count[NONSTATIC_WORD] +
+                                        fac->count[NONSTATIC_SHORT] + fac->count[NONSTATIC_BYTE] +
+                                        fac->count[NONSTATIC_OOP];
+
   bool super_has_nonstatic_fields =
           (_super_klass() != NULL && _super_klass->has_nonstatic_fields());
-  bool has_nonstatic_fields = super_has_nonstatic_fields ||
-          ((nonstatic_double_count + nonstatic_word_count +
-            nonstatic_short_count + nonstatic_byte_count +
-            nonstatic_oop_count) != 0);
+  bool has_nonstatic_fields = super_has_nonstatic_fields || (nonstatic_fields_count != 0);
 
 
   // Prepare list of oops for oop map generation.
+  //
+  // "offset" and "count" lists are describing the set of contiguous oop
+  // regions. offset[i] is the start of the i-th region, which then has
+  // count[i] oops following. Before we know how many regions are required,
+  // we pessimistically allocate the maps to fit all the oops into the
+  // distinct regions.
+  //
+  // TODO: We add +1 to always allocate non-zero resource arrays; we need
+  // to figure out if we still need to do this.
   int* nonstatic_oop_offsets;
   unsigned int* nonstatic_oop_counts;
   unsigned int nonstatic_oop_map_count = 0;
+  unsigned int max_nonstatic_oop_maps  = fac->count[NONSTATIC_OOP] + 1;
 
   nonstatic_oop_offsets = NEW_RESOURCE_ARRAY_IN_THREAD(
-            THREAD, int, nonstatic_oop_count + 1);
+            THREAD, int, max_nonstatic_oop_maps);
   nonstatic_oop_counts  = NEW_RESOURCE_ARRAY_IN_THREAD(
-            THREAD, unsigned int, nonstatic_oop_count + 1);
+            THREAD, unsigned int, max_nonstatic_oop_maps);
 
   first_nonstatic_oop_offset = 0; // will be set for first oop field
 
-#ifndef PRODUCT
-  if( PrintCompactFieldsSavings ) {
-    next_nonstatic_double_offset = next_nonstatic_field_offset +
-                                   (nonstatic_oop_count * heapOopSize);
-    if ( nonstatic_double_count > 0 ) {
-      next_nonstatic_double_offset = align_size_up(next_nonstatic_double_offset, BytesPerLong);
-    }
-    next_nonstatic_word_offset  = next_nonstatic_double_offset +
-                                  (nonstatic_double_count * BytesPerLong);
-    next_nonstatic_short_offset = next_nonstatic_word_offset +
-                                  (nonstatic_word_count * BytesPerInt);
-    next_nonstatic_byte_offset  = next_nonstatic_short_offset +
-                                  (nonstatic_short_count * BytesPerShort);
-    next_nonstatic_type_offset  = align_size_up((next_nonstatic_byte_offset +
-                                  nonstatic_byte_count ), heapOopSize );
-    orig_nonstatic_field_size   = nonstatic_field_size +
-    ((next_nonstatic_type_offset - first_nonstatic_field_offset)/heapOopSize);
-  }
-#endif
   bool compact_fields   = CompactFields;
   int  allocation_style = FieldsAllocationStyle;
   if( allocation_style < 0 || allocation_style > 2 ) { // Out of range?
@@ -3251,6 +3272,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
     compact_fields   = false; // Don't compact fields
   }
 
+  // Rearrange fields for a given allocation style
   if( allocation_style == 0 ) {
     // Fields order: oops, longs/doubles, ints, shorts/chars, bytes, padded fields
     next_nonstatic_oop_offset    = next_nonstatic_field_offset;
@@ -3291,6 +3313,8 @@ void ClassFileParser::layout_fields(Handle class_loader,
   int nonstatic_short_space_offset;
   int nonstatic_byte_space_offset;
 
+  // Try to squeeze some of the fields into the gaps due to
+  // long/double alignment.
   if( nonstatic_double_count > 0 ) {
     int offset = next_nonstatic_double_offset;
     next_nonstatic_double_offset = align_size_up(offset, BytesPerLong);
@@ -3400,9 +3424,11 @@ void ClassFileParser::layout_fields(Handle class_loader,
             int(nonstatic_oop_counts[nonstatic_oop_map_count - 1]) *
             heapOopSize ) {
           // Extend current oop map
+          assert(nonstatic_oop_map_count - 1 < max_nonstatic_oop_maps, "range check");
           nonstatic_oop_counts[nonstatic_oop_map_count - 1] += 1;
         } else {
           // Create new oop map
+          assert(nonstatic_oop_map_count < max_nonstatic_oop_maps, "range check");
           nonstatic_oop_offsets[nonstatic_oop_map_count] = real_offset;
           nonstatic_oop_counts [nonstatic_oop_map_count] = 1;
           nonstatic_oop_map_count += 1;
@@ -3460,12 +3486,10 @@ void ClassFileParser::layout_fields(Handle class_loader,
   //
   // Additionally, this should not break alignment for the fields, so we round the alignment up
   // for each field.
-  if (contended_count > 0) {
+  if (nonstatic_contended_count > 0) {
 
     // if there is at least one contended field, we need to have pre-padding for them
-    if (nonstatic_contended_count > 0) {
-      next_nonstatic_padded_offset += pad_size;
-    }
+    next_nonstatic_padded_offset += ContendedPaddingWidth;
 
     // collect all contended groups
     BitMap bm(_cp->size());
@@ -3526,6 +3550,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
             next_nonstatic_padded_offset += heapOopSize;
 
             // Create new oop map
+            assert(nonstatic_oop_map_count < max_nonstatic_oop_maps, "range check");
             nonstatic_oop_offsets[nonstatic_oop_map_count] = real_offset;
             nonstatic_oop_counts [nonstatic_oop_map_count] = 1;
             nonstatic_oop_map_count += 1;
@@ -3543,7 +3568,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
           // the fields within the same contended group are not inter-padded.
           // The only exception is default group, which does not incur the
           // equivalence, and so requires intra-padding.
-          next_nonstatic_padded_offset += pad_size;
+          next_nonstatic_padded_offset += ContendedPaddingWidth;
         }
 
         fs.set_offset(real_offset);
@@ -3555,37 +3580,44 @@ void ClassFileParser::layout_fields(Handle class_loader,
       // subclass fields and/or adjacent object.
       // If this was the default group, the padding is already in place.
       if (current_group != 0) {
-        next_nonstatic_padded_offset += pad_size;
+        next_nonstatic_padded_offset += ContendedPaddingWidth;
       }
     }
 
     // handle static fields
   }
 
-  // Size of instances
-  int notaligned_offset = next_nonstatic_padded_offset;
-
   // Entire class is contended, pad in the back.
   // This helps to alleviate memory contention effects for subclass fields
   // and/or adjacent object.
-  if (parsed_annotations->is_contended()) {
-    notaligned_offset += pad_size;
+  if (is_contended_class) {
+    next_nonstatic_padded_offset += ContendedPaddingWidth;
   }
 
-  int next_static_type_offset     = align_size_up(next_static_byte_offset, wordSize);
-  int static_field_size           = (next_static_type_offset -
-                                InstanceMirrorKlass::offset_of_static_fields()) / wordSize;
+  int notaligned_nonstatic_fields_end = next_nonstatic_padded_offset;
 
-  next_nonstatic_type_offset = align_size_up(notaligned_offset, heapOopSize );
-  nonstatic_field_size = nonstatic_field_size + ((next_nonstatic_type_offset
-                                 - first_nonstatic_field_offset)/heapOopSize);
+  int nonstatic_fields_end      = align_size_up(notaligned_nonstatic_fields_end, heapOopSize);
+  int instance_end              = align_size_up(notaligned_nonstatic_fields_end, wordSize);
+  int static_fields_end         = align_size_up(next_static_byte_offset, wordSize);
 
-  next_nonstatic_type_offset = align_size_up(notaligned_offset, wordSize );
-  int instance_size = align_object_size(next_nonstatic_type_offset / wordSize);
+  int static_field_size         = (static_fields_end -
+                                   InstanceMirrorKlass::offset_of_static_fields()) / wordSize;
+  nonstatic_field_size          = nonstatic_field_size +
+                                  (nonstatic_fields_end - nonstatic_fields_start) / heapOopSize;
+
+  int instance_size             = align_object_size(instance_end / wordSize);
 
   assert(instance_size == align_object_size(align_size_up(
-         (instanceOopDesc::base_offset_in_bytes() + nonstatic_field_size*heapOopSize + ((parsed_annotations->is_contended()) ? pad_size : 0)),
+         (instanceOopDesc::base_offset_in_bytes() + nonstatic_field_size*heapOopSize),
           wordSize) / wordSize), "consistent layout helper value");
+
+  // Invariant: nonstatic_field end/start should only change if there are
+  // nonstatic fields in the class, or if the class is contended. We compare
+  // against the non-aligned value, so that end alignment will not fail the
+  // assert without actually having the fields.
+  assert((notaligned_nonstatic_fields_end == nonstatic_fields_start) ||
+         is_contended_class ||
+         (nonstatic_fields_count > 0), "double-check nonstatic start/end");
 
   // Number of non-static oop map blocks allocated at end of klass.
   const unsigned int total_oop_map_count =
@@ -3593,29 +3625,14 @@ void ClassFileParser::layout_fields(Handle class_loader,
                           first_nonstatic_oop_offset);
 
 #ifndef PRODUCT
-  if( PrintCompactFieldsSavings ) {
-    ResourceMark rm;
-    if( nonstatic_field_size < orig_nonstatic_field_size ) {
-      tty->print("[Saved %d of %d bytes in %s]\n",
-               (orig_nonstatic_field_size - nonstatic_field_size)*heapOopSize,
-               orig_nonstatic_field_size*heapOopSize,
-               _class_name);
-    } else if( nonstatic_field_size > orig_nonstatic_field_size ) {
-      tty->print("[Wasted %d over %d bytes in %s]\n",
-               (nonstatic_field_size - orig_nonstatic_field_size)*heapOopSize,
-               orig_nonstatic_field_size*heapOopSize,
-               _class_name);
-    }
-  }
-
   if (PrintFieldLayout) {
     print_field_layout(_class_name,
           _fields,
           _cp,
           instance_size,
-          first_nonstatic_field_offset,
-          next_nonstatic_field_offset,
-          next_static_type_offset);
+          nonstatic_fields_start,
+          nonstatic_fields_end,
+          static_fields_end);
   }
 
 #endif
@@ -3645,8 +3662,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
   // If RedefineClasses() was used before the retransformable
   // agent attached, then the cached class bytes may not be the
   // original class bytes.
-  unsigned char *cached_class_file_bytes = NULL;
-  jint cached_class_file_length;
+  JvmtiCachedClassFileData *cached_class_file = NULL;
   Handle class_loader(THREAD, loader_data->class_loader());
   bool has_default_methods = false;
   ResourceMark rm(THREAD);
@@ -3678,10 +3694,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       if (h_class_being_redefined != NULL) {
         instanceKlassHandle ikh_class_being_redefined =
           instanceKlassHandle(THREAD, (*h_class_being_redefined)());
-        cached_class_file_bytes =
-          ikh_class_being_redefined->get_cached_class_file_bytes();
-        cached_class_file_length =
-          ikh_class_being_redefined->get_cached_class_file_len();
+        cached_class_file = ikh_class_being_redefined->get_cached_class_file();
       }
     }
 
@@ -3689,9 +3702,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     unsigned char* end_ptr = cfs->buffer() + cfs->length();
 
     JvmtiExport::post_class_file_load_hook(name, class_loader(), protection_domain,
-                                           &ptr, &end_ptr,
-                                           &cached_class_file_bytes,
-                                           &cached_class_file_length);
+                                           &ptr, &end_ptr, &cached_class_file);
 
     if (ptr != cfs->buffer()) {
       // JVMTI agent has modified class file data.
@@ -3984,9 +3995,8 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       this_klass->set_has_final_method();
     }
     this_klass->copy_method_ordering(method_ordering, CHECK_NULL);
-    // The InstanceKlass::_methods_jmethod_ids cache and the
-    // InstanceKlass::_methods_cached_itable_indices cache are
-    // both managed on the assumption that the initial cache
+    // The InstanceKlass::_methods_jmethod_ids cache
+    // is managed on the assumption that the initial cache
     // size is equal to the number of methods in the class. If
     // that changes, then InstanceKlass::idnum_can_increment()
     // has to be changed accordingly.
@@ -4009,10 +4019,9 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       }
     }
 
-    if (cached_class_file_bytes != NULL) {
+    if (cached_class_file != NULL) {
       // JVMTI: we have an InstanceKlass now, tell it about the cached bytes
-      this_klass->set_cached_class_file(cached_class_file_bytes,
-                                        cached_class_file_length);
+      this_klass->set_cached_class_file(cached_class_file);
     }
 
     // Fill in field values obtained by parse_classfile_attributes
@@ -4063,12 +4072,9 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       }
     }
 
+    // Allocate mirror and initialize static fields
+    java_lang_Class::create_mirror(this_klass, protection_domain, CHECK_(nullHandle));
 
-#ifdef ASSERT
-    if (ParseAllGenericSignatures) {
-      parseAndPrintGenericSignatures(this_klass, CHECK_(nullHandle));
-    }
-#endif
 
     // Generate any default methods - default methods are interface methods
     // that have a default implementation.  This is new with Lambda project.
@@ -4077,17 +4083,6 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
       DefaultMethods::generate_default_methods(
           this_klass(), &all_mirandas, CHECK_(nullHandle));
     }
-
-    // Allocate mirror and initialize static fields
-    java_lang_Class::create_mirror(this_klass, CHECK_(nullHandle));
-
-    // Allocate a simple java object for locking during class initialization.
-    // This needs to be a java object because it can be held across a java call.
-    typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK_NULL);
-    this_klass->set_init_lock(r);
-
-    // TODO: Move these oops to the mirror
-    this_klass->set_protection_domain(protection_domain());
 
     // Update the loader_data graph.
     record_defined_class_dependencies(this_klass, CHECK_NULL);
