@@ -349,6 +349,9 @@ int Compilation::emit_code_body() {
     char name[1024];
 
     strncpy(name, _method->holder()->name()->as_utf8(), len);
+    for (char *p = strpbrk(name, "/"); p; p = strpbrk(p, "/")) {
+      *p = '.';
+    }
     strncat(name, ".", len);
     strncat(name, _method->name()->as_utf8(), len);
     strncat(name, _method->signature()->as_symbol()->as_utf8(), len);
