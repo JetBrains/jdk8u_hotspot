@@ -31,9 +31,23 @@
 #include "oops/oop.inline.hpp"
 #include "oops/oop.inline2.hpp"
 #include "prims/forte.hpp"
+#include "runtime/javaCalls.hpp"
 #include "runtime/thread.hpp"
 #include "runtime/vframe.hpp"
 #include "runtime/vframeArray.hpp"
+
+// call frame copied from old .h file and renamed
+typedef struct {
+    jint lineno;                      // line number in the source file
+    jmethodID method_id;              // method executed in this frame
+} ASGCT_CallFrame;
+
+// call trace copied from old .h file and renamed
+typedef struct {
+    JNIEnv *env_id;                   // Env where trace was recorded
+    jint num_frames;                  // number of frames in this trace
+    ASGCT_CallFrame *frames;          // frames
+} ASGCT_CallTrace;
 
 // These name match the names reported by the forte quality kit
 enum {
@@ -49,6 +63,8 @@ enum {
   ticks_deopt                 = -9,
   ticks_safepoint             = -10
 };
+
+#if INCLUDE_JVMTI
 
 //-------------------------------------------------------
 
@@ -293,10 +309,14 @@ static bool find_initial_Java_frame(JavaThread* thread,
 
   for (loop_count = 0; loop_count < loop_max; loop_count++) {
 
-    if (candidate.is_first_frame()) {
+    if (candidate.is_entry_frame()) {
+      // jcw is NULL if the java call wrapper couldn't be found
+      JavaCallWrapper *jcw = candidate.entry_frame_call_wrapper_if_safe(thread);
       // If initial frame is frame from StubGenerator and there is no
       // previous anchor, there are no java frames associated with a method
-      return false;
+      if (jcw == NULL || jcw->is_first_frame()) {
+        return false;
+      }
     }
 
     if (candidate.is_interpreted_frame()) {
@@ -359,20 +379,6 @@ static bool find_initial_Java_frame(JavaThread* thread,
   return false;
 
 }
-
-
-// call frame copied from old .h file and renamed
-typedef struct {
-    jint lineno;                      // line number in the source file
-    jmethodID method_id;              // method executed in this frame
-} ASGCT_CallFrame;
-
-// call trace copied from old .h file and renamed
-typedef struct {
-    JNIEnv *env_id;                   // Env where trace was recorded
-    jint num_frames;                  // number of frames in this trace
-    ASGCT_CallFrame *frames;          // frames
-} ASGCT_CallTrace;
 
 static void forte_fill_call_trace_given_top(JavaThread* thd,
                                             ASGCT_CallTrace* trace,
@@ -618,7 +624,7 @@ void    collector_func_load(char* name,
                             void* null_argument_3);
 #pragma weak collector_func_load
 #define collector_func_load(x0,x1,x2,x3,x4,x5,x6) \
-        ( collector_func_load ? collector_func_load(x0,x1,x2,x3,x4,x5,x6),0 : 0 )
+        ( collector_func_load ? collector_func_load(x0,x1,x2,x3,x4,x5,x6),(void)0 : (void)0 )
 #endif // __APPLE__
 #endif // !_WINDOWS
 
@@ -634,3 +640,12 @@ void Forte::register_stub(const char* name, address start, address end) {
     pointer_delta(end, start, sizeof(jbyte)), 0, NULL);
 #endif // !_WINDOWS && !IA64
 }
+
+#else // INCLUDE_JVMTI
+extern "C" {
+  JNIEXPORT
+  void AsyncGetCallTrace(ASGCT_CallTrace *trace, jint depth, void* ucontext) {
+    trace->num_frames = ticks_no_class_load; // -1
+  }
+}
+#endif // INCLUDE_JVMTI

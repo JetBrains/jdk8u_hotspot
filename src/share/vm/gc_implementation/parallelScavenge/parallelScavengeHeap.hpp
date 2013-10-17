@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -30,14 +30,18 @@
 #include "gc_implementation/parallelScavenge/psOldGen.hpp"
 #include "gc_implementation/parallelScavenge/psYoungGen.hpp"
 #include "gc_implementation/shared/gcPolicyCounters.hpp"
+#include "gc_implementation/shared/gcWhen.hpp"
 #include "gc_interface/collectedHeap.inline.hpp"
 #include "utilities/ostream.hpp"
 
 class AdjoiningGenerations;
+class CollectorPolicy;
+class GCHeapSummary;
 class GCTaskManager;
-class PSAdaptiveSizePolicy;
 class GenerationSizer;
 class CollectorPolicy;
+class PSAdaptiveSizePolicy;
+class PSHeapSummary;
 
 class ParallelScavengeHeap : public CollectedHeap {
   friend class VMStructs;
@@ -65,6 +69,8 @@ class ParallelScavengeHeap : public CollectedHeap {
 
   static GCTaskManager*          _gc_task_manager;      // The task manager.
 
+  void trace_heap(GCWhen::Type when, GCTracer* tracer);
+
  protected:
   static inline size_t total_invocations();
   HeapWord* allocate_new_tlab(size_t size);
@@ -78,6 +84,11 @@ class ParallelScavengeHeap : public CollectedHeap {
     _death_march_count = 0;
     set_alignment(_young_gen_alignment, intra_heap_alignment());
     set_alignment(_old_gen_alignment, intra_heap_alignment());
+  }
+
+  // Return the (conservative) maximum heap alignment
+  static size_t conservative_max_heap_alignment() {
+    return intra_heap_alignment();
   }
 
   // For use by VM operations
@@ -116,7 +127,7 @@ class ParallelScavengeHeap : public CollectedHeap {
 
   // The alignment used for eden and survivors within the young gen
   // and for boundary between young gen and old gen.
-  size_t intra_heap_alignment() const { return 64 * K; }
+  static size_t intra_heap_alignment() { return 64 * K * HeapWordSize; }
 
   size_t capacity() const;
   size_t used() const;
@@ -219,6 +230,7 @@ class ParallelScavengeHeap : public CollectedHeap {
   jlong millis_since_last_gc();
 
   void prepare_for_verify();
+  PSHeapSummary create_ps_heap_summary();
   virtual void print_on(outputStream* st) const;
   virtual void print_on_error(outputStream* st) const;
   virtual void print_gc_threads_on(outputStream* st) const;

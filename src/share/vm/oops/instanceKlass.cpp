@@ -48,6 +48,7 @@
 #include "oops/symbol.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "prims/jvmtiRedefineClassesTrace.hpp"
+#include "prims/jvmtiRedefineClasses.hpp"
 #include "prims/methodComparator.hpp"
 #include "runtime/fieldDescriptor.hpp"
 #include "runtime/handles.inline.hpp"
@@ -268,9 +269,7 @@ InstanceKlass::InstanceKlass(int vtable_len,
   set_fields(NULL, 0);
   set_constants(NULL);
   set_class_loader_data(NULL);
-  set_protection_domain(NULL);
-  set_signers(NULL);
-  set_source_file_name(NULL);
+  set_source_file_name_index(0);
   set_source_debug_extension(NULL, 0);
   set_array_name(NULL);
   set_inner_classes(NULL);
@@ -279,22 +278,20 @@ InstanceKlass::InstanceKlass(int vtable_len,
   set_is_marked_dependent(false);
   set_init_state(InstanceKlass::allocated);
   set_init_thread(NULL);
-  set_init_lock(NULL);
   set_reference_type(rt);
   set_oop_map_cache(NULL);
   set_jni_ids(NULL);
   set_osr_nmethods_head(NULL);
   set_breakpoints(NULL);
   init_previous_versions();
-  set_generic_signature(NULL);
+  set_generic_signature_index(0);
   release_set_methods_jmethod_ids(NULL);
-  release_set_methods_cached_itable_indices(NULL);
   set_annotations(NULL);
   set_jvmti_cached_class_field_map(NULL);
   set_initial_method_idnum(0);
   _dependencies = NULL;
   set_jvmti_cached_class_field_map(NULL);
-  set_cached_class_file(NULL, 0);
+  set_cached_class_file(NULL);
   set_initial_method_idnum(0);
   set_minor_version(0);
   set_major_version(0);
@@ -408,12 +405,6 @@ void InstanceKlass::deallocate_contents(ClassLoaderData* loader_data) {
   }
   set_inner_classes(NULL);
 
-  // Null out Java heap objects, although these won't be walked to keep
-  // alive once this InstanceKlass is deallocated.
-  set_protection_domain(NULL);
-  set_signers(NULL);
-  set_init_lock(NULL);
-
   // We should deallocate the Annotations instance
   MetadataFactory::free_metadata(loader_data, annotations());
   set_annotations(NULL);
@@ -451,6 +442,24 @@ void InstanceKlass::eager_initialize(Thread *thread) {
   }
 }
 
+// JVMTI spec thinks there are signers and protection domain in the
+// instanceKlass.  These accessors pretend these fields are there.
+// The hprof specification also thinks these fields are in InstanceKlass.
+oop InstanceKlass::protection_domain() const {
+  // return the protection_domain from the mirror
+  return java_lang_Class::protection_domain(java_mirror());
+}
+
+// To remove these from requires an incompatible change and CCC request.
+objArrayOop InstanceKlass::signers() const {
+  // return the signers from the mirror
+  return java_lang_Class::signers(java_mirror());
+}
+
+volatile oop InstanceKlass::init_lock() const {
+  // return the init lock from the mirror
+  return java_lang_Class::init_lock(java_mirror());
+}
 
 void InstanceKlass::eager_initialize_impl(instanceKlassHandle this_oop) {
   EXCEPTION_MARK;
@@ -1139,7 +1148,7 @@ bool InstanceKlass::find_local_field(Symbol* name, Symbol* sig, fieldDescriptor*
     Symbol* f_name = fs.name();
     Symbol* f_sig  = fs.signature();
     if (f_name == name && f_sig == sig) {
-      fd->initialize(const_cast<InstanceKlass*>(this), fs.index());
+      fd->reinitialize(const_cast<InstanceKlass*>(this), fs.index());
       return true;
     }
   }
@@ -1208,7 +1217,7 @@ Klass* InstanceKlass::find_field(Symbol* name, Symbol* sig, bool is_static, fiel
 bool InstanceKlass::find_local_field_from_offset(int offset, bool is_static, fieldDescriptor* fd) const {
   for (JavaFieldStream fs(this); !fs.done(); fs.next()) {
     if (fs.offset() == offset) {
-      fd->initialize(const_cast<InstanceKlass*>(this), fs.index());
+      fd->reinitialize(const_cast<InstanceKlass*>(this), fs.index());
       if (fd->is_static() == is_static) return true;
     }
   }
@@ -1241,8 +1250,7 @@ void InstanceKlass::methods_do(void f(Method* method)) {
 void InstanceKlass::do_local_static_fields(FieldClosure* cl) {
   for (JavaFieldStream fs(this); !fs.done(); fs.next()) {
     if (fs.access_flags().is_static()) {
-      fieldDescriptor fd;
-      fd.initialize(this, fs.index());
+      fieldDescriptor& fd = fs.field_descriptor();
       cl->do_field(&fd);
     }
   }
@@ -1258,8 +1266,7 @@ void InstanceKlass::do_local_static_fields(void f(fieldDescriptor*, TRAPS), TRAP
 void InstanceKlass::do_local_static_fields_impl(instanceKlassHandle this_oop, void f(fieldDescriptor* fd, TRAPS), TRAPS) {
   for (JavaFieldStream fs(this_oop()); !fs.done(); fs.next()) {
     if (fs.access_flags().is_static()) {
-      fieldDescriptor fd;
-      fd.initialize(this_oop(), fs.index());
+      fieldDescriptor& fd = fs.field_descriptor();
       f(&fd, CHECK);
     }
   }
@@ -1281,7 +1288,7 @@ void InstanceKlass::do_nonstatic_fields(FieldClosure* cl) {
   int* fields_sorted = NEW_C_HEAP_ARRAY(int, 2*(length+1), mtClass);
   int j = 0;
   for (int i = 0; i < length; i += 1) {
-    fd.initialize(this, i);
+    fd.reinitialize(this, i);
     if (!fd.is_static()) {
       fields_sorted[j + 0] = fd.offset();
       fields_sorted[j + 1] = i;
@@ -1293,7 +1300,7 @@ void InstanceKlass::do_nonstatic_fields(FieldClosure* cl) {
     // _sort_Fn is defined in growableArray.hpp.
     qsort(fields_sorted, length/2, 2*sizeof(int), (_sort_Fn)compare_fields_by_offset);
     for (int i = 0; i < length; i += 2) {
-      fd.initialize(this, fields_sorted[i + 1]);
+      fd.reinitialize(this, fields_sorted[i + 1]);
       assert(!fd.is_static() && fd.offset() == fields_sorted[i], "only nonstatic fields");
       cl->do_field(&fd);
     }
@@ -1310,12 +1317,6 @@ void InstanceKlass::array_klasses_do(void f(Klass* k, TRAPS), TRAPS) {
 void InstanceKlass::array_klasses_do(void f(Klass* k)) {
   if (array_klasses() != NULL)
     ArrayKlass::cast(array_klasses())->array_klasses_do(f);
-}
-
-
-void InstanceKlass::with_array_klasses_do(void f(Klass* k)) {
-  f(this);
-  array_klasses_do(f);
 }
 
 #ifdef ASSERT
@@ -1682,87 +1683,6 @@ jmethodID InstanceKlass::jmethod_id_or_null(Method* method) {
 }
 
 
-// Cache an itable index
-void InstanceKlass::set_cached_itable_index(size_t idnum, int index) {
-  int* indices = methods_cached_itable_indices_acquire();
-  int* to_dealloc_indices = NULL;
-
-  // We use a double-check locking idiom here because this cache is
-  // performance sensitive. In the normal system, this cache only
-  // transitions from NULL to non-NULL which is safe because we use
-  // release_set_methods_cached_itable_indices() to advertise the
-  // new cache. A partially constructed cache should never be seen
-  // by a racing thread. Cache reads and writes proceed without a
-  // lock, but creation of the cache itself requires no leaks so a
-  // lock is generally acquired in that case.
-  //
-  // If the RedefineClasses() API has been used, then this cache can
-  // grow and we'll have transitions from non-NULL to bigger non-NULL.
-  // Cache creation requires no leaks and we require safety between all
-  // cache accesses and freeing of the old cache so a lock is generally
-  // acquired when the RedefineClasses() API has been used.
-
-  if (indices == NULL || idnum_can_increment()) {
-    // we need a cache or the cache can grow
-    MutexLocker ml(JNICachedItableIndex_lock);
-    // reacquire the cache to see if another thread already did the work
-    indices = methods_cached_itable_indices_acquire();
-    size_t length = 0;
-    // cache size is stored in element[0], other elements offset by one
-    if (indices == NULL || (length = (size_t)indices[0]) <= idnum) {
-      size_t size = MAX2(idnum+1, (size_t)idnum_allocated_count());
-      int* new_indices = NEW_C_HEAP_ARRAY(int, size+1, mtClass);
-      new_indices[0] = (int)size;
-      // copy any existing entries
-      size_t i;
-      for (i = 0; i < length; i++) {
-        new_indices[i+1] = indices[i+1];
-      }
-      // Set all the rest to -1
-      for (i = length; i < size; i++) {
-        new_indices[i+1] = -1;
-      }
-      if (indices != NULL) {
-        // We have an old cache to delete so save it for after we
-        // drop the lock.
-        to_dealloc_indices = indices;
-      }
-      release_set_methods_cached_itable_indices(indices = new_indices);
-    }
-
-    if (idnum_can_increment()) {
-      // this cache can grow so we have to write to it safely
-      indices[idnum+1] = index;
-    }
-  } else {
-    CHECK_UNHANDLED_OOPS_ONLY(Thread::current()->clear_unhandled_oops());
-  }
-
-  if (!idnum_can_increment()) {
-    // The cache cannot grow and this JNI itable index value does not
-    // have to be unique like a jmethodID. If there is a race to set it,
-    // it doesn't matter.
-    indices[idnum+1] = index;
-  }
-
-  if (to_dealloc_indices != NULL) {
-    // we allocated a new cache so free the old one
-    FreeHeap(to_dealloc_indices);
-  }
-}
-
-
-// Retrieve a cached itable index
-int InstanceKlass::cached_itable_index(size_t idnum) {
-  int* indices = methods_cached_itable_indices_acquire();
-  if (indices != NULL && ((size_t)indices[0]) > idnum) {
-     // indices exist and are long enough, retrieve possible cached
-    return indices[idnum+1];
-  }
-  return -1;
-}
-
-
 //
 // Walk the list of dependent nmethods searching for nmethods which
 // are dependent on the changes that were passed in and mark them for
@@ -1882,16 +1802,6 @@ bool InstanceKlass::is_dependent_nmethod(nmethod* nm) {
 
 
 // Garbage collection
-
-void InstanceKlass::oops_do(OopClosure* cl) {
-  Klass::oops_do(cl);
-
-  cl->do_oop(adr_protection_domain());
-  cl->do_oop(adr_signers());
-  cl->do_oop(adr_init_lock());
-
-  // Don't walk the arrays since they are walked from the ClassLoaderData objects.
-}
 
 #ifdef ASSERT
 template <class T> void assert_is_in(T *p) {
@@ -2241,9 +2151,6 @@ void InstanceKlass::remove_unshareable_info() {
     m->remove_unshareable_info();
   }
 
-  // Need to reinstate when reading back the class.
-  set_init_lock(NULL);
-
   // do array classes also.
   array_klasses_do(remove_unshareable_in_class);
 }
@@ -2274,13 +2181,6 @@ void InstanceKlass::restore_unshareable_info(TRAPS) {
     ik->vtable()->initialize_vtable(false, CHECK);
     ik->itable()->initialize_itable(false, CHECK);
   }
-
-  // Allocate a simple java object for a lock.
-  // This needs to be a java object because during class initialization
-  // it can be held across a java call.
-  typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK);
-  Handle h(THREAD, (oop)r);
-  ik->set_init_lock(h());
 
   // restore constant pool resolved references
   ik->constants()->restore_unshareable_info(CHECK);
@@ -2331,16 +2231,15 @@ void InstanceKlass::release_C_heap_structures() {
     FreeHeap(jmeths);
   }
 
-  MemberNameTable* mnt = member_names();
-  if (mnt != NULL) {
-    delete mnt;
-    set_member_names(NULL);
-  }
-
-  int* indices = methods_cached_itable_indices_acquire();
-  if (indices != (int*)NULL) {
-    release_set_methods_cached_itable_indices(NULL);
-    FreeHeap(indices);
+  // Deallocate MemberNameTable
+  {
+    Mutex* lock_or_null = SafepointSynchronize::is_at_safepoint() ? NULL : MemberNameTable_lock;
+    MutexLockerEx ml(lock_or_null, Mutex::_no_safepoint_check_flag);
+    MemberNameTable* mnt = member_names();
+    if (mnt != NULL) {
+      delete mnt;
+      set_member_names(NULL);
+    }
   }
 
   // release dependencies
@@ -2369,10 +2268,9 @@ void InstanceKlass::release_C_heap_structures() {
   }
 
   // deallocate the cached class file
-  if (_cached_class_file_bytes != NULL) {
-    os::free(_cached_class_file_bytes, mtClass);
-    _cached_class_file_bytes = NULL;
-    _cached_class_file_len = 0;
+  if (_cached_class_file != NULL) {
+    os::free(_cached_class_file, mtClass);
+    _cached_class_file = NULL;
   }
 
   // Decrement symbol reference counts associated with the unloaded class.
@@ -2380,16 +2278,10 @@ void InstanceKlass::release_C_heap_structures() {
   // unreference array name derived from this class name (arrays of an unloaded
   // class can't be referenced anymore).
   if (_array_name != NULL)  _array_name->decrement_refcount();
-  if (_source_file_name != NULL) _source_file_name->decrement_refcount();
   if (_source_debug_extension != NULL) FREE_C_HEAP_ARRAY(char, _source_debug_extension, mtClass);
 
   assert(_total_instanceKlass_count >= 1, "Sanity check");
   Atomic::dec(&_total_instanceKlass_count);
-}
-
-void InstanceKlass::set_source_file_name(Symbol* n) {
-  _source_file_name = n;
-  if (_source_file_name != NULL) _source_file_name->increment_refcount();
 }
 
 void InstanceKlass::set_source_debug_extension(char* array, int length) {
@@ -2724,7 +2616,7 @@ void InstanceKlass::remove_osr_nmethod(nmethod* n) {
   OsrList_lock->unlock();
 }
 
-nmethod* InstanceKlass::lookup_osr_nmethod(Method* const m, int bci, int comp_level, bool match_level) const {
+nmethod* InstanceKlass::lookup_osr_nmethod(const Method* m, int bci, int comp_level, bool match_level) const {
   // This is a short non-blocking critical region, so the no safepoint check is ok.
   OsrList_lock->lock_without_safepoint_check();
   nmethod* osr = osr_nmethods_head();
@@ -2765,15 +2657,28 @@ nmethod* InstanceKlass::lookup_osr_nmethod(Method* const m, int bci, int comp_le
   return NULL;
 }
 
-void InstanceKlass::add_member_name(Handle mem_name) {
+void InstanceKlass::add_member_name(int index, Handle mem_name) {
   jweak mem_name_wref = JNIHandles::make_weak_global(mem_name);
   MutexLocker ml(MemberNameTable_lock);
+  assert(0 <= index && index < idnum_allocated_count(), "index is out of bounds");
   DEBUG_ONLY(No_Safepoint_Verifier nsv);
 
   if (_member_names == NULL) {
-    _member_names = new (ResourceObj::C_HEAP, mtClass) MemberNameTable();
+    _member_names = new (ResourceObj::C_HEAP, mtClass) MemberNameTable(idnum_allocated_count());
   }
-  _member_names->add_member_name(mem_name_wref);
+  _member_names->add_member_name(index, mem_name_wref);
+}
+
+oop InstanceKlass::get_member_name(int index) {
+  MutexLocker ml(MemberNameTable_lock);
+  assert(0 <= index && index < idnum_allocated_count(), "index is out of bounds");
+  DEBUG_ONLY(No_Safepoint_Verifier nsv);
+
+  if (_member_names == NULL) {
+    return NULL;
+  }
+  oop mem_name =_member_names->get_member_name(index);
+  return mem_name;
 }
 
 // -----------------------------------------------------------------------------------------------------
@@ -2786,6 +2691,18 @@ void InstanceKlass::add_member_name(Handle mem_name) {
 static const char* state_names[] = {
   "allocated", "loaded", "linked", "being_initialized", "fully_initialized", "initialization_error"
 };
+
+static void print_vtable(intptr_t* start, int len, outputStream* st) {
+  for (int i = 0; i < len; i++) {
+    intptr_t e = start[i];
+    st->print("%d : " INTPTR_FORMAT, i, e);
+    if (e != 0 && ((Metadata*)e)->is_metaspace_object()) {
+      st->print(" ");
+      ((Metadata*)e)->print_value_on(st);
+    }
+    st->cr();
+  }
+}
 
 void InstanceKlass::print_on(outputStream* st) const {
   assert(is_klass(), "must be klass");
@@ -2838,7 +2755,7 @@ void InstanceKlass::print_on(outputStream* st) const {
 
   st->print(BULLET"arrays:            "); array_klasses()->print_value_on_maybe_null(st); st->cr();
   st->print(BULLET"methods:           "); methods()->print_value_on(st);                  st->cr();
-  if (Verbose) {
+  if (Verbose || WizardMode) {
     Array<Method*>* method_array = methods();
     for(int i = 0; i < method_array->length(); i++) {
       st->print("%d : ", i); method_array->at(i)->print_value(); st->cr();
@@ -2853,10 +2770,7 @@ void InstanceKlass::print_on(outputStream* st) const {
     class_loader_data()->print_value_on(st);
     st->cr();
   }
-  st->print(BULLET"protection domain: "); ((InstanceKlass*)this)->protection_domain()->print_value_on(st); st->cr();
   st->print(BULLET"host class:        "); host_klass()->print_value_on_maybe_null(st); st->cr();
-  st->print(BULLET"signers:           "); signers()->print_value_on(st);               st->cr();
-  st->print(BULLET"init_lock:         "); ((oop)_init_lock)->print_value_on(st);       st->cr();
   if (source_file_name() != NULL) {
     st->print(BULLET"source file:       ");
     source_file_name()->print_value_on(st);
@@ -2872,24 +2786,17 @@ void InstanceKlass::print_on(outputStream* st) const {
   st->print(BULLET"field annotations:       "); fields_annotations()->print_value_on(st); st->cr();
   st->print(BULLET"field type annotations:  "); fields_type_annotations()->print_value_on(st); st->cr();
   {
-    ResourceMark rm;
-    // PreviousVersionInfo objects returned via PreviousVersionWalker
-    // contain a GrowableArray of handles. We have to clean up the
-    // GrowableArray _after_ the PreviousVersionWalker destructor
-    // has destroyed the handles.
-    {
-      bool have_pv = false;
-      PreviousVersionWalker pvw((InstanceKlass*)this);
-      for (PreviousVersionInfo * pv_info = pvw.next_previous_version();
-           pv_info != NULL; pv_info = pvw.next_previous_version()) {
-        if (!have_pv)
-          st->print(BULLET"previous version:  ");
-        have_pv = true;
-        pv_info->prev_constant_pool_handle()()->print_value_on(st);
-      }
-      if (have_pv)  st->cr();
-    } // pvw is cleaned up
-  } // rm is cleaned up
+    bool have_pv = false;
+    PreviousVersionWalker pvw(Thread::current(), (InstanceKlass*)this);
+    for (PreviousVersionNode * pv_node = pvw.next_previous_version();
+         pv_node != NULL; pv_node = pvw.next_previous_version()) {
+      if (!have_pv)
+        st->print(BULLET"previous version:  ");
+      have_pv = true;
+      pv_node->prev_constant_pool()->print_value_on(st);
+    }
+    if (have_pv) st->cr();
+  } // pvw is cleaned up
 
   if (generic_signature() != NULL) {
     st->print(BULLET"generic signature: ");
@@ -2899,7 +2806,9 @@ void InstanceKlass::print_on(outputStream* st) const {
   st->print(BULLET"inner classes:     "); inner_classes()->print_value_on(st);     st->cr();
   st->print(BULLET"java mirror:       "); java_mirror()->print_value_on(st);       st->cr();
   st->print(BULLET"vtable length      %d  (start addr: " INTPTR_FORMAT ")", vtable_length(), start_of_vtable());  st->cr();
+  if (vtable_length() > 0 && (Verbose || WizardMode))  print_vtable(start_of_vtable(), vtable_length(), st);
   st->print(BULLET"itable length      %d (start addr: " INTPTR_FORMAT ")", itable_length(), start_of_itable()); st->cr();
+  if (itable_length() > 0 && (Verbose || WizardMode))  print_vtable(start_of_itable(), itable_length(), st);
   st->print_cr(BULLET"---- static fields (%d words):", static_field_size());
   FieldPrinter print_static_field(st);
   ((InstanceKlass*)this)->do_local_static_fields(&print_static_field);
@@ -2921,6 +2830,7 @@ void InstanceKlass::print_on(outputStream* st) const {
 
 void InstanceKlass::print_value_on(outputStream* st) const {
   assert(is_klass(), "must be klass");
+  if (Verbose || WizardMode)  access_flags().print_on(st);
   name()->print_value_on(st);
 }
 
@@ -3057,7 +2967,6 @@ void InstanceKlass::collect_statistics(KlassSizeStats *sz) const {
   n += (sz->_method_ordering_bytes       = sz->count_array(method_ordering()));
   n += (sz->_local_interfaces_bytes      = sz->count_array(local_interfaces()));
   n += (sz->_transitive_interfaces_bytes = sz->count_array(transitive_interfaces()));
-  n += (sz->_signers_bytes               = sz->count_array(signers()));
   n += (sz->_fields_bytes                = sz->count_array(fields()));
   n += (sz->_inner_classes_bytes         = sz->count_array(inner_classes()));
   sz->_ro_bytes += n;
@@ -3102,27 +3011,26 @@ class VerifyFieldClosure: public OopClosure {
   virtual void do_oop(narrowOop* p) { VerifyFieldClosure::do_oop_work(p); }
 };
 
-void InstanceKlass::verify_on(outputStream* st) {
-  Klass::verify_on(st);
-  Thread *thread = Thread::current();
-
+void InstanceKlass::verify_on(outputStream* st, bool check_dictionary) {
 #ifndef PRODUCT
-  // Avoid redundant verifies
+  // Avoid redundant verifies, this really should be in product.
   if (_verify_count == Universe::verify_count()) return;
   _verify_count = Universe::verify_count();
 #endif
-  // Verify that klass is present in SystemDictionary
-  if (is_loaded() && !is_anonymous()) {
+
+  // Verify Klass
+  Klass::verify_on(st, check_dictionary);
+
+  // Verify that klass is present in SystemDictionary if not already
+  // verifying the SystemDictionary.
+  if (is_loaded() && !is_anonymous() && check_dictionary) {
     Symbol* h_name = name();
     SystemDictionary::verify_obj_klass_present(h_name, class_loader_data());
   }
 
-  // Verify static fields
-  VerifyFieldClosure blk;
-
   // Verify vtables
   if (is_linked()) {
-    ResourceMark rm(thread);
+    ResourceMark rm;
     // $$$ This used to be done only for m/s collections.  Doing it
     // always seemed a valid generalization.  (DLD -- 6/00)
     vtable()->verify(st);
@@ -3130,7 +3038,6 @@ void InstanceKlass::verify_on(outputStream* st) {
 
   // Verify first subklass
   if (subklass_oop() != NULL) {
-    guarantee(subklass_oop()->is_metadata(), "should be in metaspace");
     guarantee(subklass_oop()->is_klass(), "should be klass");
   }
 
@@ -3142,7 +3049,6 @@ void InstanceKlass::verify_on(outputStream* st) {
       fatal(err_msg("subclass points to itself " PTR_FORMAT, sib));
     }
 
-    guarantee(sib->is_metadata(), "should be in metaspace");
     guarantee(sib->is_klass(), "should be klass");
     guarantee(sib->super() == super, "siblings should have same superklass");
   }
@@ -3178,7 +3084,6 @@ void InstanceKlass::verify_on(outputStream* st) {
   if (methods() != NULL) {
     Array<Method*>* methods = this->methods();
     for (int j = 0; j < methods->length(); j++) {
-      guarantee(methods->at(j)->is_metadata(), "should be in metaspace");
       guarantee(methods->at(j)->is_method(), "non-method in methods array");
     }
     for (int j = 0; j < methods->length() - 1; j++) {
@@ -3216,23 +3121,14 @@ void InstanceKlass::verify_on(outputStream* st) {
 
   // Verify other fields
   if (array_klasses() != NULL) {
-    guarantee(array_klasses()->is_metadata(), "should be in metaspace");
     guarantee(array_klasses()->is_klass(), "should be klass");
   }
   if (constants() != NULL) {
-    guarantee(constants()->is_metadata(), "should be in metaspace");
     guarantee(constants()->is_constantPool(), "should be constant pool");
-  }
-  if (protection_domain() != NULL) {
-    guarantee(protection_domain()->is_oop(), "should be oop");
   }
   const Klass* host = host_klass();
   if (host != NULL) {
-    guarantee(host->is_metadata(), "should be in metaspace");
     guarantee(host->is_klass(), "should be klass");
-  }
-  if (signers() != NULL) {
-    guarantee(signers()->is_objArray(), "should be obj array");
   }
 }
 
@@ -3431,34 +3327,34 @@ void InstanceKlass::add_previous_version(instanceKlassHandle ikh,
   Array<Method*>* old_methods = ikh->methods();
 
   if (cp_ref->on_stack()) {
-  PreviousVersionNode * pv_node = NULL;
-  if (emcp_method_count == 0) {
+    PreviousVersionNode * pv_node = NULL;
+    if (emcp_method_count == 0) {
       // non-shared ConstantPool gets a reference
-      pv_node = new PreviousVersionNode(cp_ref, !cp_ref->is_shared(), NULL);
-    RC_TRACE(0x00000400,
-        ("add: all methods are obsolete; flushing any EMCP refs"));
-  } else {
-    int local_count = 0;
+      pv_node = new PreviousVersionNode(cp_ref, NULL);
+      RC_TRACE(0x00000400,
+          ("add: all methods are obsolete; flushing any EMCP refs"));
+    } else {
+      int local_count = 0;
       GrowableArray<Method*>* method_refs = new (ResourceObj::C_HEAP, mtClass)
-        GrowableArray<Method*>(emcp_method_count, true);
-    for (int i = 0; i < old_methods->length(); i++) {
-      if (emcp_methods->at(i)) {
-          // this old method is EMCP. Save it only if it's on the stack
-          Method* old_method = old_methods->at(i);
-          if (old_method->on_stack()) {
-            method_refs->append(old_method);
+          GrowableArray<Method*>(emcp_method_count, true);
+      for (int i = 0; i < old_methods->length(); i++) {
+        if (emcp_methods->at(i)) {
+            // this old method is EMCP. Save it only if it's on the stack
+            Method* old_method = old_methods->at(i);
+            if (old_method->on_stack()) {
+              method_refs->append(old_method);
+            }
+          if (++local_count >= emcp_method_count) {
+            // no more EMCP methods so bail out now
+            break;
           }
-        if (++local_count >= emcp_method_count) {
-          // no more EMCP methods so bail out now
-          break;
         }
       }
-    }
       // non-shared ConstantPool gets a reference
-      pv_node = new PreviousVersionNode(cp_ref, !cp_ref->is_shared(), method_refs);
+      pv_node = new PreviousVersionNode(cp_ref, method_refs);
     }
     // append new previous version.
-  _previous_versions->append(pv_node);
+    _previous_versions->append(pv_node);
   }
 
   // Since the caller is the VMThread and we are at a safepoint, this
@@ -3559,18 +3455,27 @@ Method* InstanceKlass::method_with_idnum(int idnum) {
         return m;
       }
     }
+    // None found, return null for the caller to handle.
+    return NULL;
   }
   return m;
+}
+
+jint InstanceKlass::get_cached_class_file_len() {
+  return VM_RedefineClasses::get_cached_class_file_len(_cached_class_file);
+}
+
+unsigned char * InstanceKlass::get_cached_class_file_bytes() {
+  return VM_RedefineClasses::get_cached_class_file_bytes(_cached_class_file);
 }
 
 
 // Construct a PreviousVersionNode entry for the array hung off
 // the InstanceKlass.
 PreviousVersionNode::PreviousVersionNode(ConstantPool* prev_constant_pool,
-  bool prev_cp_is_weak, GrowableArray<Method*>* prev_EMCP_methods) {
+  GrowableArray<Method*>* prev_EMCP_methods) {
 
   _prev_constant_pool = prev_constant_pool;
-  _prev_cp_is_weak = prev_cp_is_weak;
   _prev_EMCP_methods = prev_EMCP_methods;
 }
 
@@ -3586,99 +3491,38 @@ PreviousVersionNode::~PreviousVersionNode() {
   }
 }
 
-
-// Construct a PreviousVersionInfo entry
-PreviousVersionInfo::PreviousVersionInfo(PreviousVersionNode *pv_node) {
-  _prev_constant_pool_handle = constantPoolHandle();  // NULL handle
-  _prev_EMCP_method_handles = NULL;
-
-  ConstantPool* cp = pv_node->prev_constant_pool();
-  assert(cp != NULL, "constant pool ref was unexpectedly cleared");
-  if (cp == NULL) {
-    return;  // robustness
-  }
-
-  // make the ConstantPool* safe to return
-  _prev_constant_pool_handle = constantPoolHandle(cp);
-
-  GrowableArray<Method*>* method_refs = pv_node->prev_EMCP_methods();
-  if (method_refs == NULL) {
-    // the InstanceKlass did not have any EMCP methods
-    return;
-  }
-
-  _prev_EMCP_method_handles = new GrowableArray<methodHandle>(10);
-
-  int n_methods = method_refs->length();
-  for (int i = 0; i < n_methods; i++) {
-    Method* method = method_refs->at(i);
-    assert (method != NULL, "method has been cleared");
-    if (method == NULL) {
-      continue;  // robustness
-    }
-    // make the Method* safe to return
-    _prev_EMCP_method_handles->append(methodHandle(method));
-  }
-}
-
-
-// Destroy a PreviousVersionInfo
-PreviousVersionInfo::~PreviousVersionInfo() {
-  // Since _prev_EMCP_method_handles is not C-heap allocated, we
-  // don't have to delete it.
-}
-
-
 // Construct a helper for walking the previous versions array
-PreviousVersionWalker::PreviousVersionWalker(InstanceKlass *ik) {
+PreviousVersionWalker::PreviousVersionWalker(Thread* thread, InstanceKlass *ik) {
+  _thread = thread;
   _previous_versions = ik->previous_versions();
   _current_index = 0;
-  // _hm needs no initialization
   _current_p = NULL;
-}
-
-
-// Destroy a PreviousVersionWalker
-PreviousVersionWalker::~PreviousVersionWalker() {
-  // Delete the current info just in case the caller didn't walk to
-  // the end of the previous versions list. No harm if _current_p is
-  // already NULL.
-  delete _current_p;
-
-  // When _hm is destroyed, all the Handles returned in
-  // PreviousVersionInfo objects will be destroyed.
-  // Also, after this destructor is finished it will be
-  // safe to delete the GrowableArray allocated in the
-  // PreviousVersionInfo objects.
+  _current_constant_pool_handle = constantPoolHandle(thread, ik->constants());
 }
 
 
 // Return the interesting information for the next previous version
 // of the klass. Returns NULL if there are no more previous versions.
-PreviousVersionInfo* PreviousVersionWalker::next_previous_version() {
+PreviousVersionNode* PreviousVersionWalker::next_previous_version() {
   if (_previous_versions == NULL) {
     // no previous versions so nothing to return
     return NULL;
   }
 
-  delete _current_p;  // cleanup the previous info for the caller
-  _current_p = NULL;  // reset to NULL so we don't delete same object twice
+  _current_p = NULL;  // reset to NULL
+  _current_constant_pool_handle = NULL;
 
   int length = _previous_versions->length();
 
   while (_current_index < length) {
     PreviousVersionNode * pv_node = _previous_versions->at(_current_index++);
-    PreviousVersionInfo * pv_info = new (ResourceObj::C_HEAP, mtClass)
-                                          PreviousVersionInfo(pv_node);
 
-    constantPoolHandle cp_h = pv_info->prev_constant_pool_handle();
-    assert (!cp_h.is_null(), "null cp found in previous version");
-
-    // The caller will need to delete pv_info when they are done with it.
-    _current_p = pv_info;
-    return pv_info;
+    // Save a handle to the constant pool for this previous version,
+    // which keeps all the methods from being deallocated.
+    _current_constant_pool_handle = constantPoolHandle(_thread, pv_node->prev_constant_pool());
+    _current_p = pv_node;
+    return pv_node;
   }
 
-  // all of the underlying nodes' info has been deleted
   return NULL;
 } // end next_previous_version()

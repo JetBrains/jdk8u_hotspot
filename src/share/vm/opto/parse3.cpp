@@ -147,14 +147,38 @@ void Parse::do_field_access(bool is_get, bool is_field) {
 void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
   // Does this field have a constant value?  If so, just push the value.
   if (field->is_constant()) {
-    // final field
+    // final or stable field
+    const Type* stable_type = NULL;
+    if (FoldStableValues && field->is_stable()) {
+      stable_type = Type::get_const_type(field->type());
+      if (field->type()->is_array_klass()) {
+        int stable_dimension = field->type()->as_array_klass()->dimension();
+        stable_type = stable_type->is_aryptr()->cast_to_stable(true, stable_dimension);
+      }
+    }
     if (field->is_static()) {
       // final static field
-      if (push_constant(field->constant_value()))
+      if (C->eliminate_boxing()) {
+        // The pointers in the autobox arrays are always non-null.
+        ciSymbol* klass_name = field->holder()->name();
+        if (field->name() == ciSymbol::cache_field_name() &&
+            field->holder()->uses_default_loader() &&
+            (klass_name == ciSymbol::java_lang_Character_CharacterCache() ||
+             klass_name == ciSymbol::java_lang_Byte_ByteCache() ||
+             klass_name == ciSymbol::java_lang_Short_ShortCache() ||
+             klass_name == ciSymbol::java_lang_Integer_IntegerCache() ||
+             klass_name == ciSymbol::java_lang_Long_LongCache())) {
+          bool require_const = true;
+          bool autobox_cache = true;
+          if (push_constant(field->constant_value(), require_const, autobox_cache)) {
+            return;
+          }
+        }
+      }
+      if (push_constant(field->constant_value(), false, false, stable_type))
         return;
-    }
-    else {
-      // final non-static field
+    } else {
+      // final or stable non-static field
       // Treat final non-static fields of trusted classes (classes in
       // java.lang.invoke and sun.invoke packages and subpackages) as
       // compile time constants.
@@ -162,8 +186,12 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
         const TypeOopPtr* oop_ptr = obj->bottom_type()->isa_oopptr();
         ciObject* constant_oop = oop_ptr->const_oop();
         ciConstant constant = field->constant_value_of(constant_oop);
-        if (push_constant(constant, true))
-          return;
+        if (FoldStableValues && field->is_stable() && constant.is_null_or_zero()) {
+          // fall through to field load; the field is not yet initialized
+        } else {
+          if (push_constant(constant, true, false, stable_type))
+            return;
+        }
       }
     }
   }
@@ -277,66 +305,42 @@ void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
   // If reference is volatile, prevent following volatiles ops from
   // floating up before the volatile write.
   if (is_vol) {
-    // First place the specific membar for THIS volatile index. This first
-    // membar is dependent on the store, keeping any other membars generated
-    // below from floating up past the store.
-    int adr_idx = C->get_alias_index(adr_type);
-    insert_mem_bar_volatile(Op_MemBarVolatile, adr_idx, store);
-
-    // Now place a membar for AliasIdxBot for the unknown yet-to-be-parsed
-    // volatile alias indices. Skip this if the membar is redundant.
-    if (adr_idx != Compile::AliasIdxBot) {
-      insert_mem_bar_volatile(Op_MemBarVolatile, Compile::AliasIdxBot, store);
-    }
-
-    // Finally, place alias-index-specific membars for each volatile index
-    // that isn't the adr_idx membar. Typically there's only 1 or 2.
-    for( int i = Compile::AliasIdxRaw; i < C->num_alias_types(); i++ ) {
-      if (i != adr_idx && C->alias_type(i)->is_volatile()) {
-        insert_mem_bar_volatile(Op_MemBarVolatile, i, store);
-      }
-    }
+    insert_mem_bar(Op_MemBarVolatile); // Use fat membar
   }
 
   // If the field is final, the rules of Java say we are in <init> or <clinit>.
   // Note the presence of writes to final non-static fields, so that we
   // can insert a memory barrier later on to keep the writes from floating
   // out of the constructor.
-  if (is_field && field->is_final()) {
+  // Any method can write a @Stable field; insert memory barriers after those also.
+  if (is_field && (field->is_final() || field->is_stable())) {
     set_wrote_final(true);
+    // Preserve allocation ptr to create precedent edge to it in membar
+    // generated on exit from constructor.
+    if (C->eliminate_boxing() &&
+        adr_type->isa_oopptr() && adr_type->is_oopptr()->is_ptr_to_boxed_value() &&
+        AllocateNode::Ideal_allocation(obj, &_gvn) != NULL) {
+      set_alloc_with_final(obj);
+    }
   }
 }
 
 
-bool Parse::push_constant(ciConstant constant, bool require_constant) {
+
+bool Parse::push_constant(ciConstant constant, bool require_constant, bool is_autobox_cache, const Type* stable_type) {
+  const Type* con_type = Type::make_from_constant(constant, require_constant, is_autobox_cache);
   switch (constant.basic_type()) {
-  case T_BOOLEAN:  push( intcon(constant.as_boolean()) ); break;
-  case T_INT:      push( intcon(constant.as_int())     ); break;
-  case T_CHAR:     push( intcon(constant.as_char())    ); break;
-  case T_BYTE:     push( intcon(constant.as_byte())    ); break;
-  case T_SHORT:    push( intcon(constant.as_short())   ); break;
-  case T_FLOAT:    push( makecon(TypeF::make(constant.as_float())) );  break;
-  case T_DOUBLE:   push_pair( makecon(TypeD::make(constant.as_double())) );  break;
-  case T_LONG:     push_pair( longcon(constant.as_long()) ); break;
   case T_ARRAY:
-  case T_OBJECT: {
+  case T_OBJECT:
     // cases:
     //   can_be_constant    = (oop not scavengable || ScavengeRootsInCode != 0)
     //   should_be_constant = (oop not scavengable || ScavengeRootsInCode >= 2)
     // An oop is not scavengable if it is in the perm gen.
-    ciObject* oop_constant = constant.as_object();
-    if (oop_constant->is_null_object()) {
-      push( zerocon(T_OBJECT) );
-      break;
-    } else if (require_constant || oop_constant->should_be_constant()) {
-      push( makecon(TypeOopPtr::make_from_constant(oop_constant, require_constant)) );
-      break;
-    } else {
-      // we cannot inline the oop, but we can use it later to narrow a type
-      return false;
-    }
-  }
-  case T_ILLEGAL: {
+    if (stable_type != NULL && con_type != NULL && con_type->isa_oopptr())
+      con_type = con_type->join(stable_type);
+    break;
+
+  case T_ILLEGAL:
     // Invalid ciConstant returned due to OutOfMemoryError in the CI
     assert(C->env()->failing(), "otherwise should not see this");
     // These always occur because of object types; we are going to
@@ -344,15 +348,14 @@ bool Parse::push_constant(ciConstant constant, bool require_constant) {
     push( zerocon(T_OBJECT) );
     return false;
   }
-  default:
-    ShouldNotReachHere();
-    return false;
-  }
 
-  // success
+  if (con_type == NULL)
+    // we cannot inline the oop, but we can use it later to narrow a type
+    return false;
+
+  push_node(constant.basic_type(), makecon(con_type));
   return true;
 }
-
 
 
 //=============================================================================

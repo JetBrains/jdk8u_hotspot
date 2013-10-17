@@ -189,6 +189,38 @@ const Type* Type::get_typeflow_type(ciType* type) {
 }
 
 
+//-----------------------make_from_constant------------------------------------
+const Type* Type::make_from_constant(ciConstant constant,
+                                     bool require_constant, bool is_autobox_cache) {
+  switch (constant.basic_type()) {
+  case T_BOOLEAN:  return TypeInt::make(constant.as_boolean());
+  case T_CHAR:     return TypeInt::make(constant.as_char());
+  case T_BYTE:     return TypeInt::make(constant.as_byte());
+  case T_SHORT:    return TypeInt::make(constant.as_short());
+  case T_INT:      return TypeInt::make(constant.as_int());
+  case T_LONG:     return TypeLong::make(constant.as_long());
+  case T_FLOAT:    return TypeF::make(constant.as_float());
+  case T_DOUBLE:   return TypeD::make(constant.as_double());
+  case T_ARRAY:
+  case T_OBJECT:
+    {
+      // cases:
+      //   can_be_constant    = (oop not scavengable || ScavengeRootsInCode != 0)
+      //   should_be_constant = (oop not scavengable || ScavengeRootsInCode >= 2)
+      // An oop is not scavengable if it is in the perm gen.
+      ciObject* oop_constant = constant.as_object();
+      if (oop_constant->is_null_object()) {
+        return Type::get_zero_type(T_OBJECT);
+      } else if (require_constant || oop_constant->should_be_constant()) {
+        return TypeOopPtr::make_from_constant(oop_constant, require_constant, is_autobox_cache);
+      }
+    }
+  }
+  // Fall through to failure
+  return NULL;
+}
+
+
 //------------------------------make-------------------------------------------
 // Create a simple Type, with default empty symbol sets.  Then hashcons it
 // and look for an existing copy in the type dictionary.
@@ -1824,12 +1856,12 @@ inline const TypeInt* normalize_array_size(const TypeInt* size) {
 }
 
 //------------------------------make-------------------------------------------
-const TypeAry *TypeAry::make( const Type *elem, const TypeInt *size) {
+const TypeAry* TypeAry::make(const Type* elem, const TypeInt* size, bool stable) {
   if (UseCompressedOops && elem->isa_oopptr()) {
     elem = elem->make_narrowoop();
   }
   size = normalize_array_size(size);
-  return (TypeAry*)(new TypeAry(elem,size))->hashcons();
+  return (TypeAry*)(new TypeAry(elem,size,stable))->hashcons();
 }
 
 //------------------------------meet-------------------------------------------
@@ -1850,7 +1882,8 @@ const Type *TypeAry::xmeet( const Type *t ) const {
   case Array: {                 // Meeting 2 arrays?
     const TypeAry *a = t->is_ary();
     return TypeAry::make(_elem->meet(a->_elem),
-                         _size->xmeet(a->_size)->is_int());
+                         _size->xmeet(a->_size)->is_int(),
+                         _stable & a->_stable);
   }
   case Top:
     break;
@@ -1863,7 +1896,7 @@ const Type *TypeAry::xmeet( const Type *t ) const {
 const Type *TypeAry::xdual() const {
   const TypeInt* size_dual = _size->dual()->is_int();
   size_dual = normalize_array_size(size_dual);
-  return new TypeAry( _elem->dual(), size_dual);
+  return new TypeAry(_elem->dual(), size_dual, !_stable);
 }
 
 //------------------------------eq---------------------------------------------
@@ -1871,13 +1904,14 @@ const Type *TypeAry::xdual() const {
 bool TypeAry::eq( const Type *t ) const {
   const TypeAry *a = (const TypeAry*)t;
   return _elem == a->_elem &&
+    _stable == a->_stable &&
     _size == a->_size;
 }
 
 //------------------------------hash-------------------------------------------
 // Type-specific hashing function.
 int TypeAry::hash(void) const {
-  return (intptr_t)_elem + (intptr_t)_size;
+  return (intptr_t)_elem + (intptr_t)_size + (_stable ? 43 : 0);
 }
 
 //----------------------interface_vs_oop---------------------------------------
@@ -1894,6 +1928,7 @@ bool TypeAry::interface_vs_oop(const Type *t) const {
 //------------------------------dump2------------------------------------------
 #ifndef PRODUCT
 void TypeAry::dump2( Dict &d, uint depth, outputStream *st ) const {
+  if (_stable)  st->print("stable:");
   _elem->dump2(d, depth, st);
   st->print("[");
   _size->dump2(d, depth, st);
@@ -2372,11 +2407,16 @@ TypeOopPtr::TypeOopPtr( TYPES t, PTR ptr, ciKlass* k, bool xk, ciObject* o, int 
     _klass_is_exact(xk),
     _is_ptr_to_narrowoop(false),
     _is_ptr_to_narrowklass(false),
+    _is_ptr_to_boxed_value(false),
     _instance_id(instance_id) {
+  if (Compile::current()->eliminate_boxing() && (t == InstPtr) &&
+      (offset > 0) && xk && (k != 0) && k->is_instance_klass()) {
+    _is_ptr_to_boxed_value = k->as_instance_klass()->is_boxed_value_offset(offset);
+  }
 #ifdef _LP64
   if (_offset != 0) {
     if (_offset == oopDesc::klass_offset_in_bytes()) {
-      _is_ptr_to_narrowklass = UseCompressedKlassPointers;
+      _is_ptr_to_narrowklass = UseCompressedClassPointers;
     } else if (klass() == NULL) {
       // Array with unknown body type
       assert(this->isa_aryptr(), "only arrays without klass");
@@ -2613,44 +2653,50 @@ const TypeOopPtr* TypeOopPtr::make_from_klass_common(ciKlass *klass, bool klass_
 
 //------------------------------make_from_constant-----------------------------
 // Make a java pointer from an oop constant
-const TypeOopPtr* TypeOopPtr::make_from_constant(ciObject* o, bool require_constant) {
-    assert(!o->is_null_object(), "null object not yet handled here.");
-    ciKlass* klass = o->klass();
-    if (klass->is_instance_klass()) {
-      // Element is an instance
-      if (require_constant) {
-        if (!o->can_be_constant())  return NULL;
-      } else if (!o->should_be_constant()) {
-        return TypeInstPtr::make(TypePtr::NotNull, klass, true, NULL, 0);
-      }
-      return TypeInstPtr::make(o);
-    } else if (klass->is_obj_array_klass()) {
-      // Element is an object array. Recursively call ourself.
-    const Type *etype =
+const TypeOopPtr* TypeOopPtr::make_from_constant(ciObject* o,
+                                                 bool require_constant,
+                                                 bool is_autobox_cache) {
+  assert(!o->is_null_object(), "null object not yet handled here.");
+  ciKlass* klass = o->klass();
+  if (klass->is_instance_klass()) {
+    // Element is an instance
+    if (require_constant) {
+      if (!o->can_be_constant())  return NULL;
+    } else if (!o->should_be_constant()) {
+      return TypeInstPtr::make(TypePtr::NotNull, klass, true, NULL, 0);
+    }
+    return TypeInstPtr::make(o);
+  } else if (klass->is_obj_array_klass()) {
+    // Element is an object array. Recursively call ourself.
+    const TypeOopPtr *etype =
       TypeOopPtr::make_from_klass_raw(klass->as_obj_array_klass()->element_klass());
-      const TypeAry* arr0 = TypeAry::make(etype, TypeInt::make(o->as_array()->length()));
-      // We used to pass NotNull in here, asserting that the sub-arrays
-      // are all not-null.  This is not true in generally, as code can
-      // slam NULLs down in the subarrays.
-      if (require_constant) {
-        if (!o->can_be_constant())  return NULL;
-      } else if (!o->should_be_constant()) {
-        return TypeAryPtr::make(TypePtr::NotNull, arr0, klass, true, 0);
-      }
-    const TypeAryPtr* arr = TypeAryPtr::make(TypePtr::Constant, o, arr0, klass, true, 0);
+    if (is_autobox_cache) {
+      // The pointers in the autobox arrays are always non-null.
+      etype = etype->cast_to_ptr_type(TypePtr::NotNull)->is_oopptr();
+    }
+    const TypeAry* arr0 = TypeAry::make(etype, TypeInt::make(o->as_array()->length()));
+    // We used to pass NotNull in here, asserting that the sub-arrays
+    // are all not-null.  This is not true in generally, as code can
+    // slam NULLs down in the subarrays.
+    if (require_constant) {
+      if (!o->can_be_constant())  return NULL;
+    } else if (!o->should_be_constant()) {
+      return TypeAryPtr::make(TypePtr::NotNull, arr0, klass, true, 0);
+    }
+    const TypeAryPtr* arr = TypeAryPtr::make(TypePtr::Constant, o, arr0, klass, true, 0, InstanceBot, is_autobox_cache);
     return arr;
-    } else if (klass->is_type_array_klass()) {
-      // Element is an typeArray
+  } else if (klass->is_type_array_klass()) {
+    // Element is an typeArray
     const Type* etype =
       (Type*)get_const_basic_type(klass->as_type_array_klass()->element_type());
-      const TypeAry* arr0 = TypeAry::make(etype, TypeInt::make(o->as_array()->length()));
-      // We used to pass NotNull in here, asserting that the array pointer
-      // is not-null. That was not true in general.
-      if (require_constant) {
-        if (!o->can_be_constant())  return NULL;
-      } else if (!o->should_be_constant()) {
-        return TypeAryPtr::make(TypePtr::NotNull, arr0, klass, true, 0);
-      }
+    const TypeAry* arr0 = TypeAry::make(etype, TypeInt::make(o->as_array()->length()));
+    // We used to pass NotNull in here, asserting that the array pointer
+    // is not-null. That was not true in general.
+    if (require_constant) {
+      if (!o->can_be_constant())  return NULL;
+    } else if (!o->should_be_constant()) {
+      return TypeAryPtr::make(TypePtr::NotNull, arr0, klass, true, 0);
+    }
     const TypeAryPtr* arr = TypeAryPtr::make(TypePtr::Constant, o, arr0, klass, true, 0);
     return arr;
   }
@@ -2856,6 +2902,28 @@ const TypeInstPtr *TypeInstPtr::make(PTR ptr,
   return result;
 }
 
+/**
+ *  Create constant type for a constant boxed value
+ */
+const Type* TypeInstPtr::get_const_boxed_value() const {
+  assert(is_ptr_to_boxed_value(), "should be called only for boxed value");
+  assert((const_oop() != NULL), "should be called only for constant object");
+  ciConstant constant = const_oop()->as_instance()->field_value_by_offset(offset());
+  BasicType bt = constant.basic_type();
+  switch (bt) {
+    case T_BOOLEAN:  return TypeInt::make(constant.as_boolean());
+    case T_INT:      return TypeInt::make(constant.as_int());
+    case T_CHAR:     return TypeInt::make(constant.as_char());
+    case T_BYTE:     return TypeInt::make(constant.as_byte());
+    case T_SHORT:    return TypeInt::make(constant.as_short());
+    case T_FLOAT:    return TypeF::make(constant.as_float());
+    case T_DOUBLE:   return TypeD::make(constant.as_double());
+    case T_LONG:     return TypeLong::make(constant.as_long());
+    default:         break;
+  }
+  fatal(err_msg_res("Invalid boxed value type '%s'", type2name(bt)));
+  return NULL;
+}
 
 //------------------------------cast_to_ptr_type-------------------------------
 const Type *TypeInstPtr::cast_to_ptr_type(PTR ptr) const {
@@ -3330,18 +3398,18 @@ const TypeAryPtr *TypeAryPtr::make( PTR ptr, const TypeAry *ary, ciKlass* k, boo
   if (!xk)  xk = ary->ary_must_be_exact();
   assert(instance_id <= 0 || xk || !UseExactTypes, "instances are always exactly typed");
   if (!UseExactTypes)  xk = (ptr == Constant);
-  return (TypeAryPtr*)(new TypeAryPtr(ptr, NULL, ary, k, xk, offset, instance_id))->hashcons();
+  return (TypeAryPtr*)(new TypeAryPtr(ptr, NULL, ary, k, xk, offset, instance_id, false))->hashcons();
 }
 
 //------------------------------make-------------------------------------------
-const TypeAryPtr *TypeAryPtr::make( PTR ptr, ciObject* o, const TypeAry *ary, ciKlass* k, bool xk, int offset, int instance_id ) {
+const TypeAryPtr *TypeAryPtr::make( PTR ptr, ciObject* o, const TypeAry *ary, ciKlass* k, bool xk, int offset, int instance_id, bool is_autobox_cache) {
   assert(!(k == NULL && ary->_elem->isa_int()),
          "integral arrays must be pre-equipped with a class");
   assert( (ptr==Constant && o) || (ptr!=Constant && !o), "" );
   if (!xk)  xk = (o != NULL) || ary->ary_must_be_exact();
   assert(instance_id <= 0 || xk || !UseExactTypes, "instances are always exactly typed");
   if (!UseExactTypes)  xk = (ptr == Constant);
-  return (TypeAryPtr*)(new TypeAryPtr(ptr, o, ary, k, xk, offset, instance_id))->hashcons();
+  return (TypeAryPtr*)(new TypeAryPtr(ptr, o, ary, k, xk, offset, instance_id, is_autobox_cache))->hashcons();
 }
 
 //------------------------------cast_to_ptr_type-------------------------------
@@ -3397,8 +3465,20 @@ const TypeInt* TypeAryPtr::narrow_size_type(const TypeInt* size) const {
   jint max_hi = max_array_length(elem()->basic_type());
   //if (index_not_size)  --max_hi;     // type of a valid array index, FTR
   bool chg = false;
-  if (lo < min_lo) { lo = min_lo; chg = true; }
-  if (hi > max_hi) { hi = max_hi; chg = true; }
+  if (lo < min_lo) {
+    lo = min_lo;
+    if (size->is_con()) {
+      hi = lo;
+    }
+    chg = true;
+  }
+  if (hi > max_hi) {
+    hi = max_hi;
+    if (size->is_con()) {
+      lo = hi;
+    }
+    chg = true;
+  }
   // Negative length arrays will produce weird intermediate dead fast-path code
   if (lo > hi)
     return TypeInt::ZERO;
@@ -3412,10 +3492,38 @@ const TypeAryPtr* TypeAryPtr::cast_to_size(const TypeInt* new_size) const {
   assert(new_size != NULL, "");
   new_size = narrow_size_type(new_size);
   if (new_size == size())  return this;
-  const TypeAry* new_ary = TypeAry::make(elem(), new_size);
+  const TypeAry* new_ary = TypeAry::make(elem(), new_size, is_stable());
   return make(ptr(), const_oop(), new_ary, klass(), klass_is_exact(), _offset, _instance_id);
 }
 
+
+//------------------------------cast_to_stable---------------------------------
+const TypeAryPtr* TypeAryPtr::cast_to_stable(bool stable, int stable_dimension) const {
+  if (stable_dimension <= 0 || (stable_dimension == 1 && stable == this->is_stable()))
+    return this;
+
+  const Type* elem = this->elem();
+  const TypePtr* elem_ptr = elem->make_ptr();
+
+  if (stable_dimension > 1 && elem_ptr != NULL && elem_ptr->isa_aryptr()) {
+    // If this is widened from a narrow oop, TypeAry::make will re-narrow it.
+    elem = elem_ptr = elem_ptr->is_aryptr()->cast_to_stable(stable, stable_dimension - 1);
+  }
+
+  const TypeAry* new_ary = TypeAry::make(elem, size(), stable);
+
+  return make(ptr(), const_oop(), new_ary, klass(), klass_is_exact(), _offset, _instance_id);
+}
+
+//-----------------------------stable_dimension--------------------------------
+int TypeAryPtr::stable_dimension() const {
+  if (!is_stable())  return 0;
+  int dim = 1;
+  const TypePtr* elem_ptr = elem()->make_ptr();
+  if (elem_ptr != NULL && elem_ptr->isa_aryptr())
+    dim += elem_ptr->is_aryptr()->stable_dimension();
+  return dim;
+}
 
 //------------------------------eq---------------------------------------------
 // Structural equality check for Type representations
@@ -3525,7 +3633,7 @@ const Type *TypeAryPtr::xmeet( const Type *t ) const {
         // Something like byte[int+] meets char[int+].
         // This must fall to bottom, not (int[-128..65535])[int+].
         instance_id = InstanceBot;
-        tary = TypeAry::make(Type::BOTTOM, tary->_size);
+        tary = TypeAry::make(Type::BOTTOM, tary->_size, tary->_stable);
       }
     } else // Non integral arrays.
     // Must fall to bottom if exact klasses in upper lattice
@@ -3539,7 +3647,7 @@ const Type *TypeAryPtr::xmeet( const Type *t ) const {
          (tap ->_klass_is_exact && !tap->klass()->is_subtype_of(klass())) ||
          // 'this' is exact and super or unrelated:
          (this->_klass_is_exact && !klass()->is_subtype_of(tap->klass())))) {
-      tary = TypeAry::make(Type::BOTTOM, tary->_size);
+      tary = TypeAry::make(Type::BOTTOM, tary->_size, tary->_stable);
       return make( NotNull, NULL, tary, lazy_klass, false, off, InstanceBot );
     }
 
@@ -3630,7 +3738,7 @@ const Type *TypeAryPtr::xmeet( const Type *t ) const {
 //------------------------------xdual------------------------------------------
 // Dual: compute field-by-field dual
 const Type *TypeAryPtr::xdual() const {
-  return new TypeAryPtr( dual_ptr(), _const_oop, _ary->dual()->is_ary(),_klass, _klass_is_exact, dual_offset(), dual_instance_id() );
+  return new TypeAryPtr( dual_ptr(), _const_oop, _ary->dual()->is_ary(),_klass, _klass_is_exact, dual_offset(), dual_instance_id(), is_autobox_cache() );
 }
 
 //----------------------interface_vs_oop---------------------------------------

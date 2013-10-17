@@ -71,7 +71,7 @@ class StubGenerator: public StubCodeGenerator {
  private:
 
 #ifdef PRODUCT
-#define inc_counter_np(counter) (0)
+#define inc_counter_np(counter) ((void)0)
 #else
   void inc_counter_np_(int& counter) {
     __ lea(rscratch2, ExternalAddress((address)&counter));
@@ -751,7 +751,6 @@ class StubGenerator: public StubCodeGenerator {
     // make sure klass is 'reasonable', which is not zero.
     __ load_klass(r0, r0);  // get klass
     __ cbz(r0, error);      // if klass is NULL it is broken
-    // TODO: Future assert that klass is lower 4g memory for UseCompressedKlassPointers
 
     // return if everything seems ok
     __ bind(exit);
@@ -1448,7 +1447,8 @@ class StubGenerator: public StubCodeGenerator {
   //    c_rarg4   - oop ckval (super_klass)
   //
   //  Output:
-  //    r0        -  count of oops remaining to copy
+  //    r0 ==  0  -  success
+  //    r0 == -1^K - failure, where K is partial transfer count
   //
   address generate_checkcast_copy(const char *name, address *entry,
                                   bool dest_uninitialized = false) {
@@ -1463,6 +1463,7 @@ class StubGenerator: public StubCodeGenerator {
     const Register ckval       = c_rarg4;   // super_klass
 
     // Registers used as temps (r18, r19, r20 are save-on-entry)
+    const Register count_save  = r21;       // orig elementscount
     const Register start_to    = r20;       // destination array start address
     const Register copied_oop  = r18;       // actual oop copied
     const Register r19_klass   = r19;       // oop._klass
@@ -1475,7 +1476,7 @@ class StubGenerator: public StubCodeGenerator {
     // checked.
 
     assert_different_registers(from, to, count, ckoff, ckval, start_to,
-			       copied_oop, r19_klass);
+			       copied_oop, r19_klass, count_save);
 
     __ align(CodeEntryAlignment);
     StubCodeMark mark(this, "StubRoutines", name);
@@ -1499,10 +1500,10 @@ class StubGenerator: public StubCodeGenerator {
       BLOCK_COMMENT("Entry:");
     }
 
-    // Empty array:  Nothing to do.
+     // Empty array:  Nothing to do.
     __ cbz(count, L_done);
 
-    __ push(r18->bit() | r19->bit() | r20->bit(), sp);
+    __ push(r18->bit() | r19->bit() | r20->bit() | r21->bit(), sp);
 
 #ifdef ASSERT
     BLOCK_COMMENT("assert consistent ckoff/ckval");
@@ -1517,6 +1518,9 @@ class StubGenerator: public StubCodeGenerator {
       __ bind(L);
     }
 #endif //ASSERT
+
+    // save the original count
+    __ mov(count_save, count);
 
     // Copy from low to high addresses
     __ mov(start_to, to);              // Save destination array start address
@@ -1547,22 +1551,22 @@ class StubGenerator: public StubCodeGenerator {
     // ======== end loop ========
 
     // It was a real error; we must depend on the caller to finish the job.
-    // Register r0 = number of *remaining* oops
+    // Register count = remaining oops, count_orig = total oops.
     // Emit GC store barriers for the oops we have copied and report
     // their number to the caller.
 
-    DEBUG_ONLY(__ nop());
+    __ sub(count, count_save, count);     // K = partially copied oop count
+    __ eon(count, count, zr);                   // report (-1^K) to caller
 
-    // Common exit point (success or failure).
     __ BIND(L_do_card_marks);
     __ add(to, to, -heapOopSize);         // make an inclusive end pointer
     gen_write_ref_array_post_barrier(start_to, to, rscratch1);
 
-    __ pop(r18->bit() | r19->bit() | r20->bit(), sp);
+    __ pop(r18->bit() | r19->bit() | r20->bit()| r21->bit(), sp);
     inc_counter_np(SharedRuntime::_checkcast_array_copy_ctr);
 
     __ bind(L_done);
-    __ mov(r0, count);                    // report count remaining to caller
+    __ mov(r0, count);
     __ leave();
     __ ret(lr);
 
@@ -1713,6 +1717,47 @@ class StubGenerator: public StubCodeGenerator {
   }
 
   void generate_math_stubs() { Unimplemented(); }
+
+#ifndef BUILTIN_SIM
+  // Safefetch stubs.
+  void generate_safefetch(const char* name, int size, address* entry,
+                          address* fault_pc, address* continuation_pc) {
+    // safefetch signatures:
+    //   int      SafeFetch32(int*      adr, int      errValue);
+    //   intptr_t SafeFetchN (intptr_t* adr, intptr_t errValue);
+    //
+    // arguments:
+    //   c_rarg0 = adr
+    //   c_rarg1 = errValue
+    //
+    // result:
+    //   PPC_RET  = *adr or errValue
+
+    StubCodeMark mark(this, "StubRoutines", name);
+
+    // Entry point, pc or function descriptor.
+    *entry = __ pc();
+
+    // Load *adr into c_rarg1, may fault.
+    *fault_pc = __ pc();
+    switch (size) {
+      case 4:
+        // int32_t
+	__ ldrw(c_rarg0, Address(c_rarg0, 0));
+        break;
+      case 8:
+        // int64_t
+	__ ldr(c_rarg0, Address(c_rarg0, 0));
+        break;
+      default:
+        ShouldNotReachHere();
+    }
+
+    // return errValue or *adr
+    *continuation_pc = __ pc();
+    __ ret(lr);
+  }
+#endif
 
 #undef __
 #define __ masm->
@@ -1917,6 +1962,16 @@ class StubGenerator: public StubCodeGenerator {
 
     // arraycopy stubs used by compilers
     generate_arraycopy_stubs();
+
+#ifndef BUILTIN_SIM
+    // Safefetch stubs.
+    generate_safefetch("SafeFetch32", sizeof(int),     &StubRoutines::_safefetch32_entry,
+                                                       &StubRoutines::_safefetch32_fault_pc,
+                                                       &StubRoutines::_safefetch32_continuation_pc);
+    generate_safefetch("SafeFetchN", sizeof(intptr_t), &StubRoutines::_safefetchN_entry,
+                                                       &StubRoutines::_safefetchN_fault_pc,
+                                                       &StubRoutines::_safefetchN_continuation_pc);
+#endif
   }
 
  public:

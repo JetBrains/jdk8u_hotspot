@@ -1408,7 +1408,7 @@ uint BoxLockNode::size(PhaseRegAlloc *ra_) const {
 void MachUEPNode::format(PhaseRegAlloc* ra_, outputStream* st) const
 {
   st->print_cr("# MachUEPNode");
-  if (UseCompressedKlassPointers) {
+  if (UseCompressedClassPointers) {
     st->print_cr("\tldrw rscratch1, j_rarg0 + oopDesc::klass_offset_in_bytes()]\t# compressed klass");
     if (Universe::narrow_klass_shift() != 0) {
       st->print_cr("\tdecode_klass_not_null rscratch1, rscratch1");
@@ -2115,6 +2115,25 @@ encode %{
     }
   %}
 
+  enc_class aarch64_enc_strb0(memory mem) %{
+    MacroAssembler _masm(&cbuf);
+    Register base = as_Register($mem$$base);
+    int index = $mem$$index;
+    int scale = $mem$$scale;
+    int disp = $mem$$disp;
+    if (index == -1) {
+      __ strb(zr, Address(base, disp));
+    } else {
+      Register index_reg = as_Register(index);
+      if (disp == 0) {
+        __ strb(zr, Address(base, index_reg, Address::lsl(scale)));
+      } else {
+        __ lea(rscratch1, Address(base, disp));
+	__ strb(zr, Address(rscratch1, index_reg, Address::lsl(scale)));
+      } 
+    }
+  %}
+
   enc_class aarch64_enc_strh(iRegI src, memory mem) %{
     MacroAssembler _masm(&cbuf);
     Register src_reg = as_Register($src$$reg);
@@ -2135,6 +2154,25 @@ encode %{
     }
   %}
 
+  enc_class aarch64_enc_strh0(memory mem) %{
+    MacroAssembler _masm(&cbuf);
+    Register base = as_Register($mem$$base);
+    int index = $mem$$index;
+    int scale = $mem$$scale;
+    int disp = $mem$$disp;
+    if (index == -1) {
+      __ strh(zr, Address(base, disp));
+    } else {
+      Register index_reg = as_Register(index);
+      if (disp == 0) {
+        __ strh(zr, Address(base, index_reg, Address::lsl(scale)));
+      } else {
+        __ lea(rscratch1, Address(base, disp));
+	__ strh(zr, Address(rscratch1, index_reg, Address::lsl(scale)));
+      }
+    }
+  %}
+
   enc_class aarch64_enc_strw(iRegI src, memory mem) %{
     MacroAssembler _masm(&cbuf);
     Register src_reg = as_Register($src$$reg);
@@ -2151,6 +2189,25 @@ encode %{
       } else {
         __ lea(rscratch1, Address(base, disp));
 	__ strw(src_reg, Address(rscratch1, index_reg, Address::lsl(scale)));
+      } 
+    }
+  %}
+
+  enc_class aarch64_enc_strw0(memory mem) %{
+    MacroAssembler _masm(&cbuf);
+    Register base = as_Register($mem$$base);
+    int index = $mem$$index;
+    int scale = $mem$$scale;
+    int disp = $mem$$disp;
+    if (index == -1) {
+      __ strw(zr, Address(base, disp));
+    } else {
+      Register index_reg = as_Register(index);
+      if (disp == 0) {
+        __ strw(zr, Address(base, index_reg, Address::lsl(scale)));
+      } else {
+        __ lea(rscratch1, Address(base, disp));
+	__ strw(zr, Address(rscratch1, index_reg, Address::lsl(scale)));
       } 
     }
   %}
@@ -2182,6 +2239,90 @@ encode %{
 	__ str(src_reg, Address(rscratch1, index_reg, Address::lsl(scale)));
       }
     }
+  %}
+
+  enc_class aarch64_enc_str0(memory mem) %{
+    MacroAssembler _masm(&cbuf);
+    Register base = as_Register($mem$$base);
+    int index = $mem$$index;
+    int scale = $mem$$scale;
+    int disp = $mem$$disp;
+
+    if (index == -1) {
+      __ str(zr, Address(base, disp));
+    } else {
+      Register index_reg = as_Register(index);
+      if (disp == 0) {
+        __ str(zr, Address(base, index_reg, Address::lsl(scale)));
+      } else {
+        __ lea(rscratch1, Address(base, disp));
+	__ str(zr, Address(rscratch1, index_reg, Address::lsl(scale)));
+      }
+    }
+  %}
+
+  // this encoding writes the address of the first instruction in the
+  // call sequence for the runtime call into the anchor pc slot. this
+  // address allows the runtime to i) locate the code buffer for the
+  // caller (any address in the buffer would do) and ii) find the oop
+  // map associated with the call (has to address the instruction
+  // following the call). note that we have to store the address which
+  // follows the actual call.
+  // 
+  // the offset from the current pc can be computed by considering
+  // what gets generated between this point up to and including the
+  // call. it looks like this
+  //
+  //   movz xscratch1 0xnnnn        <-- current pc is here
+  //   movk xscratch1 0xnnnn
+  //   movk xscratch1 0xnnnn
+  //   movk xscratch1 0xnnnn
+  //   str xscratch1, [xthread,#anchor_pc_off]
+  //   mov xscratch2, sp
+  //   str xscratch2, [xthread,#anchor_sp_off
+  //   mov x0, x1
+  //   . . .
+  //   mov xn-1, xn
+  //   mov xn, thread            <-- always passed
+  //   mov xn+1, rfp             <-- optional iff primary == 1
+  //   movz xscratch1 0xnnnn
+  //   movk xscratch1 0xnnnn
+  //   movk xscratch1 0xnnnn
+  //   movk xscratch1 0xnnnn
+  //   blrt xscratch1
+  //   . . .
+  //
+  // where the called routine has n args (including the thread and,
+  // possibly the stub's caller return address currently in rfp).  we
+  // can compute n by looking at the number of args passed into the
+  // stub. we assert that nargs is < 7.
+  //
+  // so the offset we need to add to the pc (in 32-bit words) is
+  //   4 +        <-- load 64 bit constant return pc
+  //   1 +        <-- write anchor pc
+  //   1 +        <-- copy sp
+  //   1 +        <-- write anchor sp
+  //   nargs +    <-- java stub arg count
+  //   1 +        <-- extra thread arg
+  // [ 1 + ]      <-- optional ret address of stub caller
+  //   4 +        <-- load 64 bit call target address
+  //   1          <-- blrt instruction
+  //
+  // i.e we need to add (nargs + 13) * 4 bytes or (nargs + 14) * 4 bytes
+  // 
+
+  enc_class aarch64_enc_save_pc() %{
+    Compile* C = ra_->C;
+    int nargs = C->tf()->domain()->cnt() - TypeFunc::Parms;
+    if ($primary) { nargs++; }
+    assert(nargs <= 8, "opto runtime stub has more than 8 args!");
+    MacroAssembler _masm(&cbuf);
+    address pc = __ pc();
+    int call_offset = (nargs + 13) * 4;
+    int field_offset = in_bytes(JavaThread::frame_anchor_offset()) +
+                       in_bytes(JavaFrameAnchor::last_Java_pc_offset());
+    __ mov(rscratch1, InternalAddress(pc + call_offset));
+    __ str(rscratch1, Address(rthread, field_offset));
   %}
 
   enc_class aarch64_enc_strs(vRegF src, memory mem) %{
@@ -2234,7 +2375,7 @@ encode %{
     // need to do this the hard way until we can manage relocs
     // for 32 bit constants
     __ movoop(rscratch2, (jobject)con);
-    __ encode_heap_oop_not_null(rscratch2);
+    if (con) __ encode_heap_oop_not_null(rscratch2);
     if (index == -1) {
       __ strw(rscratch2, Address(base, disp));
     } else {
@@ -2480,7 +2621,7 @@ encode %{
       // need to do this the hard way until we can manage relocs
       // for 32 bit constants
       __ movoop(rscratch2, (jobject)con);
-      __ encode_heap_oop_not_null(rscratch2);
+      if (con) __ encode_heap_oop_not_null(rscratch2);
     }
     MOV_VOLATILE(rscratch2, $mem$$base, $mem$$index, $mem$$scale, $mem$$disp,
 		 rscratch1, stlrw);
@@ -2493,8 +2634,9 @@ encode %{
       // need to do this the hard way until we can manage relocs
       // for 32 bit constants
       __ movoop(rscratch2, (jobject)con);
-      __ encode_heap_oop_not_null(rscratch2);
-      __ encode_klass_not_null(rscratch2);
+      // Either it is a heap oop or a klass pointer? It can't be both?
+      // __ encode_heap_oop_not_null(rscratch2);
+      if (con) __ encode_klass_not_null(rscratch2);
     }
     MOV_VOLATILE(rscratch2, $mem$$base, $mem$$index, $mem$$scale, $mem$$disp,
 		 rscratch1, stlrw);
@@ -2972,7 +3114,7 @@ encode %{
     MacroAssembler _masm(&cbuf);
     Register reg1 = as_Register($src1$$reg);
     Register reg2 = as_Register($src2$$reg);
-    __ cmp(reg1, reg2);
+    __ cmpw(reg1, reg2);
   %}
 
   enc_class aarch64_enc_testp(iRegP src) %{
@@ -2984,7 +3126,7 @@ encode %{
   enc_class aarch64_enc_testn(iRegN src) %{
     MacroAssembler _masm(&cbuf);
     Register reg = as_Register($src$$reg);
-    __ cmp(reg, zr);
+    __ cmpw(reg, zr);
   %}
 
   enc_class aarch64_enc_b(label lbl) %{
@@ -3692,6 +3834,19 @@ operand immL_M1()
   interface(CONST_INTER);
 %}
 
+// 32 bit offset of pc in thread anchor
+
+operand immL_pc_off()
+%{
+  predicate(n->get_long() == in_bytes(JavaThread::frame_anchor_offset()) +
+                             in_bytes(JavaFrameAnchor::last_Java_pc_offset()));
+  match(ConL);
+
+  op_cost(0);
+  format %{ %}
+  interface(CONST_INTER);
+%}
+
 // 64 bit integer valid for add sub immediate
 operand immLAddSub()
 %{
@@ -3749,6 +3904,30 @@ operand immP0()
 operand immP_1()
 %{
   predicate(n->get_ptr() == 1);
+  match(ConP);
+
+  op_cost(5);
+  format %{ %}
+  interface(CONST_INTER);
+%}
+
+// Pointer Immediate Minus One
+// this is used when we want to write the current PC to the thread anchor
+operand immP_M1()
+%{
+  predicate(n->get_ptr() == -1);
+  match(ConP);
+
+  op_cost(5);
+  format %{ %}
+  interface(CONST_INTER);
+%}
+
+// Pointer Immediate Minus Two
+// this is used when we want to write the current PC to the thread anchor
+operand immP_M2()
+%{
+  predicate(n->get_ptr() == -2);
   match(ConP);
 
   op_cost(5);
@@ -3896,7 +4075,8 @@ operand iRegP()
   match(RegP);
   match(iRegPNoSp);
   match(thread_RegP);
-  // match(iRegP_FP);
+  match(iRegP_R0);
+  match(iRegP_FP);
   format %{ %}
   interface(REG_INTER);
 %}
@@ -4174,6 +4354,21 @@ operand indOffI(iRegP reg, immIAddSub off)
 %}
 
 operand indOffL(iRegP reg, immLAddSub off)
+%{
+  constraint(ALLOC_IN_RC(ptr_reg));
+  match(AddP reg off);
+  op_cost(0);
+  format %{ "[$reg, $off]" %}
+  interface(MEMORY_INTER) %{
+    base($reg);
+    index(0xffffffff);
+    scale(0x0);
+    disp($off);
+  %}
+%}
+
+// AArch64 opto stubs need to write to the pc slot in the thread anchor
+operand thread_anchor_pc(thread_RegP reg, immL_pc_off off)
 %{
   constraint(ALLOC_IN_RC(ptr_reg));
   match(AddP reg off);
@@ -4488,7 +4683,7 @@ instruct loadB(iRegINoSp dst, memory mem)
 instruct loadB2L(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadB mem)));
-  predicate(!((MemNode*)n)->is_volatile());
+  predicate(!((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldrsb  $dst, $mem\t# byte" %}
@@ -4516,7 +4711,7 @@ instruct loadUB(iRegINoSp dst, memory mem)
 instruct loadUB2L(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadUB mem)));
-  predicate(!((MemNode*)n)->is_volatile());
+  predicate(!((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldrb  $dst, $mem\t# byte" %}
@@ -4544,7 +4739,7 @@ instruct loadS(iRegINoSp dst, memory mem)
 instruct loadS2L(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadS mem)));
-  predicate(!((MemNode*)n)->is_volatile());
+  predicate(!((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldrsh  $dst, $mem\t# short" %}
@@ -4572,7 +4767,7 @@ instruct loadUS(iRegINoSp dst, memory mem)
 instruct loadUS2L(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadUS mem)));
-  predicate(!((MemNode*)n)->is_volatile());
+  predicate(!((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldrh  $dst, $mem\t# short" %}
@@ -4600,7 +4795,7 @@ instruct loadI(iRegINoSp dst, memory mem)
 instruct loadI2L(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadI mem)));
-  predicate(!((MemNode*)n)->is_volatile());
+  predicate(!((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldrsw  $dst, $mem\t# int" %}
@@ -4614,7 +4809,7 @@ instruct loadI2L(iRegLNoSp dst, memory mem)
 instruct loadUI2L(iRegLNoSp dst, memory mem, immL_32bits mask)
 %{
   match(Set dst (AndL (ConvI2L (LoadI mem)) mask));
-  predicate(!((MemNode*)n)->is_volatile());
+  predicate(!((MemNode*)(n->in(1))->in(1))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldrw  $dst, $mem\t# int" %}
@@ -4929,6 +5124,19 @@ instruct storeB(iRegI src, memory mem)
   ins_pipe(pipe_class_memory);
 %}
 
+instruct storeimmB0(immI0 zero, memory mem)
+%{
+  match(Set mem (StoreB mem zero));
+  predicate(!((MemNode*)n)->is_volatile());
+
+  ins_cost(MEMORY_REF_COST);
+  format %{ "strb zr, $mem\t# byte" %}
+
+  ins_encode(aarch64_enc_strb0(mem));
+
+  ins_pipe(pipe_class_memory);
+%}
+
 // Store Char/Short
 instruct storeC(iRegI src, memory mem)
 %{
@@ -4939,6 +5147,19 @@ instruct storeC(iRegI src, memory mem)
   format %{ "strh  $src, $mem\t# short" %}
 
   ins_encode(aarch64_enc_strh(src, mem));
+
+  ins_pipe(pipe_class_memory);
+%}
+
+instruct storeimmC0(immI0 zero, memory mem)
+%{
+  match(Set mem (StoreC mem zero));
+  predicate(!((MemNode*)n)->is_volatile());
+
+  ins_cost(MEMORY_REF_COST);
+  format %{ "strh  zr, $mem\t# short" %}
+
+  ins_encode(aarch64_enc_strh0(mem));
 
   ins_pipe(pipe_class_memory);
 %}
@@ -4958,6 +5179,19 @@ instruct storeI(iRegIorL2I src, memory mem)
   ins_pipe(pipe_class_memory);
 %}
 
+instruct storeimmI0(immI0 zero, memory mem)
+%{
+  match(Set mem(StoreI mem zero));
+  predicate(!((MemNode*)n)->is_volatile());
+
+  ins_cost(MEMORY_REF_COST);
+  format %{ "strw  zr, $mem\t# int" %}
+
+  ins_encode(aarch64_enc_strw0(mem));
+
+  ins_pipe(pipe_class_memory);
+%}
+
 // Store Long (64 bit signed)
 instruct storeL(iRegL src, memory mem)
 %{
@@ -4972,6 +5206,20 @@ instruct storeL(iRegL src, memory mem)
   ins_pipe(pipe_class_memory);
 %}
 
+// Store Long (64 bit signed)
+instruct storeimmL0(immL0 zero, memory mem)
+%{
+  match(Set mem (StoreL mem zero));
+  predicate(!((MemNode*)n)->is_volatile());
+
+  ins_cost(MEMORY_REF_COST);
+  format %{ "str  zr, $mem\t# int" %}
+
+  ins_encode(aarch64_enc_str0(mem));
+
+  ins_pipe(pipe_class_memory);
+%}
+
 // Store Pointer
 instruct storeP(iRegP src, memory mem)
 %{
@@ -4982,6 +5230,65 @@ instruct storeP(iRegP src, memory mem)
   format %{ "str  $src, $mem\t# ptr" %}
 
   ins_encode(aarch64_enc_str(src, mem));
+
+  ins_pipe(pipe_class_memory);
+%}
+
+// Store Pointer
+instruct storeimmP0(immP0 zero, memory mem)
+%{
+  match(Set mem (StoreP mem zero));
+  predicate(!((MemNode*)n)->is_volatile());
+
+  ins_cost(MEMORY_REF_COST);
+  format %{ "str zr, $mem\t# ptr" %}
+
+  ins_encode(aarch64_enc_str0(mem));
+
+  ins_pipe(pipe_class_memory);
+%}
+
+// Save last Java PC to thread anchor
+
+// the ideal code cannot directly encode a reference to the current
+// PC, never mind the PC of the return address which follows the
+// runtime call whcih wil be generated at a later point. so this
+// operation is encoded in the ideal code as a write of either -1 or
+// -2 via the thread register with an offset which locates the last
+// Java pc slot in the thread anchor. the encoding computes the
+// correct Java pc to write by offsetting form the current pc to allwo
+// for the intervening instructions which will precede the runtime
+// call. Note that the constant is supplied as -2 when the stub caller
+// return address is passed to the C function and -1 when no return
+// address is required. we set the primary opcode to 1 or 0
+// accordingly as this affects the offset calculation.
+
+instruct storeLastJavaPC_no_retaddr(thread_anchor_pc mem, immP_M1 dummy_m1)
+%{
+  match(Set mem (StoreP mem dummy_m1));
+
+  ins_cost(MEMORY_REF_COST_LOW);
+  format %{ "str  ., $mem\t# save pc to thread (no ret addr)" %}
+
+  // use opcode to indicate that we have no return address argument
+  opcode(0x0);
+
+  ins_encode(aarch64_enc_save_pc());
+
+  ins_pipe(pipe_class_memory);
+%}
+
+instruct storeLastJavaPC_with_retaddr(thread_anchor_pc mem, immP_M2 dummy_m2)
+%{
+  match(Set mem (StoreP mem dummy_m2));
+
+  ins_cost(MEMORY_REF_COST_LOW);
+  format %{ "str  ., $mem\t# save pc to thread (w ret addr)" %}
+
+  // use opcode to indicate that we have a return address argument
+  opcode(0x1);
+
+  ins_encode(aarch64_enc_save_pc());
 
   ins_pipe(pipe_class_memory);
 %}
@@ -5002,8 +5309,10 @@ instruct storeN(iRegN src, memory mem)
 
 instruct storeImmN0(iRegIHeapbase heapbase, immN0 zero, memory mem)
 %{
-  predicate(Universe::narrow_oop_base() == NULL && Universe::narrow_klass_base() == NULL);
   match(Set mem (StoreN mem zero));
+  predicate(Universe::narrow_oop_base() == NULL &&
+            Universe::narrow_klass_base() == NULL &&
+            !((MemNode*)n)->is_volatile());
 
   ins_cost(MEMORY_REF_COST_LOW);
   format %{ "strw  rheapbase, $mem\t# compressed ptr (rheapbase==0)" %}
@@ -5016,6 +5325,7 @@ instruct storeImmN0(iRegIHeapbase heapbase, immN0 zero, memory mem)
 instruct storeImmN(immN src, memory mem)
 %{
   match(Set mem (StoreN mem src));
+  predicate(!((MemNode*)n)->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "strw  $src, $mem\t# compressed ptr " %}
@@ -5139,7 +5449,7 @@ instruct loadB_volatile(iRegINoSp dst, memory mem)
 instruct loadB2L_volatile(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadB mem)));
-  predicate(((MemNode*)n)->is_volatile());
+  predicate(((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldarsb  $dst, $mem\t# byte" %}
@@ -5167,7 +5477,7 @@ instruct loadUB_volatile(iRegINoSp dst, memory mem)
 instruct loadUB2L_volatile(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadUB mem)));
-  predicate(((MemNode*)n)->is_volatile());
+  predicate(((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldarb  $dst, $mem\t# byte" %}
@@ -5208,7 +5518,7 @@ instruct loadUS_volatile(iRegINoSp dst, memory mem)
 instruct loadUS2L_volatile(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadUS mem)));
-  predicate(((MemNode*)n)->is_volatile());
+  predicate(((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldarh  $dst, $mem\t# short" %}
@@ -5222,7 +5532,7 @@ instruct loadUS2L_volatile(iRegLNoSp dst, memory mem)
 instruct loadS2L_volatile(iRegLNoSp dst, memory mem)
 %{
   match(Set dst (ConvI2L (LoadS mem)));
-  predicate(((MemNode*)n)->is_volatile());
+  predicate(((MemNode*)(n->in(1)))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldarh  $dst, $mem\t# short" %}
@@ -5250,7 +5560,7 @@ instruct loadI_volatile(iRegINoSp dst, memory mem)
 instruct loadUI2L_volatile(iRegLNoSp dst, memory mem, immL_32bits mask)
 %{
   match(Set dst (AndL (ConvI2L (LoadI mem)) mask));
-  predicate(((MemNode*)n)->is_volatile());
+  predicate(((MemNode*)(n->in(1))->in(1))->is_volatile());
 
   ins_cost(MEMORY_REF_COST);
   format %{ "ldarw  $dst, $mem\t# int" %}
@@ -5275,7 +5585,7 @@ instruct loadL_volatile(iRegLNoSp dst, memory mem)
 %}
 
 // Load Pointer
-instruct load_volatileP(iRegPNoSp dst, memory mem)
+instruct loadP_volatile(iRegPNoSp dst, memory mem)
 %{
   match(Set dst (LoadP mem));
   predicate(((MemNode*)n)->is_volatile());
@@ -5697,6 +6007,8 @@ instruct decodeHeapOop(iRegPNoSp dst, iRegN src, rFlagsReg cr) %{
     Register s = $src$$Register;
     Register d = $dst$$Register;
     if (s != d) {
+    // TODO
+    // think this should be a movw but Intel uses movq. why?
       __ mov(d, s);
     }
     __ decode_heap_oop(d);
@@ -5979,7 +6291,7 @@ instruct compareAndSwapN(iRegINoSp res, memory mem, iRegNNoSp oldval, iRegNNoSp 
 // n.b. we have identical rules for both a signed compare op (cmpOp)
 // and an unsigned compare op (cmpOpU). it would be nice if we could
 // define an op class which merged both inputs and use it to type the
-// argumewnt to a single rule. unfortunatelyt his fails because the
+// argument to a single rule. unfortunatelyt his fails because the
 // opclass does not live up to the COND_INTER interface of its
 // component operands. When the generic code tries to negate the
 // operand it ends up running the generci Machoper::negate method
@@ -6236,7 +6548,7 @@ instruct cmovP_reg_reg(cmpOp cmp, rFlagsReg cr, iRegPNoSp dst, iRegP src1, iRegP
   match(Set dst (CMoveP (Binary cmp cr) (Binary src1 src2)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, $src2, $src1 $cmp\t# signed, long"  %}
+  format %{ "csel $dst, $src2, $src1 $cmp\t# signed, ptr"  %}
 
   ins_encode %{
     __ csel(as_Register($dst$$reg),
@@ -6252,7 +6564,7 @@ instruct cmovUP_reg_reg(cmpOpU cmp, rFlagsRegU cr, iRegPNoSp dst, iRegP src1, iR
   match(Set dst (CMoveP (Binary cmp cr) (Binary src1 src2)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, $src2, $src1 $cmp\t# unsigned, long"  %}
+  format %{ "csel $dst, $src2, $src1 $cmp\t# unsigned, ptr"  %}
 
   ins_encode %{
     __ csel(as_Register($dst$$reg),
@@ -6270,7 +6582,7 @@ instruct cmovP_reg_zero(cmpOp cmp, rFlagsReg cr, iRegPNoSp dst, iRegP src1, immP
   match(Set dst (CMoveP (Binary cmp cr) (Binary src1 zero)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, zr, $src1 $cmp\t# signed, long"  %}
+  format %{ "csel $dst, zr, $src1 $cmp\t# signed, ptr"  %}
 
   ins_encode %{
     __ csel(as_Register($dst$$reg),
@@ -6286,7 +6598,7 @@ instruct cmovUP_reg_zero(cmpOpU cmp, rFlagsRegU cr, iRegPNoSp dst, iRegP src1, i
   match(Set dst (CMoveP (Binary cmp cr) (Binary src1 zero)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, zr, $src1 $cmp\t# unsigned, long"  %}
+  format %{ "csel $dst, zr, $src1 $cmp\t# unsigned, ptr"  %}
 
   ins_encode %{
     __ csel(as_Register($dst$$reg),
@@ -6302,7 +6614,7 @@ instruct cmovP_zero_reg(cmpOp cmp, rFlagsReg cr, iRegPNoSp dst, immP0 zero, iReg
   match(Set dst (CMoveP (Binary cmp cr) (Binary zero src2)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, $src2, zr $cmp\t# signed, long"  %}
+  format %{ "csel $dst, $src2, zr $cmp\t# signed, ptr"  %}
 
   ins_encode %{
     __ csel(as_Register($dst$$reg),
@@ -6318,7 +6630,7 @@ instruct cmovUP_zero_reg(cmpOpU cmp, rFlagsRegU cr, iRegPNoSp dst, immP0 zero, i
   match(Set dst (CMoveP (Binary cmp cr) (Binary zero src2)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, $src2, zr $cmp\t# unsigned, long"  %}
+  format %{ "csel $dst, $src2, zr $cmp\t# unsigned, ptr"  %}
 
   ins_encode %{
     __ csel(as_Register($dst$$reg),
@@ -6334,13 +6646,13 @@ instruct cmovN_reg_reg(cmpOp cmp, rFlagsReg cr, iRegN dst, iRegN src1, iRegN src
   match(Set dst (CMoveN (Binary cmp cr) (Binary src1 src2)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, $src2, $src1 $cmp\t# signed, long"  %}
+  format %{ "cselw $dst, $src2, $src1 $cmp\t# signed, compressed ptr"  %}
 
   ins_encode %{
-    __ csel(as_Register($dst$$reg),
-            as_Register($src2$$reg),
-            as_Register($src1$$reg),
-            (Assembler::Condition)$cmp$$cmpcode);
+    __ cselw(as_Register($dst$$reg),
+             as_Register($src2$$reg),
+             as_Register($src1$$reg),
+             (Assembler::Condition)$cmp$$cmpcode);
   %}
 
   ins_pipe(pipe_class_default);
@@ -6350,13 +6662,13 @@ instruct cmovUN_reg_reg(cmpOpU cmp, rFlagsRegU cr, iRegN dst, iRegN src1, iRegN 
   match(Set dst (CMoveN (Binary cmp cr) (Binary src1 src2)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, $src2, $src1 $cmp\t# signed, long"  %}
+  format %{ "cselw $dst, $src2, $src1 $cmp\t# signed, compressed ptr"  %}
 
   ins_encode %{
-    __ csel(as_Register($dst$$reg),
-            as_Register($src2$$reg),
-            as_Register($src1$$reg),
-            (Assembler::Condition)$cmp$$cmpcode);
+    __ cselw(as_Register($dst$$reg),
+             as_Register($src2$$reg),
+             as_Register($src1$$reg),
+             (Assembler::Condition)$cmp$$cmpcode);
   %}
 
   ins_pipe(pipe_class_default);
@@ -6368,13 +6680,13 @@ instruct cmovN_reg_zero(cmpOp cmp, rFlagsReg cr, iRegN dst, iRegN src1, immN0 ze
   match(Set dst (CMoveN (Binary cmp cr) (Binary src1 zero)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, zr, $src1 $cmp\t# signed, long"  %}
+  format %{ "cselw $dst, zr, $src1 $cmp\t# signed, compressed ptr"  %}
 
   ins_encode %{
-    __ csel(as_Register($dst$$reg),
-            zr,
-            as_Register($src1$$reg),
-            (Assembler::Condition)$cmp$$cmpcode);
+    __ cselw(as_Register($dst$$reg),
+             zr,
+             as_Register($src1$$reg),
+             (Assembler::Condition)$cmp$$cmpcode);
   %}
 
   ins_pipe(pipe_class_default);
@@ -6384,13 +6696,13 @@ instruct cmovUN_reg_zero(cmpOpU cmp, rFlagsRegU cr, iRegN dst, iRegN src1, immN0
   match(Set dst (CMoveN (Binary cmp cr) (Binary src1 zero)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, zr, $src1 $cmp\t# unsigned, long"  %}
+  format %{ "cselw $dst, zr, $src1 $cmp\t# unsigned, compressed ptr"  %}
 
   ins_encode %{
-    __ csel(as_Register($dst$$reg),
-            zr,
-            as_Register($src1$$reg),
-            (Assembler::Condition)$cmp$$cmpcode);
+    __ cselw(as_Register($dst$$reg),
+             zr,
+             as_Register($src1$$reg),
+             (Assembler::Condition)$cmp$$cmpcode);
   %}
 
   ins_pipe(pipe_class_default);
@@ -6400,13 +6712,13 @@ instruct cmovN_zero_reg(cmpOp cmp, rFlagsReg cr, iRegN dst, immN0 zero, iRegN sr
   match(Set dst (CMoveN (Binary cmp cr) (Binary zero src2)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, $src2, zr $cmp\t# signed, long"  %}
+  format %{ "cselw $dst, $src2, zr $cmp\t# signed, compressed ptr"  %}
 
   ins_encode %{
-    __ csel(as_Register($dst$$reg),
-            as_Register($src2$$reg),
-            zr,
-            (Assembler::Condition)$cmp$$cmpcode);
+    __ cselw(as_Register($dst$$reg),
+             as_Register($src2$$reg),
+             zr,
+             (Assembler::Condition)$cmp$$cmpcode);
   %}
 
   ins_pipe(pipe_class_default);
@@ -6416,13 +6728,13 @@ instruct cmovUN_zero_reg(cmpOpU cmp, rFlagsRegU cr, iRegN dst, immN0 zero, iRegN
   match(Set dst (CMoveN (Binary cmp cr) (Binary zero src2)));
 
   ins_cost(DEFAULT_COST);
-  format %{ "csel $dst, $src2, zr $cmp\t# unsigned, long"  %}
+  format %{ "cselw $dst, $src2, zr $cmp\t# unsigned, compressed ptr"  %}
 
   ins_encode %{
-    __ csel(as_Register($dst$$reg),
-            as_Register($src2$$reg),
-            zr,
-            (Assembler::Condition)$cmp$$cmpcode);
+    __ cselw(as_Register($dst$$reg),
+             as_Register($src2$$reg),
+             zr,
+             (Assembler::Condition)$cmp$$cmpcode);
   %}
 
   ins_pipe(pipe_class_default);
@@ -9447,6 +9759,114 @@ instruct compD_reg_reg(rFlagsRegU cr, vRegD src1, vRegD src2)
   %}
 
   ins_pipe(pipe_class_compare);
+%}
+
+instruct compF3_reg_reg(iRegI dst, vRegF src1, vRegF src2, rFlagsReg cr)
+%{
+  match(Set dst (CmpF3 src1 src2));
+  effect(KILL cr);
+
+  ins_cost(DEFAULT_COST * 3);
+  format %{ "fcmps $src1, $src2\n\t"
+            "csinvw($dst, zr, zr, eq\n\t"
+            "csnegw($dst, $dst, $dst, lt)"
+  %}
+
+  ins_encode %{
+    Label done;
+    FloatRegister s1 = as_FloatRegister($src1$$reg);
+    FloatRegister s2 = as_FloatRegister($src2$$reg);
+    Register d = as_Register($dst$$reg);
+    __ fcmps(s1, s2);
+    // installs 0 if EQ else -1
+    __ csinvw(d, zr, zr, Assembler::EQ);
+    // keeps -1 if less or unordered else installs 1
+    __ csnegw(d, d, d, Assembler::LT);
+    __ bind(done);
+  %}
+
+  ins_pipe(pipe_class_default);
+
+%}
+
+instruct compD3_reg_reg(iRegI dst, vRegD src1, vRegD src2, rFlagsReg cr)
+%{
+  match(Set dst (CmpD3 src1 src2));
+  effect(KILL cr);
+
+  ins_cost(DEFAULT_COST * 3);
+  format %{ "fcmpd $src1, $src2\n\t"
+            "csinvw($dst, zr, zr, eq\n\t"
+            "csnegw($dst, $dst, $dst, lt)"
+  %}
+
+  ins_encode %{
+    Label done;
+    FloatRegister s1 = as_FloatRegister($src1$$reg);
+    FloatRegister s2 = as_FloatRegister($src2$$reg);
+    Register d = as_Register($dst$$reg);
+    __ fcmpd(s1, s2);
+    // installs 0 if EQ else -1
+    __ csinvw(d, zr, zr, Assembler::EQ);
+    // keeps -1 if less or unordered else installs 1
+    __ csnegw(d, d, d, Assembler::LT);
+    __ bind(done);
+  %}
+  ins_pipe(pipe_class_default);
+
+%}
+
+instruct compF3_reg_immF0(iRegI dst, vRegF src1, immF0 zero, rFlagsReg cr)
+%{
+  match(Set dst (CmpF3 src1 zero));
+  effect(KILL cr);
+
+  ins_cost(DEFAULT_COST * 3);
+  format %{ "fcmps $src1, 0.0\n\t"
+            "csinvw($dst, zr, zr, eq\n\t"
+            "csnegw($dst, $dst, $dst, lt)"
+  %}
+
+  ins_encode %{
+    Label done;
+    FloatRegister s1 = as_FloatRegister($src1$$reg);
+    Register d = as_Register($dst$$reg);
+    __ fcmps(s1, 0.0D);
+    // installs 0 if EQ else -1
+    __ csinvw(d, zr, zr, Assembler::EQ);
+    // keeps -1 if less or unordered else installs 1
+    __ csnegw(d, d, d, Assembler::LT);
+    __ bind(done);
+  %}
+
+  ins_pipe(pipe_class_default);
+
+%}
+
+instruct compD3_reg_immD0(iRegI dst, vRegD src1, immD0 zero, rFlagsReg cr)
+%{
+  match(Set dst (CmpD3 src1 zero));
+  effect(KILL cr);
+
+  ins_cost(DEFAULT_COST * 3);
+  format %{ "fcmpd $src1, 0.0\n\t"
+            "csinvw($dst, zr, zr, eq\n\t"
+            "csnegw($dst, $dst, $dst, lt)"
+  %}
+
+  ins_encode %{
+    Label done;
+    FloatRegister s1 = as_FloatRegister($src1$$reg);
+    Register d = as_Register($dst$$reg);
+    __ fcmpd(s1, 0.0D);
+    // installs 0 if EQ else -1
+    __ csinvw(d, zr, zr, Assembler::EQ);
+    // keeps -1 if less or unordered else installs 1
+    __ csnegw(d, d, d, Assembler::LT);
+    __ bind(done);
+  %}
+  ins_pipe(pipe_class_default);
+
 %}
 
 instruct cmpLTMask_reg_reg(iRegI dst, iRegI p, iRegI q, rFlagsReg cr)

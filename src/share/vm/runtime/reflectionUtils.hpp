@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -109,6 +109,8 @@ class FieldStream : public KlassStream {
  private:
   int length() const                { return _klass->java_fields_count(); }
 
+  fieldDescriptor _fd_buf;
+
  public:
   FieldStream(instanceKlassHandle klass, bool local_only, bool classes_only)
     : KlassStream(klass, local_only, classes_only) {
@@ -134,12 +136,18 @@ class FieldStream : public KlassStream {
   int offset() const {
     return _klass->field_offset( index() );
   }
+  // bridge to a heavier API:
+  fieldDescriptor& field_descriptor() const {
+    fieldDescriptor& field = const_cast<fieldDescriptor&>(_fd_buf);
+    field.reinitialize(_klass(), _index);
+    return field;
+  }
 };
 
-class FilteredField {
+class FilteredField : public CHeapObj<mtInternal>  {
  private:
   Klass* _klass;
-  int      _field_offset;
+  int    _field_offset;
 
  public:
   FilteredField(Klass* klass, int field_offset) {

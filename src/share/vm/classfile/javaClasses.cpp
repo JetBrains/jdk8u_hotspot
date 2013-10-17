@@ -438,6 +438,29 @@ bool java_lang_String::equals(oop java_string, jchar* chars, int len) {
   return true;
 }
 
+bool java_lang_String::equals(oop str1, oop str2) {
+  assert(str1->klass() == SystemDictionary::String_klass(),
+         "must be java String");
+  assert(str2->klass() == SystemDictionary::String_klass(),
+         "must be java String");
+  typeArrayOop value1  = java_lang_String::value(str1);
+  int          offset1 = java_lang_String::offset(str1);
+  int          length1 = java_lang_String::length(str1);
+  typeArrayOop value2  = java_lang_String::value(str2);
+  int          offset2 = java_lang_String::offset(str2);
+  int          length2 = java_lang_String::length(str2);
+
+  if (length1 != length2) {
+    return false;
+  }
+  for (int i = 0; i < length1; i++) {
+    if (value1->char_at(i + offset1) != value2->char_at(i + offset2)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void java_lang_String::print(Handle java_string, outputStream* st) {
   oop          obj    = java_string();
   assert(obj->klass() == SystemDictionary::String_klass(), "must be java_string");
@@ -512,22 +535,22 @@ void java_lang_Class::fixup_mirror(KlassHandle k, TRAPS) {
 
   // If the offset was read from the shared archive, it was fixed up already
   if (!k->is_shared()) {
-  if (k->oop_is_instance()) {
-    // During bootstrap, java.lang.Class wasn't loaded so static field
-    // offsets were computed without the size added it.  Go back and
-    // update all the static field offsets to included the size.
-      for (JavaFieldStream fs(InstanceKlass::cast(k())); !fs.done(); fs.next()) {
-      if (fs.access_flags().is_static()) {
-        int real_offset = fs.offset() + InstanceMirrorKlass::offset_of_static_fields();
-        fs.set_offset(real_offset);
+    if (k->oop_is_instance()) {
+      // During bootstrap, java.lang.Class wasn't loaded so static field
+      // offsets were computed without the size added it.  Go back and
+      // update all the static field offsets to included the size.
+        for (JavaFieldStream fs(InstanceKlass::cast(k())); !fs.done(); fs.next()) {
+        if (fs.access_flags().is_static()) {
+          int real_offset = fs.offset() + InstanceMirrorKlass::offset_of_static_fields();
+          fs.set_offset(real_offset);
+        }
       }
     }
   }
-  }
-  create_mirror(k, CHECK);
+  create_mirror(k, Handle(NULL), CHECK);
 }
 
-oop java_lang_Class::create_mirror(KlassHandle k, TRAPS) {
+oop java_lang_Class::create_mirror(KlassHandle k, Handle protection_domain, TRAPS) {
   assert(k->java_mirror() == NULL, "should only assign mirror once");
   // Use this moment of initialization to cache modifier_flags also,
   // to support Class.getModifiers().  Instance classes recalculate
@@ -563,6 +586,16 @@ oop java_lang_Class::create_mirror(KlassHandle k, TRAPS) {
       set_array_klass(comp_mirror(), k());
     } else {
       assert(k->oop_is_instance(), "Must be");
+
+      // Allocate a simple java object for a lock.
+      // This needs to be a java object because during class initialization
+      // it can be held across a java call.
+      typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK_NULL);
+      set_init_lock(mirror(), r);
+
+      // Set protection domain also
+      set_protection_domain(mirror(), protection_domain());
+
       // Initialize static fields
       InstanceKlass::cast(k())->do_local_static_fields(&initialize_static_field, CHECK_NULL);
     }
@@ -596,6 +629,34 @@ void java_lang_Class::set_static_oop_field_count(oop java_class, int size) {
   assert(_static_oop_field_count_offset != 0, "must be set");
   java_class->int_field_put(_static_oop_field_count_offset, size);
 }
+
+oop java_lang_Class::protection_domain(oop java_class) {
+  assert(_protection_domain_offset != 0, "must be set");
+  return java_class->obj_field(_protection_domain_offset);
+}
+void java_lang_Class::set_protection_domain(oop java_class, oop pd) {
+  assert(_protection_domain_offset != 0, "must be set");
+  java_class->obj_field_put(_protection_domain_offset, pd);
+}
+
+oop java_lang_Class::init_lock(oop java_class) {
+  assert(_init_lock_offset != 0, "must be set");
+  return java_class->obj_field(_init_lock_offset);
+}
+void java_lang_Class::set_init_lock(oop java_class, oop init_lock) {
+  assert(_init_lock_offset != 0, "must be set");
+  java_class->obj_field_put(_init_lock_offset, init_lock);
+}
+
+objArrayOop java_lang_Class::signers(oop java_class) {
+  assert(_signers_offset != 0, "must be set");
+  return (objArrayOop)java_class->obj_field(_signers_offset);
+}
+void java_lang_Class::set_signers(oop java_class, objArrayOop signers) {
+  assert(_signers_offset != 0, "must be set");
+  java_class->obj_field_put(_signers_offset, (oop)signers);
+}
+
 
 oop java_lang_Class::create_basic_type_mirror(const char* basic_type_name, BasicType type, TRAPS) {
   // This should be improved by adding a field at the Java level or by
@@ -923,7 +984,7 @@ void java_lang_Thread::set_thread_status(oop java_thread,
 
 // Read thread status value from threadStatus field in java.lang.Thread java class.
 java_lang_Thread::ThreadStatus java_lang_Thread::get_thread_status(oop java_thread) {
-  assert(Thread::current()->is_VM_thread() ||
+  assert(Thread::current()->is_Watcher_thread() || Thread::current()->is_VM_thread() ||
          JavaThread::current()->thread_state() == _thread_in_vm,
          "Java Thread is not running in vm");
   // The threadStatus is only present starting in 1.5
@@ -2519,6 +2580,26 @@ void java_lang_ref_SoftReference::set_clock(jlong value) {
   *offset = value;
 }
 
+// Support for java_lang_invoke_DirectMethodHandle
+
+int java_lang_invoke_DirectMethodHandle::_member_offset;
+
+oop java_lang_invoke_DirectMethodHandle::member(oop dmh) {
+  oop member_name = NULL;
+  bool is_dmh = dmh->is_oop() && java_lang_invoke_DirectMethodHandle::is_instance(dmh);
+  assert(is_dmh, "a DirectMethodHandle oop is expected");
+  if (is_dmh) {
+    member_name = dmh->obj_field(member_offset_in_bytes());
+  }
+  return member_name;
+}
+
+void java_lang_invoke_DirectMethodHandle::compute_offsets() {
+  Klass* klass_oop = SystemDictionary::DirectMethodHandle_klass();
+  if (klass_oop != NULL && EnableInvokeDynamic) {
+    compute_offset(_member_offset, klass_oop, vmSymbols::member_name(), vmSymbols::java_lang_invoke_MemberName_signature());
+  }
+}
 
 // Support for java_lang_invoke_MethodHandle
 
@@ -2787,6 +2868,7 @@ void java_lang_invoke_CallSite::compute_offsets() {
 int java_security_AccessControlContext::_context_offset = 0;
 int java_security_AccessControlContext::_privilegedContext_offset = 0;
 int java_security_AccessControlContext::_isPrivileged_offset = 0;
+int java_security_AccessControlContext::_isAuthorized_offset = -1;
 
 void java_security_AccessControlContext::compute_offsets() {
   assert(_isPrivileged_offset == 0, "offsets should be initialized only once");
@@ -2807,8 +2889,19 @@ void java_security_AccessControlContext::compute_offsets() {
     fatal("Invalid layout of java.security.AccessControlContext");
   }
   _isPrivileged_offset = fd.offset();
+
+  // The offset may not be present for bootstrapping with older JDK.
+  if (ik->find_local_field(vmSymbols::isAuthorized_name(), vmSymbols::bool_signature(), &fd)) {
+    _isAuthorized_offset = fd.offset();
+  }
 }
 
+
+bool java_security_AccessControlContext::is_authorized(Handle context) {
+  assert(context.not_null() && context->klass() == SystemDictionary::AccessControlContext_klass(), "Invalid type");
+  assert(_isAuthorized_offset != -1, "should be set");
+  return context->bool_field(_isAuthorized_offset) != 0;
+}
 
 oop java_security_AccessControlContext::create(objArrayHandle context, bool isPrivileged, Handle privileged_context, TRAPS) {
   assert(_isPrivileged_offset != 0, "offsets should have been initialized");
@@ -2820,6 +2913,10 @@ oop java_security_AccessControlContext::create(objArrayHandle context, bool isPr
   result->obj_field_put(_context_offset, context());
   result->obj_field_put(_privilegedContext_offset, privileged_context());
   result->bool_field_put(_isPrivileged_offset, isPrivileged);
+  // whitelist AccessControlContexts created by the JVM if present
+  if (_isAuthorized_offset != -1) {
+    result->bool_field_put(_isAuthorized_offset, true);
+  }
   return result;
 }
 
@@ -2929,11 +3026,23 @@ int java_lang_System::err_offset_in_bytes() {
 }
 
 
+bool java_lang_System::has_security_manager() {
+  InstanceKlass* ik = InstanceKlass::cast(SystemDictionary::System_klass());
+  address addr = ik->static_field_addr(static_security_offset);
+  if (UseCompressedOops) {
+    return oopDesc::load_decode_heap_oop((narrowOop *)addr) != NULL;
+  } else {
+    return oopDesc::load_decode_heap_oop((oop*)addr) != NULL;
+  }
+}
 
 int java_lang_Class::_klass_offset;
 int java_lang_Class::_array_klass_offset;
 int java_lang_Class::_oop_size_offset;
 int java_lang_Class::_static_oop_field_count_offset;
+int java_lang_Class::_protection_domain_offset;
+int java_lang_Class::_init_lock_offset;
+int java_lang_Class::_signers_offset;
 GrowableArray<Klass*>* java_lang_Class::_fixup_mirror_list = NULL;
 int java_lang_Throwable::backtrace_offset;
 int java_lang_Throwable::detailMessage_offset;
@@ -2989,6 +3098,7 @@ int java_lang_ClassLoader::parent_offset;
 int java_lang_System::static_in_offset;
 int java_lang_System::static_out_offset;
 int java_lang_System::static_err_offset;
+int java_lang_System::static_security_offset;
 int java_lang_StackTraceElement::declaringClass_offset;
 int java_lang_StackTraceElement::methodName_offset;
 int java_lang_StackTraceElement::fileName_offset;
@@ -3114,6 +3224,7 @@ void JavaClasses::compute_hard_coded_offsets() {
   java_lang_System::static_in_offset  = java_lang_System::hc_static_in_offset  * x;
   java_lang_System::static_out_offset = java_lang_System::hc_static_out_offset * x;
   java_lang_System::static_err_offset = java_lang_System::hc_static_err_offset * x;
+  java_lang_System::static_security_offset = java_lang_System::hc_static_security_offset * x;
 
   // java_lang_StackTraceElement
   java_lang_StackTraceElement::declaringClass_offset = java_lang_StackTraceElement::hc_declaringClass_offset  * x + header;
@@ -3137,6 +3248,7 @@ void JavaClasses::compute_offsets() {
   java_lang_ThreadGroup::compute_offsets();
   if (EnableInvokeDynamic) {
     java_lang_invoke_MethodHandle::compute_offsets();
+    java_lang_invoke_DirectMethodHandle::compute_offsets();
     java_lang_invoke_MemberName::compute_offsets();
     java_lang_invoke_LambdaForm::compute_offsets();
     java_lang_invoke_MethodType::compute_offsets();
@@ -3313,6 +3425,7 @@ void JavaClasses::check_offsets() {
   CHECK_STATIC_OFFSET("java/lang/System", java_lang_System,  in, "Ljava/io/InputStream;");
   CHECK_STATIC_OFFSET("java/lang/System", java_lang_System, out, "Ljava/io/PrintStream;");
   CHECK_STATIC_OFFSET("java/lang/System", java_lang_System, err, "Ljava/io/PrintStream;");
+  CHECK_STATIC_OFFSET("java/lang/System", java_lang_System, security, "Ljava/lang/SecurityManager;");
 
   // java.lang.StackTraceElement
 

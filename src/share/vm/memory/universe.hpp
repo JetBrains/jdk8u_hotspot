@@ -41,10 +41,11 @@ class CollectedHeap;
 class DeferredObjAllocEvent;
 
 
-// Common parts of a Method* cache. This cache safely interacts with
-// the RedefineClasses API.
-//
-class CommonMethodOopCache : public CHeapObj<mtClass> {
+// A helper class for caching a Method* when the user of the cache
+// only cares about the latest version of the Method*.  This cache safely
+// interacts with the RedefineClasses API.
+
+class LatestMethodCache : public CHeapObj<mtClass> {
   // We save the Klass* and the idnum of Method* in order to get
   // the current cached Method*.
  private:
@@ -52,12 +53,14 @@ class CommonMethodOopCache : public CHeapObj<mtClass> {
   int                   _method_idnum;
 
  public:
-  CommonMethodOopCache()   { _klass = NULL; _method_idnum = -1; }
-  ~CommonMethodOopCache()  { _klass = NULL; _method_idnum = -1; }
+  LatestMethodCache()   { _klass = NULL; _method_idnum = -1; }
+  ~LatestMethodCache()  { _klass = NULL; _method_idnum = -1; }
 
-  void     init(Klass* k, Method* m, TRAPS);
-  Klass* klass() const         { return _klass; }
-  int      method_idnum() const  { return _method_idnum; }
+  void   init(Klass* k, Method* m);
+  Klass* klass() const           { return _klass; }
+  int    method_idnum() const    { return _method_idnum; }
+
+  Method* get_method();
 
   // Enhanced Class Redefinition support
   void classes_do(void f(Klass*)) {
@@ -72,43 +75,10 @@ class CommonMethodOopCache : public CHeapObj<mtClass> {
 };
 
 
-// A helper class for caching a Method* when the user of the cache
-// cares about all versions of the Method*.
-//
-class ActiveMethodOopsCache : public CommonMethodOopCache {
-  // This subclass adds weak references to older versions of the
-  // Method* and a query method for a Method*.
-
- private:
-  // If the cached Method* has not been redefined, then
-  // _prev_methods will be NULL. If all of the previous
-  // versions of the method have been collected, then
-  // _prev_methods can have a length of zero.
-  GrowableArray<Method*>* _prev_methods;
-
- public:
-  ActiveMethodOopsCache()   { _prev_methods = NULL; }
-  ~ActiveMethodOopsCache();
-
-  void add_previous_version(Method* const method);
-  bool is_same_method(Method* const method) const;
-};
-
-
-// A helper class for caching a Method* when the user of the cache
-// only cares about the latest version of the Method*.
-//
-class LatestMethodOopCache : public CommonMethodOopCache {
-  // This subclass adds a getter method for the latest Method*.
-
- public:
-  Method* get_Method();
-};
-
-// For UseCompressedOops and UseCompressedKlassPointers.
+// For UseCompressedOops.
 struct NarrowPtrStruct {
-  // Base address for oop/klass-within-java-object materialization.
-  // NULL if using wide oops/klasses or zero based narrow oops/klasses.
+  // Base address for oop-within-java-object materialization.
+  // NULL if using wide oops or zero based narrow oops.
   address _base;
   // Number of shift bits for encoding/decoding narrow ptrs.
   // 0 if using wide ptrs or zero based unscaled narrow ptrs,
@@ -136,6 +106,7 @@ class Universe: AllStatic {
   friend class SystemDictionary;
   friend class VMStructs;
   friend class VM_PopulateDumpSharedSpace;
+  friend class Metaspace;
 
   friend jint  universe_init();
   friend void  universe2_init();
@@ -174,13 +145,16 @@ class Universe: AllStatic {
   static objArrayOop  _the_empty_class_klass_array;   // Canonicalized obj array of type java.lang.Class
   static oop          _the_null_string;               // A cache of "null" as a Java string
   static oop          _the_min_jint_string;          // A cache of "-2147483648" as a Java string
-  static LatestMethodOopCache* _finalizer_register_cache; // static method for registering finalizable objects
-  static LatestMethodOopCache* _loader_addClass_cache;    // method for registering loaded classes in class loader vector
-  static ActiveMethodOopsCache* _reflect_invoke_cache;    // method for security checks
-  static oop          _out_of_memory_error_java_heap; // preallocated error object (no backtrace)
-  static oop          _out_of_memory_error_perm_gen;  // preallocated error object (no backtrace)
-  static oop          _out_of_memory_error_array_size;// preallocated error object (no backtrace)
-  static oop          _out_of_memory_error_gc_overhead_limit; // preallocated error object (no backtrace)
+  static LatestMethodCache* _finalizer_register_cache; // static method for registering finalizable objects
+  static LatestMethodCache* _loader_addClass_cache;    // method for registering loaded classes in class loader vector
+  static LatestMethodCache* _pd_implies_cache;         // method for checking protection domain attributes
+
+  // preallocated error objects (no backtrace)
+  static oop          _out_of_memory_error_java_heap;
+  static oop          _out_of_memory_error_metaspace;
+  static oop          _out_of_memory_error_class_metaspace;
+  static oop          _out_of_memory_error_array_size;
+  static oop          _out_of_memory_error_gc_overhead_limit;
 
   static Array<int>*       _the_empty_int_array;    // Canonicalized int array
   static Array<u2>*        _the_empty_short_array;  // Canonicalized short array
@@ -205,14 +179,13 @@ class Universe: AllStatic {
   // The particular choice of collected heap.
   static CollectedHeap* _collectedHeap;
 
+  static intptr_t _non_oop_bits;
+
   // For UseCompressedOops.
   static struct NarrowPtrStruct _narrow_oop;
-  // For UseCompressedKlassPointers.
+  // For UseCompressedClassPointers.
   static struct NarrowPtrStruct _narrow_klass;
   static address _narrow_ptrs_base;
-
-  // Aligned size of the metaspace.
-  static size_t _class_metaspace_size;
 
   // array of dummy objects used with +FullGCAlot
   debug_only(static objArrayOop _fullgc_alot_dummy_array;)
@@ -253,39 +226,17 @@ class Universe: AllStatic {
     return m;
   }
 
-  // Narrow Oop encoding mode:
-  // 0 - Use 32-bits oops without encoding when
-  //     NarrowOopHeapBaseMin + heap_size < 4Gb
-  // 1 - Use zero based compressed oops with encoding when
-  //     NarrowOopHeapBaseMin + heap_size < 32Gb
-  // 2 - Use compressed oops with heap base + encoding.
-  enum NARROW_OOP_MODE {
-    UnscaledNarrowOop  = 0,
-    ZeroBasedNarrowOop = 1,
-    HeapBasedNarrowOop = 2
-  };
-  static char*    preferred_heap_base(size_t heap_size, NARROW_OOP_MODE mode);
-  static char*    preferred_metaspace_base(size_t heap_size, NARROW_OOP_MODE mode);
   static void     set_narrow_oop_base(address base) {
     assert(UseCompressedOops, "no compressed oops?");
     _narrow_oop._base    = base;
   }
   static void     set_narrow_klass_base(address base) {
-    assert(UseCompressedKlassPointers, "no compressed klass ptrs?");
+    assert(UseCompressedClassPointers, "no compressed klass ptrs?");
     _narrow_klass._base   = base;
   }
   static void     set_narrow_oop_use_implicit_null_checks(bool use) {
     assert(UseCompressedOops, "no compressed ptrs?");
     _narrow_oop._use_implicit_null_checks   = use;
-  }
-  static bool     reserve_metaspace_helper(bool with_base = false);
-  static ReservedHeapSpace reserve_heap_metaspace(size_t heap_size, size_t alignment, bool& contiguous);
-
-  static size_t  class_metaspace_size() {
-    return _class_metaspace_size;
-  }
-  static void    set_class_metaspace_size(size_t metaspace_size) {
-    _class_metaspace_size = metaspace_size;
   }
 
   // Debugging
@@ -344,9 +295,12 @@ class Universe: AllStatic {
   static Array<Klass*>* the_array_interfaces_array() { return _the_array_interfaces_array;   }
   static oop          the_null_string()               { return _the_null_string;               }
   static oop          the_min_jint_string()          { return _the_min_jint_string;          }
-  static Method*      finalizer_register_method()     { return _finalizer_register_cache->get_Method(); }
-  static Method*      loader_addClass_method()        { return _loader_addClass_cache->get_Method(); }
-  static ActiveMethodOopsCache* reflect_invoke_cache() { return _reflect_invoke_cache; }
+
+  static Method*      finalizer_register_method()     { return _finalizer_register_cache->get_method(); }
+  static Method*      loader_addClass_method()        { return _loader_addClass_cache->get_method(); }
+
+  static Method*      protection_domain_implies_method() { return _pd_implies_cache->get_method(); }
+
   static oop          null_ptr_exception_instance()   { return _null_ptr_exception_instance;   }
   static oop          arithmetic_exception_instance() { return _arithmetic_exception_instance; }
   static oop          virtual_machine_error_instance() { return _virtual_machine_error_instance; }
@@ -361,7 +315,8 @@ class Universe: AllStatic {
   // may or may not have a backtrace. If error has a backtrace then the stack trace is already
   // filled in.
   static oop out_of_memory_error_java_heap()          { return gen_out_of_memory_error(_out_of_memory_error_java_heap);  }
-  static oop out_of_memory_error_perm_gen()           { return gen_out_of_memory_error(_out_of_memory_error_perm_gen);   }
+  static oop out_of_memory_error_metaspace()          { return gen_out_of_memory_error(_out_of_memory_error_metaspace);   }
+  static oop out_of_memory_error_class_metaspace()    { return gen_out_of_memory_error(_out_of_memory_error_class_metaspace);   }
   static oop out_of_memory_error_array_size()         { return gen_out_of_memory_error(_out_of_memory_error_array_size); }
   static oop out_of_memory_error_gc_overhead_limit()  { return gen_out_of_memory_error(_out_of_memory_error_gc_overhead_limit);  }
 
@@ -380,12 +335,27 @@ class Universe: AllStatic {
   static CollectedHeap* heap() { return _collectedHeap; }
 
   // For UseCompressedOops
+  // Narrow Oop encoding mode:
+  // 0 - Use 32-bits oops without encoding when
+  //     NarrowOopHeapBaseMin + heap_size < 4Gb
+  // 1 - Use zero based compressed oops with encoding when
+  //     NarrowOopHeapBaseMin + heap_size < 32Gb
+  // 2 - Use compressed oops with heap base + encoding.
+  enum NARROW_OOP_MODE {
+    UnscaledNarrowOop  = 0,
+    ZeroBasedNarrowOop = 1,
+    HeapBasedNarrowOop = 2
+  };
+  static NARROW_OOP_MODE narrow_oop_mode();
+  static const char* narrow_oop_mode_to_string(NARROW_OOP_MODE mode);
+  static char*    preferred_heap_base(size_t heap_size, size_t alignment, NARROW_OOP_MODE mode);
+  static char*    preferred_metaspace_base(size_t heap_size, NARROW_OOP_MODE mode);
   static address  narrow_oop_base()                       { return  _narrow_oop._base; }
   static bool  is_narrow_oop_base(void* addr)             { return (narrow_oop_base() == (address)addr); }
   static int      narrow_oop_shift()                      { return  _narrow_oop._shift; }
   static bool     narrow_oop_use_implicit_null_checks()   { return  _narrow_oop._use_implicit_null_checks; }
 
-  // For UseCompressedKlassPointers
+  // For UseCompressedClassPointers
   static address  narrow_klass_base()                     { return  _narrow_klass._base; }
   static bool  is_narrow_klass_base(void* addr)           { return (narrow_klass_base() == (address)addr); }
   static int      narrow_klass_shift()                    { return  _narrow_klass._shift; }

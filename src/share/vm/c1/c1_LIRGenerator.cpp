@@ -2248,6 +2248,7 @@ void LIRGenerator::do_UnsafeGetObject(UnsafeGetObject* x) {
       // We still need to continue with the checks.
       if (src.is_constant()) {
         ciObject* src_con = src.get_jobject_constant();
+        guarantee(src_con != NULL, "no source constant");
 
         if (src_con->is_null_object()) {
           // The constant src object is null - We can skip
@@ -2310,7 +2311,7 @@ void LIRGenerator::do_UnsafeGetObject(UnsafeGetObject* x) {
       if (gen_type_check) {
         // We have determined that offset == referent_offset && src != null.
         // if (src->_klass->_reference_type == REF_NONE) -> continue
-        __ move(new LIR_Address(src.result(), oopDesc::klass_offset_in_bytes(), UseCompressedKlassPointers ? T_OBJECT : T_ADDRESS), src_klass);
+        __ move(new LIR_Address(src.result(), oopDesc::klass_offset_in_bytes(), T_ADDRESS), src_klass);
         LIR_Address* reference_type_addr = new LIR_Address(src_klass, in_bytes(InstanceKlass::reference_type_offset()), T_BYTE);
         LIR_Opr reference_type = new_register(T_INT);
         __ move(reference_type_addr, reference_type);
@@ -3007,6 +3008,12 @@ void LIRGenerator::do_Intrinsic(Intrinsic* x) {
 
   case vmIntrinsics::_Reference_get:
     do_Reference_get(x);
+    break;
+
+  case vmIntrinsics::_updateCRC32:
+  case vmIntrinsics::_updateBytesCRC32:
+  case vmIntrinsics::_updateByteBufferCRC32:
+    do_update_CRC32(x);
     break;
 
   default: ShouldNotReachHere(); break;

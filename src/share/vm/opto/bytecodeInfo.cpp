@@ -85,16 +85,35 @@ InlineTree::InlineTree(Compile* c, ciMethod* callee_method, JVMState* caller_jvm
   assert(!UseOldInlining, "do not use for old stuff");
 }
 
+/**
+ *  Return true when EA is ON and a java constructor is called or
+ *  a super constructor is called from an inlined java constructor.
+ *  Also return true for boxing methods.
+ */
 static bool is_init_with_ea(ciMethod* callee_method,
                             ciMethod* caller_method, Compile* C) {
-  // True when EA is ON and a java constructor is called or
-  // a super constructor is called from an inlined java constructor.
-  return C->do_escape_analysis() && EliminateAllocations &&
-         ( callee_method->is_initializer() ||
-           (caller_method->is_initializer() &&
-            caller_method != C->method() &&
-            caller_method->holder()->is_subclass_of(callee_method->holder()))
-         );
+  if (!C->do_escape_analysis() || !EliminateAllocations) {
+    return false; // EA is off
+  }
+  if (callee_method->is_initializer()) {
+    return true; // constuctor
+  }
+  if (caller_method->is_initializer() &&
+      caller_method != C->method() &&
+      caller_method->holder()->is_subclass_of(callee_method->holder())) {
+    return true; // super constructor is called from inlined constructor
+  }
+  if (C->eliminate_boxing() && callee_method->is_boxing_method()) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ *  Force inlining unboxing accessor.
+ */
+static bool is_unboxing_method(ciMethod* callee_method, Compile* C) {
+  return C->eliminate_boxing() && callee_method->is_unboxing_method();
 }
 
 // positive filter: should callee be inlined?
@@ -104,7 +123,7 @@ bool InlineTree::should_inline(ciMethod* callee_method, ciMethod* caller_method,
   // Allows targeted inlining
   if(callee_method->should_inline()) {
     *wci_result = *(WarmCallInfo::always_hot());
-    if (PrintInlining && Verbose) {
+    if (C->print_inlining() && Verbose) {
       CompileTask::print_inline_indent(inline_level());
       tty->print_cr("Inlined method is hot: ");
     }
@@ -118,7 +137,7 @@ bool InlineTree::should_inline(ciMethod* callee_method, ciMethod* caller_method,
   if(callee_method->interpreter_throwout_count() > InlineThrowCount &&
      size < InlineThrowMaxSize ) {
     wci_result->set_profit(wci_result->profit() * 100);
-    if (PrintInlining && Verbose) {
+    if (C->print_inlining() && Verbose) {
       CompileTask::print_inline_indent(inline_level());
       tty->print_cr("Inlined method with many throws (throws=%d):", callee_method->interpreter_throwout_count());
     }
@@ -144,6 +163,7 @@ bool InlineTree::should_inline(ciMethod* callee_method, ciMethod* caller_method,
   // bump the max size if the call is frequent
   if ((freq >= InlineFrequencyRatio) ||
       (call_site_count >= InlineFrequencyCount) ||
+      is_unboxing_method(callee_method, C) ||
       is_init_with_ea(callee_method, caller_method, C)) {
 
     max_inline_size = C->freq_inline_size();
@@ -237,7 +257,24 @@ bool InlineTree::should_not_inline(ciMethod *callee_method,
     return false;
   }
 
+  if (callee_method->should_not_inline()) {
+    set_msg("disallowed by CompilerOracle");
+    return true;
+  }
+
+#ifndef PRODUCT
+  if (ciReplay::should_not_inline(callee_method)) {
+    set_msg("disallowed by ciReplay");
+    return true;
+  }
+#endif
+
   // Now perform checks which are heuristic
+
+  if (is_unboxing_method(callee_method, C)) {
+    // Inline unboxing methods.
+    return false;
+  }
 
   if (!callee_method->force_inline()) {
     if (callee_method->has_compiled_code() &&
@@ -260,27 +297,6 @@ bool InlineTree::should_not_inline(ciMethod *callee_method,
     }
   }
 
-  if (callee_method->should_not_inline()) {
-    set_msg("disallowed by CompilerOracle");
-    return true;
-  }
-
-#ifndef PRODUCT
-  if (ciReplay::should_not_inline(callee_method)) {
-    set_msg("disallowed by ciReplay");
-    return true;
-  }
-#endif
-
-  if (UseStringCache) {
-    // Do not inline StringCache::profile() method used only at the beginning.
-    if (callee_method->name() == ciSymbol::profile_name() &&
-        callee_method->holder()->name() == ciSymbol::java_lang_StringCache()) {
-      set_msg("profiling method");
-      return true;
-    }
-  }
-
   // use frequency-based objections only for non-trivial methods
   if (callee_method->code_size() <= MaxTrivialSize) {
     return false;
@@ -296,9 +312,8 @@ bool InlineTree::should_not_inline(ciMethod *callee_method,
     }
 
     if (is_init_with_ea(callee_method, caller_method, C)) {
-
       // Escape Analysis: inline all executed constructors
-
+      return false;
     } else if (!callee_method->was_executed_more_than(MIN2(MinInliningThreshold,
                                                            CompileThreshold >> 1))) {
       set_msg("executed < MinInliningThreshold times");
@@ -476,7 +491,7 @@ void InlineTree::print_inlining(ciMethod* callee_method, int caller_bci,
       C->log()->inline_fail(inline_msg);
     }
   }
-  if (PrintInlining) {
+  if (C->print_inlining()) {
     C->print_inlining(callee_method, inline_level(), caller_bci, inline_msg);
     if (callee_method == NULL) tty->print(" callee not monotonic or profiled");
     if (Verbose && callee_method) {
@@ -525,7 +540,7 @@ WarmCallInfo* InlineTree::ok_to_inline(ciMethod* callee_method, JVMState* jvms, 
 
 #ifndef PRODUCT
   if (UseOldInlining && InlineWarmCalls
-      && (PrintOpto || PrintOptoInlining || PrintInlining)) {
+      && (PrintOpto || C->print_inlining())) {
     bool cold = wci.is_cold();
     bool hot  = !cold && wci.is_hot();
     bool old_cold = !success;
@@ -602,7 +617,7 @@ InlineTree *InlineTree::build_inline_tree_for_callee( ciMethod* callee_method, J
              callee_method->is_compiled_lambda_form()) {
       max_inline_level_adjust += 1;  // don't count method handle calls from java.lang.invoke implem
     }
-    if (max_inline_level_adjust != 0 && PrintInlining && (Verbose || WizardMode)) {
+    if (max_inline_level_adjust != 0 && C->print_inlining() && (Verbose || WizardMode)) {
       CompileTask::print_inline_indent(inline_level());
       tty->print_cr(" \\-> discounting inline depth");
     }

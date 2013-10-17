@@ -339,7 +339,7 @@ void MacroAssembler::call_VM_base(Register oop_result,
   assert(java_thread == rthread, "unexpected register");
 #ifdef ASSERT
   // TraceBytecodes does not use r12 but saves it over the call, so don't verify
-  // if ((UseCompressedOops || UseCompressedKlassPointers) && !TraceBytecodes) verify_heapbase("call_VM_base: heap base corrupted?");
+  // if ((UseCompressedOops || UseCompressedClassPointers) && !TraceBytecodes) verify_heapbase("call_VM_base: heap base corrupted?");
 #endif // ASSERT
 
   assert(java_thread != oop_result  , "cannot use the same register for java_thread & oop_result");
@@ -1550,7 +1550,7 @@ int MacroAssembler::pop(unsigned int bitset, Register stack) {
 #ifdef ASSERT 
 void MacroAssembler::verify_heapbase(const char* msg) {
 #if 0
-  assert (UseCompressedOops || UseCompressedKlassPointers, "should be compressed");
+  assert (UseCompressedOops || UseCompressedClassPointers, "should be compressed");
   assert (Universe::heap() != NULL, "java heap should be initialized");
   if (CheckCompressedOops) {
     Label ok;
@@ -1641,84 +1641,11 @@ void MacroAssembler::addw(Register Rd, Register Rn, RegisterOrConstant increment
   }
 }
 
-#ifdef ASSERT
-static Register spill_registers[] = {
-  rheapbase,
-  rcpool,
-  rmonitors,
-  rlocals,
-  rmethod
-};
-
-#define spill_msg(_reg) \
-  "register " _reg " invalid after call"
-
-static const char *spill_error_msgs[] = {
-  spill_msg("rheapbase"),
-  spill_msg("rcpool"),
-  spill_msg("rmonitors"),
-  spill_msg("rlocals"),
-  spill_msg("rmethod")
-};
-
-#define SPILL_FRAME_COUNT (sizeof(spill_registers)/sizeof(spill_registers[0]))
-
-#define SPILL_FRAME_BYTESIZE (SPILL_FRAME_COUNT * wordSize)
-
-void MacroAssembler::spill(Register rscratcha, Register rscratchb)
-{
-#if 0
-  Label bumped;
-  // load and bump spill pointer
-  ldr(rscratcha, Address(rthread, JavaThread::spill_stack_offset()));
-  sub(rscratcha, rscratcha, SPILL_FRAME_BYTESIZE);
-  // check for overflow
-  ldr(rscratchb, Address(rthread, JavaThread::spill_stack_limit_offset()));
-  cmp(rscratcha, rscratchb);
-  br(Assembler::GE, bumped);
-  stop("oops! ran out of register spill area");
-  // spill registers
-  bind(bumped);
-  for (int i = 0; i < (int)SPILL_FRAME_COUNT; i++) {
-    Register r = spill_registers[i];
-    assert(r != rscratcha && r != rscratchb, "invalid scratch reg in spill");
-    str(r, Address(rscratcha, (i * wordSize)));
-  }
-  // store new spill pointer
-  str(rscratcha, (Address(rthread, JavaThread::spill_stack_offset())));
-#endif
-}
-
-void MacroAssembler::spillcheck(Register rscratcha, Register rscratchb)
-{
-#if 0
-  // load spill pointer
-  ldr(rscratcha, (Address(rthread, JavaThread::spill_stack_offset())));
-  // check registers
-  for (int i = 0; i < (int)SPILL_FRAME_COUNT; i++) {
-    Register r = spill_registers[i];
-    assert(r != rscratcha && r != rscratchb, "invalid scratch reg in spillcheck");
-    // native code is allowed to modify rcpool
-    Label valid;
-    ldr(rscratchb, Address(rscratcha, (i * wordSize)));
-    cmp(r, rscratchb);
-    br(Assembler::EQ, valid);
-    stop(spill_error_msgs[i]);
-    bind(valid);
-  }
-  // decrement and store new spill pointer
-  add(rscratcha, rscratcha, SPILL_FRAME_BYTESIZE);
-  str(rscratcha, Address(rthread, JavaThread::spill_stack_offset()));
-#endif
-}
-
-#endif // ASSERT
-
 void MacroAssembler::reinit_heapbase()
 {
   if (UseCompressedOops) {
-    lea(rscratch1, ExternalAddress((address)Universe::narrow_ptrs_base_addr()));
-    ldr(rheapbase, Address(rscratch1));
+    lea(rheapbase, ExternalAddress((address)Universe::narrow_ptrs_base_addr()));
+    ldr(rheapbase, Address(rheapbase));
   }
 }
 
@@ -1994,7 +1921,7 @@ void MacroAssembler::store_check_part_2(Register obj) {
 }
 
 void MacroAssembler::load_klass(Register dst, Register src) {
-  if (UseCompressedKlassPointers) {
+  if (UseCompressedClassPointers) {
     ldrw(dst, Address(src, oopDesc::klass_offset_in_bytes()));
     decode_klass_not_null(dst);
   } else {
@@ -2003,7 +1930,7 @@ void MacroAssembler::load_klass(Register dst, Register src) {
 }
 
 void MacroAssembler::store_klass(Register dst, Register src) {
-  if (UseCompressedKlassPointers) {
+  if (UseCompressedClassPointers) {
     encode_klass_not_null(src);
     strw(src, Address(dst, oopDesc::klass_offset_in_bytes()));
   } else {
@@ -2012,7 +1939,7 @@ void MacroAssembler::store_klass(Register dst, Register src) {
 }
 
 void MacroAssembler::store_klass_gap(Register dst, Register src) {
-  if (UseCompressedKlassPointers) {
+  if (UseCompressedClassPointers) {
     // Store to klass gap in destination
     str(src, Address(dst, oopDesc::klass_gap_offset_in_bytes()));
   }
@@ -2151,76 +2078,45 @@ void  MacroAssembler::decode_heap_oop_not_null(Register dst, Register src) {
   }
 }
 
-void MacroAssembler::encode_klass_not_null(Register r) {
-  assert(Metaspace::is_initialized(), "metaspace should be initialized");
-#ifdef ASSERT
-  verify_heapbase("MacroAssembler::encode_klass_not_null: heap base corrupted?");
-#endif
-  if (Universe::narrow_klass_base() != NULL) {
-    sub(r, r, rheapbase);
-  }
-  if (Universe::narrow_klass_shift() != 0) {
-    assert (LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
-    lsr(r, r, LogKlassAlignmentInBytes);
-  }
-}
-
 void MacroAssembler::encode_klass_not_null(Register dst, Register src) {
-  assert(Metaspace::is_initialized(), "metaspace should be initialized");
+  Register rbase = dst;
 #ifdef ASSERT
   verify_heapbase("MacroAssembler::encode_klass_not_null2: heap base corrupted?");
 #endif
-  if (dst != src) {
-    mov(dst, src);
-  }
-  if (Universe::narrow_klass_base() != NULL) {
-    sub(dst, dst, rheapbase);
-  }
+  if (dst == src) rbase = rheapbase;
+  mov(rbase, (uint64_t)Universe::narrow_klass_base());
+  sub(dst, src, rbase);
   if (Universe::narrow_klass_shift() != 0) {
     assert (LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
     lsr(dst, dst, LogKlassAlignmentInBytes);
   }
+  if (dst == src) reinit_heapbase();
 }
 
-void  MacroAssembler::decode_klass_not_null(Register r) {
-  assert(Metaspace::is_initialized(), "metaspace should be initialized");
-  // Note: it will change flags
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
-  // Cannot assert, unverified entry point counts instructions (see .ad file)
-  // vtableStubs also counts instructions in pd_code_size_limit.
-  // Also do not verify_oop as this is called by verify_oop.
-  if (Universe::narrow_klass_shift() != 0) {
-    assert(LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
-    if (Universe::narrow_klass_base() != NULL) {
-      add(r, rheapbase, r, Assembler::LSL, LogKlassAlignmentInBytes);
-    } else {
-      add(r, zr, r, Assembler::LSL, LogKlassAlignmentInBytes);
-    }
-  } else {
-    assert (Universe::narrow_klass_base() == NULL, "sanity");
-  }
+void MacroAssembler::encode_klass_not_null(Register r) {
+  encode_klass_not_null(r, r);
 }
 
 void  MacroAssembler::decode_klass_not_null(Register dst, Register src) {
-  assert(Metaspace::is_initialized(), "metaspace should be initialized");
-  // Note: it will change flags
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
+  Register rbase = dst;
+  assert(Universe::narrow_klass_base() != NULL, "Base should be initialized");
+  assert (UseCompressedClassPointers, "should only be used for compressed headers");
   // Cannot assert, unverified entry point counts instructions (see .ad file)
   // vtableStubs also counts instructions in pd_code_size_limit.
   // Also do not verify_oop as this is called by verify_oop.
+  if (dst == src) rbase = rheapbase;
+  mov(rbase, (uint64_t)Universe::narrow_klass_base());
   if (Universe::narrow_klass_shift() != 0) {
     assert(LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
-    if (Universe::narrow_klass_base() != NULL) {
-      add(dst, rheapbase, src, Assembler::LSL, LogKlassAlignmentInBytes);
-    } else {
-      add(dst, zr, src, Assembler::LSL, LogKlassAlignmentInBytes);
-    }
+    add(dst, rbase, src, Assembler::LSL, LogKlassAlignmentInBytes);
   } else {
-    assert (Universe::narrow_klass_base() == NULL, "sanity");
-    if (dst != src) {
-      mov(dst, src);
-    }
+    add(dst, rbase, src);
   }
+  if (dst == src) reinit_heapbase();
+}
+
+void  MacroAssembler::decode_klass_not_null(Register r) {
+  decode_klass_not_null(r, r);
 }
 
 // TODO
@@ -2242,7 +2138,7 @@ void  MacroAssembler::set_narrow_oop(Register dst, jobject obj) {
 
 
 void  MacroAssembler::set_narrow_klass(Register dst, Klass* k) {
-  assert (UseCompressedKlassPointers, "should only be used for compressed headers");
+  assert (UseCompressedClassPointers, "should only be used for compressed headers");
   assert (oop_recorder() != NULL, "this assembler needs an OopRecorder");
   mov_metadata(dst, k);
   encode_klass_not_null(dst);

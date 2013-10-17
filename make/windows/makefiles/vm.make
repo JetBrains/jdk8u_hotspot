@@ -36,10 +36,6 @@ CXX_FLAGS=$(CXX_FLAGS) /D "PRODUCT"
 CXX_FLAGS=$(CXX_FLAGS) /D "ASSERT"
 !endif
 
-!if "$(Variant)" == "core"
-# No need to define anything, CORE is defined as !COMPILER1 && !COMPILER2
-!endif
-
 !if "$(Variant)" == "compiler1"
 CXX_FLAGS=$(CXX_FLAGS) /D "COMPILER1"
 !endif
@@ -65,10 +61,6 @@ CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_LIB_ARCH=\"$(HOTSPOT_LIB_ARCH)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_BUILD_TARGET=\"$(BUILD_FLAVOR)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_BUILD_USER=\"$(BuildUser)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_VM_DISTRO=\"$(HOTSPOT_VM_DISTRO)\""
-
-!ifndef JAVASE_EMBEDDED
-CXX_FLAGS=$(CXX_FLAGS) /D "INCLUDE_TRACE"
-!endif
 
 CXX_FLAGS=$(CXX_FLAGS) $(CXX_INCLUDE_DIRS)
 
@@ -136,6 +128,10 @@ CXX_DONT_USE_PCH=/D DONT_USE_PRECOMPILED_HEADER
 
 !if "$(USE_PRECOMPILED_HEADER)" != "0"
 CXX_USE_PCH=/Fp"vm.pch" /Yu"precompiled.hpp"
+!if "$(COMPILER_NAME)" == "VS2012"
+# VS2012 requires this object file to be listed:
+LD_FLAGS=$(LD_FLAGS) _build_pch_file.obj
+!endif
 !else
 CXX_USE_PCH=$(CXX_DONT_USE_PCH)
 !endif
@@ -144,6 +140,7 @@ CXX_USE_PCH=$(CXX_DONT_USE_PCH)
 VM_PATH=../generated
 VM_PATH=$(VM_PATH);../generated/adfiles
 VM_PATH=$(VM_PATH);../generated/jvmtifiles
+VM_PATH=$(VM_PATH);../generated/tracefiles
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/c1
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/compiler
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/code
@@ -172,10 +169,8 @@ VM_PATH=$(VM_PATH);$(WorkSpace)/src/cpu/$(Platform_arch)/vm
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/opto
 
 !if exists($(ALTSRC)\share\vm\jfr)
-VM_PATH=$(VM_PATH);$(ALTSRC)/share/vm/jfr/agent
-VM_PATH=$(VM_PATH);$(ALTSRC)/share/vm/jfr/agent/isolated_deps/util
-VM_PATH=$(VM_PATH);$(ALTSRC)/share/vm/jfr/jvm
 VM_PATH=$(VM_PATH);$(ALTSRC)/share/vm/jfr
+VM_PATH=$(VM_PATH);$(ALTSRC)/share/vm/jfr/buffers
 !endif
 
 VM_PATH={$(VM_PATH)}
@@ -384,16 +379,13 @@ bytecodeInterpreterWithChecks.obj: ..\generated\jvmtifiles\bytecodeInterpreterWi
 {..\generated\jvmtifiles}.cpp.obj::
         $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
 
+{..\generated\tracefiles}.cpp.obj::
+        $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
+
 {$(ALTSRC)\share\vm\jfr}.cpp.obj::
         $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
 
-{$(ALTSRC)\share\vm\jfr\agent}.cpp.obj::
-        $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
-
-{$(ALTSRC)\share\vm\jfr\agent\isolated_deps\util}.cpp.obj::
-        $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
-
-{$(ALTSRC)\share\vm\jfr\jvm}.cpp.obj::
+{$(ALTSRC)\share\vm\jfr\buffers}.cpp.obj::
         $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
 
 default::
@@ -401,3 +393,11 @@ default::
 _build_pch_file.obj:
         @echo #include "precompiled.hpp" > ../generated/_build_pch_file.cpp
         $(CXX) $(CXX_FLAGS) /Fp"vm.pch" /Yc"precompiled.hpp" /c ../generated/_build_pch_file.cpp
+
+!if "$(BUILD_WIN_SA)" != "1"
+BUILD_VM_DEF_FLAG=-nosa
+!endif
+
+vm.def: $(Obj_Files)
+	sh $(WorkSpace)/make/windows/build_vm_def.sh $(BUILD_VM_DEF_FLAG)
+

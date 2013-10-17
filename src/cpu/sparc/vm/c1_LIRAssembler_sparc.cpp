@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -105,7 +105,7 @@ bool LIR_Assembler::is_single_instruction(LIR_Op* op) {
         if (src->is_address() && !src->is_stack() && (src->type() == T_OBJECT || src->type() == T_ARRAY)) return false;
       }
 
-      if (UseCompressedKlassPointers) {
+      if (UseCompressedClassPointers) {
         if (src->is_address() && !src->is_stack() && src->type() == T_ADDRESS &&
             src->as_address_ptr()->disp() == oopDesc::klass_offset_in_bytes()) return false;
       }
@@ -520,7 +520,7 @@ void LIR_Assembler::jobject2reg(jobject o, Register reg) {
 void LIR_Assembler::jobject2reg_with_patching(Register reg, CodeEmitInfo *info) {
   // Allocate a new index in table to hold the object once it's been patched
   int oop_index = __ oop_recorder()->allocate_oop_index(NULL);
-  PatchingStub* patch = new PatchingStub(_masm, PatchingStub::load_mirror_id, oop_index);
+  PatchingStub* patch = new PatchingStub(_masm, patching_id(info), oop_index);
 
   AddressLiteral addrlit(NULL, oop_Relocation::spec(oop_index));
   assert(addrlit.rspec().type() == relocInfo::oop_type, "must be an oop reloc");
@@ -597,13 +597,6 @@ void LIR_Assembler::emit_op3(LIR_Op3* op) {
 
   __ sra(Rdividend, 31, Rscratch);
   __ wry(Rscratch);
-  if (!VM_Version::v9_instructions_work()) {
-    // v9 doesn't require these nops
-    __ nop();
-    __ nop();
-    __ nop();
-    __ nop();
-  }
 
   add_debug_info_for_div0_here(op->info());
 
@@ -652,10 +645,6 @@ void LIR_Assembler::emit_opBranch(LIR_OpBranch* op) {
       case lir_cond_lessEqual:     acond = (is_unordered ? Assembler::f_unorderedOrLessOrEqual   : Assembler::f_lessOrEqual);    break;
       case lir_cond_greaterEqual:  acond = (is_unordered ? Assembler::f_unorderedOrGreaterOrEqual: Assembler::f_greaterOrEqual); break;
       default :                         ShouldNotReachHere();
-    };
-
-    if (!VM_Version::v9_instructions_work()) {
-      __ nop();
     }
     __ fb( acond, false, Assembler::pn, *(op->label()));
   } else {
@@ -725,9 +714,6 @@ void LIR_Assembler::emit_opConvert(LIR_OpConvert* op) {
       Label L;
       // result must be 0 if value is NaN; test by comparing value to itself
       __ fcmp(FloatRegisterImpl::S, Assembler::fcc0, rsrc, rsrc);
-      if (!VM_Version::v9_instructions_work()) {
-        __ nop();
-      }
       __ fb(Assembler::f_unordered, true, Assembler::pn, L);
       __ delayed()->st(G0, addr); // annuled if contents of rsrc is not NaN
       __ ftoi(FloatRegisterImpl::S, rsrc, rsrc);
@@ -977,7 +963,7 @@ int LIR_Assembler::load(Register base, int offset, LIR_Opr to_reg, BasicType typ
       case T_METADATA:  __ ld_ptr(base, offset, to_reg->as_register()); break;
       case T_ADDRESS:
 #ifdef _LP64
-        if (offset == oopDesc::klass_offset_in_bytes() && UseCompressedKlassPointers) {
+        if (offset == oopDesc::klass_offset_in_bytes() && UseCompressedClassPointers) {
           __ lduw(base, offset, to_reg->as_register());
           __ decode_klass_not_null(to_reg->as_register());
         } else
@@ -1909,7 +1895,7 @@ void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr
       switch (code) {
         case lir_add:  __ add  (lreg, rreg, res); break;
         case lir_sub:  __ sub  (lreg, rreg, res); break;
-        case lir_mul:  __ mult (lreg, rreg, res); break;
+        case lir_mul:  __ mulx (lreg, rreg, res); break;
         default: ShouldNotReachHere();
       }
     }
@@ -1924,7 +1910,7 @@ void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr
       switch (code) {
         case lir_add:  __ add  (lreg, simm13, res); break;
         case lir_sub:  __ sub  (lreg, simm13, res); break;
-        case lir_mul:  __ mult (lreg, simm13, res); break;
+        case lir_mul:  __ mulx (lreg, simm13, res); break;
         default: ShouldNotReachHere();
       }
     } else {
@@ -1936,7 +1922,7 @@ void LIR_Assembler::arith_op(LIR_Code code, LIR_Opr left, LIR_Opr right, LIR_Opr
       switch (code) {
         case lir_add:  __ add  (lreg, (int)con, res); break;
         case lir_sub:  __ sub  (lreg, (int)con, res); break;
-        case lir_mul:  __ mult (lreg, (int)con, res); break;
+        case lir_mul:  __ mulx (lreg, (int)con, res); break;
         default: ShouldNotReachHere();
       }
     }
@@ -2222,7 +2208,7 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
     // We don't know the array types are compatible
     if (basic_type != T_OBJECT) {
       // Simple test for basic type arrays
-      if (UseCompressedKlassPointers) {
+      if (UseCompressedClassPointers) {
         // We don't need decode because we just need to compare
         __ lduw(src, oopDesc::klass_offset_in_bytes(), tmp);
         __ lduw(dst, oopDesc::klass_offset_in_bytes(), tmp2);
@@ -2356,7 +2342,7 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
     // but not necessarily exactly of type default_type.
     Label known_ok, halt;
     metadata2reg(op->expected_type()->constant_encoding(), tmp);
-    if (UseCompressedKlassPointers) {
+    if (UseCompressedClassPointers) {
       // tmp holds the default type. It currently comes uncompressed after the
       // load of a constant, so encode it.
       __ encode_klass_not_null(tmp);
@@ -2960,6 +2946,9 @@ void LIR_Assembler::monitor_address(int monitor_no, LIR_Opr dst_opr) {
   }
 }
 
+void LIR_Assembler::emit_updatecrc32(LIR_OpUpdateCRC32* op) {
+  fatal("CRC32 intrinsic is not implemented on this platform");
+}
 
 void LIR_Assembler::emit_lock(LIR_OpLock* op) {
   Register obj = op->obj_opr()->as_register();
@@ -3234,48 +3223,26 @@ void LIR_Assembler::volatile_move_op(LIR_Opr src, LIR_Opr dest, BasicType type, 
     Register base = mem_addr->base()->as_register();
     if (src->is_register() && dest->is_address()) {
       // G4 is high half, G5 is low half
-      if (VM_Version::v9_instructions_work()) {
-        // clear the top bits of G5, and scale up G4
-        __ srl (src->as_register_lo(),  0, G5);
-        __ sllx(src->as_register_hi(), 32, G4);
-        // combine the two halves into the 64 bits of G4
-        __ or3(G4, G5, G4);
-        null_check_offset = __ offset();
-        if (idx == noreg) {
-          __ stx(G4, base, disp);
-        } else {
-          __ stx(G4, base, idx);
-        }
+      // clear the top bits of G5, and scale up G4
+      __ srl (src->as_register_lo(),  0, G5);
+      __ sllx(src->as_register_hi(), 32, G4);
+      // combine the two halves into the 64 bits of G4
+      __ or3(G4, G5, G4);
+      null_check_offset = __ offset();
+      if (idx == noreg) {
+        __ stx(G4, base, disp);
       } else {
-        __ mov (src->as_register_hi(), G4);
-        __ mov (src->as_register_lo(), G5);
-        null_check_offset = __ offset();
-        if (idx == noreg) {
-          __ std(G4, base, disp);
-        } else {
-          __ std(G4, base, idx);
-        }
+        __ stx(G4, base, idx);
       }
     } else if (src->is_address() && dest->is_register()) {
       null_check_offset = __ offset();
-      if (VM_Version::v9_instructions_work()) {
-        if (idx == noreg) {
-          __ ldx(base, disp, G5);
-        } else {
-          __ ldx(base, idx, G5);
-        }
-        __ srax(G5, 32, dest->as_register_hi()); // fetch the high half into hi
-        __ mov (G5, dest->as_register_lo());     // copy low half into lo
+      if (idx == noreg) {
+        __ ldx(base, disp, G5);
       } else {
-        if (idx == noreg) {
-          __ ldd(base, disp, G4);
-        } else {
-          __ ldd(base, idx, G4);
-        }
-        // G4 is high half, G5 is low half
-        __ mov (G4, dest->as_register_hi());
-        __ mov (G5, dest->as_register_lo());
+        __ ldx(base, idx, G5);
       }
+      __ srax(G5, 32, dest->as_register_hi()); // fetch the high half into hi
+      __ mov (G5, dest->as_register_lo());     // copy low half into lo
     } else {
       Unimplemented();
     }

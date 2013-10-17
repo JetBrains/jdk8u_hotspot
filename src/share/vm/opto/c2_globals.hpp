@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -181,6 +181,9 @@
                                                                             \
   product_pd(intx,  LoopUnrollLimit,                                        \
           "Unroll loop bodies with node count less than this")              \
+                                                                            \
+  product(intx,  LoopMaxUnroll, 16,                                         \
+          "Maximum number of unrolls for main loop")                        \
                                                                             \
   product(intx,  LoopUnrollMin, 4,                                          \
           "Minimum number of unroll loop bodies before checking progress"   \
@@ -409,10 +412,10 @@
   develop(intx, WarmCallMaxSize, 999999,                                    \
           "size of the largest inlinable method")                           \
                                                                             \
-  product(intx, MaxNodeLimit, 65000,                                        \
+  product(intx, MaxNodeLimit, 80000,                                        \
           "Maximum number of nodes")                                        \
                                                                             \
-  product(intx, NodeLimitFudgeFactor, 1000,                                 \
+  product(intx, NodeLimitFudgeFactor, 2000,                                 \
           "Fudge Factor for certain optimizations")                         \
                                                                             \
   product(bool, UseJumpTables, true,                                        \
@@ -421,7 +424,7 @@
   product(bool, UseDivMod, true,                                            \
           "Use combined DivMod instruction if available")                   \
                                                                             \
-  product(intx, MinJumpTableSize, 18,                                       \
+  product_pd(intx, MinJumpTableSize,                                        \
           "Minimum number of targets in a generated jump table")            \
                                                                             \
   product(intx, MaxJumpTableSize, 65000,                                    \
@@ -445,11 +448,17 @@
   notproduct(bool, PrintEliminateLocks, false,                              \
           "Print out when locks are eliminated")                            \
                                                                             \
-  diagnostic(bool, EliminateAutoBox, false,                                 \
-          "Private flag to control optimizations for autobox elimination")  \
+  product(bool, EliminateAutoBox, true,                                     \
+          "Control optimizations for autobox elimination")                  \
+                                                                            \
+  experimental(bool, UseImplicitStableValues, false,                        \
+          "Mark well-known stable fields as such (e.g. String.value)")      \
                                                                             \
   product(intx, AutoBoxCacheMax, 128,                                       \
           "Sets max value cached by the java.lang.Integer autobox cache")   \
+                                                                            \
+  experimental(bool, AggressiveUnboxing, false,                             \
+          "Control optimizations for aggressive boxing elimination")        \
                                                                             \
   product(bool, DoEscapeAnalysis, true,                                     \
           "Perform escape analysis")                                        \

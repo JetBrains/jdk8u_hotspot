@@ -507,7 +507,7 @@ void TemplateInterpreterGenerator::generate_fixed_frame(bool native_call) {
 
   const int extra_space =
     rounded_vm_local_words +                   // frame local scratch space
-    //6815692//Method::extra_stack_words() +       // extra push slots for MH adapters
+    Method::extra_stack_entries() +            // extra stack for jsr 292
     frame::memory_parameter_word_sp_offset +   // register save area
     (native_call ? frame::interpreter_frame_extra_outgoing_argument_words : 0);
 
@@ -1054,7 +1054,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   // flush the windows now. We don't care about the current (protection) frame
   // only the outer frames
 
-  __ flush_windows();
+  __ flushw();
 
   // mark windows as flushed
   Address flags(G2_thread, JavaThread::frame_anchor_offset() + JavaFrameAnchor::flags_offset());
@@ -1558,7 +1558,6 @@ static int size_activation_helper(int callee_extra_locals, int max_stack, int mo
        round_to(callee_extra_locals * Interpreter::stackElementWords, WordsPerLong);
   const int max_stack_words = max_stack * Interpreter::stackElementWords;
   return (round_to((max_stack_words
-                   //6815692//+ Method::extra_stack_words()
                    + rounded_vm_local_words
                    + frame::memory_parameter_word_sp_offset), WordsPerLong)
                    // already rounded
@@ -1888,6 +1887,27 @@ void TemplateInterpreterGenerator::generate_throw_exception() {
   if (ProfileInterpreter) {
     __ set_method_data_pointer_for_bcp();
   }
+
+#if INCLUDE_JVMTI
+  if (EnableInvokeDynamic) {
+    Label L_done;
+
+    __ ldub(Address(Lbcp, 0), G1_scratch);  // Load current bytecode
+    __ cmp_and_br_short(G1_scratch, Bytecodes::_invokestatic, Assembler::notEqual, Assembler::pn, L_done);
+
+    // The member name argument must be restored if _invokestatic is re-executed after a PopFrame call.
+    // Detect such a case in the InterpreterRuntime function and return the member name argument, or NULL.
+
+    __ call_VM(G1_scratch, CAST_FROM_FN_PTR(address, InterpreterRuntime::member_name_arg_or_null), I0, Lmethod, Lbcp);
+
+    __ br_null(G1_scratch, false, Assembler::pn, L_done);
+    __ delayed()->nop();
+
+    __ st_ptr(G1_scratch, Lesp, wordSize);
+    __ bind(L_done);
+  }
+#endif // INCLUDE_JVMTI
+
   // Resume bytecode interpretation at the current bcp
   __ dispatch_next(vtos);
   // end of JVMTI PopFrame support

@@ -33,8 +33,8 @@
 
 void G1CardCounts::clear_range(size_t from_card_num, size_t to_card_num) {
   if (has_count_table()) {
-    check_card_num(from_card_num,
-                   err_msg("from card num out of range: "SIZE_FORMAT, from_card_num));
+    assert(from_card_num >= 0 && from_card_num < _committed_max_card_num,
+           err_msg("from card num out of range: "SIZE_FORMAT, from_card_num));
     assert(from_card_num < to_card_num,
            err_msg("Wrong order? from: " SIZE_FORMAT ", to: "SIZE_FORMAT,
                    from_card_num, to_card_num));
@@ -101,20 +101,23 @@ void G1CardCounts::resize(size_t heap_capacity) {
          ReservedSpace::allocation_align_size_up(_committed_size),
          err_msg("Unaligned? committed_size: " SIZE_FORMAT, _committed_size));
 
-  // Verify that the committed space for the card counts
-  // matches our committed max card num.
+  // Verify that the committed space for the card counts matches our
+  // committed max card num. Note for some allocation alignments, the
+  // amount of space actually committed for the counts table will be able
+  // to span more cards than the number spanned by the maximum heap.
   size_t prev_committed_size = _committed_size;
-  size_t prev_committed_card_num = prev_committed_size / sizeof(jbyte);
+  size_t prev_committed_card_num = committed_to_card_num(prev_committed_size);
+
   assert(prev_committed_card_num == _committed_max_card_num,
          err_msg("Card mismatch: "
                  "prev: " SIZE_FORMAT ", "
-                 "committed: "SIZE_FORMAT,
-                 prev_committed_card_num, _committed_max_card_num));
+                 "committed: "SIZE_FORMAT", "
+                 "reserved: "SIZE_FORMAT,
+                 prev_committed_card_num, _committed_max_card_num, _reserved_max_card_num));
 
   size_t new_size = (heap_capacity >> CardTableModRefBS::card_shift) * sizeof(jbyte);
   size_t new_committed_size = ReservedSpace::allocation_align_size_up(new_size);
-  size_t new_committed_card_num =
-                MIN2(_reserved_max_card_num, new_committed_size / sizeof(jbyte));
+  size_t new_committed_card_num = committed_to_card_num(new_committed_size);
 
   if (_committed_max_card_num < new_committed_card_num) {
     // we need to expand the backing store for the card counts
@@ -149,12 +152,9 @@ uint G1CardCounts::add_card_count(jbyte* card_ptr) {
     if (card_num < _committed_max_card_num) {
       count = (uint) _card_counts[card_num];
       if (count < G1ConcRSHotCardLimit) {
-        _card_counts[card_num] += 1;
+        _card_counts[card_num] =
+          (jubyte)(MIN2((uintx)(_card_counts[card_num] + 1), G1ConcRSHotCardLimit));
       }
-      assert(_card_counts[card_num] <= G1ConcRSHotCardLimit,
-             err_msg("Refinement count overflow? "
-                     "new count: "UINT32_FORMAT,
-                     (uint) _card_counts[card_num]));
     }
   }
   return count;

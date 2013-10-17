@@ -813,15 +813,21 @@ FILETIME java_to_windows_time(jlong l) {
   return result;
 }
 
-// For now, we say that Windows does not support vtime.  I have no idea
-// whether it can actually be made to (DLD, 9/13/05).
-
-bool os::supports_vtime() { return false; }
+bool os::supports_vtime() { return true; }
 bool os::enable_vtime() { return false; }
 bool os::vtime_enabled() { return false; }
+
 double os::elapsedVTime() {
-  // better than nothing, but not much
-  return elapsedTime();
+  FILETIME created;
+  FILETIME exited;
+  FILETIME kernel;
+  FILETIME user;
+  if (GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user) != 0) {
+    // the resolution of windows_to_java_time() should be sufficient (ms)
+    return (double) (windows_to_java_time(kernel) + windows_to_java_time(user)) / MILLIUNITS;
+  } else {
+    return elapsedTime();
+  }
 }
 
 jlong os::javaTimeMillis() {
@@ -944,6 +950,8 @@ void os::check_or_create_dump(void* exceptionRecord, void* contextRecord, char* 
   MINIDUMP_TYPE dumpType;
   static const char* cwd;
 
+// Default is to always create dump for debug builds, on product builds only dump on server versions of Windows.
+#ifndef ASSERT
   // If running on a client version of Windows and user has not explicitly enabled dumping
   if (!os::win32::is_windows_server() && !CreateMinidumpOnCrash) {
     VMError::report_coredump_status("Minidumps are not enabled by default on client versions of Windows", false);
@@ -953,6 +961,12 @@ void os::check_or_create_dump(void* exceptionRecord, void* contextRecord, char* 
     VMError::report_coredump_status("Minidump has been disabled from the command line", false);
     return;
   }
+#else
+  if (!FLAG_IS_DEFAULT(CreateMinidumpOnCrash) && !CreateMinidumpOnCrash) {
+    VMError::report_coredump_status("Minidump has been disabled from the command line", false);
+    return;
+  }
+#endif
 
   dbghelp = os::win32::load_Windows_dll("DBGHELP.DLL", NULL, 0);
 
@@ -1004,7 +1018,21 @@ void os::check_or_create_dump(void* exceptionRecord, void* contextRecord, char* 
   // the dump types we really want. If first call fails, lets fall back to just use MiniDumpWithFullMemory then.
   if (_MiniDumpWriteDump(hProcess, processId, dumpFile, dumpType, pmei, NULL, NULL) == false &&
       _MiniDumpWriteDump(hProcess, processId, dumpFile, (MINIDUMP_TYPE)MiniDumpWithFullMemory, pmei, NULL, NULL) == false) {
-    VMError::report_coredump_status("Call to MiniDumpWriteDump() failed", false);
+        DWORD error = GetLastError();
+        LPTSTR msgbuf = NULL;
+
+        if (FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+                      FORMAT_MESSAGE_FROM_SYSTEM |
+                      FORMAT_MESSAGE_IGNORE_INSERTS,
+                      NULL, error, 0, (LPTSTR)&msgbuf, 0, NULL) != 0) {
+
+          jio_snprintf(buffer, bufferSize, "Call to MiniDumpWriteDump() failed (Error 0x%x: %s)", error, msgbuf);
+          LocalFree(msgbuf);
+        } else {
+          // Call to FormatMessage failed, just include the result from GetLastError
+          jio_snprintf(buffer, bufferSize, "Call to MiniDumpWriteDump() failed (Error 0x%x)", error);
+        }
+        VMError::report_coredump_status(buffer, false);
   } else {
     VMError::report_coredump_status(buffer, true);
   }
@@ -1392,34 +1420,40 @@ static int _locate_module_by_addr(int pid, char * mod_fname, address base_addr,
 
 bool os::dll_address_to_library_name(address addr, char* buf,
                                      int buflen, int* offset) {
+  // buf is not optional, but offset is optional
+  assert(buf != NULL, "sanity check");
+
 // NOTE: the reason we don't use SymGetModuleInfo() is it doesn't always
 //       return the full path to the DLL file, sometimes it returns path
 //       to the corresponding PDB file (debug info); sometimes it only
 //       returns partial path, which makes life painful.
 
-   struct _modinfo mi;
-   mi.addr      = addr;
-   mi.full_path = buf;
-   mi.buflen    = buflen;
-   int pid = os::current_process_id();
-   if (enumerate_modules(pid, _locate_module_by_addr, (void *)&mi)) {
-      // buf already contains path name
-      if (offset) *offset = addr - mi.base_addr;
-      return true;
-   } else {
-      if (buf) buf[0] = '\0';
-      if (offset) *offset = -1;
-      return false;
-   }
+  struct _modinfo mi;
+  mi.addr      = addr;
+  mi.full_path = buf;
+  mi.buflen    = buflen;
+  int pid = os::current_process_id();
+  if (enumerate_modules(pid, _locate_module_by_addr, (void *)&mi)) {
+    // buf already contains path name
+    if (offset) *offset = addr - mi.base_addr;
+    return true;
+  }
+
+  buf[0] = '\0';
+  if (offset) *offset = -1;
+  return false;
 }
 
 bool os::dll_address_to_function_name(address addr, char *buf,
                                       int buflen, int *offset) {
+  // buf is not optional, but offset is optional
+  assert(buf != NULL, "sanity check");
+
   if (Decoder::decode(addr, buf, buflen, offset)) {
     return true;
   }
   if (offset != NULL)  *offset  = -1;
-  if (buf != NULL) buf[0] = '\0';
+  buf[0] = '\0';
   return false;
 }
 
@@ -1608,6 +1642,8 @@ void os::print_os_info(outputStream* st) {
 
 void os::win32::print_windows_version(outputStream* st) {
   OSVERSIONINFOEX osvi;
+  SYSTEM_INFO si;
+
   ZeroMemory(&osvi, sizeof(OSVERSIONINFOEX));
   osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEX);
 
@@ -1617,6 +1653,18 @@ void os::win32::print_windows_version(outputStream* st) {
   }
 
   int os_vers = osvi.dwMajorVersion * 1000 + osvi.dwMinorVersion;
+
+  ZeroMemory(&si, sizeof(SYSTEM_INFO));
+  if (os_vers >= 5002) {
+    // Retrieve SYSTEM_INFO from GetNativeSystemInfo call so that we could
+    // find out whether we are running on 64 bit processor or not.
+    if (os::Kernel32Dll::GetNativeSystemInfoAvailable()) {
+      os::Kernel32Dll::GetNativeSystemInfo(&si);
+    } else {
+      GetSystemInfo(&si);
+    }
+  }
+
   if (osvi.dwPlatformId == VER_PLATFORM_WIN32_NT) {
     switch (os_vers) {
     case 3051: st->print(" Windows NT 3.51"); break;
@@ -1624,57 +1672,48 @@ void os::win32::print_windows_version(outputStream* st) {
     case 5000: st->print(" Windows 2000"); break;
     case 5001: st->print(" Windows XP"); break;
     case 5002:
-    case 6000:
-    case 6001:
-    case 6002: {
-      // Retrieve SYSTEM_INFO from GetNativeSystemInfo call so that we could
-      // find out whether we are running on 64 bit processor or not.
-      SYSTEM_INFO si;
-      ZeroMemory(&si, sizeof(SYSTEM_INFO));
-        if (!os::Kernel32Dll::GetNativeSystemInfoAvailable()){
-          GetSystemInfo(&si);
+      if (osvi.wProductType == VER_NT_WORKSTATION &&
+          si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64) {
+        st->print(" Windows XP x64 Edition");
       } else {
-        os::Kernel32Dll::GetNativeSystemInfo(&si);
-      }
-      if (os_vers == 5002) {
-        if (osvi.wProductType == VER_NT_WORKSTATION &&
-            si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
-          st->print(" Windows XP x64 Edition");
-        else
-            st->print(" Windows Server 2003 family");
-      } else if (os_vers == 6000) {
-        if (osvi.wProductType == VER_NT_WORKSTATION)
-            st->print(" Windows Vista");
-        else
-            st->print(" Windows Server 2008");
-        if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
-            st->print(" , 64 bit");
-      } else if (os_vers == 6001) {
-        if (osvi.wProductType == VER_NT_WORKSTATION) {
-            st->print(" Windows 7");
-        } else {
-            // Unrecognized windows, print out its major and minor versions
-            st->print(" Windows NT %d.%d", osvi.dwMajorVersion, osvi.dwMinorVersion);
-        }
-        if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
-            st->print(" , 64 bit");
-      } else if (os_vers == 6002) {
-        if (osvi.wProductType == VER_NT_WORKSTATION) {
-            st->print(" Windows 8");
-        } else {
-            st->print(" Windows Server 2012");
-        }
-        if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
-            st->print(" , 64 bit");
-      } else { // future os
-        // Unrecognized windows, print out its major and minor versions
-        st->print(" Windows NT %d.%d", osvi.dwMajorVersion, osvi.dwMinorVersion);
-        if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
-            st->print(" , 64 bit");
+        st->print(" Windows Server 2003 family");
       }
       break;
-    }
-    default: // future windows, print out its major and minor versions
+
+    case 6000:
+      if (osvi.wProductType == VER_NT_WORKSTATION) {
+        st->print(" Windows Vista");
+      } else {
+        st->print(" Windows Server 2008");
+      }
+      break;
+
+    case 6001:
+      if (osvi.wProductType == VER_NT_WORKSTATION) {
+        st->print(" Windows 7");
+      } else {
+        st->print(" Windows Server 2008 R2");
+      }
+      break;
+
+    case 6002:
+      if (osvi.wProductType == VER_NT_WORKSTATION) {
+        st->print(" Windows 8");
+      } else {
+        st->print(" Windows Server 2012");
+      }
+      break;
+
+    case 6003:
+      if (osvi.wProductType == VER_NT_WORKSTATION) {
+        st->print(" Windows 8.1");
+      } else {
+        st->print(" Windows Server 2012 R2");
+      }
+      break;
+
+    default: // future os
+      // Unrecognized windows, print out its major and minor versions
       st->print(" Windows NT %d.%d", osvi.dwMajorVersion, osvi.dwMinorVersion);
     }
   } else {
@@ -1686,6 +1725,11 @@ void os::win32::print_windows_version(outputStream* st) {
       st->print(" Windows %d.%d", osvi.dwMajorVersion, osvi.dwMinorVersion);
     }
   }
+
+  if (os_vers >= 6000 && si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64) {
+    st->print(" , 64 bit");
+  }
+
   st->print(" Build %d", osvi.dwBuildNumber);
   st->print(" %s", osvi.szCSDVersion);           // service pack
   st->cr();
@@ -2289,6 +2333,11 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
 #endif
   Thread* t = ThreadLocalStorage::get_thread_slow();          // slow & steady
 
+  // Handle SafeFetch32 and SafeFetchN exceptions.
+  if (StubRoutines::is_safefetch_fault(pc)) {
+    return Handle_Exception(exceptionInfo, StubRoutines::continuation_for_safefetch_fault(pc));
+  }
+
 #ifndef _WIN64
   // Execution protection violation - win32 running on AMD64 only
   // Handled first to avoid misdiagnosis as a "normal" access violation;
@@ -2496,7 +2545,7 @@ LONG WINAPI topLevelExceptionFilter(struct _EXCEPTION_POINTERS* exceptionInfo) {
                   addr = (address)((uintptr_t)addr &
                          (~((uintptr_t)os::vm_page_size() - (uintptr_t)1)));
                   os::commit_memory((char *)addr, thread->stack_base() - addr,
-                                    false );
+                                    !ExecMem);
                   return EXCEPTION_CONTINUE_EXECUTION;
           }
           else
@@ -2658,6 +2707,19 @@ address os::win32::fast_jni_accessor_wrapper(BasicType type) {
     default:        ShouldNotReachHere();
   }
   return (address)-1;
+}
+#endif
+
+#ifndef PRODUCT
+void os::win32::call_test_func_with_wrapper(void (*funcPtr)(void)) {
+  // Install a win32 structured exception handler around the test
+  // function call so the VM can generate an error dump if needed.
+  __try {
+    (*funcPtr)();
+  } __except(topLevelExceptionFilter(
+             (_EXCEPTION_POINTERS*)_exception_info())) {
+    // Nothing to do.
+  }
 }
 #endif
 
@@ -2847,7 +2909,7 @@ static char* allocate_pages_individually(size_t bytes, char* addr, DWORD flags, 
                                 PAGE_READWRITE);
   // If reservation failed, return NULL
   if (p_buf == NULL) return NULL;
-  MemTracker::record_virtual_memory_reserve((address)p_buf, size_of_reserve, CALLER_PC);
+  MemTracker::record_virtual_memory_reserve((address)p_buf, size_of_reserve, mtNone, CALLER_PC);
   os::release_memory(p_buf, bytes + chunk_size);
 
   // we still need to round up to a page boundary (in case we are using large pages)
@@ -2913,7 +2975,7 @@ static char* allocate_pages_individually(size_t bytes, char* addr, DWORD flags, 
         // need to create a dummy 'reserve' record to match
         // the release.
         MemTracker::record_virtual_memory_reserve((address)p_buf,
-          bytes_to_release, CALLER_PC);
+          bytes_to_release, mtNone, CALLER_PC);
         os::release_memory(p_buf, bytes_to_release);
       }
 #ifdef ASSERT
@@ -2933,9 +2995,10 @@ static char* allocate_pages_individually(size_t bytes, char* addr, DWORD flags, 
   // Although the memory is allocated individually, it is returned as one.
   // NMT records it as one block.
   address pc = CALLER_PC;
-  MemTracker::record_virtual_memory_reserve((address)p_buf, bytes, pc);
   if ((flags & MEM_COMMIT) != 0) {
-    MemTracker::record_virtual_memory_commit((address)p_buf, bytes, pc);
+    MemTracker::record_virtual_memory_reserve_and_commit((address)p_buf, bytes, mtNone, pc);
+  } else {
+    MemTracker::record_virtual_memory_reserve((address)p_buf, bytes, mtNone, pc);
   }
 
   // made it this far, success
@@ -3093,7 +3156,12 @@ bool os::can_execute_large_page_memory() {
   return true;
 }
 
-char* os::reserve_memory_special(size_t bytes, char* addr, bool exec) {
+char* os::reserve_memory_special(size_t bytes, size_t alignment, char* addr, bool exec) {
+  assert(UseLargePages, "only for large pages");
+
+  if (!is_size_aligned(bytes, os::large_page_size()) || alignment > os::large_page_size()) {
+    return NULL; // Fallback to small pages.
+  }
 
   const DWORD prot = exec ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
   const DWORD flags = MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES;
@@ -3121,13 +3189,15 @@ char* os::reserve_memory_special(size_t bytes, char* addr, bool exec) {
     return p_buf;
 
   } else {
+    if (TracePageSizes && Verbose) {
+       tty->print_cr("Reserving large pages in a single large chunk.");
+    }
     // normal policy just allocate it all at once
     DWORD flag = MEM_RESERVE | MEM_COMMIT | MEM_LARGE_PAGES;
-    char * res = (char *)VirtualAlloc(NULL, bytes, flag, prot);
+    char * res = (char *)VirtualAlloc(addr, bytes, flag, prot);
     if (res != NULL) {
       address pc = CALLER_PC;
-      MemTracker::record_virtual_memory_reserve((address)res, bytes, pc);
-      MemTracker::record_virtual_memory_commit((address)res, bytes, pc);
+      MemTracker::record_virtual_memory_reserve_and_commit((address)res, bytes, mtNone, pc);
     }
 
     return res;
@@ -3136,12 +3206,19 @@ char* os::reserve_memory_special(size_t bytes, char* addr, bool exec) {
 
 bool os::release_memory_special(char* base, size_t bytes) {
   assert(base != NULL, "Sanity check");
-  // Memory allocated via reserve_memory_special() is committed
-  MemTracker::record_virtual_memory_uncommit((address)base, bytes);
   return release_memory(base, bytes);
 }
 
 void os::print_statistics() {
+}
+
+static void warn_fail_commit_memory(char* addr, size_t bytes, bool exec) {
+  int err = os::get_last_error();
+  char buf[256];
+  size_t buf_len = os::lasterror(buf, sizeof(buf));
+  warning("INFO: os::commit_memory(" PTR_FORMAT ", " SIZE_FORMAT
+          ", %d) failed; error='%s' (DOS error/errno=%d)", addr, bytes,
+          exec, buf_len != 0 ? buf : "<no_error_string>", err);
 }
 
 bool os::pd_commit_memory(char* addr, size_t bytes, bool exec) {
@@ -3158,11 +3235,17 @@ bool os::pd_commit_memory(char* addr, size_t bytes, bool exec) {
   // is always within a reserve covered by a single VirtualAlloc
   // in that case we can just do a single commit for the requested size
   if (!UseNUMAInterleaving) {
-    if (VirtualAlloc(addr, bytes, MEM_COMMIT, PAGE_READWRITE) == NULL) return false;
+    if (VirtualAlloc(addr, bytes, MEM_COMMIT, PAGE_READWRITE) == NULL) {
+      NOT_PRODUCT(warn_fail_commit_memory(addr, bytes, exec);)
+      return false;
+    }
     if (exec) {
       DWORD oldprot;
       // Windows doc says to use VirtualProtect to get execute permissions
-      if (!VirtualProtect(addr, bytes, PAGE_EXECUTE_READWRITE, &oldprot)) return false;
+      if (!VirtualProtect(addr, bytes, PAGE_EXECUTE_READWRITE, &oldprot)) {
+        NOT_PRODUCT(warn_fail_commit_memory(addr, bytes, exec);)
+        return false;
+      }
     }
     return true;
   } else {
@@ -3177,12 +3260,20 @@ bool os::pd_commit_memory(char* addr, size_t bytes, bool exec) {
       MEMORY_BASIC_INFORMATION alloc_info;
       VirtualQuery(next_alloc_addr, &alloc_info, sizeof(alloc_info));
       size_t bytes_to_rq = MIN2(bytes_remaining, (size_t)alloc_info.RegionSize);
-      if (VirtualAlloc(next_alloc_addr, bytes_to_rq, MEM_COMMIT, PAGE_READWRITE) == NULL)
+      if (VirtualAlloc(next_alloc_addr, bytes_to_rq, MEM_COMMIT,
+                       PAGE_READWRITE) == NULL) {
+        NOT_PRODUCT(warn_fail_commit_memory(next_alloc_addr, bytes_to_rq,
+                                            exec);)
         return false;
+      }
       if (exec) {
         DWORD oldprot;
-        if (!VirtualProtect(next_alloc_addr, bytes_to_rq, PAGE_EXECUTE_READWRITE, &oldprot))
+        if (!VirtualProtect(next_alloc_addr, bytes_to_rq,
+                            PAGE_EXECUTE_READWRITE, &oldprot)) {
+          NOT_PRODUCT(warn_fail_commit_memory(next_alloc_addr, bytes_to_rq,
+                                              exec);)
           return false;
+        }
       }
       bytes_remaining -= bytes_to_rq;
       next_alloc_addr += bytes_to_rq;
@@ -3194,7 +3285,24 @@ bool os::pd_commit_memory(char* addr, size_t bytes, bool exec) {
 
 bool os::pd_commit_memory(char* addr, size_t size, size_t alignment_hint,
                        bool exec) {
-  return commit_memory(addr, size, exec);
+  // alignment_hint is ignored on this OS
+  return pd_commit_memory(addr, size, exec);
+}
+
+void os::pd_commit_memory_or_exit(char* addr, size_t size, bool exec,
+                                  const char* mesg) {
+  assert(mesg != NULL, "mesg must be specified");
+  if (!pd_commit_memory(addr, size, exec)) {
+    warn_fail_commit_memory(addr, size, exec);
+    vm_exit_out_of_memory(size, OOM_MMAP_ERROR, mesg);
+  }
+}
+
+void os::pd_commit_memory_or_exit(char* addr, size_t size,
+                                  size_t alignment_hint, bool exec,
+                                  const char* mesg) {
+  // alignment_hint is ignored on this OS
+  pd_commit_memory_or_exit(addr, size, exec, mesg);
 }
 
 bool os::pd_uncommit_memory(char* addr, size_t bytes) {
@@ -3212,7 +3320,7 @@ bool os::pd_release_memory(char* addr, size_t bytes) {
 }
 
 bool os::pd_create_stack_guard_pages(char* addr, size_t size) {
-  return os::commit_memory(addr, size);
+  return os::commit_memory(addr, size, !ExecMem);
 }
 
 bool os::remove_stack_guard_pages(char* addr, size_t size) {
@@ -3236,8 +3344,9 @@ bool os::protect_memory(char* addr, size_t bytes, ProtType prot,
 
   // Strange enough, but on Win32 one can change protection only for committed
   // memory, not a big deal anyway, as bytes less or equal than 64K
-  if (!is_committed && !commit_memory(addr, bytes, prot == MEM_PROT_RWX)) {
-    fatal("cannot commit protection page");
+  if (!is_committed) {
+    commit_memory_or_exit(addr, bytes, prot == MEM_PROT_RWX,
+                          "cannot commit protection page");
   }
   // One cannot use os::guard_memory() here, as on Win32 guard page
   // have different (one-shot) semantics, from MSDN on PAGE_GUARD:
@@ -3307,7 +3416,7 @@ void os::pd_start_thread(Thread* thread) {
   assert(ret != SYS_THREAD_ERROR, "StartThread failed"); // should propagate back
 }
 
-class HighResolutionInterval {
+class HighResolutionInterval : public CHeapObj<mtThread> {
   // The default timer resolution seems to be 10 milliseconds.
   // (Where is this written down?)
   // If someone wants to sleep for only a fraction of the default,
@@ -3810,8 +3919,6 @@ jint os::init_2(void) {
       tty->print("[Memory Serialize  Page address: " INTPTR_FORMAT "]\n", (intptr_t)mem_serialize_page);
 #endif
   }
-
-  os::large_page_init();
 
   // Setup Windows Exceptions
 
@@ -4598,6 +4705,34 @@ void os::pause() {
   }
 }
 
+os::WatcherThreadCrashProtection::WatcherThreadCrashProtection() {
+  assert(Thread::current()->is_Watcher_thread(), "Must be WatcherThread");
+}
+
+/*
+ * See the caveats for this class in os_windows.hpp
+ * Protects the callback call so that raised OS EXCEPTIONS causes a jump back
+ * into this method and returns false. If no OS EXCEPTION was raised, returns
+ * true.
+ * The callback is supposed to provide the method that should be protected.
+ */
+bool os::WatcherThreadCrashProtection::call(os::CrashProtectionCallback& cb) {
+  assert(Thread::current()->is_Watcher_thread(), "Only for WatcherThread");
+  assert(!WatcherThread::watcher_thread()->has_crash_protection(),
+      "crash_protection already set?");
+
+  bool success = true;
+  __try {
+    WatcherThread::watcher_thread()->set_crash_protection(this);
+    cb.call();
+  } __except(EXCEPTION_EXECUTE_HANDLER) {
+    // only for protection, nothing to do
+    success = false;
+  }
+  WatcherThread::watcher_thread()->set_crash_protection(NULL);
+  return success;
+}
+
 // An Event wraps a win32 "CreateEvent" kernel handle.
 //
 // We have a number of choices regarding "CreateEvent" win32 handle leakage:
@@ -5020,6 +5155,71 @@ int os::set_sock_opt(int fd, int level, int optname,
   return ::setsockopt(fd, level, optname, optval, optlen);
 }
 
+// WINDOWS CONTEXT Flags for THREAD_SAMPLING
+#if defined(IA32)
+#  define sampling_context_flags (CONTEXT_FULL | CONTEXT_FLOATING_POINT | CONTEXT_EXTENDED_REGISTERS)
+#elif defined (AMD64)
+#  define sampling_context_flags (CONTEXT_FULL | CONTEXT_FLOATING_POINT)
+#endif
+
+// returns true if thread could be suspended,
+// false otherwise
+static bool do_suspend(HANDLE* h) {
+  if (h != NULL) {
+    if (SuspendThread(*h) != ~0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// resume the thread
+// calling resume on an active thread is a no-op
+static void do_resume(HANDLE* h) {
+  if (h != NULL) {
+    ResumeThread(*h);
+  }
+}
+
+// retrieve a suspend/resume context capable handle
+// from the tid. Caller validates handle return value.
+void get_thread_handle_for_extended_context(HANDLE* h, OSThread::thread_id_t tid) {
+  if (h != NULL) {
+    *h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, tid);
+  }
+}
+
+//
+// Thread sampling implementation
+//
+void os::SuspendedThreadTask::internal_do_task() {
+  CONTEXT    ctxt;
+  HANDLE     h = NULL;
+
+  // get context capable handle for thread
+  get_thread_handle_for_extended_context(&h, _thread->osthread()->thread_id());
+
+  // sanity
+  if (h == NULL || h == INVALID_HANDLE_VALUE) {
+    return;
+  }
+
+  // suspend the thread
+  if (do_suspend(&h)) {
+    ctxt.ContextFlags = sampling_context_flags;
+    // get thread context
+    GetThreadContext(h, &ctxt);
+    SuspendedThreadTaskContext context(_thread, &ctxt);
+    // pass context to Thread Sampling impl
+    do_task(context);
+    // resume thread
+    do_resume(&h);
+  }
+
+  // close handle
+  CloseHandle(h);
+}
+
 
 // Kernel32 API
 typedef SIZE_T (WINAPI* GetLargePageMinimum_Fn)(void);
@@ -5198,6 +5398,75 @@ inline BOOL os::Advapi32Dll::LookupPrivilegeValue(LPCTSTR lpSystemName, LPCTSTR 
 
 inline BOOL os::Advapi32Dll::AdvapiAvailable() {
   return true;
+}
+
+void* os::get_default_process_handle() {
+  return (void*)GetModuleHandle(NULL);
+}
+
+// Builds a platform dependent Agent_OnLoad_<lib_name> function name
+// which is used to find statically linked in agents.
+// Additionally for windows, takes into account __stdcall names.
+// Parameters:
+//            sym_name: Symbol in library we are looking for
+//            lib_name: Name of library to look in, NULL for shared libs.
+//            is_absolute_path == true if lib_name is absolute path to agent
+//                                     such as "C:/a/b/L.dll"
+//            == false if only the base name of the library is passed in
+//               such as "L"
+char* os::build_agent_function_name(const char *sym_name, const char *lib_name,
+                                    bool is_absolute_path) {
+  char *agent_entry_name;
+  size_t len;
+  size_t name_len;
+  size_t prefix_len = strlen(JNI_LIB_PREFIX);
+  size_t suffix_len = strlen(JNI_LIB_SUFFIX);
+  const char *start;
+
+  if (lib_name != NULL) {
+    len = name_len = strlen(lib_name);
+    if (is_absolute_path) {
+      // Need to strip path, prefix and suffix
+      if ((start = strrchr(lib_name, *os::file_separator())) != NULL) {
+        lib_name = ++start;
+      } else {
+        // Need to check for drive prefix
+        if ((start = strchr(lib_name, ':')) != NULL) {
+          lib_name = ++start;
+        }
+      }
+      if (len <= (prefix_len + suffix_len)) {
+        return NULL;
+      }
+      lib_name += prefix_len;
+      name_len = strlen(lib_name) - suffix_len;
+    }
+  }
+  len = (lib_name != NULL ? name_len : 0) + strlen(sym_name) + 2;
+  agent_entry_name = NEW_C_HEAP_ARRAY_RETURN_NULL(char, len, mtThread);
+  if (agent_entry_name == NULL) {
+    return NULL;
+  }
+  if (lib_name != NULL) {
+    const char *p = strrchr(sym_name, '@');
+    if (p != NULL && p != sym_name) {
+      // sym_name == _Agent_OnLoad@XX
+      strncpy(agent_entry_name, sym_name, (p - sym_name));
+      agent_entry_name[(p-sym_name)] = '\0';
+      // agent_entry_name == _Agent_OnLoad
+      strcat(agent_entry_name, "_");
+      strncat(agent_entry_name, lib_name, name_len);
+      strcat(agent_entry_name, p);
+      // agent_entry_name == _Agent_OnLoad_lib_name@XX
+    } else {
+      strcpy(agent_entry_name, sym_name);
+      strcat(agent_entry_name, "_");
+      strncat(agent_entry_name, lib_name, name_len);
+    }
+  } else {
+    strcpy(agent_entry_name, sym_name);
+  }
+  return agent_entry_name;
 }
 
 #else
@@ -5444,3 +5713,68 @@ BOOL os::Advapi32Dll::AdvapiAvailable() {
 }
 
 #endif
+
+#ifndef PRODUCT
+
+// test the code path in reserve_memory_special() that tries to allocate memory in a single
+// contiguous memory block at a particular address.
+// The test first tries to find a good approximate address to allocate at by using the same
+// method to allocate some memory at any address. The test then tries to allocate memory in
+// the vicinity (not directly after it to avoid possible by-chance use of that location)
+// This is of course only some dodgy assumption, there is no guarantee that the vicinity of
+// the previously allocated memory is available for allocation. The only actual failure
+// that is reported is when the test tries to allocate at a particular location but gets a
+// different valid one. A NULL return value at this point is not considered an error but may
+// be legitimate.
+// If -XX:+VerboseInternalVMTests is enabled, print some explanatory messages.
+void TestReserveMemorySpecial_test() {
+  if (!UseLargePages) {
+    if (VerboseInternalVMTests) {
+      gclog_or_tty->print("Skipping test because large pages are disabled");
+    }
+    return;
+  }
+  // save current value of globals
+  bool old_use_large_pages_individual_allocation = UseLargePagesIndividualAllocation;
+  bool old_use_numa_interleaving = UseNUMAInterleaving;
+
+  // set globals to make sure we hit the correct code path
+  UseLargePagesIndividualAllocation = UseNUMAInterleaving = false;
+
+  // do an allocation at an address selected by the OS to get a good one.
+  const size_t large_allocation_size = os::large_page_size() * 4;
+  char* result = os::reserve_memory_special(large_allocation_size, os::large_page_size(), NULL, false);
+  if (result == NULL) {
+    if (VerboseInternalVMTests) {
+      gclog_or_tty->print("Failed to allocate control block with size "SIZE_FORMAT". Skipping remainder of test.",
+        large_allocation_size);
+    }
+  } else {
+    os::release_memory_special(result, large_allocation_size);
+
+    // allocate another page within the recently allocated memory area which seems to be a good location. At least
+    // we managed to get it once.
+    const size_t expected_allocation_size = os::large_page_size();
+    char* expected_location = result + os::large_page_size();
+    char* actual_location = os::reserve_memory_special(expected_allocation_size, os::large_page_size(), expected_location, false);
+    if (actual_location == NULL) {
+      if (VerboseInternalVMTests) {
+        gclog_or_tty->print("Failed to allocate any memory at "PTR_FORMAT" size "SIZE_FORMAT". Skipping remainder of test.",
+          expected_location, large_allocation_size);
+      }
+    } else {
+      // release memory
+      os::release_memory_special(actual_location, expected_allocation_size);
+      // only now check, after releasing any memory to avoid any leaks.
+      assert(actual_location == expected_location,
+        err_msg("Failed to allocate memory at requested location "PTR_FORMAT" of size "SIZE_FORMAT", is "PTR_FORMAT" instead",
+          expected_location, expected_allocation_size, actual_location));
+    }
+  }
+
+  // restore globals
+  UseLargePagesIndividualAllocation = old_use_large_pages_individual_allocation;
+  UseNUMAInterleaving = old_use_numa_interleaving;
+}
+#endif // PRODUCT
+

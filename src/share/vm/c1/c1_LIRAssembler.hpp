@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -119,6 +119,8 @@ class LIR_Assembler: public CompilationResourceObj {
 
   void comp_op(LIR_Condition condition, LIR_Opr src, LIR_Opr result, LIR_Op2* op);
 
+  PatchingStub::PatchID patching_id(CodeEmitInfo* info);
+
  public:
   LIR_Assembler(Compilation* c);
   ~LIR_Assembler();
@@ -195,6 +197,7 @@ class LIR_Assembler: public CompilationResourceObj {
   void emit_opBranch(LIR_OpBranch* op);
   void emit_opLabel(LIR_OpLabel* op);
   void emit_arraycopy(LIR_OpArrayCopy* op);
+  void emit_updatecrc32(LIR_OpUpdateCRC32* op);
   void emit_opConvert(LIR_OpConvert* op);
   void emit_alloc_obj(LIR_OpAllocObj* op);
   void emit_alloc_array(LIR_OpAllocArray* op);

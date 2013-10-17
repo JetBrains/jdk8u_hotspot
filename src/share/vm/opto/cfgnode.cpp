@@ -806,7 +806,7 @@ PhiNode* PhiNode::split_out_instance(const TypePtr* at, PhaseIterGVN *igvn) cons
       Node *in = ophi->in(i);
       if (in == NULL || igvn->type(in) == Type::TOP)
         continue;
-      Node *opt = MemNode::optimize_simple_memory_chain(in, at, igvn);
+      Node *opt = MemNode::optimize_simple_memory_chain(in, t_oop, NULL, igvn);
       PhiNode *optphi = opt->is_Phi() ? opt->as_Phi() : NULL;
       if (optphi != NULL && optphi->adr_type() == TypePtr::BOTTOM) {
         opt = node_map[optphi->_idx];
@@ -1921,7 +1921,7 @@ Node *PhiNode::Ideal(PhaseGVN *phase, bool can_reshape) {
     const TypePtr* at = adr_type();
     for( uint i=1; i<req(); ++i ) {// For all paths in
       Node *ii = in(i);
-      Node *new_in = MemNode::optimize_memory_chain(ii, at, phase);
+      Node *new_in = MemNode::optimize_memory_chain(ii, at, NULL, phase);
       if (ii != new_in ) {
         set_req(i, new_in);
         progress = this;
@@ -1932,7 +1932,7 @@ Node *PhiNode::Ideal(PhaseGVN *phase, bool can_reshape) {
 #ifdef _LP64
   // Push DecodeN/DecodeNKlass down through phi.
   // The rest of phi graph will transform by split EncodeP node though phis up.
-  if ((UseCompressedOops || UseCompressedKlassPointers) && can_reshape && progress == NULL) {
+  if ((UseCompressedOops || UseCompressedClassPointers) && can_reshape && progress == NULL) {
     bool may_push = true;
     bool has_decodeN = false;
     bool is_decodeN = false;

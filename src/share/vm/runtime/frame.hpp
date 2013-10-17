@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -137,6 +137,7 @@ class frame VALUE_OBJ_CLASS_SPEC {
   bool is_interpreted_frame()    const;
   bool is_java_frame()           const;
   bool is_entry_frame()          const;             // Java frame called from C?
+  bool is_stub_frame()           const;
   bool is_ignored_frame()        const;
   bool is_native_frame()         const;
   bool is_runtime_frame()        const;
@@ -355,7 +356,9 @@ class frame VALUE_OBJ_CLASS_SPEC {
 
  public:
   // Entry frames
-  JavaCallWrapper* entry_frame_call_wrapper() const;
+  JavaCallWrapper* entry_frame_call_wrapper() const { return *entry_frame_call_wrapper_addr(); }
+  JavaCallWrapper* entry_frame_call_wrapper_if_safe(JavaThread* thread) const;
+  JavaCallWrapper** entry_frame_call_wrapper_addr() const;
   intptr_t* entry_frame_argument_at(int offset) const;
 
   // tells whether there is another chunk of Delta stack above
@@ -406,6 +409,7 @@ class frame VALUE_OBJ_CLASS_SPEC {
   void print_on(outputStream* st) const;
   void interpreter_frame_print_on(outputStream* st) const;
   void print_on_error(outputStream* st, char* buf, int buflen, bool verbose = false) const;
+  static void print_C_frame(outputStream* st, char* buf, int buflen, address pc);
 
   // Add annotated descriptions of memory locations belonging to this frame to values
   void describe(FrameValues& values, int frame_no);
@@ -414,7 +418,7 @@ class frame VALUE_OBJ_CLASS_SPEC {
   oop* oopmapreg_to_location(VMReg reg, const RegisterMap* regmap) const;
 
   // Oops-do's
-  void oops_compiled_arguments_do(Symbol* signature, bool has_receiver, const RegisterMap* reg_map, OopClosure* f);
+  void oops_compiled_arguments_do(Symbol* signature, bool has_receiver, bool has_appendix, const RegisterMap* reg_map, OopClosure* f);
   void oops_interpreted_do(OopClosure* f, CLDToOopClosure* cld_f, const RegisterMap* map, bool query_oop_map_cache = true);
 
  private:

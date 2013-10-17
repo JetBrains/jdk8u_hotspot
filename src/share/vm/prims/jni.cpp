@@ -74,7 +74,6 @@
 #include "runtime/vm_operations.hpp"
 #include "services/runtimeService.hpp"
 #include "trace/tracing.hpp"
-#include "trace/traceEventTypes.hpp"
 #include "utilities/defaultStream.hpp"
 #include "utilities/dtrace.hpp"
 #include "utilities/events.hpp"
@@ -880,7 +879,7 @@ JNI_ENTRY(jint, jni_PushLocalFrame(JNIEnv *env, jint capacity))
                                    env, capacity);
 #endif /* USDT2 */
   //%note jni_11
-  if (capacity < 0 && capacity > MAX_REASONABLE_LOCAL_CAPACITY) {
+  if (capacity < 0 || capacity > MAX_REASONABLE_LOCAL_CAPACITY) {
 #ifndef USDT2
     DTRACE_PROBE1(hotspot_jni, PushLocalFrame__return, JNI_ERR);
 #else /* USDT2 */
@@ -1337,6 +1336,7 @@ static void jni_invoke_nonstatic(JNIEnv *env, JavaValue* result, jobject receive
       if (call_type == JNI_VIRTUAL) {
         // jni_GetMethodID makes sure class is linked and initialized
         // so m should have a valid vtable index.
+        assert(!m->has_itable_index(), "");
         int vtbl_index = m->vtable_index();
         if (vtbl_index != Method::nonvirtual_vtable_index) {
           Klass* k = h_recv->klass();
@@ -1356,12 +1356,7 @@ static void jni_invoke_nonstatic(JNIEnv *env, JavaValue* result, jobject receive
       // interface call
       KlassHandle h_holder(THREAD, holder);
 
-      int itbl_index = m->cached_itable_index();
-      if (itbl_index == -1) {
-        itbl_index = klassItable::compute_itable_index(m);
-        m->set_cached_itable_index(itbl_index);
-        // the above may have grabbed a lock, 'm' and anything non-handlized can't be used again
-      }
+      int itbl_index = m->itable_index();
       Klass* k = h_recv->klass();
       selected_method = InstanceKlass::cast(k)->method_at_itable(h_holder(), itbl_index, CHECK);
     }
@@ -3235,19 +3230,22 @@ JNI_QUICK_ENTRY(const jchar*, jni_GetStringChars(
  HOTSPOT_JNI_GETSTRINGCHARS_ENTRY(
                                   env, string, (uintptr_t *) isCopy);
 #endif /* USDT2 */
-  //%note jni_5
-  if (isCopy != NULL) {
-    *isCopy = JNI_TRUE;
-  }
   oop s = JNIHandles::resolve_non_null(string);
   int s_len = java_lang_String::length(s);
   typeArrayOop s_value = java_lang_String::value(s);
   int s_offset = java_lang_String::offset(s);
-  jchar* buf = NEW_C_HEAP_ARRAY(jchar, s_len + 1, mtInternal);  // add one for zero termination
-  if (s_len > 0) {
-    memcpy(buf, s_value->char_at_addr(s_offset), sizeof(jchar)*s_len);
+  jchar* buf = NEW_C_HEAP_ARRAY_RETURN_NULL(jchar, s_len + 1, mtInternal);  // add one for zero termination
+  /* JNI Specification states return NULL on OOM */
+  if (buf != NULL) {
+    if (s_len > 0) {
+      memcpy(buf, s_value->char_at_addr(s_offset), sizeof(jchar)*s_len);
+    }
+    buf[s_len] = 0;
+    //%note jni_5
+    if (isCopy != NULL) {
+      *isCopy = JNI_TRUE;
+    }
   }
-  buf[s_len] = 0;
 #ifndef USDT2
   DTRACE_PROBE1(hotspot_jni, GetStringChars__return, buf);
 #else /* USDT2 */
@@ -3336,9 +3334,14 @@ JNI_ENTRY(const char*, jni_GetStringUTFChars(JNIEnv *env, jstring string, jboole
 #endif /* USDT2 */
   oop java_string = JNIHandles::resolve_non_null(string);
   size_t length = java_lang_String::utf8_length(java_string);
-  char* result = AllocateHeap(length + 1, mtInternal);
-  java_lang_String::as_utf8_string(java_string, result, (int) length + 1);
-  if (isCopy != NULL) *isCopy = JNI_TRUE;
+  /* JNI Specification states return NULL on OOM */
+  char* result = AllocateHeap(length + 1, mtInternal, 0, AllocFailStrategy::RETURN_NULL);
+  if (result != NULL) {
+    java_lang_String::as_utf8_string(java_string, result, (int) length + 1);
+    if (isCopy != NULL) {
+      *isCopy = JNI_TRUE;
+    }
+  }
 #ifndef USDT2
   DTRACE_PROBE1(hotspot_jni, GetStringUTFChars__return, result);
 #else /* USDT2 */
@@ -3592,11 +3595,16 @@ JNI_QUICK_ENTRY(ElementType*, \
      * Avoid asserts in typeArrayOop. */ \
     result = (ElementType*)get_bad_address(); \
   } else { \
-    result = NEW_C_HEAP_ARRAY(ElementType, len, mtInternal); \
-    /* copy the array to the c chunk */ \
-    memcpy(result, a->Tag##_at_addr(0), sizeof(ElementType)*len); \
+    /* JNI Specification states return NULL on OOM */                    \
+    result = NEW_C_HEAP_ARRAY_RETURN_NULL(ElementType, len, mtInternal); \
+    if (result != NULL) {                                                \
+      /* copy the array to the c chunk */                                \
+      memcpy(result, a->Tag##_at_addr(0), sizeof(ElementType)*len);      \
+      if (isCopy) {                                                      \
+        *isCopy = JNI_TRUE;                                              \
+      }                                                                  \
+    }                                                                    \
   } \
-  if (isCopy) *isCopy = JNI_TRUE; \
   DTRACE_PROBE1(hotspot_jni, Get##Result##ArrayElements__return, result);\
   return result; \
 JNI_END
@@ -3629,11 +3637,16 @@ JNI_QUICK_ENTRY(ElementType*, \
      * Avoid asserts in typeArrayOop. */ \
     result = (ElementType*)get_bad_address(); \
   } else { \
-    result = NEW_C_HEAP_ARRAY(ElementType, len, mtInternal); \
-    /* copy the array to the c chunk */ \
-    memcpy(result, a->Tag##_at_addr(0), sizeof(ElementType)*len); \
+    /* JNI Specification states return NULL on OOM */                    \
+    result = NEW_C_HEAP_ARRAY_RETURN_NULL(ElementType, len, mtInternal); \
+    if (result != NULL) {                                                \
+      /* copy the array to the c chunk */                                \
+      memcpy(result, a->Tag##_at_addr(0), sizeof(ElementType)*len);      \
+      if (isCopy) {                                                      \
+        *isCopy = JNI_TRUE;                                              \
+      }                                                                  \
+    }                                                                    \
   } \
-  if (isCopy) *isCopy = JNI_TRUE; \
   ReturnProbe; \
   return result; \
 JNI_END
@@ -5014,8 +5027,13 @@ _JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_GetDefaultJavaVMInitArgs(void *args_) {
 
 #ifndef PRODUCT
 
+#include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_interface/collectedHeap.hpp"
+#if INCLUDE_ALL_GCS
+#include "gc_implementation/g1/heapRegionRemSet.hpp"
+#endif
 #include "utilities/quickSort.hpp"
+#include "utilities/ostream.hpp"
 #if INCLUDE_VM_STRUCTS
 #include "runtime/vmStructs.hpp"
 #endif
@@ -5024,16 +5042,35 @@ _JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_GetDefaultJavaVMInitArgs(void *args_) {
   tty->print_cr("Running test: " #unit_test_function_call); \
   unit_test_function_call
 
+// Forward declaration
+void TestReservedSpace_test();
+void TestReserveMemorySpecial_test();
+void TestVirtualSpace_test();
+void TestMetaspaceAux_test();
+#if INCLUDE_ALL_GCS
+void TestG1BiasedArray_test();
+#endif
+
 void execute_internal_vm_tests() {
   if (ExecuteInternalVMTests) {
     tty->print_cr("Running internal VM tests");
+    run_unit_test(TestReservedSpace_test());
+    run_unit_test(TestReserveMemorySpecial_test());
+    run_unit_test(TestVirtualSpace_test());
+    run_unit_test(TestMetaspaceAux_test());
     run_unit_test(GlobalDefinitions::test_globals());
+    run_unit_test(GCTimerAllTest::all());
     run_unit_test(arrayOopDesc::test_max_array_length());
     run_unit_test(CollectedHeap::test_is_in());
     run_unit_test(QuickSort::test_quick_sort());
     run_unit_test(AltHashing::test_alt_hash());
+    run_unit_test(test_loggc_filename());
 #if INCLUDE_VM_STRUCTS
     run_unit_test(VMStructs::test());
+#endif
+#if INCLUDE_ALL_GCS
+    run_unit_test(TestG1BiasedArray_test());
+    run_unit_test(HeapRegionRemSet::test_prt());
 #endif
     tty->print_cr("All internal VM tests passed");
   }
@@ -5090,7 +5127,7 @@ _JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_CreateJavaVM(JavaVM **vm, void **penv, v
   // function used to determine this will always return false. Atomic::xchg
   // does not have this problem.
   if (Atomic::xchg(1, &vm_created) == 1) {
-    return JNI_ERR;   // already created, or create attempt in progress
+    return JNI_EEXIST;   // already created, or create attempt in progress
   }
   if (Atomic::xchg(0, &safe_to_recreate_vm) == 0) {
     return JNI_ERR;  // someone tried and failed and retry not allowed.
@@ -5125,13 +5162,27 @@ _JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_CreateJavaVM(JavaVM **vm, void **penv, v
        JvmtiExport::post_thread_start(thread);
     }
 
-    EVENT_BEGIN(TraceEventThreadStart, event);
-    EVENT_COMMIT(event,
-        EVENT_SET(event, javalangthread, java_lang_Thread::thread_id(thread->threadObj())));
+    EventThreadStart event;
+    if (event.should_commit()) {
+      event.set_javalangthread(java_lang_Thread::thread_id(thread->threadObj()));
+      event.commit();
+    }
+
+#ifndef PRODUCT
+  #ifndef TARGET_OS_FAMILY_windows
+    #define CALL_TEST_FUNC_WITH_WRAPPER_IF_NEEDED(f) f()
+  #endif
 
     // Check if we should compile all classes on bootclasspath
-    NOT_PRODUCT(if (CompileTheWorld) ClassLoader::compile_the_world();)
-    NOT_PRODUCT(if (ReplayCompiles) ciReplay::replay(thread);)
+    if (CompileTheWorld) ClassLoader::compile_the_world();
+    if (ReplayCompiles) ciReplay::replay(thread);
+
+    // Some platforms (like Win*) need a wrapper around these test
+    // functions in order to properly handle error conditions.
+    CALL_TEST_FUNC_WITH_WRAPPER_IF_NEEDED(test_error_handler);
+    CALL_TEST_FUNC_WITH_WRAPPER_IF_NEEDED(execute_internal_vm_tests);
+#endif
+
     // Since this is not a JVM_ENTRY we have to set the thread state manually before leaving.
     ThreadStateTransition::transition_and_fence(thread, _thread_in_vm, _thread_in_native);
   } else {
@@ -5148,8 +5199,6 @@ _JNI_IMPORT_OR_EXPORT_ jint JNICALL JNI_CreateJavaVM(JavaVM **vm, void **penv, v
     OrderAccess::release_store(&vm_created, 0);
   }
 
-  NOT_PRODUCT(test_error_handler(ErrorHandlerTest));
-  NOT_PRODUCT(execute_internal_vm_tests());
   return result;
 }
 
@@ -5328,9 +5377,11 @@ static jint attach_current_thread(JavaVM *vm, void **penv, void *_args, bool dae
     JvmtiExport::post_thread_start(thread);
   }
 
-  EVENT_BEGIN(TraceEventThreadStart, event);
-  EVENT_COMMIT(event,
-      EVENT_SET(event, javalangthread, java_lang_Thread::thread_id(thread->threadObj())));
+  EventThreadStart event;
+  if (event.should_commit()) {
+    event.set_javalangthread(java_lang_Thread::thread_id(thread->threadObj()));
+    event.commit();
+  }
 
   *(JNIEnv**)penv = thread->jni_environment();
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -65,6 +65,7 @@ class BuildConfig {
         String sourceBase = getFieldString(null, "SourceBase");
         String buildSpace = getFieldString(null, "BuildSpace");
         String outDir = buildBase;
+        String jdkTargetRoot = getFieldString(null, "JdkTargetRoot");
 
         put("Id", flavourBuild);
         put("OutputDir", outDir);
@@ -72,6 +73,7 @@ class BuildConfig {
         put("BuildBase", buildBase);
         put("BuildSpace", buildSpace);
         put("OutputDll", outDir + Util.sep + outDll);
+        put("JdkTargetRoot", jdkTargetRoot);
 
         context = new String [] {flavourBuild, flavour, build, null};
     }
@@ -140,6 +142,69 @@ class BuildConfig {
         return rv;
     }
 
+    // Returns true if the specified path refers to a relative alternate
+    // source file. RelativeAltSrcInclude is usually "src\closed".
+    public static boolean matchesRelativeAltSrcInclude(String path) {
+        String relativeAltSrcInclude =
+            getFieldString(null, "RelativeAltSrcInclude");
+        Vector<String> v = getFieldVector(null, "AltRelativeInclude");
+        for (String pathPart : v) {
+            if (path.contains(relativeAltSrcInclude + Util.sep + pathPart))  {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Returns the relative alternate source file for the specified path.
+    // Null is returned if the specified path does not have a matching
+    // alternate source file.
+    public static String getMatchingRelativeAltSrcFile(String path) {
+        Vector<String> v = getFieldVector(null, "RelativeAltSrcFileList");
+        if (v == null) {
+            return null;
+        }
+        for (String pathPart : v) {
+            if (path.endsWith(pathPart)) {
+                String relativeAltSrcInclude =
+                    getFieldString(null, "RelativeAltSrcInclude");
+                return relativeAltSrcInclude + Util.sep + pathPart;
+            }
+        }
+        return null;
+    }
+
+    // Returns true if the specified path has a matching alternate
+    // source file.
+    public static boolean matchesRelativeAltSrcFile(String path) {
+        return getMatchingRelativeAltSrcFile(path) != null;
+    }
+
+    // Track the specified alternate source file. The source file is
+    // tracked without the leading .*<sep><RelativeAltSrcFileList><sep>
+    // part to make matching regular source files easier.
+    public static void trackRelativeAltSrcFile(String path) {
+        String pattern = getFieldString(null, "RelativeAltSrcInclude") +
+            Util.sep;
+        int altSrcInd = path.indexOf(pattern);
+        if (altSrcInd == -1) {
+            // not an AltSrc path
+            return;
+        }
+
+        altSrcInd += pattern.length();
+        if (altSrcInd >= path.length()) {
+            // not a valid AltSrc path
+            return;
+        }
+
+        String altSrcFile = path.substring(altSrcInd);
+        Vector v = getFieldVector(null, "RelativeAltSrcFileList");
+        if (v == null || !v.contains(altSrcFile)) {
+            addFieldVector(null, "RelativeAltSrcFileList", altSrcFile);
+        }
+    }
+
     void addTo(Hashtable ht, String key, String value) {
         ht.put(expandFormat(key), expandFormat(value));
     }
@@ -150,7 +215,7 @@ class BuildConfig {
         sysDefines.add("_WINDOWS");
         sysDefines.add("HOTSPOT_BUILD_USER=\\\""+System.getProperty("user.name")+"\\\"");
         sysDefines.add("HOTSPOT_BUILD_TARGET=\\\""+get("Build")+"\\\"");
-        sysDefines.add("INCLUDE_TRACE");
+        sysDefines.add("INCLUDE_TRACE=1");
         sysDefines.add("_JNI_IMPLEMENTATION_");
         if (vars.get("PlatformName").equals("Win32")) {
             sysDefines.add("HOTSPOT_LIB_ARCH=\\\"i386\\\"");
@@ -270,8 +335,19 @@ class BuildConfig {
 
     private Vector getSourceIncludes() {
         Vector<String> rv = new Vector<String>();
-        Vector<String> ri = new Vector<String>();
         String sourceBase = getFieldString(null, "SourceBase");
+
+        // add relative alternate source include values:
+        String relativeAltSrcInclude =
+            getFieldString(null, "RelativeAltSrcInclude");
+        Vector<String> asri = new Vector<String>();
+        collectRelevantVectors(asri, "AltRelativeInclude");
+        for (String f : asri) {
+            rv.add(sourceBase + Util.sep + relativeAltSrcInclude +
+                   Util.sep + f);
+        }
+
+        Vector<String> ri = new Vector<String>();
         collectRelevantVectors(ri, "RelativeInclude");
         for (String f : ri) {
             rv.add(sourceBase + Util.sep + f);
@@ -535,35 +611,6 @@ class C2ProductConfig extends ProductConfig {
 class TieredProductConfig extends ProductConfig {
     TieredProductConfig() {
         initNames("tiered", "product", "jvm.dll");
-        init(getIncludes(), getDefines());
-    }
-}
-
-class CoreDebugConfig extends GenericDebugNonKernelConfig {
-    String getOptFlag() {
-        return getCI().getNoOptFlag();
-    }
-
-    CoreDebugConfig() {
-        initNames("core", "debug", "jvm.dll");
-        init(getIncludes(), getDefines());
-    }
-}
-
-class CoreFastDebugConfig extends GenericDebugNonKernelConfig {
-    String getOptFlag() {
-        return getCI().getOptFlag();
-    }
-
-    CoreFastDebugConfig() {
-        initNames("core", "fastdebug", "jvm.dll");
-        init(getIncludes(), getDefines());
-    }
-}
-
-class CoreProductConfig extends ProductConfig {
-    CoreProductConfig() {
-        initNames("core", "product", "jvm.dll");
         init(getIncludes(), getDefines());
     }
 }

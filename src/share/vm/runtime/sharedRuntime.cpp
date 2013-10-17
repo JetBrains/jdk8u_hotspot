@@ -822,8 +822,11 @@ address SharedRuntime::continuation_for_implicit_exception(JavaThread* thread,
           // 3. Implict null exception in nmethod
 
           if (!cb->is_nmethod()) {
-            guarantee(cb->is_adapter_blob() || cb->is_method_handles_adapter_blob(),
-                      "exception happened outside interpreter, nmethods and vtable stubs (1)");
+            bool is_in_blob = cb->is_adapter_blob() || cb->is_method_handles_adapter_blob();
+            if (!is_in_blob) {
+              cb->print();
+              fatal(err_msg("exception happened outside interpreter, nmethods and vtable stubs at pc " INTPTR_FORMAT, pc));
+            }
             Events::log_exception(thread, "NullPointerException in code blob at " INTPTR_FORMAT, pc);
             // There is no handler here, so we will simply unwind.
             return StubRoutines::throw_NullPointerException_at_call_entry();
@@ -892,24 +895,28 @@ address SharedRuntime::continuation_for_implicit_exception(JavaThread* thread,
 }
 
 
-JNI_ENTRY(void, throw_unsatisfied_link_error(JNIEnv* env, ...))
+/**
+ * Throws an java/lang/UnsatisfiedLinkError.  The address of this method is
+ * installed in the native function entry of all native Java methods before
+ * they get linked to their actual native methods.
+ *
+ * \note
+ * This method actually never gets called!  The reason is because
+ * the interpreter's native entries call NativeLookup::lookup() which
+ * throws the exception when the lookup fails.  The exception is then
+ * caught and forwarded on the return from NativeLookup::lookup() call
+ * before the call to the native function.  This might change in the future.
+ */
+JNI_ENTRY(void*, throw_unsatisfied_link_error(JNIEnv* env, ...))
 {
-  THROW(vmSymbols::java_lang_UnsatisfiedLinkError());
-}
-JNI_END
-
-JNI_ENTRY(void, throw_unsupported_operation_exception(JNIEnv* env, ...))
-{
-  THROW(vmSymbols::java_lang_UnsupportedOperationException());
+  // We return a bad value here to make sure that the exception is
+  // forwarded before we look at the return value.
+  THROW_(vmSymbols::java_lang_UnsatisfiedLinkError(), (void*)badJNIHandle);
 }
 JNI_END
 
 address SharedRuntime::native_method_throw_unsatisfied_link_error_entry() {
   return CAST_FROM_FN_PTR(address, &throw_unsatisfied_link_error);
-}
-
-address SharedRuntime::native_method_throw_unsupported_operation_exception_entry() {
-  return CAST_FROM_FN_PTR(address, &throw_unsupported_operation_exception);
 }
 
 
@@ -1053,7 +1060,8 @@ Handle SharedRuntime::find_callee_info_helper(JavaThread* thread,
 
   // Find receiver for non-static call
   if (bc != Bytecodes::_invokestatic &&
-      bc != Bytecodes::_invokedynamic) {
+      bc != Bytecodes::_invokedynamic &&
+      bc != Bytecodes::_invokehandle) {
     // This register map must be update since we need to find the receiver for
     // compiled frames. The receiver might be in a register.
     RegisterMap reg_map2(thread);
@@ -1080,7 +1088,7 @@ Handle SharedRuntime::find_callee_info_helper(JavaThread* thread,
 
 #ifdef ASSERT
   // Check that the receiver klass is of the right subtype and that it is initialized for virtual calls
-  if (bc != Bytecodes::_invokestatic && bc != Bytecodes::_invokedynamic) {
+  if (bc != Bytecodes::_invokestatic && bc != Bytecodes::_invokedynamic && bc != Bytecodes::_invokehandle) {
     assert(receiver.not_null(), "should have thrown exception");
     KlassHandle receiver_klass(THREAD, receiver->klass());
     Klass* rk = constants->klass_ref_at(bytecode_index, CHECK_(nullHandle));
@@ -1242,9 +1250,9 @@ methodHandle SharedRuntime::resolve_sub_helper(JavaThread *thread,
 #endif
 
   if (is_virtual) {
-    assert(receiver.not_null(), "sanity check");
+    assert(receiver.not_null() || invoke_code == Bytecodes::_invokehandle, "sanity check");
     bool static_bound = call_info.resolved_method()->can_be_statically_bound();
-    KlassHandle h_klass(THREAD, receiver->klass());
+    KlassHandle h_klass(THREAD, invoke_code == Bytecodes::_invokehandle ? NULL : receiver->klass());
     CompiledIC::compute_monomorphic_entry(callee_method, h_klass,
                      is_optimized, static_bound, virtual_call_info,
                      CHECK_(methodHandle()));
@@ -1507,8 +1515,11 @@ methodHandle SharedRuntime::handle_ic_miss_helper(JavaThread *thread, TRAPS) {
                                                 info, CHECK_(methodHandle()));
         inline_cache->set_to_monomorphic(info);
       } else if (!inline_cache->is_megamorphic() && !inline_cache->is_clean()) {
-        // Change to megamorphic
-        inline_cache->set_to_megamorphic(&call_info, bc, CHECK_(methodHandle()));
+        // Potential change to megamorphic
+        bool successful = inline_cache->set_to_megamorphic(&call_info, bc, CHECK_(methodHandle()));
+        if (!successful) {
+          inline_cache->set_to_clean();
+        }
       } else {
         // Either clean or megamorphic
       }
@@ -2749,12 +2760,12 @@ VMReg SharedRuntime::name_for_receiver() {
   return regs.first();
 }
 
-VMRegPair *SharedRuntime::find_callee_arguments(Symbol* sig, bool has_receiver, int* arg_size) {
+VMRegPair *SharedRuntime::find_callee_arguments(Symbol* sig, bool has_receiver, bool has_appendix, int* arg_size) {
   // This method is returning a data structure allocating as a
   // ResourceObject, so do not put any ResourceMarks in here.
   char *s = sig->as_C_string();
   int len = (int)strlen(s);
-  *s++; len--;                  // Skip opening paren
+  s++; len--;                   // Skip opening paren
   char *t = s+len;
   while( *(--t) != ')' ) ;      // Find close paren
 
@@ -2793,6 +2804,11 @@ VMRegPair *SharedRuntime::find_callee_arguments(Symbol* sig, bool has_receiver, 
     default : ShouldNotReachHere();
     }
   }
+
+  if (has_appendix) {
+    sig_bt[cnt++] = T_OBJECT;
+  }
+
   assert( cnt < 256, "grow table size" );
 
   int comp_args_on_stack;

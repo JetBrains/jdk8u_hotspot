@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -54,14 +54,25 @@ CardTableRS::CardTableRS(MemRegion whole_heap,
   _ct_bs = new CardTableModRefBSForCTRS(whole_heap, max_covered_regions);
 #endif
   set_bs(_ct_bs);
-  _last_cur_val_in_gen = new jbyte[GenCollectedHeap::max_gens + 1];
+  _last_cur_val_in_gen = NEW_C_HEAP_ARRAY3(jbyte, GenCollectedHeap::max_gens + 1,
+                         mtGC, 0, AllocFailStrategy::RETURN_NULL);
   if (_last_cur_val_in_gen == NULL) {
-    vm_exit_during_initialization("Could not last_cur_val_in_gen array.");
+    vm_exit_during_initialization("Could not create last_cur_val_in_gen array.");
   }
   for (int i = 0; i < GenCollectedHeap::max_gens + 1; i++) {
     _last_cur_val_in_gen[i] = clean_card_val();
   }
   _ct_bs->set_CTRS(this);
+}
+
+CardTableRS::~CardTableRS() {
+  if (_ct_bs) {
+    delete _ct_bs;
+    _ct_bs = NULL;
+  }
+  if (_last_cur_val_in_gen) {
+    FREE_C_HEAP_ARRAY(jbyte, _last_cur_val_in_gen, mtInternal);
+  }
 }
 
 void CardTableRS::resize_covered_region(MemRegion new_region) {
@@ -299,46 +310,31 @@ void CardTableRS::younger_refs_in_space_iterate(Space* sp,
   _ct_bs->non_clean_card_iterate_possibly_parallel(sp, urasm, cl, this);
 }
 
-void CardTableRS::clear_into_younger(Generation* gen) {
-  GenCollectedHeap* gch = GenCollectedHeap::heap();
-  // Generations younger than gen have been evacuated. We can clear
-  // card table entries for gen (we know that it has no pointers
-  // to younger gens) and for those below. The card tables for
-  // the youngest gen need never be cleared.
+void CardTableRS::clear_into_younger(Generation* old_gen) {
+  assert(old_gen->level() == 1, "Should only be called for the old generation");
+  // The card tables for the youngest gen need never be cleared.
   // There's a bit of subtlety in the clear() and invalidate()
   // methods that we exploit here and in invalidate_or_clear()
   // below to avoid missing cards at the fringes. If clear() or
   // invalidate() are changed in the future, this code should
   // be revisited. 20040107.ysr
-  Generation* g = gen;
-  for(Generation* prev_gen = gch->prev_gen(g);
-      prev_gen != NULL;
-      g = prev_gen, prev_gen = gch->prev_gen(g)) {
-    MemRegion to_be_cleared_mr = g->prev_used_region();
-    clear(to_be_cleared_mr);
-  }
+  clear(old_gen->prev_used_region());
 }
 
-void CardTableRS::invalidate_or_clear(Generation* gen, bool younger) {
-  GenCollectedHeap* gch = GenCollectedHeap::heap();
-  // For each generation gen (and younger)
-  // invalidate the cards for the currently occupied part
-  // of that generation and clear the cards for the
+void CardTableRS::invalidate_or_clear(Generation* old_gen) {
+  assert(old_gen->level() == 1, "Should only be called for the old generation");
+  // Invalidate the cards for the currently occupied part of
+  // the old generation and clear the cards for the
   // unoccupied part of the generation (if any, making use
   // of that generation's prev_used_region to determine that
   // region). No need to do anything for the youngest
   // generation. Also see note#20040107.ysr above.
-  Generation* g = gen;
-  for(Generation* prev_gen = gch->prev_gen(g); prev_gen != NULL;
-      g = prev_gen, prev_gen = gch->prev_gen(g))  {
-    MemRegion used_mr = g->used_region();
-    MemRegion to_be_cleared_mr = g->prev_used_region().minus(used_mr);
-    if (!to_be_cleared_mr.is_empty()) {
-      clear(to_be_cleared_mr);
-    }
-    invalidate(used_mr);
-    if (!younger) break;
+  MemRegion used_mr = old_gen->used_region();
+  MemRegion to_be_cleared_mr = old_gen->prev_used_region().minus(used_mr);
+  if (!to_be_cleared_mr.is_empty()) {
+    clear(to_be_cleared_mr);
   }
+  invalidate(used_mr);
 }
 
 

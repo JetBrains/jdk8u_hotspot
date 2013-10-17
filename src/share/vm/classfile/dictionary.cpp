@@ -253,22 +253,6 @@ void Dictionary::classes_do(void f(Klass*, TRAPS), TRAPS) {
   }
 }
 
-
-//   All classes, and their class loaders
-//   (added for helpers that use HandleMarks and ResourceMarks)
-// Don't iterate over placeholders
-void Dictionary::classes_do(void f(Klass*, ClassLoaderData*, TRAPS), TRAPS) {
-  for (int index = 0; index < table_size(); index++) {
-    for (DictionaryEntry* probe = bucket(index);
-                          probe != NULL;
-                          probe = probe->next()) {
-      Klass* k = probe->klass();
-      f(k, probe->loader_data(), CHECK);
-    }
-  }
-}
-
-
 //   All classes, and their class loaders
 // Don't iterate over placeholders
 void Dictionary::classes_do(void f(Klass*, ClassLoaderData*)) {
@@ -571,7 +555,7 @@ void Dictionary::verify() {
                 loader_data->class_loader() == NULL ||
                 loader_data->class_loader()->is_instance(),
                 "checking type of class_loader");
-      e->verify();
+      e->verify(/*check_dictionary*/false);
       probe->verify_protection_domain_set();
       element_count++;
     }

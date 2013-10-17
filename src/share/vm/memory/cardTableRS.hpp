@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2001, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2001, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -102,6 +102,7 @@ class CardTableRS: public GenRemSet {
 
 public:
   CardTableRS(MemRegion whole_heap, int max_covered_regions);
+  ~CardTableRS();
 
   // *** GenRemSet functions.
   GenRemSet::Name rs_kind() { return GenRemSet::CardTable; }
@@ -141,12 +142,12 @@ public:
   void verify_aligned_region_empty(MemRegion mr);
 
   void clear(MemRegion mr) { _ct_bs->clear(mr); }
-  void clear_into_younger(Generation* gen);
+  void clear_into_younger(Generation* old_gen);
 
   void invalidate(MemRegion mr, bool whole_heap = false) {
     _ct_bs->invalidate(mr, whole_heap);
   }
-  void invalidate_or_clear(Generation* gen, bool younger);
+  void invalidate_or_clear(Generation* old_gen);
 
   static uintx ct_max_alignment_constraint() {
     return CardTableModRefBS::ct_max_alignment_constraint();

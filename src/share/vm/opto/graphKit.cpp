@@ -333,6 +333,7 @@ void GraphKit::combine_exception_states(SafePointNode* ex_map, SafePointNode* ph
   assert(ex_jvms->stkoff() == phi_map->_jvms->stkoff(), "matching locals");
   assert(ex_jvms->sp() == phi_map->_jvms->sp(), "matching stack sizes");
   assert(ex_jvms->monoff() == phi_map->_jvms->monoff(), "matching JVMS");
+  assert(ex_jvms->scloff() == phi_map->_jvms->scloff(), "matching scalar replaced objects");
   assert(ex_map->req() == phi_map->req(), "matching maps");
   uint tos = ex_jvms->stkoff() + ex_jvms->sp();
   Node*         hidden_merge_mark = root();
@@ -409,7 +410,7 @@ void GraphKit::combine_exception_states(SafePointNode* ex_map, SafePointNode* ph
         while (dst->req() > orig_width)  dst->del_req(dst->req()-1);
       } else {
         assert(dst->is_Phi(), "nobody else uses a hidden region");
-        phi = (PhiNode*)dst;
+        phi = dst->as_Phi();
       }
       if (add_multiple && src->in(0) == ex_control) {
         // Both are phis.
@@ -1438,7 +1439,12 @@ Node* GraphKit::make_load(Node* ctl, Node* adr, const Type* t, BasicType bt,
   } else {
     ld = LoadNode::make(_gvn, ctl, mem, adr, adr_type, t, bt);
   }
-  return _gvn.transform(ld);
+  ld = _gvn.transform(ld);
+  if ((bt == T_OBJECT) && C->do_escape_analysis() || C->eliminate_boxing()) {
+    // Improve graph before escape analysis and boxing elimination.
+    record_for_igvn(ld);
+  }
+  return ld;
 }
 
 Node* GraphKit::store_to_memory(Node* ctl, Node* adr, Node *val, BasicType bt,
@@ -1493,6 +1499,25 @@ void GraphKit::pre_barrier(bool do_load,
       ShouldNotReachHere();
 
   }
+}
+
+bool GraphKit::can_move_pre_barrier() const {
+  BarrierSet* bs = Universe::heap()->barrier_set();
+  switch (bs->kind()) {
+    case BarrierSet::G1SATBCT:
+    case BarrierSet::G1SATBCTLogging:
+      return true; // Can move it if no safepoint
+
+    case BarrierSet::CardTableModRef:
+    case BarrierSet::CardTableExtension:
+    case BarrierSet::ModRef:
+      return true; // There is no pre-barrier
+
+    case BarrierSet::Other:
+    default      :
+      ShouldNotReachHere();
+  }
+  return false;
 }
 
 void GraphKit::post_barrier(Node* ctl,
@@ -3144,7 +3169,7 @@ Node* GraphKit::new_instance(Node* klass_node,
   set_all_memory(mem); // Create new memory state
 
   AllocateNode* alloc
-    = new (C) AllocateNode(C, AllocateNode::alloc_type(),
+    = new (C) AllocateNode(C, AllocateNode::alloc_type(Type::TOP),
                            control(), mem, i_o(),
                            size, klass_node,
                            initial_slow_test);
@@ -3285,7 +3310,7 @@ Node* GraphKit::new_array(Node* klass_node,     // array klass (maybe variable)
 
   // Create the AllocateArrayNode and its result projections
   AllocateArrayNode* alloc
-    = new (C) AllocateArrayNode(C, AllocateArrayNode::alloc_type(),
+    = new (C) AllocateArrayNode(C, AllocateArrayNode::alloc_type(TypeInt::INT),
                                 control(), mem, i_o(),
                                 size, klass_node,
                                 initial_slow_test,
@@ -3326,10 +3351,14 @@ AllocateNode* AllocateNode::Ideal_allocation(Node* ptr, PhaseTransform* phase) {
   if (ptr == NULL) {     // reduce dumb test in callers
     return NULL;
   }
-  if (ptr->is_CheckCastPP()) {  // strip a raw-to-oop cast
+  if (ptr->is_CheckCastPP()) { // strip only one raw-to-oop cast
     ptr = ptr->in(1);
-    if (ptr == NULL)  return NULL;
+    if (ptr == NULL) return NULL;
   }
+  // Return NULL for allocations with several casts:
+  //   j.l.reflect.Array.newInstance(jobject, jint)
+  //   Object.clone()
+  // to keep more precise type from last cast.
   if (ptr->is_Proj()) {
     Node* allo = ptr->in(0);
     if (allo != NULL && allo->is_Allocate()) {
@@ -3369,19 +3398,6 @@ InitializeNode* AllocateNode::initialization() {
     if (init->is_Initialize()) {
       assert(init->as_Initialize()->allocation() == this, "2-way link");
       return init->as_Initialize();
-    }
-  }
-  return NULL;
-}
-
-// Trace Allocate -> Proj[Parm] -> MemBarStoreStore
-MemBarStoreStoreNode* AllocateNode::storestore() {
-  ProjNode* rawoop = proj_out(AllocateNode::RawAddress);
-  if (rawoop == NULL)  return NULL;
-  for (DUIterator_Fast imax, i = rawoop->fast_outs(imax); i < imax; i++) {
-    Node* storestore = rawoop->fast_out(i);
-    if (storestore->is_MemBarStoreStore()) {
-      return storestore->as_MemBarStoreStore();
     }
   }
   return NULL;
@@ -3554,6 +3570,8 @@ void GraphKit::g1_write_barrier_pre(bool do_load,
   } else {
     // In this case both val_type and alias_idx are unused.
     assert(pre_val != NULL, "must be loaded already");
+    // Nothing to be done if pre_val is null.
+    if (pre_val->bottom_type() == TypePtr::NULL_PTR) return;
     assert(pre_val->bottom_type()->basic_type() == T_OBJECT, "or we shouldn't be here");
   }
   assert(bt == T_OBJECT, "or we shouldn't be here");
@@ -3598,7 +3616,7 @@ void GraphKit::g1_write_barrier_pre(bool do_load,
     if (do_load) {
       // load original value
       // alias_idx correct??
-      pre_val = __ load(no_ctrl, adr, val_type, bt, alias_idx);
+      pre_val = __ load(__ ctrl(), adr, val_type, bt, alias_idx);
     }
 
     // if (pre_val != NULL)
@@ -3807,8 +3825,13 @@ Node* GraphKit::load_String_value(Node* ctrl, Node* str) {
                                                    TypeAry::make(TypeInt::CHAR,TypeInt::POS),
                                                    ciTypeArrayKlass::make(T_CHAR), true, 0);
   int value_field_idx = C->get_alias_index(value_field_type);
-  return make_load(ctrl, basic_plus_adr(str, str, value_offset),
-                   value_type, T_OBJECT, value_field_idx);
+  Node* load = make_load(ctrl, basic_plus_adr(str, str, value_offset),
+                         value_type, T_OBJECT, value_field_idx);
+  // String.value field is known to be @Stable.
+  if (UseImplicitStableValues) {
+    load = cast_array_to_stable(load, value_type);
+  }
+  return load;
 }
 
 void GraphKit::store_String_offset(Node* ctrl, Node* str, Node* value) {
@@ -3826,9 +3849,6 @@ void GraphKit::store_String_value(Node* ctrl, Node* str, Node* value) {
   const TypeInstPtr* string_type = TypeInstPtr::make(TypePtr::NotNull, C->env()->String_klass(),
                                                      false, NULL, 0);
   const TypePtr* value_field_type = string_type->add_offset(value_offset);
-  const TypeAryPtr*  value_type = TypeAryPtr::make(TypePtr::NotNull,
-                                                   TypeAry::make(TypeInt::CHAR,TypeInt::POS),
-                                                   ciTypeArrayKlass::make(T_CHAR), true, 0);
   int value_field_idx = C->get_alias_index(value_field_type);
   store_to_memory(ctrl, basic_plus_adr(str, value_offset),
                   value, T_OBJECT, value_field_idx);
@@ -3842,4 +3862,10 @@ void GraphKit::store_String_length(Node* ctrl, Node* str, Node* value) {
   int count_field_idx = C->get_alias_index(count_field_type);
   store_to_memory(ctrl, basic_plus_adr(str, count_offset),
                   value, T_INT, count_field_idx);
+}
+
+Node* GraphKit::cast_array_to_stable(Node* ary, const TypeAryPtr* ary_type) {
+  // Reify the property as a CastPP node in Ideal graph to comply with monotonicity
+  // assumption of CCP analysis.
+  return _gvn.transform(new(C) CastPPNode(ary, ary_type->cast_to_stable(true)));
 }

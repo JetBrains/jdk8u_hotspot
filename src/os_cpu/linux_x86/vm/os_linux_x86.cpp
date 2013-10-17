@@ -93,6 +93,10 @@ address os::current_stack_pointer() {
   register void *esp;
   __asm__("mov %%"SPELL_REG_SP", %0":"=r"(esp));
   return (address) ((char*)esp + sizeof(long)*2);
+#elif defined(__clang__)
+  intptr_t* esp;
+  __asm__ __volatile__ ("mov %%"SPELL_REG_SP", %0":"=r"(esp):);
+  return (address) esp;
 #else
   register void *esp __asm__ (SPELL_REG_SP);
   return (address) esp;
@@ -175,6 +179,9 @@ intptr_t* _get_previous_fp() {
 #ifdef SPARC_WORKS
   register intptr_t **ebp;
   __asm__("mov %%"SPELL_REG_FP", %0":"=r"(ebp));
+#elif defined(__clang__)
+  intptr_t **ebp;
+  __asm__ __volatile__ ("mov %%"SPELL_REG_FP", %0":"=r"(ebp):);
 #else
   register intptr_t **ebp __asm__ (SPELL_REG_FP);
 #endif
@@ -202,13 +209,6 @@ enum {
   trap_page_fault = 0xE
 };
 
-extern "C" void Fetch32PFI () ;
-extern "C" void Fetch32Resume () ;
-#ifdef AMD64
-extern "C" void FetchNPFI () ;
-extern "C" void FetchNResume () ;
-#endif // AMD64
-
 extern "C" JNIEXPORT int
 JVM_handle_linux_signal(int sig,
                         siginfo_t* info,
@@ -217,6 +217,10 @@ JVM_handle_linux_signal(int sig,
   ucontext_t* uc = (ucontext_t*) ucVoid;
 
   Thread* t = ThreadLocalStorage::get_thread_slow();
+
+  // Must do this before SignalHandlerMark, if crash protection installed we will longjmp away
+  // (no destructors can be run)
+  os::WatcherThreadCrashProtection::check_crash_protection(sig, t);
 
   SignalHandlerMark shm(t);
 
@@ -271,14 +275,18 @@ JVM_handle_linux_signal(int sig,
   if (info != NULL && uc != NULL && thread != NULL) {
     pc = (address) os::Linux::ucontext_get_pc(uc);
 
-    if (pc == (address) Fetch32PFI) {
-       uc->uc_mcontext.gregs[REG_PC] = intptr_t(Fetch32Resume) ;
-       return 1 ;
+    if (StubRoutines::is_safefetch_fault(pc)) {
+      uc->uc_mcontext.gregs[REG_PC] = intptr_t(StubRoutines::continuation_for_safefetch_fault(pc));
+      return 1;
     }
-#ifdef AMD64
-    if (pc == (address) FetchNPFI) {
-       uc->uc_mcontext.gregs[REG_PC] = intptr_t (FetchNResume) ;
-       return 1 ;
+
+#ifndef AMD64
+    // Halt if SI_KERNEL before more crashes get misdiagnosed as Java bugs
+    // This can happen in any running code (currently more frequently in
+    // interpreter code but has been seen in compiled code)
+    if (sig == SIGSEGV && info->si_addr == 0 && info->si_code == SI_KERNEL) {
+      fatal("An irrecoverable SI_KERNEL SIGSEGV has occurred due "
+            "to unstable signal handling in this distribution.");
     }
 #endif // AMD64
 
