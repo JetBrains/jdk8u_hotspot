@@ -3915,9 +3915,11 @@ operand iRegP()
   constraint(ALLOC_IN_RC(ptr_reg));
   match(RegP);
   match(iRegPNoSp);
-  match(thread_RegP);
   match(iRegP_R0);
-  // match(iRegP_FP);
+  //match(iRegP_R2);
+  //match(iRegP_R4);
+  //match(iRegP_R5);
+  match(thread_RegP);
   format %{ %}
   interface(REG_INTER);
 %}
@@ -3929,6 +3931,10 @@ operand iRegPNoSp()
   match(RegP);
   // match(iRegP);
   // match(iRegP_R0);
+  // match(iRegP_R2);
+  // match(iRegP_R4);
+  // match(iRegP_R5);
+  // match(thread_RegP);
   format %{ %}
   interface(REG_INTER);
 %}
@@ -3938,7 +3944,7 @@ operand iRegP_R0()
 %{
   constraint(ALLOC_IN_RC(r0_reg));
   match(RegP);
-  match(iRegP);
+  // match(iRegP);
   match(iRegPNoSp);
   format %{ %}
   interface(REG_INTER);
@@ -3949,7 +3955,7 @@ operand iRegP_R2()
 %{
   constraint(ALLOC_IN_RC(r2_reg));
   match(RegP);
-  match(iRegP);
+  // match(iRegP);
   match(iRegPNoSp);
   format %{ %}
   interface(REG_INTER);
@@ -3960,7 +3966,7 @@ operand iRegP_R4()
 %{
   constraint(ALLOC_IN_RC(r4_reg));
   match(RegP);
-  match(iRegP);
+  // match(iRegP);
   match(iRegPNoSp);
   format %{ %}
   interface(REG_INTER);
@@ -3971,7 +3977,7 @@ operand iRegP_R5()
 %{
   constraint(ALLOC_IN_RC(r5_reg));
   match(RegP);
-  match(iRegP);
+  // match(iRegP);
   match(iRegPNoSp);
   format %{ %}
   interface(REG_INTER);
@@ -4076,6 +4082,7 @@ operand inline_cache_RegP(iRegP reg)
 %{
   constraint(ALLOC_IN_RC(method_reg)); // inline_cache_reg
   match(reg);
+  match(iRegPNoSp);
   format %{ %}
   interface(REG_INTER);
 %}
@@ -4084,6 +4091,7 @@ operand interpreter_method_oop_RegP(iRegP reg)
 %{
   constraint(ALLOC_IN_RC(method_reg)); // interpreter_method_oop_reg
   match(reg);
+  match(iRegPNoSp);
   format %{ %}
   interface(REG_INTER);
 %}
@@ -6027,7 +6035,7 @@ instruct loadPLocked(iRegPNoSp dst, memory mem)
 // Sets flag (EQ) on success.
 // implemented using stlxr on AArch64.
 
-instruct storePConditional(memory heap_top_ptr, iRegPNoSp oldval, iRegPNoSp newval, rFlagsReg cr) 
+instruct storePConditional(memory heap_top_ptr, iRegP oldval, iRegP newval, rFlagsReg cr) 
 %{
   match(Set cr (StorePConditional heap_top_ptr (Binary oldval newval)));
 
@@ -6118,7 +6126,7 @@ instruct compareAndSwapL(iRegINoSp res, memory mem, iRegLNoSp oldval, iRegLNoSp 
   ins_pipe(pipe_class_memory);
 %}
 
-instruct compareAndSwapP(iRegINoSp res, memory mem, iRegPNoSp oldval, iRegPNoSp newval, rFlagsReg cr) %{
+instruct compareAndSwapP(iRegINoSp res, memory mem, iRegP oldval, iRegP newval, rFlagsReg cr) %{
 
   match(Set res (CompareAndSwapP mem (Binary oldval newval)));
 
@@ -6517,7 +6525,7 @@ instruct cmovUP_zero_reg(cmpOpU cmp, rFlagsRegU cr, iRegPNoSp dst, immP0 zero, i
   ins_pipe(pipe_class_default);
 %}
 
-instruct cmovN_reg_reg(cmpOp cmp, rFlagsReg cr, iRegN dst, iRegN src1, iRegN src2) %{
+instruct cmovN_reg_reg(cmpOp cmp, rFlagsReg cr, iRegNNoSp dst, iRegN src1, iRegN src2) %{
   match(Set dst (CMoveN (Binary cmp cr) (Binary src1 src2)));
 
   ins_cost(DEFAULT_COST);
@@ -6533,7 +6541,7 @@ instruct cmovN_reg_reg(cmpOp cmp, rFlagsReg cr, iRegN dst, iRegN src1, iRegN src
   ins_pipe(pipe_class_default);
 %}
 
-instruct cmovUN_reg_reg(cmpOpU cmp, rFlagsRegU cr, iRegN dst, iRegN src1, iRegN src2) %{
+instruct cmovUN_reg_reg(cmpOpU cmp, rFlagsRegU cr, iRegNNoSp dst, iRegN src1, iRegN src2) %{
   match(Set dst (CMoveN (Binary cmp cr) (Binary src1 src2)));
 
   ins_cost(DEFAULT_COST);
@@ -6551,7 +6559,7 @@ instruct cmovUN_reg_reg(cmpOpU cmp, rFlagsRegU cr, iRegN dst, iRegN src1, iRegN 
 
 // special cases where one arg is zero
 
-instruct cmovN_reg_zero(cmpOp cmp, rFlagsReg cr, iRegN dst, iRegN src1, immN0 zero) %{
+instruct cmovN_reg_zero(cmpOp cmp, rFlagsReg cr, iRegNNoSp dst, iRegN src1, immN0 zero) %{
   match(Set dst (CMoveN (Binary cmp cr) (Binary src1 zero)));
 
   ins_cost(DEFAULT_COST);
@@ -6567,7 +6575,7 @@ instruct cmovN_reg_zero(cmpOp cmp, rFlagsReg cr, iRegN dst, iRegN src1, immN0 ze
   ins_pipe(pipe_class_default);
 %}
 
-instruct cmovUN_reg_zero(cmpOpU cmp, rFlagsRegU cr, iRegN dst, iRegN src1, immN0 zero) %{
+instruct cmovUN_reg_zero(cmpOpU cmp, rFlagsRegU cr, iRegNNoSp dst, iRegN src1, immN0 zero) %{
   match(Set dst (CMoveN (Binary cmp cr) (Binary src1 zero)));
 
   ins_cost(DEFAULT_COST);
@@ -6583,7 +6591,7 @@ instruct cmovUN_reg_zero(cmpOpU cmp, rFlagsRegU cr, iRegN dst, iRegN src1, immN0
   ins_pipe(pipe_class_default);
 %}
 
-instruct cmovN_zero_reg(cmpOp cmp, rFlagsReg cr, iRegN dst, immN0 zero, iRegN src2) %{
+instruct cmovN_zero_reg(cmpOp cmp, rFlagsReg cr, iRegNNoSp dst, immN0 zero, iRegN src2) %{
   match(Set dst (CMoveN (Binary cmp cr) (Binary zero src2)));
 
   ins_cost(DEFAULT_COST);
@@ -6599,7 +6607,7 @@ instruct cmovN_zero_reg(cmpOp cmp, rFlagsReg cr, iRegN dst, immN0 zero, iRegN sr
   ins_pipe(pipe_class_default);
 %}
 
-instruct cmovUN_zero_reg(cmpOpU cmp, rFlagsRegU cr, iRegN dst, immN0 zero, iRegN src2) %{
+instruct cmovUN_zero_reg(cmpOpU cmp, rFlagsRegU cr, iRegNNoSp dst, immN0 zero, iRegN src2) %{
   match(Set dst (CMoveN (Binary cmp cr) (Binary zero src2)));
 
   ins_cost(DEFAULT_COST);
@@ -9461,7 +9469,7 @@ instruct convL2I_reg(iRegINoSp dst, iRegL src) %{
   ins_pipe(pipe_class_default);
 %}
 
-instruct convI2B(iRegI dst, iRegI src, rFlagsReg cr)
+instruct convI2B(iRegINoSp dst, iRegI src, rFlagsReg cr)
 %{
   match(Set dst (Conv2B src));
   effect(KILL cr);
@@ -9479,7 +9487,7 @@ instruct convI2B(iRegI dst, iRegI src, rFlagsReg cr)
   ins_pipe(pipe_class_default);
 %}
 
-instruct convP2B(iRegI dst, iRegP src, rFlagsReg cr)
+instruct convP2B(iRegINoSp dst, iRegP src, rFlagsReg cr)
 %{
   match(Set dst (Conv2B src));
   effect(KILL cr);
@@ -9523,7 +9531,7 @@ instruct convF2D_reg(vRegD dst, vRegF src) %{
   ins_pipe(pipe_class_default);
 %}
 
-instruct convF2I_reg_reg(iRegI dst, vRegF src) %{
+instruct convF2I_reg_reg(iRegINoSp dst, vRegF src) %{
   match(Set dst (ConvF2I src));
 
   ins_cost(DEFAULT_COST);
@@ -9536,7 +9544,7 @@ instruct convF2I_reg_reg(iRegI dst, vRegF src) %{
   ins_pipe(pipe_class_default);
 %}
 
-instruct convF2L_reg_reg(iRegL dst, vRegF src) %{
+instruct convF2L_reg_reg(iRegLNoSp dst, vRegF src) %{
   match(Set dst (ConvF2L src));
 
   ins_cost(DEFAULT_COST);
@@ -9575,7 +9583,7 @@ instruct convL2F_reg_reg(vRegF dst, iRegL src) %{
   ins_pipe(pipe_class_default);
 %}
 
-instruct convD2I_reg_reg(iRegI dst, vRegD src) %{
+instruct convD2I_reg_reg(iRegINoSp dst, vRegD src) %{
   match(Set dst (ConvD2I src));
 
   ins_cost(DEFAULT_COST);
@@ -9588,7 +9596,7 @@ instruct convD2I_reg_reg(iRegI dst, vRegD src) %{
   ins_pipe(pipe_class_default);
 %}
 
-instruct convD2L_reg_reg(iRegL dst, vRegD src) %{
+instruct convD2L_reg_reg(iRegLNoSp dst, vRegD src) %{
   match(Set dst (ConvD2L src));
 
   ins_cost(DEFAULT_COST);
@@ -9629,7 +9637,7 @@ instruct convL2D_reg_reg(vRegD dst, iRegL src) %{
 
 // stack <-> reg and reg <-> reg shuffles with no conversion
 
-instruct MoveF2I_stack_reg(iRegI dst, stackSlotF src) %{
+instruct MoveF2I_stack_reg(iRegINoSp dst, stackSlotF src) %{
 
   match(Set dst (MoveF2I src));
 
@@ -9665,7 +9673,7 @@ instruct MoveI2F_stack_reg(vRegF dst, stackSlotI src) %{
 
 %}
 
-instruct MoveD2L_stack_reg(iRegL dst, stackSlotD src) %{
+instruct MoveD2L_stack_reg(iRegLNoSp dst, stackSlotD src) %{
 
   match(Set dst (MoveD2L src));
 
@@ -9773,7 +9781,7 @@ instruct MoveL2D_reg_stack(stackSlotD dst, iRegL src) %{
 
 %}
 
-instruct MoveF2I_reg_reg(iRegI dst, vRegF src) %{
+instruct MoveF2I_reg_reg(iRegINoSp dst, vRegF src) %{
 
   match(Set dst (MoveF2I src));
 
@@ -9809,7 +9817,7 @@ instruct MoveI2F_reg_reg(vRegF dst, iRegI src) %{
 
 %}
 
-instruct MoveD2L_reg_reg(iRegL dst, vRegD src) %{
+instruct MoveD2L_reg_reg(iRegLNoSp dst, vRegD src) %{
 
   match(Set dst (MoveD2L src));
 
@@ -9848,7 +9856,7 @@ instruct MoveL2D_reg_reg(vRegD dst, iRegL src) %{
 // ============================================================================
 // clearing of an array
 
-instruct clearArray_reg_reg(iRegLNoSp cnt, iRegPNoSp base, Universe dummy, rFlagsReg cr)
+instruct clearArray_reg_reg(iRegLNoSp cnt, iRegP base, Universe dummy, rFlagsReg cr)
 %{
   match(Set dummy (ClearArray cnt base));
   // TODO
@@ -10131,7 +10139,7 @@ instruct compD_reg_reg(rFlagsRegU cr, vRegD src1, vRegD src2)
   ins_pipe(pipe_class_compare);
 %}
 
-instruct compF3_reg_reg(iRegI dst, vRegF src1, vRegF src2, rFlagsReg cr)
+instruct compF3_reg_reg(iRegINoSp dst, vRegF src1, vRegF src2, rFlagsReg cr)
 %{
   match(Set dst (CmpF3 src1 src2));
   effect(KILL cr);
@@ -10159,7 +10167,7 @@ instruct compF3_reg_reg(iRegI dst, vRegF src1, vRegF src2, rFlagsReg cr)
 
 %}
 
-instruct compD3_reg_reg(iRegI dst, vRegD src1, vRegD src2, rFlagsReg cr)
+instruct compD3_reg_reg(iRegINoSp dst, vRegD src1, vRegD src2, rFlagsReg cr)
 %{
   match(Set dst (CmpD3 src1 src2));
   effect(KILL cr);
@@ -10186,7 +10194,7 @@ instruct compD3_reg_reg(iRegI dst, vRegD src1, vRegD src2, rFlagsReg cr)
 
 %}
 
-instruct compF3_reg_immF0(iRegI dst, vRegF src1, immF0 zero, rFlagsReg cr)
+instruct compF3_reg_immF0(iRegINoSp dst, vRegF src1, immF0 zero, rFlagsReg cr)
 %{
   match(Set dst (CmpF3 src1 zero));
   effect(KILL cr);
@@ -10213,7 +10221,7 @@ instruct compF3_reg_immF0(iRegI dst, vRegF src1, immF0 zero, rFlagsReg cr)
 
 %}
 
-instruct compD3_reg_immD0(iRegI dst, vRegD src1, immD0 zero, rFlagsReg cr)
+instruct compD3_reg_immD0(iRegINoSp dst, vRegD src1, immD0 zero, rFlagsReg cr)
 %{
   match(Set dst (CmpD3 src1 zero));
   effect(KILL cr);
@@ -10239,7 +10247,7 @@ instruct compD3_reg_immD0(iRegI dst, vRegD src1, immD0 zero, rFlagsReg cr)
 
 %}
 
-instruct cmpLTMask_reg_reg(iRegI dst, iRegI p, iRegI q, rFlagsReg cr)
+instruct cmpLTMask_reg_reg(iRegINoSp dst, iRegI p, iRegI q, rFlagsReg cr)
 %{
   match(Set dst (CmpLTMask p q));
   effect(KILL cr);
@@ -10260,7 +10268,7 @@ instruct cmpLTMask_reg_reg(iRegI dst, iRegI p, iRegI q, rFlagsReg cr)
   ins_pipe(pipe_class_default);
 %}
 
-instruct cmpLTMask_reg_zero(iRegI dst, iRegI src, immI0 zero, rFlagsReg cr)
+instruct cmpLTMask_reg_zero(iRegINoSp dst, iRegI src, immI0 zero, rFlagsReg cr)
 %{
   match(Set dst (CmpLTMask src zero));
   effect(KILL cr);
@@ -10469,7 +10477,7 @@ instruct cmpFastUnlock(rFlagsReg cr, iRegP object, iRegP box, iRegPNoSp tmp, iRe
 // TODO
 // provide a near and far version of this code
 
-instruct safePoint(iRegPNoSp poll)
+instruct safePoint(iRegP poll)
 %{
   match(SafePoint poll);
 
@@ -10598,7 +10606,7 @@ instruct CallLeafNoFPDirect(method meth)
 // Also known as an 'interprocedural jump'.
 // Target of jump will eventually return to caller.
 // TailJump below removes the return address.
-instruct TailCalljmpInd(iRegP jump_target, inline_cache_RegP method_oop)
+instruct TailCalljmpInd(iRegPNoSp jump_target, inline_cache_RegP method_oop)
 %{
   match(TailCall jump_target method_oop);
 
@@ -10611,7 +10619,7 @@ instruct TailCalljmpInd(iRegP jump_target, inline_cache_RegP method_oop)
   ins_pipe(pipe_class_call);
 %}
 
-instruct TailjmpInd(iRegP jump_target, iRegP_R0 ex_oop)
+instruct TailjmpInd(iRegPNoSp jump_target, iRegP_R0 ex_oop)
 %{
   match(TailJump jump_target ex_oop);
 
@@ -10780,12 +10788,12 @@ instruct tlsLoadP(thread_RegP dst)
 // ---------EXAMPLE----------------------------------------------------------
 //
 // // pertinent parts of existing instructions in architecture description
-// instruct movI(iRegI dst, iRegI src)
+// instruct movI(iRegINoSp dst, iRegI src)
 // %{
 //   match(Set dst (CopyI src));
 // %}
 //
-// instruct incI_iReg(iRegI dst, immI1 src, rFlagsReg cr)
+// instruct incI_iReg(iRegINoSp dst, immI1 src, rFlagsReg cr)
 // %{
 //   match(Set dst (AddI dst src));
 //   effect(KILL cr);
@@ -10862,7 +10870,7 @@ instruct tlsLoadP(thread_RegP dst)
 //   match(Set mem (StoreI mem src));
 // %}
 //
-// instruct loadI(iRegI dst, memory mem)
+// instruct loadI(iRegINoSp dst, memory mem)
 // %{
 //   match(Set dst (LoadI mem));
 // %}
