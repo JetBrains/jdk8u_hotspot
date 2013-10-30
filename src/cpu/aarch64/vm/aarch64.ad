@@ -7345,6 +7345,7 @@ instruct rShiftL_reg_imm(iRegLNoSp dst, iRegL src1, immI src2) %{
 
   ins_pipe(pipe_class_default);
 %}
+
 // BEGIN This section of the file is automatically generated. Do not edit --------------
 
 instruct regL_not_reg(iRegLNoSp dst,
@@ -8719,9 +8720,9 @@ instruct rorI_rReg_Var_C0(iRegL dst, iRegL src, iRegI shift, immI0 c0, rFlagsReg
 
 // Add/subtract (extended)
 
-instruct AddExtI(iRegINoSp dst, iRegI src1, iRegI src2, rFlagsReg cr)
+instruct AddExtI(iRegLNoSp dst, iRegL src1, iRegI src2, rFlagsReg cr)
 %{
-  match(Set dst (AddI src1 (ConvI2L src2)));
+  match(Set dst (AddL src1 (ConvI2L src2)));
   ins_cost(DEFAULT_COST);
   format %{ "add  $dst, $src1,  $src2" %}
 
@@ -8732,9 +8733,9 @@ instruct AddExtI(iRegINoSp dst, iRegI src1, iRegI src2, rFlagsReg cr)
   ins_pipe(pipe_class_default);
 %};
 
-instruct SubExtI(iRegINoSp dst, iRegI src1, iRegI src2, rFlagsReg cr)
+instruct SubExtI(iRegLNoSp dst, iRegL src1, iRegI src2, rFlagsReg cr)
 %{
-  match(Set dst (SubI src1 (ConvI2L src2)));
+  match(Set dst (SubL src1 (ConvI2L src2)));
   ins_cost(DEFAULT_COST);
   format %{ "sub  $dst, $src1,  $src2" %}
 
@@ -8969,6 +8970,8 @@ instruct SubExtL_uxtw_and(iRegLNoSp dst, iRegL src1, iRegL src2, immL_4294967295
 %}
 
 // END This section of the file is automatically generated. Do not edit --------------
+
+
 // Combined Long Mask and Right Shift (using UBFM)
 // TODO
 
