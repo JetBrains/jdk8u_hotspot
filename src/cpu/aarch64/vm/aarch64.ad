@@ -2789,8 +2789,12 @@ encode %{
     int64_t val = $src2$$constant;
     if (val >= 0) {
       __ subs(zr, reg, val);
-    } else {
+    } else if (val != -val) {
       __ adds(zr, reg, -val);
+    } else {
+    // aargh, Long.MIN_VALUE is a special case
+      __ orr(rscratch1, zr, (u_int64_t)val);
+      __ subs(zr, reg, rscratch1);
     }
   %}
 
@@ -9264,6 +9268,29 @@ instruct negD_reg_reg(vRegD dst, vRegD src) %{
   ins_pipe(pipe_class_default);
 %}
 
+instruct absF_reg(vRegF dst, vRegF src) %{
+  match(Set dst (AbsF src));
+
+  format %{ "fabss   $dst, $src" %}
+  ins_encode %{
+    __ fabss(as_FloatRegister($dst$$reg),
+             as_FloatRegister($src$$reg));
+  %}
+
+  ins_pipe(pipe_class_default);
+%}
+
+instruct absD_reg(vRegD dst, vRegD src) %{
+  match(Set dst (AbsD src));
+
+  format %{ "fabsd   $dst, $src" %}
+  ins_encode %{
+    __ fabsd(as_FloatRegister($dst$$reg),
+             as_FloatRegister($src$$reg));
+  %}
+
+  ins_pipe(pipe_class_default);
+%}
 
 // ============================================================================
 // Logical Instructions
@@ -9470,6 +9497,20 @@ instruct convI2L_reg_reg(iRegLNoSp dst, iRegIorL2I src)
   ins_encode %{
     __ sbfm($dst$$Register, $src$$Register, 0, 31);
   %}
+  ins_pipe(pipe_class_default);
+%}
+
+// this pattern occurs in bigmath arithmetic
+instruct convUI2L_reg_reg(iRegLNoSp dst, iRegI src, immL_32bits mask)
+%{
+  match(Set dst (AndL (ConvI2L src) mask));
+
+  ins_cost(DEFAULT_COST);
+  format %{ "ubfm  $dst, $src, 0, 31\t# ui2l" %}
+  ins_encode %{
+    __ ubfm($dst$$Register, $src$$Register, 0, 31);
+  %}
+
   ins_pipe(pipe_class_default);
 %}
 
