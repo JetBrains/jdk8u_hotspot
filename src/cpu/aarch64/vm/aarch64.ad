@@ -915,10 +915,8 @@ void MachPrologNode::emit(CodeBuffer &cbuf, PhaseRegAlloc *ra_) const {
   // push lr and rfp to create a frame
   __ stp(rfp, lr, Address(__ pre(sp, -2 * wordSize)));
 
-  if (C->need_stack_bang(framesize) && UseStackBanging) {
-    __ mov(rscratch2, framesize);
-    __ bang_stack_size(rscratch2, r19);
-  }
+  if (C->need_stack_bang(framesize))
+    __ generate_stack_overflow_check(framesize);
 
   // allow for already pushed values
   framesize -= 2 * wordSize;
@@ -2552,12 +2550,11 @@ encode %{
     // for now we just write cnt zeros
     Label loop;
     Label done;
+    __ cbz(cnt_reg, done);
     __ bind(loop);
-    __ cmp(cnt_reg, zr);
-    __ br(Assembler::LT, done);
-    __ str(zr, __ post(base_reg, wordSize));
     __ sub(cnt_reg, cnt_reg, 1);
-    __ b(loop);
+    __ str(zr, __ post(base_reg, wordSize));
+    __ cbnz(cnt_reg, loop);
     __ bind(done);
 
   %}
