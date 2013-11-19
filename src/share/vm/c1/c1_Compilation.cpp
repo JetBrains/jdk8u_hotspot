@@ -343,10 +343,8 @@ int Compilation::emit_code_body() {
     // 3 bytes per character.  We concatenate three such strings.
     // Yes, I know this is ridiculous, but it's debug code and glibc
     // allocates large arrays very efficiently.
-//    size_t len = (65536 * 3) * 3;
-//    char *name = new char[len];
-    size_t len = 1024;
-    char name[1024];
+    size_t len = (65536 * 3) * 3;
+    char *name = new char[len];
 
     strncpy(name, _method->holder()->name()->as_utf8(), len);
     for (char *p = strpbrk(name, "/"); p; p = strpbrk(p, "/")) {
