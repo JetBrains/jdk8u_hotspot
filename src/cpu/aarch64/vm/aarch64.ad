@@ -1712,6 +1712,16 @@ const RegMask Matcher::method_handle_invoke_SP_save_mask() {
   return RegMask();
 }
 
+const RegMask Matcher::mathExactI_result_proj_mask() {
+  ShouldNotReachHere();
+  return RegMask();
+}
+
+const RegMask Matcher::mathExactI_flags_proj_mask() {
+  ShouldNotReachHere();
+  return RegMask();
+}
+
 // helper for encoding java_to_runtime calls on sim
 //
 // this is needed to compute the extra arguments required when
@@ -4513,6 +4523,8 @@ operand cmpOp()
     greater_equal(0xa, "ge");
     less_equal(0xd, "le");
     greater(0xc, "gt");
+    overflow(0x6, "vs");
+    no_overflow(0x7, "vc");
   %}
 %}
 
@@ -4530,6 +4542,8 @@ operand cmpOpU()
     greater_equal(0x2, "hs");
     less_equal(0x9, "ls");
     greater(0x8, "hi");
+    overflow(0x6, "vs");
+    no_overflow(0x7, "vc");
   %}
 %}
 
@@ -6927,11 +6941,12 @@ instruct lshift_ext(iRegLNoSp dst, iRegIorL2I src, immI scale, rFlagsReg cr) %{
   match(Set dst (LShiftL (ConvI2L src) scale));
 
   ins_cost(DEFAULT_COST);
-  format %{ "sbfm $dst, $src, 64-$scale, 31\t" %}
+  format %{ "sbfiz $dst, $src, $scale & 63, -$scale & 63\t" %}
 
   ins_encode %{
-    __ sbfm(as_Register($dst$$reg),
-            as_Register($src$$reg), (64u - $scale$$constant) & 63, 31);
+    __ sbfiz(as_Register($dst$$reg),
+          as_Register($src$$reg),
+          $scale$$constant & 63, (-$scale$$constant) & 63);
   %}
 
   ins_pipe(pipe_class_default);
