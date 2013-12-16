@@ -97,5 +97,9 @@ class MetaspaceShared : AllStatic {
   static bool remap_shared_readonly_as_readwrite() NOT_CDS_RETURN_(true);
 
   static void print_shared_spaces();
+
+#if defined(AARCH64)
+  static void relocate_vtbl_list(char **buffer);
+#endif
 };
 #endif // SHARE_VM_MEMORY_METASPACE_SHARED_HPP
