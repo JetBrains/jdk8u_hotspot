@@ -1144,7 +1144,7 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
 
           if (load_klass_or_mirror_patch_id
               || stub_id == Runtime1::load_appendix_patching_id
-	      || stub_id == Runtime1::access_field_patching_id) {
+	      AARCH64_ONLY(|| stub_id == Runtime1::access_field_patching_id)) {
             relocInfo::relocType rtype;
 	    switch(stub_id) {
 	    case Runtime1::load_klass_patching_id:
