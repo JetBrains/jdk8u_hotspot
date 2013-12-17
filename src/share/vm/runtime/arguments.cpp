@@ -1132,9 +1132,6 @@ void Arguments::set_tiered_flags() {
     Tier3InvokeNotifyFreqLog = 0;
     Tier4InvocationThreshold = 0;
   }
-  if (FLAG_IS_DEFAULT(NmethodSweepFraction)) {
-    FLAG_SET_DEFAULT(NmethodSweepFraction, 1 + ReservedCodeCacheSize / (16 * M));
-  }
 }
 
 #if INCLUDE_ALL_GCS
