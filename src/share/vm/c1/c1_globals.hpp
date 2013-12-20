@@ -344,6 +344,7 @@
   diagnostic(bool, C1PatchInvokeDynamic, true,                              \
              "Patch invokedynamic appendix not known at compile time")      \
                                                                             \
+                                                                            \
 
 
 // Read default values for c1 globals

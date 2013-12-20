@@ -28,6 +28,7 @@
 #include "memory/binaryTreeDictionary.hpp"
 #include "memory/freeList.hpp"
 #include "memory/freeBlockDictionary.hpp"
+#include "memory/metablock.hpp"
 #include "memory/metachunk.hpp"
 #include "runtime/globals.hpp"
 #include "utilities/ostream.hpp"

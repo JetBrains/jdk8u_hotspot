@@ -26,7 +26,6 @@ package sun.jvm.hotspot.tools;
 
 import java.io.PrintStream;
 import java.util.Hashtable;
-
 import sun.jvm.hotspot.*;
 import sun.jvm.hotspot.runtime.*;
 import sun.jvm.hotspot.debugger.*;
@@ -106,44 +105,26 @@ public abstract class Tool implements Runnable {
 
       public static void main(String[] args) {
          <derived class> obj = new <derived class>;
-         obj.execute(args);
+         obj.start(args);
       }
 
    */
 
-   protected void execute(String[] args) {
-       int returnStatus = 1;
-
-       try {
-           returnStatus = start(args);
-       } finally {
-           stop();
-       }
-
-       // Exit with 0 or 1
-       System.exit(returnStatus);
-   }
-
-   public void stop() {
+   protected void stop() {
       if (agent != null) {
          agent.detach();
       }
    }
 
-   private int start(String[] args) {
-
+   protected void start(String[] args) {
       if ((args.length < 1) || (args.length > 2)) {
          usage();
-         return 1;
+         return;
       }
 
       // Attempt to handle -h or -help or some invalid flag
-      if (args[0].startsWith("-h")) {
+      if (args[0].startsWith("-")) {
           usage();
-          return 0;
-      } else if (args[0].startsWith("-")) {
-          usage();
-          return 1;
       }
 
       PrintStream err = System.err;
@@ -173,7 +154,6 @@ public abstract class Tool implements Runnable {
 
         default:
            usage();
-           return 1;
       }
 
       agent = new HotSpotAgent();
@@ -211,16 +191,15 @@ public abstract class Tool implements Runnable {
              break;
         }
         if (e.getMessage() != null) {
-          err.println(e.getMessage());
+          err.print(e.getMessage());
           e.printStackTrace();
         }
         err.println();
-        return 1;
+        return;
       }
 
       err.println("Debugger attached successfully.");
       startInternal();
-      return 0;
    }
 
    // When using an existing JVMDebugger.

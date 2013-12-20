@@ -41,7 +41,6 @@ class ciKlass : public ciType {
   friend class ciEnv;
   friend class ciField;
   friend class ciMethod;
-  friend class ciMethodData;
   friend class ciObjArrayKlass;
 
 private:
@@ -121,8 +120,6 @@ public:
 
   // What kind of ciObject is this?
   bool is_klass() const { return true; }
-
-  virtual ciKlass* exact_klass() = 0;
 
   void print_name_on(outputStream* st);
 };

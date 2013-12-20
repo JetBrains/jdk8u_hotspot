@@ -117,10 +117,6 @@ class ciMethod : public ciMetadata {
     *bcp = code;
   }
 
-  // Check bytecode and profile data collected are compatible
-  void assert_virtual_call_type_ok(int bci);
-  void assert_call_type_ok(int bci);
-
  public:
   // Basic method information.
   ciFlags flags() const                          { check_is_loaded(); return _flags; }
@@ -234,11 +230,6 @@ class ciMethod : public ciMetadata {
   ciCallProfile call_profile_at_bci(int bci);
   int           interpreter_call_site_count(int bci);
 
-  // Does type profiling provide a useful type at this point?
-  ciKlass*      argument_profiled_type(int bci, int i);
-  ciKlass*      parameter_profiled_type(int i);
-  ciKlass*      return_profiled_type(int bci);
-
   ciField*      get_field_at_bci( int bci, bool &will_link);
   ciMethod*     get_method_at_bci(int bci, bool &will_link, ciSignature* *declared_signature);
 
@@ -274,7 +265,7 @@ class ciMethod : public ciMetadata {
   bool is_klass_loaded(int refinfo_index, bool must_be_resolved) const;
   bool check_call(int refinfo_index, bool is_static) const;
   bool ensure_method_data();  // make sure it exists in the VM also
-  MethodCounters* ensure_method_counters();
+  address ensure_method_counters();
   int instructions_size();
   int scale_count(int count, float prof_factor = 1.);  // make MDO count commensurate with IIC
 

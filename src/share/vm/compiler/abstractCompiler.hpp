@@ -27,25 +27,22 @@
 
 #include "ci/compilerInterface.hpp"
 
+typedef void (*initializer)(void);
+
 class AbstractCompiler : public CHeapObj<mtCompiler> {
  private:
-  volatile int _num_compiler_threads;
+  bool _is_initialized; // Mark whether compiler object is initialized
 
  protected:
-  volatile int _compiler_state;
   // Used for tracking global state of compiler runtime initialization
-  enum { uninitialized, initializing, initialized, failed, shut_down };
+  enum { uninitialized, initializing, initialized };
 
-  // This method returns true for the first compiler thread that reaches that methods.
-  // This thread will initialize the compiler runtime.
-  bool should_perform_init();
+  // This method will call the initialization method "f" once (per compiler class/subclass)
+  // and do so without holding any locks
+  void initialize_runtimes(initializer f, volatile int* state);
 
  public:
-  AbstractCompiler() : _compiler_state(uninitialized), _num_compiler_threads(0) {}
-
-  // This function determines the compiler thread that will perform the
-  // shutdown of the corresponding compiler runtime.
-  bool should_perform_shutdown();
+  AbstractCompiler() : _is_initialized(false)    {}
 
   // Name of this compiler
   virtual const char* name() = 0;
@@ -77,18 +74,17 @@ class AbstractCompiler : public CHeapObj<mtCompiler> {
 #endif // TIERED
 
   // Customization
-  virtual void initialize () = 0;
+  virtual bool needs_stubs            ()         = 0;
 
-  void set_num_compiler_threads(int num) { _num_compiler_threads = num;  }
-  int num_compiler_threads()             { return _num_compiler_threads; }
+  void mark_initialized()                        { _is_initialized = true; }
+  bool is_initialized()                          { return _is_initialized; }
 
-  // Get/set state of compiler objects
-  bool is_initialized()           { return _compiler_state == initialized; }
-  bool is_failed     ()           { return _compiler_state == failed;}
-  void set_state     (int state);
-  void set_shut_down ()           { set_state(shut_down); }
+  virtual void initialize()                      = 0;
+
   // Compilation entry point for methods
-  virtual void compile_method(ciEnv* env, ciMethod* target, int entry_bci) {
+  virtual void compile_method(ciEnv* env,
+                              ciMethod* target,
+                              int entry_bci) {
     ShouldNotReachHere();
   }
 

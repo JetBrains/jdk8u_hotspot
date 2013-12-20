@@ -238,18 +238,7 @@ class Compilation: public StackObj {
     return env()->comp_level() == CompLevel_full_profile &&
       C1UpdateMethodData && C1ProfileCheckcasts;
   }
-  bool profile_parameters() {
-    return env()->comp_level() == CompLevel_full_profile &&
-      C1UpdateMethodData && MethodData::profile_parameters();
-  }
-  bool profile_arguments() {
-    return env()->comp_level() == CompLevel_full_profile &&
-      C1UpdateMethodData && MethodData::profile_arguments();
-  }
-  bool profile_return() {
-    return env()->comp_level() == CompLevel_full_profile &&
-      C1UpdateMethodData && MethodData::profile_return();
-  }
+
   // will compilation make optimistic assumptions that might lead to
   // deoptimization and that the runtime will account for?
   bool is_optimistic() const                             {
@@ -257,8 +246,6 @@ class Compilation: public StackObj {
       (RangeCheckElimination || UseLoopInvariantCodeMotion) &&
       method()->method_data()->trap_count(Deoptimization::Reason_none) == 0;
   }
-
-  ciKlass* cha_exact_type(ciType* type);
 };
 
 

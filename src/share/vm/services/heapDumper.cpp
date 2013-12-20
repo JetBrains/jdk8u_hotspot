@@ -1545,9 +1545,7 @@ void VM_HeapDumper::do_load_class(Klass* k) {
 
 // writes a HPROF_GC_CLASS_DUMP record for the given class
 void VM_HeapDumper::do_class_dump(Klass* k) {
-  if (k->oop_is_instance()) {
-    DumperSupport::dump_class_and_array_classes(writer(), k);
-  }
+  DumperSupport::dump_class_and_array_classes(writer(), k);
 }
 
 // writes a HPROF_GC_CLASS_DUMP records for a given basic type
@@ -1724,7 +1722,7 @@ void VM_HeapDumper::doit() {
   SymbolTable::symbols_do(&sym_dumper);
 
   // write HPROF_LOAD_CLASS records
-  ClassLoaderDataGraph::classes_do(&do_load_class);
+  SystemDictionary::classes_do(&do_load_class);
   Universe::basic_type_classes_do(&do_load_class);
 
   // write HPROF_FRAME and HPROF_TRACE records
@@ -1735,7 +1733,7 @@ void VM_HeapDumper::doit() {
   write_dump_header();
 
   // Writes HPROF_GC_CLASS_DUMP records
-  ClassLoaderDataGraph::classes_do(&do_class_dump);
+  SystemDictionary::classes_do(&do_class_dump);
   Universe::basic_type_classes_do(&do_basic_type_array_class_dump);
   check_segment_length();
 

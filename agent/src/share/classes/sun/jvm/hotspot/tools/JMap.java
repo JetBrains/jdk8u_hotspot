@@ -136,9 +136,7 @@ public class JMap extends Tool {
                         mode = MODE_HEAP_GRAPH_GXL;
                     } else {
                         System.err.println("unknown heap format:" + format);
-
-                        // Exit with error status
-                        System.exit(1);
+                        return;
                     }
                 } else {
                     copyArgs = false;
@@ -155,7 +153,8 @@ public class JMap extends Tool {
         }
 
         JMap jmap = new JMap(mode);
-        jmap.execute(args);
+        jmap.start(args);
+        jmap.stop();
     }
 
     public boolean writeHeapHprofBin(String fileName) {

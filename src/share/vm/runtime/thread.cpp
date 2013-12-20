@@ -1097,7 +1097,7 @@ static const char* get_java_runtime_version(TRAPS) {
 // General purpose hook into Java code, run once when the VM is initialized.
 // The Java library method itself may be changed independently from the VM.
 static void call_postVMInitHook(TRAPS) {
-  Klass* k = SystemDictionary::resolve_or_null(vmSymbols::sun_misc_PostVMInitHook(), THREAD);
+  Klass* k = SystemDictionary::PostVMInitHook_klass();
   instanceKlassHandle klass (THREAD, k);
   if (klass.not_null()) {
     JavaValue result(T_VOID);
@@ -1454,6 +1454,7 @@ void JavaThread::initialize() {
   _interp_only_mode    = 0;
   _special_runtime_exit_condition = _no_async_condition;
   _pending_async_exception = NULL;
+  _is_compiling = false;
   _thread_stat = NULL;
   _thread_stat = new ThreadStatistics();
   _blocked_on_compilation = false;
@@ -1814,8 +1815,7 @@ void JavaThread::exit(bool destroy_vm, ExitType exit_type) {
     // Call Thread.exit(). We try 3 times in case we got another Thread.stop during
     // the execution of the method. If that is not enough, then we don't really care. Thread.stop
     // is deprecated anyhow.
-    if (!is_Compiler_thread()) {
-      int count = 3;
+    { int count = 3;
       while (java_lang_Thread::threadGroup(threadObj()) != NULL && (count-- > 0)) {
         EXCEPTION_MARK;
         JavaValue result(T_VOID);
@@ -1828,6 +1828,7 @@ void JavaThread::exit(bool destroy_vm, ExitType exit_type) {
         CLEAR_PENDING_EXCEPTION;
       }
     }
+
     // notify JVMTI
     if (JvmtiExport::should_post_thread_life()) {
       JvmtiExport::post_thread_end(this);
@@ -3238,7 +3239,6 @@ CompilerThread::CompilerThread(CompileQueue* queue, CompilerCounters* counters)
   _counters = counters;
   _buffer_blob = NULL;
   _scanned_nmethod = NULL;
-  _compiler = NULL;
 
 #ifndef PRODUCT
   _ideal_graph_printer = NULL;
@@ -3254,7 +3254,6 @@ void CompilerThread::oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClos
     cf->do_code_blob(_scanned_nmethod);
   }
 }
-
 
 // ======= Threads ========
 
@@ -3275,6 +3274,8 @@ bool        Threads::_vm_complete = false;
 
 // All JavaThreads
 #define ALL_JAVA_THREADS(X) for (JavaThread* X = _thread_list; X; X = X->next())
+
+void os_stream();
 
 // All JavaThreads + all non-JavaThreads (i.e., every thread in the system)
 void Threads::threads_do(ThreadClosure* tc) {

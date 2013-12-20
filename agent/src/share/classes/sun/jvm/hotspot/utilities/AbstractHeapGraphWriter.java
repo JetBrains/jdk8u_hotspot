@@ -59,7 +59,6 @@ public abstract class AbstractHeapGraphWriter implements HeapGraphWriter {
 
                     public boolean doObj(Oop oop) {
                         try {
-                            writeHeapRecordPrologue();
                             if (oop instanceof TypeArray) {
                                 writePrimitiveArray((TypeArray)oop);
                             } else if (oop instanceof ObjArray) {
@@ -98,7 +97,6 @@ public abstract class AbstractHeapGraphWriter implements HeapGraphWriter {
                                 // not-a-Java-visible oop
                                 writeInternalObject(oop);
                             }
-                            writeHeapRecordEpilogue();
                         } catch (IOException exp) {
                             throw new RuntimeException(exp);
                         }
@@ -416,12 +414,6 @@ public abstract class AbstractHeapGraphWriter implements HeapGraphWriter {
     }
 
     protected void writeHeapFooter() throws IOException {
-    }
-
-    protected void writeHeapRecordPrologue() throws IOException {
-    }
-
-    protected void writeHeapRecordEpilogue() throws IOException {
     }
 
     // HeapVisitor, OopVisitor methods can't throw any non-runtime

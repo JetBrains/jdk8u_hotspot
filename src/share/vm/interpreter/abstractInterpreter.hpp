@@ -30,8 +30,11 @@
 #include "runtime/thread.inline.hpp"
 #include "runtime/vmThread.hpp"
 #include "utilities/top.hpp"
-#ifdef TARGET_ARCH_x86
-# include "interp_masm_x86.hpp"
+#ifdef TARGET_ARCH_MODEL_x86_32
+# include "interp_masm_x86_32.hpp"
+#endif
+#ifdef TARGET_ARCH_MODEL_x86_64
+# include "interp_masm_x86_64.hpp"
 #endif
 #ifdef TARGET_ARCH_MODEL_aarch64
 # include "interp_masm_aarch64.hpp"
@@ -161,8 +164,8 @@ class AbstractInterpreter: AllStatic {
   // Runtime support
 
   // length = invoke bytecode length (to advance to next bytecode)
-  static address deopt_entry(TosState state, int length) { ShouldNotReachHere(); return NULL; }
-  static address return_entry(TosState state, int length, Bytecodes::Code code) { ShouldNotReachHere(); return NULL; }
+  static address    deopt_entry   (TosState state, int length) { ShouldNotReachHere(); return NULL; }
+  static address    return_entry  (TosState state, int length) { ShouldNotReachHere(); return NULL; }
 
   static address    rethrow_exception_entry()                   { return _rethrow_exception_entry; }
 

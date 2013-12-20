@@ -536,6 +536,12 @@ bool InstructForm::rematerialize(FormDict &globals, RegisterForm *registers ) {
   if( data_type != Form::none )
     rematerialize = true;
 
+  // Ugly: until a better fix is implemented, disable rematerialization for
+  // negD nodes because they are proved to be problematic.
+  if (is_ideal_negD()) {
+    return false;
+  }
+
   // Constants
   if( _components.count() == 1 && _components[0]->is(Component::USE_DEF) )
     rematerialize = true;

@@ -177,6 +177,7 @@ public class ClassDump extends Tool {
     public static void main(String[] args) {
 
         ClassDump cd = new ClassDump();
-        cd.execute(args);
+        cd.start(args);
+        cd.stop();
     }
 }

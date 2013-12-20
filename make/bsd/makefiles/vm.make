@@ -60,16 +60,10 @@ Src_Dirs_I += $(GENERATED)
 # The order is important for the precompiled headers to work.
 INCLUDES += $(PRECOMPILED_HEADER_DIR:%=-I%) $(Src_Dirs_I:%=-I%)
 
-# SYMFLAG is used by {jsig,saproc}.make
-ifeq ($(ENABLE_FULL_DEBUG_SYMBOLS),1)
-  # always build with debug info when we can create .dSYM/.debuginfo files
+ifeq (${VERSION}, debug)
   SYMFLAG = -g
 else
-  ifeq (${VERSION}, debug)
-    SYMFLAG = -g
-  else
-    SYMFLAG =
-  endif
+  SYMFLAG =
 endif
 
 # HOTSPOT_RELEASE_VERSION and HOTSPOT_BUILD_VERSION are defined
@@ -153,14 +147,8 @@ ifeq ($(OS_VENDOR), Darwin)
   ifeq (${VERSION}, $(filter ${VERSION}, debug fastdebug))
     CFLAGS += -DALLOW_OPERATOR_NEW_USAGE
   endif
-
-  LIBJVM_DEBUGINFO   = lib$(JVM).dylib.dSYM
-  LIBJVM_DIZ         = lib$(JVM).diz
 else
   LIBJVM   = lib$(JVM).so
-
-  LIBJVM_DEBUGINFO   = lib$(JVM).debuginfo
-  LIBJVM_DIZ         = lib$(JVM).diz
 endif
 
 SPECIAL_PATHS:=adlc c1 gc_implementation opto shark libadt
@@ -334,47 +322,10 @@ $(LIBJVM): $(LIBJVM.o) $(LIBJVM_MAPFILE) $(LD_SCRIPT)
 	    rm -f $@.1; ln -s $@ $@.1;                                  \
 	}
 
-ifeq ($(ENABLE_FULL_DEBUG_SYMBOLS),1)
-  ifeq ($(OS_VENDOR), Darwin)
-	$(DSYMUTIL) $@
-    ifeq ($(ZIP_DEBUGINFO_FILES),1)
-	$(ZIPEXE) -q -r -y $(LIBJVM_DIZ) $(LIBJVM_DEBUGINFO)
-	$(RM) -r $(LIBJVM_DEBUGINFO)
-    endif
-  else
-	$(QUIETLY) $(OBJCOPY) --only-keep-debug $@ $(LIBJVM_DEBUGINFO)
-	$(QUIETLY) $(OBJCOPY) --add-gnu-debuglink=$(LIBJVM_DEBUGINFO) $@
-    ifeq ($(STRIP_POLICY),all_strip)
-	$(QUIETLY) $(STRIP) $@
-    else
-      ifeq ($(STRIP_POLICY),min_strip)
-	$(QUIETLY) $(STRIP) -g $@
-      # implied else here is no stripping at all
-      endif
-    endif
-    ifeq ($(ZIP_DEBUGINFO_FILES),1)
-	$(ZIPEXE) -q -y $(LIBJVM_DIZ) $(LIBJVM_DEBUGINFO)
-	$(RM) $(LIBJVM_DEBUGINFO)
-    endif
-  endif
-endif
-
-DEST_SUBDIR        = $(JDK_LIBDIR)/$(VM_SUBDIR)
-DEST_JVM           = $(DEST_SUBDIR)/$(LIBJVM)
-DEST_JVM_DEBUGINFO = $(DEST_SUBDIR)/$(LIBJVM_DEBUGINFO)
-DEST_JVM_DIZ       = $(DEST_SUBDIR)/$(LIBJVM_DIZ)
+DEST_JVM = $(JDK_LIBDIR)/$(VM_SUBDIR)/$(LIBJVM)
 
 install_jvm: $(LIBJVM)
 	@echo "Copying $(LIBJVM) to $(DEST_JVM)"
-ifeq ($(OS_VENDOR), Darwin)
-	$(QUIETLY) test -d $(LIBJVM_DEBUGINFO) && \
-	    cp -f -r $(LIBJVM_DEBUGINFO) $(DEST_JVM_DEBUGINFO)
-else
-	$(QUIETLY) test -f $(LIBJVM_DEBUGINFO) && \
-	    cp -f $(LIBJVM_DEBUGINFO) $(DEST_JVM_DEBUGINFO)
-endif
-	$(QUIETLY) test -f $(LIBJVM_DIZ) && \
-	    cp -f $(LIBJVM_DIZ) $(DEST_JVM_DIZ)
 	$(QUIETLY) cp -f $(LIBJVM) $(DEST_JVM) && echo "Done"
 
 #----------------------------------------------------------------------
@@ -389,8 +340,11 @@ include $(MAKEFILES_DIR)/saproc.make
 #----------------------------------------------------------------------
 
 ifeq ($(OS_VENDOR), Darwin)
+$(LIBJVM).dSYM: $(LIBJVM)
+	dsymutil $(LIBJVM)
+
 # no libjvm_db for macosx
-build: $(LIBJVM) $(LAUNCHER) $(LIBJSIG) $(BUILDLIBSAPROC) dtraceCheck
+build: $(LIBJVM) $(LAUNCHER) $(LIBJSIG) $(BUILDLIBSAPROC) dtraceCheck $(LIBJVM).dSYM
 	echo "Doing vm.make build:"
 else
 build: $(LIBJVM) $(LAUNCHER) $(LIBJSIG) $(LIBJVM_DB) $(BUILDLIBSAPROC)

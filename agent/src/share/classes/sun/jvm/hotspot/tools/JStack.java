@@ -89,7 +89,8 @@ public class JStack extends Tool {
         }
 
         JStack jstack = new JStack(mixedMode, concurrentLocks);
-        jstack.execute(args);
+        jstack.start(args);
+        jstack.stop();
     }
 
     private boolean mixedMode;

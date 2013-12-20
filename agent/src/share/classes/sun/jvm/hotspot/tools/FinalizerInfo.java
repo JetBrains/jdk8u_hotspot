@@ -54,7 +54,8 @@ public class FinalizerInfo extends Tool {
 
     public static void main(String[] args) {
         FinalizerInfo finfo = new FinalizerInfo();
-        finfo.execute(args);
+        finfo.start(args);
+        finfo.stop();
     }
 
     public void run() {

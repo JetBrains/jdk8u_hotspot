@@ -56,7 +56,6 @@ public class ReserveMemory {
           "-Xbootclasspath/a:.",
           "-XX:+UnlockDiagnosticVMOptions",
           "-XX:+WhiteBoxAPI",
-          "-XX:-TransmitErrorReport",
           "ReserveMemory",
           "test");
 

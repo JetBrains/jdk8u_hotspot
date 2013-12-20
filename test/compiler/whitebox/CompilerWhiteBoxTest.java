@@ -80,7 +80,8 @@ public abstract class CompilerWhiteBoxTest {
 
     static {
         if (TIERED_COMPILATION) {
-            BACKEDGE_THRESHOLD = THRESHOLD = 150000;
+            THRESHOLD = 150000;
+            BACKEDGE_THRESHOLD = 0xFFFFFFFFL;
         } else {
             THRESHOLD = COMPILE_THRESHOLD;
             BACKEDGE_THRESHOLD = COMPILE_THRESHOLD * Long.parseLong(getVMOption(
@@ -363,7 +364,7 @@ enum TestCase {
     /** OSR constructor test case */
     OSR_CONSTRUCTOR_TEST(Helper.OSR_CONSTRUCTOR,
             Helper.OSR_CONSTRUCTOR_CALLABLE, true),
-    /** OSR method test case */
+     /** OSR method test case */
     OSR_METOD_TEST(Helper.OSR_METHOD, Helper.OSR_METHOD_CALLABLE, true),
     /** OSR static method test case */
     OSR_STATIC_TEST(Helper.OSR_STATIC, Helper.OSR_STATIC_CALLABLE, true);
@@ -372,7 +373,7 @@ enum TestCase {
     final Executable executable;
     /** object to invoke {@linkplain #executable} */
     final Callable<Integer> callable;
-    /** flag for OSR test case */
+   /** flag for OSR test case */
     final boolean isOsr;
 
     private TestCase(Executable executable, Callable<Integer> callable,

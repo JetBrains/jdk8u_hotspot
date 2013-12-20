@@ -73,7 +73,6 @@ protected:
   bool        try_to_inline(ciMethod* callee_method,
                             ciMethod* caller_method,
                             int caller_bci,
-                            JVMState* jvms,
                             ciCallProfile& profile,
                             WarmCallInfo* wci_result,
                             bool& should_delay);
@@ -84,7 +83,6 @@ protected:
                             WarmCallInfo* wci_result);
   bool        should_not_inline(ciMethod* callee_method,
                                 ciMethod* caller_method,
-                                JVMState* jvms,
                                 WarmCallInfo* wci_result);
   void        print_inlining(ciMethod* callee_method, int caller_bci,
                              bool success) const;
@@ -349,15 +347,13 @@ class Parse : public GraphKit {
   int _est_switch_depth;        // Debugging SwitchRanges.
 #endif
 
-  // parser for the caller of the method of this object
-  Parse* const _parent;
-
  public:
   // Constructor
-  Parse(JVMState* caller, ciMethod* parse_method, float expected_uses, Parse* parent);
+  Parse(JVMState* caller, ciMethod* parse_method, float expected_uses);
 
   virtual Parse* is_Parse() const { return (Parse*)this; }
 
+ public:
   // Accessors.
   JVMState*     caller()        const { return _caller; }
   float         expected_uses() const { return _expected_uses; }
@@ -408,8 +404,6 @@ class Parse : public GraphKit {
   Block* successor_for_bci(int bci) {
     return block()->successor_for_bci(bci);
   }
-
-  Parse* parent_parser() const { return _parent; }
 
  private:
   // Create a JVMS & map for the initial state of this method.
@@ -606,9 +600,6 @@ class Parse : public GraphKit {
   // Merge the given map into correct exceptional exit state.
   // Assumes that there is no applicable local handler.
   void throw_to_exit(SafePointNode* ex_map);
-
-  // Use speculative type to optimize CmpP node
-  Node* optimize_cmp_with_klass(Node* c);
 
  public:
 #ifndef PRODUCT

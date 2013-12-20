@@ -40,7 +40,8 @@ import sun.jvm.hotspot.utilities.soql.*;
 public class SOQL extends Tool {
    public static void main(String[] args) {
       SOQL soql = new SOQL();
-      soql.execute(args);
+      soql.start(args);
+      soql.stop();
    }
 
    public SOQL() {

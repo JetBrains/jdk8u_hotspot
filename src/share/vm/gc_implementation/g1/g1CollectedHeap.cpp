@@ -2008,7 +2008,7 @@ jint G1CollectedHeap::initialize() {
 
   size_t init_byte_size = collector_policy()->initial_heap_byte_size();
   size_t max_byte_size = collector_policy()->max_heap_byte_size();
-  size_t heap_alignment = collector_policy()->heap_alignment();
+  size_t heap_alignment = collector_policy()->max_alignment();
 
   // Ensure that the sizes are properly aligned.
   Universe::check_alignment(init_byte_size, HeapRegion::GrainBytes, "g1 heap");
@@ -6035,11 +6035,7 @@ void G1CollectedHeap::verify_dirty_region(HeapRegion* hr) {
   // is dirty.
   G1SATBCardTableModRefBS* ct_bs = g1_barrier_set();
   MemRegion mr(hr->bottom(), hr->pre_dummy_top());
-  if (hr->is_young()) {
-    ct_bs->verify_g1_young_region(mr);
-  } else {
-    ct_bs->verify_dirty_region(mr);
-  }
+  ct_bs->verify_dirty_region(mr);
 }
 
 void G1CollectedHeap::verify_dirty_young_list(HeapRegion* head) {
@@ -6656,18 +6652,13 @@ class RegisterNMethodOopClosure: public OopClosure {
     if (!oopDesc::is_null(heap_oop)) {
       oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
       HeapRegion* hr = _g1h->heap_region_containing(obj);
-      assert(!hr->continuesHumongous(),
-             err_msg("trying to add code root "PTR_FORMAT" in continuation of humongous region "HR_FORMAT
-                     " starting at "HR_FORMAT,
-                     _nm, HR_FORMAT_PARAMS(hr), HR_FORMAT_PARAMS(hr->humongous_start_region())));
+      assert(!hr->isHumongous(), "code root in humongous region?");
 
       // HeapRegion::add_strong_code_root() avoids adding duplicate
       // entries but having duplicates is  OK since we "mark" nmethods
       // as visited when we scan the strong code root lists during the GC.
       hr->add_strong_code_root(_nm);
-      assert(hr->rem_set()->strong_code_roots_list_contains(_nm),
-             err_msg("failed to add code root "PTR_FORMAT" to remembered set of region "HR_FORMAT,
-                     _nm, HR_FORMAT_PARAMS(hr)));
+      assert(hr->rem_set()->strong_code_roots_list_contains(_nm), "add failed?");
     }
   }
 
@@ -6688,15 +6679,9 @@ class UnregisterNMethodOopClosure: public OopClosure {
     if (!oopDesc::is_null(heap_oop)) {
       oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
       HeapRegion* hr = _g1h->heap_region_containing(obj);
-      assert(!hr->continuesHumongous(),
-             err_msg("trying to remove code root "PTR_FORMAT" in continuation of humongous region "HR_FORMAT
-                     " starting at "HR_FORMAT,
-                     _nm, HR_FORMAT_PARAMS(hr), HR_FORMAT_PARAMS(hr->humongous_start_region())));
-
+      assert(!hr->isHumongous(), "code root in humongous region?");
       hr->remove_strong_code_root(_nm);
-      assert(!hr->rem_set()->strong_code_roots_list_contains(_nm),
-             err_msg("failed to remove code root "PTR_FORMAT" of region "HR_FORMAT,
-                     _nm, HR_FORMAT_PARAMS(hr)));
+      assert(!hr->rem_set()->strong_code_roots_list_contains(_nm), "remove failed?");
     }
   }
 
@@ -6727,9 +6712,7 @@ void G1CollectedHeap::unregister_nmethod(nmethod* nm) {
 class MigrateCodeRootsHeapRegionClosure: public HeapRegionClosure {
 public:
   bool doHeapRegion(HeapRegion *hr) {
-    assert(!hr->isHumongous(),
-           err_msg("humongous region "HR_FORMAT" should not have been added to collection set",
-                   HR_FORMAT_PARAMS(hr)));
+    assert(!hr->isHumongous(), "humongous region in collection set?");
     hr->migrate_strong_code_roots();
     return false;
   }
@@ -6809,13 +6792,9 @@ public:
 
   bool doHeapRegion(HeapRegion *hr) {
     HeapRegionRemSet* hrrs = hr->rem_set();
-    if (hr->continuesHumongous()) {
-      // Code roots should never be attached to a continuation of a humongous region
-      assert(hrrs->strong_code_roots_list_length() == 0,
-             err_msg("code roots should never be attached to continuations of humongous region "HR_FORMAT
-                     " starting at "HR_FORMAT", but has "INT32_FORMAT,
-                     HR_FORMAT_PARAMS(hr), HR_FORMAT_PARAMS(hr->humongous_start_region()),
-                     hrrs->strong_code_roots_list_length()));
+    if (hr->isHumongous()) {
+      // Code roots should never be attached to a humongous region
+      assert(hrrs->strong_code_roots_list_length() == 0, "sanity");
       return false;
     }
 

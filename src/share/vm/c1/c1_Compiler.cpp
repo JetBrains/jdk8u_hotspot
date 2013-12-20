@@ -42,16 +42,26 @@
 #include "runtime/interfaceSupport.hpp"
 #include "runtime/sharedRuntime.hpp"
 
+volatile int Compiler::_runtimes = uninitialized;
 
-Compiler::Compiler () {}
+Compiler::Compiler() {
+}
 
-void Compiler::init_c1_runtime() {
+
+Compiler::~Compiler() {
+  Unimplemented();
+}
+
+
+void Compiler::initialize_all() {
   BufferBlob* buffer_blob = CompilerThread::current()->get_buffer_blob();
   Arena* arena = new (mtCompiler) Arena();
   Runtime1::initialize(buffer_blob);
   FrameMap::initialize();
   // initialize data structures
   ValueType::initialize(arena);
+  // Instruction::initialize();
+  // BlockBegin::initialize();
   GraphBuilder::initialize();
   // note: to use more than one instance of LinearScan at a time this function call has to
   //       be moved somewhere outside of this constructor:
@@ -60,33 +70,32 @@ void Compiler::init_c1_runtime() {
 
 
 void Compiler::initialize() {
-  // Buffer blob must be allocated per C1 compiler thread at startup
-  BufferBlob* buffer_blob = init_buffer_blob();
-
-  if (should_perform_init()) {
-    if (buffer_blob == NULL) {
-      // When we come here we are in state 'initializing'; entire C1 compilation
-      // can be shut down.
-      set_state(failed);
-    } else {
-      init_c1_runtime();
-      set_state(initialized);
-    }
+  if (_runtimes != initialized) {
+    initialize_runtimes( initialize_all, &_runtimes);
   }
+  mark_initialized();
 }
 
-BufferBlob* Compiler::init_buffer_blob() {
+
+BufferBlob* Compiler::get_buffer_blob(ciEnv* env) {
   // Allocate buffer blob once at startup since allocation for each
   // compilation seems to be too expensive (at least on Intel win32).
-  assert (CompilerThread::current()->get_buffer_blob() == NULL, "Should initialize only once");
+  BufferBlob* buffer_blob = CompilerThread::current()->get_buffer_blob();
+  if (buffer_blob != NULL) {
+    return buffer_blob;
+  }
 
   // setup CodeBuffer.  Preallocate a BufferBlob of size
   // NMethodSizeLimit plus some extra space for constants.
   int code_buffer_size = Compilation::desired_max_code_buffer_size() +
     Compilation::desired_max_constant_size();
 
-  BufferBlob* buffer_blob = BufferBlob::create("C1 temporary CodeBuffer", code_buffer_size);
-  if (buffer_blob != NULL) {
+  buffer_blob = BufferBlob::create("Compiler1 temporary CodeBuffer",
+                                   code_buffer_size);
+  if (buffer_blob == NULL) {
+    CompileBroker::handle_full_code_cache();
+    env->record_failure("CodeCache is full");
+  } else {
     CompilerThread::current()->set_buffer_blob(buffer_blob);
   }
 
@@ -95,8 +104,15 @@ BufferBlob* Compiler::init_buffer_blob() {
 
 
 void Compiler::compile_method(ciEnv* env, ciMethod* method, int entry_bci) {
-  BufferBlob* buffer_blob = CompilerThread::current()->get_buffer_blob();
-  assert(buffer_blob != NULL, "Must exist");
+  BufferBlob* buffer_blob = Compiler::get_buffer_blob(env);
+  if (buffer_blob == NULL) {
+    return;
+  }
+
+  if (!is_initialized()) {
+    initialize();
+  }
+
   // invoke compilation
   {
     // We are nested here because we need for the destructor

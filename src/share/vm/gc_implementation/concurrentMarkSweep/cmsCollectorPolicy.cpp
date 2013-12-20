@@ -47,9 +47,8 @@
 // ConcurrentMarkSweepPolicy methods
 //
 
-void ConcurrentMarkSweepPolicy::initialize_alignments() {
-  _space_alignment = _gen_alignment = (uintx)Generation::GenGrain;
-  _heap_alignment = compute_heap_alignment();
+ConcurrentMarkSweepPolicy::ConcurrentMarkSweepPolicy() {
+  initialize_all();
 }
 
 void ConcurrentMarkSweepPolicy::initialize_generations() {

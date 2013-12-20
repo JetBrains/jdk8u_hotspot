@@ -51,7 +51,8 @@ public class ClassLoaderStats extends Tool {
 
    public static void main(String[] args) {
       ClassLoaderStats cls = new ClassLoaderStats();
-      cls.execute(args);
+      cls.start(args);
+      cls.stop();
    }
 
    private static class ClassData {

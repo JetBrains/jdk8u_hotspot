@@ -330,11 +330,6 @@ $(EXPORT_JRE_LIB_ARCH_DIR)/%.diz: 		$(C2_BUILD_DIR)/%.diz
 	$(install-file)
 $(EXPORT_SERVER_DIR)/64/%.diz:    		$(C2_BUILD_DIR)/%.diz
 	$(install-file)
-# MacOS X
-$(EXPORT_JRE_LIB_ARCH_DIR)/%.dSYM: 		$(C2_BUILD_DIR)/%.dSYM
-	$(install-dir)
-$(EXPORT_SERVER_DIR)/%.dSYM:       		$(C2_BUILD_DIR)/%.dSYM
-	$(install-dir)
 endif
 
 # Client (C1)
@@ -380,11 +375,6 @@ $(EXPORT_JRE_LIB_ARCH_DIR)/%.diz: 		$(C1_BUILD_DIR)/%.diz
 	$(install-file)
 $(EXPORT_CLIENT_DIR)/64/%.diz:    		$(C1_BUILD_DIR)/%.diz
 	$(install-file)
-# MacOS X
-$(EXPORT_JRE_LIB_ARCH_DIR)/%.dSYM: 		$(C1_BUILD_DIR)/%.dSYM
-	$(install-dir)
-$(EXPORT_CLIENT_DIR)/%.dSYM:       		$(C1_BUILD_DIR)/%.dSYM
-	$(install-dir)
 endif
 
 # Minimal1
@@ -430,7 +420,6 @@ $(EXPORT_JRE_LIB_ARCH_DIR)/%.diz:		$(MINIMAL1_BUILD_DIR)/%.diz
 	$(install-file)
 $(EXPORT_MINIMAL_DIR)/64/%.diz:			$(MINIMAL1_BUILD_DIR)/%.diz
 	$(install-file)
-# MacOS X does not support Minimal1 config
 endif
 
 # Zero
@@ -453,11 +442,6 @@ $(EXPORT_SERVER_DIR)/%.debuginfo:		$(ZERO_BUILD_DIR)/%.debuginfo
 	$(install-file)
 $(EXPORT_SERVER_DIR)/%.diz:			$(ZERO_BUILD_DIR)/%.diz
 	$(install-file)
-# MacOS X
-$(EXPORT_JRE_LIB_ARCH_DIR)/%.dSYM: 		$(ZERO_BUILD_DIR)/%.dSYM
-	$(install-dir)
-$(EXPORT_SERVER_DIR)/%.dSYM:			$(ZERO_BUILD_DIR)/%.dSYM
-	$(install-dir)
 endif
 
 # Shark
@@ -480,11 +464,6 @@ $(EXPORT_SERVER_DIR)/%.debuginfo:		$(SHARK_BUILD_DIR)/%.debuginfo
 	$(install-file)
 $(EXPORT_SERVER_DIR)/%.diz:			$(SHARK_BUILD_DIR)/%.diz
 	$(install-file)
-# MacOS X
-$(EXPORT_JRE_LIB_ARCH_DIR)/%.dSYM: 		$(SHARK_BUILD_DIR)/%.dSYM
-	$(install-dir)
-$(EXPORT_SERVER_DIR)/%.dSYM:			$(SHARK_BUILD_DIR)/%.dSYM
-	$(install-dir)
 endif
 
 $(EXPORT_INCLUDE_DIR)/%: $(HS_SRC_DIR)/share/vm/code/%

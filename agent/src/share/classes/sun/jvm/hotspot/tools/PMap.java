@@ -69,6 +69,7 @@ public class PMap extends Tool {
 
    public static void main(String[] args) throws Exception {
       PMap t = new PMap();
-      t.execute(args);
+      t.start(args);
+      t.stop();
    }
 }

@@ -80,10 +80,6 @@ public:
 
   void reset() { if (_buf != NULL) _index = _sz; }
 
-  void enqueue(volatile void* ptr) {
-    enqueue((void*)(ptr));
-  }
-
   // Enqueues the given "obj".
   void enqueue(void* ptr) {
     if (!_active) return;

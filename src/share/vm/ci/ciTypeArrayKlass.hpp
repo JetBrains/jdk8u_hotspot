@@ -57,10 +57,6 @@ public:
 
   // Make an array klass corresponding to the specified primitive type.
   static ciTypeArrayKlass* make(BasicType type);
-
-  virtual ciKlass* exact_klass() {
-    return this;
-  }
 };
 
 #endif // SHARE_VM_CI_CITYPEARRAYKLASS_HPP

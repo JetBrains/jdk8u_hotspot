@@ -329,21 +329,15 @@ void AbstractInterpreter::print_method_kind(MethodKind kind) {
 //------------------------------------------------------------------------------------------------------------------------
 // Deoptimization support
 
-/**
- * If a deoptimization happens, this function returns the point of next bytecode to continue execution.
- */
+// If deoptimization happens, this function returns the point of next bytecode to continue execution
 address AbstractInterpreter::deopt_continue_after_entry(Method* method, address bcp, int callee_parameters, bool is_top_frame) {
   assert(method->contains(bcp), "just checkin'");
-
-  // Get the original and rewritten bytecode.
-  Bytecodes::Code code = Bytecodes::java_code_at(method, bcp);
+  Bytecodes::Code code   = Bytecodes::java_code_at(method, bcp);
   assert(!Interpreter::bytecode_should_reexecute(code), "should not reexecute");
-
-  const int bci = method->bci_from(bcp);
-
+  int             bci    = method->bci_from(bcp);
+  int             length = -1; // initial value for debugging
   // compute continuation length
-  const int length = Bytecodes::length_at(method, bcp);
-
+  length = Bytecodes::length_at(method, bcp);
   // compute result type
   BasicType type = T_ILLEGAL;
 
@@ -399,7 +393,7 @@ address AbstractInterpreter::deopt_continue_after_entry(Method* method, address 
   return
     is_top_frame
     ? Interpreter::deopt_entry (as_TosState(type), length)
-    : Interpreter::return_entry(as_TosState(type), length, code);
+    : Interpreter::return_entry(as_TosState(type), length);
 }
 
 // If deoptimization happens, this function returns the point where the interpreter reexecutes

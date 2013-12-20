@@ -137,7 +137,8 @@ public class StackTrace extends Tool {
 
    public static void main(String[] args) {
       StackTrace st = new StackTrace();
-      st.execute(args);
+      st.start(args);
+      st.stop();
    }
 
    private boolean verbose;

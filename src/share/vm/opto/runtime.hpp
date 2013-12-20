@@ -203,10 +203,8 @@ private:
 
   static bool is_callee_saved_register(MachRegisterNumbers reg);
 
-  // One time only generate runtime code stubs. Returns true
-  // when runtime stubs have been generated successfully and
-  // false otherwise.
-  static bool generate(ciEnv* env);
+  // One time only generate runtime code stubs
+  static void generate(ciEnv* env);
 
   // Returns the name of a stub
   static const char* stub_name(address entry);

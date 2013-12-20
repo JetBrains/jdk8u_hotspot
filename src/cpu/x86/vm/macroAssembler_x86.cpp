@@ -1381,12 +1381,8 @@ void MacroAssembler::bang_stack_size(Register size, Register tmp) {
   jcc(Assembler::greater, loop);
 
   // Bang down shadow pages too.
-  // At this point, (tmp-0) is the last address touched, so don't
-  // touch it again.  (It was touched as (tmp-pagesize) but then tmp
-  // was post-decremented.)  Skip this address by starting at i=1, and
-  // touch a few more pages below.  N.B.  It is important to touch all
-  // the way down to and including i=StackShadowPages.
-  for (int i = 1; i <= StackShadowPages; i++) {
+  // The -1 because we already subtracted 1 page.
+  for (int i = 0; i< StackShadowPages-1; i++) {
     // this could be any sized move but this is can be a debugging crumb
     // so the bigger the better.
     movptr(Address(tmp, (-i*os::vm_page_size())), size );
@@ -3393,18 +3389,13 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
   const Register card_addr = tmp;
   lea(card_addr, as_Address(ArrayAddress(cardtable, index)));
 #endif
-  cmpb(Address(card_addr, 0), (int)G1SATBCardTableModRefBS::g1_young_card_val());
+  cmpb(Address(card_addr, 0), 0);
   jcc(Assembler::equal, done);
-
-  membar(Assembler::Membar_mask_bits(Assembler::StoreLoad));
-  cmpb(Address(card_addr, 0), (int)CardTableModRefBS::dirty_card_val());
-  jcc(Assembler::equal, done);
-
 
   // storing a region crossing, non-NULL oop, card is clean.
   // dirty card and log.
 
-  movb(Address(card_addr, 0), (int)CardTableModRefBS::dirty_card_val());
+  movb(Address(card_addr, 0), 0);
 
   cmpl(queue_index, 0);
   jcc(Assembler::equal, runtime);
@@ -5053,32 +5044,25 @@ void  MacroAssembler::decode_heap_oop_not_null(Register dst, Register src) {
 }
 
 void MacroAssembler::encode_klass_not_null(Register r) {
-  if (Universe::narrow_klass_base() != NULL) {
-    // Use r12 as a scratch register in which to temporarily load the narrow_klass_base.
-    assert(r != r12_heapbase, "Encoding a klass in r12");
-    mov64(r12_heapbase, (int64_t)Universe::narrow_klass_base());
-    subq(r, r12_heapbase);
-  }
+  assert(Universe::narrow_klass_base() != NULL, "Base should be initialized");
+  // Use r12 as a scratch register in which to temporarily load the narrow_klass_base.
+  assert(r != r12_heapbase, "Encoding a klass in r12");
+  mov64(r12_heapbase, (int64_t)Universe::narrow_klass_base());
+  subq(r, r12_heapbase);
   if (Universe::narrow_klass_shift() != 0) {
     assert (LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
     shrq(r, LogKlassAlignmentInBytes);
   }
-  if (Universe::narrow_klass_base() != NULL) {
-    reinit_heapbase();
-  }
+  reinit_heapbase();
 }
 
 void MacroAssembler::encode_klass_not_null(Register dst, Register src) {
   if (dst == src) {
     encode_klass_not_null(src);
   } else {
-    if (Universe::narrow_klass_base() != NULL) {
-      mov64(dst, (int64_t)Universe::narrow_klass_base());
-      negq(dst);
-      addq(dst, src);
-    } else {
-      movptr(dst, src);
-    }
+    mov64(dst, (int64_t)Universe::narrow_klass_base());
+    negq(dst);
+    addq(dst, src);
     if (Universe::narrow_klass_shift() != 0) {
       assert (LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
       shrq(dst, LogKlassAlignmentInBytes);
@@ -5092,19 +5076,15 @@ void MacroAssembler::encode_klass_not_null(Register dst, Register src) {
 // generate change, then this method needs to be updated.
 int MacroAssembler::instr_size_for_decode_klass_not_null() {
   assert (UseCompressedClassPointers, "only for compressed klass ptrs");
-  if (Universe::narrow_klass_base() != NULL) {
-    // mov64 + addq + shlq? + mov64  (for reinit_heapbase()).
-    return (Universe::narrow_klass_shift() == 0 ? 20 : 24);
-  } else {
-    // longest load decode klass function, mov64, leaq
-    return 16;
-  }
+  // mov64 + addq + shlq? + mov64  (for reinit_heapbase()).
+  return (Universe::narrow_klass_shift() == 0 ? 20 : 24);
 }
 
 // !!! If the instructions that get generated here change then function
 // instr_size_for_decode_klass_not_null() needs to get updated.
 void  MacroAssembler::decode_klass_not_null(Register r) {
   // Note: it will change flags
+  assert(Universe::narrow_klass_base() != NULL, "Base should be initialized");
   assert (UseCompressedClassPointers, "should only be used for compressed headers");
   assert(r != r12_heapbase, "Decoding a klass in r12");
   // Cannot assert, unverified entry point counts instructions (see .ad file)
@@ -5115,15 +5095,14 @@ void  MacroAssembler::decode_klass_not_null(Register r) {
     shlq(r, LogKlassAlignmentInBytes);
   }
   // Use r12 as a scratch register in which to temporarily load the narrow_klass_base.
-  if (Universe::narrow_klass_base() != NULL) {
-    mov64(r12_heapbase, (int64_t)Universe::narrow_klass_base());
-    addq(r, r12_heapbase);
-    reinit_heapbase();
-  }
+  mov64(r12_heapbase, (int64_t)Universe::narrow_klass_base());
+  addq(r, r12_heapbase);
+  reinit_heapbase();
 }
 
 void  MacroAssembler::decode_klass_not_null(Register dst, Register src) {
   // Note: it will change flags
+  assert(Universe::narrow_klass_base() != NULL, "Base should be initialized");
   assert (UseCompressedClassPointers, "should only be used for compressed headers");
   if (dst == src) {
     decode_klass_not_null(dst);
@@ -5131,6 +5110,7 @@ void  MacroAssembler::decode_klass_not_null(Register dst, Register src) {
     // Cannot assert, unverified entry point counts instructions (see .ad file)
     // vtableStubs also counts instructions in pd_code_size_limit.
     // Also do not verify_oop as this is called by verify_oop.
+
     mov64(dst, (int64_t)Universe::narrow_klass_base());
     if (Universe::narrow_klass_shift() != 0) {
       assert(LogKlassAlignmentInBytes == Universe::narrow_klass_shift(), "decode alg wrong");
