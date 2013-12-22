@@ -235,9 +235,6 @@ class Metaspace : public CHeapObj<mtClass> {
     return NOT_LP64(false) LP64_ONLY(UseCompressedClassPointers && !DumpSharedSpaces);
   }
 
-  static bool is_class_space_allocation(MetadataType mdType) {
-    return mdType == ClassType && using_class_space();
-  }
 };
 
 class MetaspaceAux : AllStatic {

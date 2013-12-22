@@ -40,8 +40,10 @@ class GenerationSizer : public TwoGenerationCollectorPolicy {
 
   void initialize_flags() {
     // Do basic sizing work
-    TwoGenerationCollectorPolicy::initialize_flags();
+    this->TwoGenerationCollectorPolicy::initialize_flags();
 
+    // If the user hasn't explicitly set the number of worker
+    // threads, set the count.
     assert(UseSerialGC ||
            !FLAG_IS_DEFAULT(ParallelGCThreads) ||
            (ParallelGCThreads > 0),

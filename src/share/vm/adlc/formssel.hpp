@@ -798,16 +798,12 @@ public:
   const char *_greater_equal;
   const char *_less_equal;
   const char *_greater;
-  const char *_overflow;
-  const char *_no_overflow;
   const char *_equal_format;
   const char *_not_equal_format;
   const char *_less_format;
   const char *_greater_equal_format;
   const char *_less_equal_format;
   const char *_greater_format;
-  const char *_overflow_format;
-  const char *_no_overflow_format;
 
   // Public Methods
   CondInterface(const char* equal,         const char* equal_format,
@@ -815,9 +811,7 @@ public:
                 const char* less,          const char* less_format,
                 const char* greater_equal, const char* greater_equal_format,
                 const char* less_equal,    const char* less_equal_format,
-                const char* greater,       const char* greater_format,
-                const char* overflow,      const char* overflow_format,
-                const char* no_overflow,   const char* no_overflow_format);
+                const char* greater,       const char* greater_format);
   ~CondInterface();
 
   void dump();

@@ -32,6 +32,9 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.concurrent.*;
 
+/**
+ * @author igor.ignatyev@oracle.com
+ */
 public class CompileTheWorld {
     /**
      * Entry point. Compiles classes in {@code args}, or all classes in

@@ -35,7 +35,10 @@ import java.util.concurrent.Executor;
 
 /**
  * Abstract handler for path.
+ * <p/>
  * Concrete subclasses should implement method {@link #process()}.
+ *
+ * @author igor.ignatyev@oracle.com
  */
 public abstract class PathHandler {
     private static final Pattern JAR_IN_DIR_PATTERN

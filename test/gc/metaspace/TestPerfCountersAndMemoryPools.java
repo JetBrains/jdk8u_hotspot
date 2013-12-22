@@ -29,7 +29,6 @@ import static com.oracle.java.testlibrary.Asserts.*;
 
 /* @test TestPerfCountersAndMemoryPools
  * @bug 8023476
- * @library /testlibrary
  * @summary Tests that a MemoryPoolMXBeans and PerfCounters for metaspace
  *          report the same data.
  * @run main/othervm -XX:+IgnoreUnrecognizedVMOptions -XX:-UseCompressedOops -XX:-UseCompressedClassPointers -XX:+UseSerialGC -XX:+UsePerfData TestPerfCountersAndMemoryPools
@@ -39,16 +38,16 @@ public class TestPerfCountersAndMemoryPools {
     public static void main(String[] args) throws Exception {
         checkMemoryUsage("Metaspace", "sun.gc.metaspace");
 
-        if (InputArguments.contains("-XX:+UseCompressedKlassPointers") && Platform.is64bit()) {
+        if (InputArguments.contains("-XX:+UseCompressedClassPointers") && Platform.is64bit()) {
             checkMemoryUsage("Compressed Class Space", "sun.gc.compressedclassspace");
         }
     }
 
-    private static MemoryPoolMXBean getMemoryPool(String memoryPoolName) {
+    private static MemoryUsage getMemoryUsage(String memoryPoolName) {
         List<MemoryPoolMXBean> pools = ManagementFactory.getMemoryPoolMXBeans();
         for (MemoryPoolMXBean pool : pools) {
             if (pool.getName().equals(memoryPoolName)) {
-                return pool;
+                return pool.getUsage();
             }
         }
 
@@ -58,18 +57,19 @@ public class TestPerfCountersAndMemoryPools {
 
     private static void checkMemoryUsage(String memoryPoolName, String perfNS)
         throws Exception {
-        MemoryPoolMXBean pool = getMemoryPool(memoryPoolName);
+        // Need to do a gc before each comparison to update the perf counters
 
-        // Must do a GC to update performance counters
         System.gc();
-        assertEQ(getMinCapacity(perfNS), pool.getUsage().getInit());
+        MemoryUsage mu = getMemoryUsage(memoryPoolName);
+        assertEQ(getMinCapacity(perfNS), mu.getInit());
 
-        // Must do a second GC to update the perfomance counters again, since
-        // the call pool.getUsage().getInit() could have allocated some
-        // metadata.
         System.gc();
-        assertEQ(getUsed(perfNS), pool.getUsage().getUsed());
-        assertEQ(getCapacity(perfNS), pool.getUsage().getCommitted());
+        mu = getMemoryUsage(memoryPoolName);
+        assertEQ(getUsed(perfNS), mu.getUsed());
+
+        System.gc();
+        mu = getMemoryUsage(memoryPoolName);
+        assertEQ(getCapacity(perfNS), mu.getCommitted());
     }
 
     private static long getMinCapacity(String ns) throws Exception {

@@ -53,6 +53,7 @@
 
 // Forward decls
 class elapsedTimer;
+class GenerationSizer;
 
 class PSAdaptiveSizePolicy : public AdaptiveSizePolicy {
  friend class PSGCAdaptivePolicyCounters;

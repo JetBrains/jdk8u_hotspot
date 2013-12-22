@@ -333,7 +333,7 @@ oop PSPromotionManager::oop_promotion_failed(oop obj, markOop obj_mark) {
     gclog_or_tty->print_cr("{%s %s 0x%x (%d)}",
                            "promotion-failure",
                            obj->klass()->internal_name(),
-                           (void *)obj, obj->size());
+                           obj, obj->size());
 
   }
 #endif

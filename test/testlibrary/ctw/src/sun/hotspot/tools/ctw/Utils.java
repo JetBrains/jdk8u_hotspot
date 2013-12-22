@@ -31,6 +31,8 @@ import java.util.regex.Pattern;
 
 /**
  * Auxiliary methods.
+ *
+ * @author igor.ignatyev@oracle.com
  */
 public class Utils {
     /**

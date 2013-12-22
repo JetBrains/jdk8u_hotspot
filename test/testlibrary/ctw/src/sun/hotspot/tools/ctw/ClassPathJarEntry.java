@@ -35,6 +35,7 @@ import java.nio.file.*;
 
 /**
  * Handler for jar-files containing classes to compile.
+ * @author igor.ignatyev@oracle.com
  */
 public class ClassPathJarEntry extends PathHandler {
 

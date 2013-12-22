@@ -51,7 +51,7 @@ class VM_DeoptimizeTheWorld : public VM_Operation {
 
 static void set_bool_flag(const char* flag, bool value) {
   CommandLineFlags::boolAtPut((char*)flag, strlen(flag), &value,
-                              Flag::ATTACH_ON_DEMAND);
+                              ATTACH_ON_DEMAND);
 }
 
 // Enable only the "fine grained" flags. Do *not* touch

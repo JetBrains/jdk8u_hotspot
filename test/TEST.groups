@@ -193,7 +193,6 @@ compact1_minimal = \
   serviceability/ \
   compiler/ \
   testlibrary/ \
-  testlibrary_tests/ \
   sanity/ \
   runtime/ \
   gc/ \
