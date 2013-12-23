@@ -594,9 +594,9 @@ CMSCollector::CMSCollector(ConcurrentMarkSweepGeneration* cmsGen,
   _verification_mark_bm(0, Mutex::leaf + 1, "CMS_verification_mark_bm_lock"),
   _completed_initialization(false),
   _collector_policy(cp),
-  _should_unload_classes(false),
+  _should_unload_classes(CMSClassUnloadingEnabled),
   _concurrent_cycles_since_last_unload(0),
-  _roots_scanning_options(0),
+  _roots_scanning_options(SharedHeap::SO_None),
   _inter_sweep_estimate(CMS_SweepWeight, CMS_SweepPadding),
   _intra_sweep_estimate(CMS_SweepWeight, CMS_SweepPadding),
   _gc_tracer_cm(new (ResourceObj::C_HEAP, mtGC) CMSTracer()),
@@ -787,14 +787,6 @@ CMSCollector::CMSCollector(ConcurrentMarkSweepGeneration* cmsGen,
          || (   _survivor_chunk_capacity == 0
              && _survivor_chunk_index == 0),
          "Error");
-
-  // Choose what strong roots should be scanned depending on verification options
-  if (!CMSClassUnloadingEnabled) {
-    // If class unloading is disabled we want to include all classes into the root set.
-    add_root_scanning_option(SharedHeap::SO_AllClasses);
-  } else {
-    add_root_scanning_option(SharedHeap::SO_SystemClasses);
-  }
 
   NOT_PRODUCT(_overflow_counter = CMSMarkStackOverflowInterval;)
   _gc_counters = new CollectorCounters("CMS", 1);
@@ -2532,6 +2524,9 @@ void CMSCollector::collect_in_foreground(bool clear_all_soft_refs, GCCause::Caus
   // Snapshot the soft reference policy to be used in this collection cycle.
   ref_processor()->setup_policy(clear_all_soft_refs);
 
+  // Decide if class unloading should be done
+  update_should_unload_classes();
+
   bool init_mark_was_synchronous = false; // until proven otherwise
   while (_collectorState != Idling) {
     if (TraceCMSState) {
@@ -3310,7 +3305,10 @@ void CMSCollector::setup_cms_unloading_and_verification_state() {
                              || VerifyBeforeExit;
   const  int  rso           =   SharedHeap::SO_Strings | SharedHeap::SO_CodeCache;
 
+  // We set the proper root for this CMS cycle here.
   if (should_unload_classes()) {   // Should unload classes this cycle
+    remove_root_scanning_option(SharedHeap::SO_AllClasses);
+    add_root_scanning_option(SharedHeap::SO_SystemClasses);
     remove_root_scanning_option(rso);  // Shrink the root set appropriately
     set_verifying(should_verify);    // Set verification state for this cycle
     return;                            // Nothing else needs to be done at this time
@@ -3318,6 +3316,9 @@ void CMSCollector::setup_cms_unloading_and_verification_state() {
 
   // Not unloading classes this cycle
   assert(!should_unload_classes(), "Inconsitency!");
+  remove_root_scanning_option(SharedHeap::SO_SystemClasses);
+  add_root_scanning_option(SharedHeap::SO_AllClasses);
+
   if ((!verifying() || unloaded_classes_last_cycle()) && should_verify) {
     // Include symbols, strings and code cache elements to prevent their resurrection.
     add_root_scanning_option(rso);
@@ -9065,7 +9066,7 @@ bool CMSCollector::take_from_overflow_list(size_t num, CMSMarkStack* stack) {
   return !stack->isEmpty();
 }
 
-#define BUSY  (oop(0x1aff1aff))
+#define BUSY  (cast_to_oop<intptr_t>(0x1aff1aff))
 // (MT-safe) Get a prefix of at most "num" from the list.
 // The overflow list is chained through the mark word of
 // each object in the list. We fetch the entire list,
@@ -9098,7 +9099,7 @@ bool CMSCollector::par_take_from_overflow_list(size_t num,
     return false;
   }
   // Grab the entire list; we'll put back a suffix
-  oop prefix = (oop)Atomic::xchg_ptr(BUSY, &_overflow_list);
+  oop prefix = cast_to_oop(Atomic::xchg_ptr(BUSY, &_overflow_list));
   Thread* tid = Thread::current();
   // Before "no_of_gc_threads" was introduced CMSOverflowSpinCount was
   // set to ParallelGCThreads.
@@ -9113,7 +9114,7 @@ bool CMSCollector::par_take_from_overflow_list(size_t num,
       return false;
     } else if (_overflow_list != BUSY) {
       // Try and grab the prefix
-      prefix = (oop)Atomic::xchg_ptr(BUSY, &_overflow_list);
+      prefix = cast_to_oop(Atomic::xchg_ptr(BUSY, &_overflow_list));
     }
   }
   // If the list was found to be empty, or we spun long
