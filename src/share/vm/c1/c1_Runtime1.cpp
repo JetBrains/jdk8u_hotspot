@@ -190,6 +190,23 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
   StubAssembler* sasm = new StubAssembler(&code, name_for(id), id);
   // generate code for runtime stub
   OopMapSet* oop_maps;
+#ifdef BUILTIN_SIM
+    AArch64Simulator *simulator = AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck);
+  if (NotifySimulator) {
+    size_t len = 65536;
+    char *name = new char[len];
+
+    // tell the sim about the new stub code
+    strncpy(name, name_for(id), len);
+    // replace spaces with underscore so we can write to file and reparse
+    for (char *p = strpbrk(name, " "); p; p = strpbrk(p, " ")) {
+      *p = '_';
+    }
+    unsigned char *base = buffer_blob->code_begin();
+    simulator->notifyCompile(name, base);
+//    delete[] name;
+  }
+#endif
   oop_maps = generate_code_for(id, sasm);
   assert(oop_maps == NULL || sasm->frame_size() != no_frame_size,
          "if stub has an oop map it must have a valid frame size");
@@ -226,6 +243,7 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
   sasm->align(BytesPerWord);
   // make sure all code is in code buffer
   sasm->flush();
+
   // create blob - distinguish a few special cases
   CodeBlob* blob = RuntimeStub::new_runtime_stub(name_for(id),
                                                  &code,
@@ -235,21 +253,8 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
                                                  sasm->must_gc_arguments());
 #ifdef BUILTIN_SIM
   if (NotifySimulator) {
-    size_t len = 65536;
-    char *name = new char[len];
-
-    // tell the sim about the new stub code
-    AArch64Simulator *simulator = AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck);
-    strncpy(name, name_for(id), len);
-    // replace spaces with underscore so we can write to file and reparse
-    for (char *p = strpbrk(name, " "); p; p = strpbrk(p, " ")) {
-      *p = '_';
-    }
-    unsigned char *base = blob->code_begin();
-    simulator->notifyCompile(name, base);
-    // code does not get relocated so just pass offset 0 and the code is live
-    simulator->notifyRelocate(base, 0);
-//    delete[] name;
+    unsigned char *base = buffer_blob->code_begin();
+    simulator->notifyRelocate(base, blob->code_begin() - base);
   }
 #endif
   // install blob
