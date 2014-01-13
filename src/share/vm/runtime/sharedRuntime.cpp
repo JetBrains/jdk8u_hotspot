@@ -509,7 +509,6 @@ address SharedRuntime::raw_exception_handler_for_return_address(JavaThread* thre
 
   // Entry code
   if (StubRoutines::returns_to_call_stub(return_address)) {
-    thread->reguard_stack();
     return StubRoutines::catch_exception_entry();
   }
   // Interpreted code
