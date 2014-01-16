@@ -33,11 +33,6 @@ ifeq ($(BUILTIN_SIM), true)
 CFLAGS  += -DBUILTIN_SIM -DALLOW_OPERATOR_NEW_USAGE
 endif
 
-# enable support for JDK7 on AArch64 JVM8
-ifneq ($(TARGET_JDK_VERSION),)
-CFLAGS  += -DTARGET_JDK_VERSION=$(TARGET_JDK_VERSION)
-endif
-
 # CFLAGS += -D_LP64=1
 
 OPT_CFLAGS/compactingPermGenGen.o = -O1
