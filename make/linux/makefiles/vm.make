@@ -129,6 +129,11 @@ LFLAGS += -Xlinker -z -Xlinker noexecstack
 
 LIBS += -lm -ldl -lpthread
 
+# enable support for JDK7
+ifeq ($(JDK_MINOR_VERSION),7)
+CFLAGS  += -DTARGET_JDK_VERSION=$(JDK_MINOR_VERSION)
+endif
+
 ifeq ($(BUILTIN_SIM), true)
   ARMSIM_DIR = $(shell cd $(GAMMADIR)/../../simulator && pwd)
   LIBS += -L $(ARMSIM_DIR) -larmsim -Wl,-rpath,$(ARMSIM_DIR)
@@ -241,7 +246,7 @@ vm_version.o: $(filter-out vm_version.o,$(JVM_OBJ_FILES))
 # current aarch64 build has to export extra symbols to the simulator
 # it also needs to provide an extra JVM API method for target JDK 7
 ifeq ($(BUILTIN_SIM), true)
-  ifeq ($(TARGET_JDK_VERSION),7)
+  ifeq ($(JDK_MINOR_VERSION),7)
 mapfile : $(MAPFILE) vm.def
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
@@ -267,7 +272,7 @@ mapfile : $(MAPFILE) vm.def
              }' > $@ < $(MAPFILE)
   endif
 else
-  ifeq ($(TARGET_JDK_VERSION),7)
+  ifeq ($(JDK_MINOR_VERSION),7)
 mapfile : $(MAPFILE) vm.def
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
@@ -281,7 +286,7 @@ mapfile : $(MAPFILE) vm.def
 mapfile : $(MAPFILE) vm.def
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
-                 { system ("cat vm.def"); }		\
+                 { system ("cat vm.def"); }             \
                else					\
                  { print $$0 }				\
              }' > $@ < $(MAPFILE)
