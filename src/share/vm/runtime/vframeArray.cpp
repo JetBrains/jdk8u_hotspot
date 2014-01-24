@@ -341,8 +341,6 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
     switch(value->type()) {
       case T_INT:
         *addr = value->get_int();
-	fprintf(stderr, "Unpacking local %d at %p : %g : 0x%lx\n",
-		i, value, *(float*)addr, *(long*)addr);
         break;
       case T_OBJECT:
         *addr = value->get_int(T_OBJECT);

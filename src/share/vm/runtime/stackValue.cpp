@@ -30,17 +30,6 @@
 #include "runtime/stackValue.hpp"
 
 StackValue* StackValue::create_stack_value(const frame* fr, const RegisterMap* reg_map, ScopeValue* sv) {
-  StackValue *value = create_stack_value_inner(fr, reg_map, sv);
-  if (value->type() == T_OBJECT)
-    fprintf(stderr, "Packing object at %p : 0x%lx\n",
-	    value, *(long*)&value->_o);
-  else
-    fprintf(stderr, "Packing value at %p : %g : 0x%lx\n",
-	    value, *(float*)&value->_i, *(long*)&value->_i);
-  return value;
-}
-
-StackValue* StackValue::create_stack_value_inner(const frame* fr, const RegisterMap* reg_map, ScopeValue* sv) {
   if (sv->is_location()) {
     // Stack or register value
     Location loc = ((LocationValue *)sv)->location();
@@ -140,8 +129,7 @@ StackValue* StackValue::create_stack_value_inner(const frame* fr, const Register
       union { intptr_t p; jint ji;} value;
       value.p = (intptr_t) CONST64(0xDEADDEAFDEADDEAF);
       value.ji = *(jint*)value_addr;
-      StackValue *res = new StackValue(value.p);
-      return res;
+      return new StackValue(value.p);
     }
     case Location::invalid:
       return new StackValue();

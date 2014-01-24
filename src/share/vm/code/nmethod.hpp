@@ -615,10 +615,7 @@ public:
   bool is_deopt_mh_entry(address pc) { return pc == deopt_mh_handler_begin(); }
   // Accessor/mutator for the original pc of a frame before a frame was deopted.
   address get_original_pc(const frame* fr) { return *orig_pc_addr(fr); }
-  void    set_original_pc(const frame* fr, address pc) { 
-    fprintf(stderr, "Original PC: %p\n", pc);
-    *orig_pc_addr(fr) = pc; 
-  }
+  void    set_original_pc(const frame* fr, address pc) { *orig_pc_addr(fr) = pc; }
 
   static address get_deopt_original_pc(const frame* fr);
 
