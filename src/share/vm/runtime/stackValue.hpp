@@ -105,6 +105,7 @@ class StackValue : public ResourceObj {
   }
 
   static StackValue* create_stack_value(const frame* fr, const RegisterMap* reg_map, ScopeValue* sv);
+  static StackValue* create_stack_value_inner(const frame* fr, const RegisterMap* reg_map, ScopeValue* sv);
   static BasicLock*  resolve_monitor_lock(const frame* fr, Location location);
 
 #ifndef PRODUCT
