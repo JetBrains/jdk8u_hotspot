@@ -1051,6 +1051,18 @@ bool InstanceKlass::implements_interface(Klass* k) const {
   return false;
 }
 
+bool InstanceKlass::is_same_or_direct_interface(Klass *k) const {
+  // Verify direct super interface
+  if (this == k) return true;
+  assert(k->is_interface(), "should be an interface class");
+  for (int i = 0; i < local_interfaces()->length(); i++) {
+    if (local_interfaces()->at(i) == k) {
+      return true;
+    }
+  }
+  return false;
+}
+
 objArrayOop InstanceKlass::allocate_objArray(int n, int length, TRAPS) {
   if (length < 0) THROW_0(vmSymbols::java_lang_NegativeArraySizeException());
   if (length > arrayOopDesc::max_array_length(T_OBJECT)) {
@@ -1415,6 +1427,17 @@ Method* InstanceKlass::find_method(Symbol* name, Symbol* signature) const {
   return InstanceKlass::find_method(methods(), name, signature);
 }
 
+// find_instance_method looks up the name/signature in the local methods array
+// and skips over static methods
+Method* InstanceKlass::find_instance_method(
+    Array<Method*>* methods, Symbol* name, Symbol* signature) {
+  Method* meth = InstanceKlass::find_method(methods, name, signature);
+  if (meth != NULL && meth->is_static()) {
+      meth = NULL;
+  }
+  return meth;
+}
+
 // find_method looks up the name/signature in the local methods array
 Method* InstanceKlass::find_method(
     Array<Method*>* methods, Symbol* name, Symbol* signature) {
@@ -1475,13 +1498,18 @@ int InstanceKlass::find_method_by_name(
   return -1;
 }
 
-// lookup_method searches both the local methods array and all superclasses methods arrays
+// uncached_lookup_method searches both the local class methods array and all
+// superclasses methods arrays, skipping any overpass methods in superclasses.
 Method* InstanceKlass::uncached_lookup_method(Symbol* name, Symbol* signature) const {
   Klass* klass = const_cast<InstanceKlass*>(this);
+  bool dont_ignore_overpasses = true;  // For the class being searched, find its overpasses.
   while (klass != NULL) {
     Method* method = InstanceKlass::cast(klass)->find_method(name, signature);
-    if (method != NULL) return method;
+    if ((method != NULL) && (dont_ignore_overpasses || !method->is_overpass())) {
+      return method;
+    }
     klass = InstanceKlass::cast(klass)->super();
+    dont_ignore_overpasses = false;  // Ignore overpass methods in all superclasses.
   }
   return NULL;
 }
@@ -1496,7 +1524,7 @@ Method* InstanceKlass::lookup_method_in_ordered_interfaces(Symbol* name,
   }
   // Look up interfaces
   if (m == NULL) {
-    m = lookup_method_in_all_interfaces(name, signature);
+    m = lookup_method_in_all_interfaces(name, signature, false);
   }
   return m;
 }
@@ -1505,14 +1533,16 @@ Method* InstanceKlass::lookup_method_in_ordered_interfaces(Symbol* name,
 // Do NOT return private or static methods, new in JDK8 which are not externally visible
 // They should only be found in the initial InterfaceMethodRef
 Method* InstanceKlass::lookup_method_in_all_interfaces(Symbol* name,
-                                                         Symbol* signature) const {
+                                                       Symbol* signature,
+                                                       bool skip_default_methods) const {
   Array<Klass*>* all_ifs = transitive_interfaces();
   int num_ifs = all_ifs->length();
   InstanceKlass *ik = NULL;
   for (int i = 0; i < num_ifs; i++) {
     ik = InstanceKlass::cast(all_ifs->at(i));
     Method* m = ik->lookup_method(name, signature);
-    if (m != NULL && m->is_public() && !m->is_static()) {
+    if (m != NULL && m->is_public() && !m->is_static() &&
+        (!skip_default_methods || !m->is_default_method())) {
       return m;
     }
   }
@@ -2157,7 +2187,6 @@ int InstanceKlass::oop_adjust_pointers(oop obj) {
     obj, \
     MarkSweep::adjust_pointer(p), \
     assert_is_in)
-  MarkSweep::adjust_klass(obj->klass());
   return size;
 }
 
@@ -2177,7 +2206,6 @@ int InstanceKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
     obj, \
     PSParallelCompact::adjust_pointer(p), \
     assert_is_in)
-  obj->update_header(cm);
   return size;
 }
 

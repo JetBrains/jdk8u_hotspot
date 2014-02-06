@@ -448,7 +448,7 @@
   notproduct(bool, PrintEliminateLocks, false,                              \
           "Print out when locks are eliminated")                            \
                                                                             \
-  product(bool, EliminateAutoBox, true,                                     \
+  product(bool, EliminateAutoBox, false,                                    \
           "Control optimizations for autobox elimination")                  \
                                                                             \
   experimental(bool, UseImplicitStableValues, false,                        \
@@ -640,7 +640,7 @@
   diagnostic(bool, OptimizeExpensiveOps, true,                              \
           "Find best control for expensive operations")                     \
                                                                             \
-  product(bool, UseMathExactIntrinsics, true,                               \
+  experimental(bool, UseMathExactIntrinsics, false,                         \
           "Enables intrinsification of various java.lang.Math functions")   \
                                                                             \
   experimental(bool, ReplaceInParentMaps, false,                            \

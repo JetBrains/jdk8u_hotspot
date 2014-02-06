@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -569,7 +569,6 @@ int ObjArrayKlass::oop_adjust_pointers(oop obj) {
   // Get size before changing pointers.
   // Don't call size() or oop_size() since that is a virtual call.
   int size = a->object_size();
-  MarkSweep::adjust_klass(a->klass());
   ObjArrayKlass_OOP_ITERATE(a, p, MarkSweep::adjust_pointer(p))
   return size;
 }
@@ -588,7 +587,6 @@ int ObjArrayKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
   assert (obj->is_objArray(), "obj must be obj array");
   objArrayOop a = objArrayOop(obj);
   int size = a->object_size();
-  a->update_header(cm);
   ObjArrayKlass_OOP_ITERATE(a, p, PSParallelCompact::adjust_pointer(p))
   return size;
 }

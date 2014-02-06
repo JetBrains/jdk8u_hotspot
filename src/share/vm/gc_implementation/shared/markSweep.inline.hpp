@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -42,6 +42,11 @@ inline void MarkSweep::mark_object(oop obj) {
   if (mark->must_be_preserved(obj)) {
     preserve_mark(obj, mark);
   }
+}
+
+inline void MarkSweep::follow_klass(Klass* klass) {
+  oop op = klass->klass_holder();
+  MarkSweep::mark_and_push(&op);
 }
 
 template <class T> inline void MarkSweep::follow_root(T* p) {
