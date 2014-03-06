@@ -98,7 +98,7 @@ class MetaspaceShared : AllStatic {
 
   static void print_shared_spaces();
 
-#if defined(AARCH64)
+#if defined(BUILTIN_SIM)
   static void relocate_vtbl_list(char **buffer);
 #endif
 };
