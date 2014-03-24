@@ -5112,6 +5112,19 @@ instruct loadConD(vRegD dst, immD con) %{
 
 // Store Instructions
 
+// Store CMS card-mark Immediate
+instruct storeimmCM0(immI0 zero, memory mem)
+%{
+  match(Set mem (StoreCM mem zero));
+
+  ins_cost(MEMORY_REF_COST);
+  format %{ "strb zr, $mem\t# byte" %}
+
+  ins_encode(aarch64_enc_strb0(mem));
+
+  ins_pipe(pipe_class_memory);
+%}
+
 // Store Byte
 instruct storeB(iRegI src, memory mem)
 %{
@@ -5125,6 +5138,7 @@ instruct storeB(iRegI src, memory mem)
 
   ins_pipe(pipe_class_memory);
 %}
+
 
 instruct storeimmB0(immI0 zero, memory mem)
 %{
