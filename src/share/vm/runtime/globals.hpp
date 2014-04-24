@@ -1229,10 +1229,8 @@ class CommandLineFlags {
   product(bool, CompactFields, true,                                        \
           "Allocate nonstatic fields in gaps between previous fields")      \
                                                                             \
-  AARCH64_ONLY(product_pd(bool, UseBiasedLocking,                   \
-			  "Enable biased locking in JVM"))		    \
-  NOT_AARCH64(product(bool, UseBiasedLocking, true,                         \
-		      "Enable biased locking in JVM"))			    \
+  product(bool, UseBiasedLocking, true,                                     \
+		      "Enable biased locking in JVM")			    \
   notproduct(bool, PrintFieldLayout, false,                                 \
           "Print field layout for each class")                              \
                                                                             \
