@@ -456,7 +456,7 @@ class StubGenerator: public StubCodeGenerator {
   // not the case if the callee is compiled code => need to setup the
   // rsp.
   //
-  // rax: exception oop
+  // r0: exception oop
 
   // NOTE: this is used as a target from the signal handler so it
   // needs an x86 prolog which returns into the current simulator
@@ -849,21 +849,6 @@ class StubGenerator: public StubCodeGenerator {
   void array_overlap_test(address no_overlap_target, int sf) { Unimplemented(); }
   void array_overlap_test(Label& L_no_overlap, Address::sxtw sf) { __ b(L_no_overlap); }
   void array_overlap_test(address no_overlap_target, Label* NOLp, int sf) { Unimplemented(); }
-
-  // Shuffle first three arg regs on Windows into Linux/Solaris locations.
-  //
-  // Outputs:
-  //    rdi - rcx
-  //    rsi - rdx
-  //    rdx - r8
-  //    rcx - r9
-  //
-  // Registers r9 and r10 are used to save rdi and rsi on Windows, which latter
-  // are non-volatile.  r9 and r10 should not be used by the caller.
-  //
-  void setup_arg_regs(int nargs = 3) { Unimplemented(); }
-
-  void restore_arg_regs() { Unimplemented(); }
 
   // Generate code for an array write pre barrier
   //
@@ -1796,8 +1781,8 @@ class StubGenerator: public StubCodeGenerator {
   //    rsp+40     -  element count (32-bits)
   //
   //  Output:
-  //    rax ==  0  -  success
-  //    rax == -1^K - failure, where K is partial transfer count
+  //    r0 ==  0  -  success
+  //    r0 == -1^K - failure, where K is partial transfer count
   //
   address generate_generic_copy(const char *name,
                                 address byte_copy_entry, address short_copy_entry,
@@ -1943,6 +1928,50 @@ class StubGenerator: public StubCodeGenerator {
     __ ret(lr);
   }
 #endif
+
+  /**
+   *  Arguments:
+   *
+   * Inputs:
+   *   c_rarg0   - int crc
+   *   c_rarg1   - byte* buf
+   *   c_rarg2   - int length
+   *
+   * Output:
+   *       r0   - int crc result
+   *
+   * Preserves:
+   *       r13
+   *
+   */
+  address generate_updateBytesCRC32() {
+    assert(UseCRC32Intrinsics, "what are we doing here?");
+
+    __ align(CodeEntryAlignment);
+    StubCodeMark mark(this, "StubRoutines", "updateBytesCRC32");
+
+    address start = __ pc();
+
+    const Register crc   = c_rarg0;  // crc
+    const Register buf   = c_rarg1;  // source java byte array address
+    const Register len   = c_rarg2;  // length
+    const Register table0 = c_rarg3; // crc_table address
+    const Register table1 = c_rarg4;
+    const Register table2 = c_rarg5;
+    const Register table3 = c_rarg6;
+    const Register tmp3 = c_rarg7;
+
+    BLOCK_COMMENT("Entry:");
+    __ enter(); // required for proper stackwalking of RuntimeStub frame
+
+    __ kernel_crc32(crc, buf, len,
+              table0, table1, table2, table3, rscratch1, rscratch2, tmp3);
+
+    __ leave(); // required for proper stackwalking of RuntimeStub frame
+    __ ret(lr);
+
+    return start;
+  }
 
 #undef __
 #define __ masm->
@@ -2113,8 +2142,8 @@ class StubGenerator: public StubCodeGenerator {
       generate_handler_for_unsafe_access();
 
     // platform dependent
-    StubRoutines::x86::_get_previous_fp_entry = generate_get_previous_fp();
-    StubRoutines::x86::_get_previous_sp_entry = generate_get_previous_sp();
+    StubRoutines::aarch64::_get_previous_fp_entry = generate_get_previous_fp();
+    StubRoutines::aarch64::_get_previous_sp_entry = generate_get_previous_sp();
 
     // Build this early so it's available for the interpreter.
     StubRoutines::_throw_StackOverflowError_entry =
@@ -2122,6 +2151,11 @@ class StubGenerator: public StubCodeGenerator {
                                CAST_FROM_FN_PTR(address,
                                                 SharedRuntime::
                                                 throw_StackOverflowError));
+    if (UseCRC32Intrinsics) {
+      // set table address before stub generation which use it
+      StubRoutines::_crc_table_adr = (address)StubRoutines::aarch64::_crc_table;
+      StubRoutines::_updateBytesCRC32 = generate_updateBytesCRC32();
+    }
   }
 
   void generate_all() {
