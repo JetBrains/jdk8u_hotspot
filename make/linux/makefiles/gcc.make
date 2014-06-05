@@ -182,6 +182,7 @@ ARCHFLAG/zero    = $(ZERO_ARCHFLAG)
 ifndef E500V2
 ARCHFLAG/ppc     =  -mcpu=powerpc
 endif
+ARCHFLAG/ppc64   =  -m64
 
 CFLAGS     += $(ARCHFLAG)
 AOUT_FLAGS += $(ARCHFLAG)
@@ -348,6 +349,7 @@ else
   DEBUG_CFLAGS/aarch64 = -g
   DEBUG_CFLAGS/arm   = -g
   DEBUG_CFLAGS/ppc   = -g
+  DEBUG_CFLAGS/ppc64 = -g
   DEBUG_CFLAGS/zero  = -g
   DEBUG_CFLAGS += $(DEBUG_CFLAGS/$(BUILDARCH))
   ifeq ($(DEBUG_CFLAGS/$(BUILDARCH)),)
@@ -365,6 +367,7 @@ else
     FASTDEBUG_CFLAGS/aarch64 = -g
     FASTDEBUG_CFLAGS/arm   = -g
     FASTDEBUG_CFLAGS/ppc   = -g
+    FASTDEBUG_CFLAGS/ppc64 = -g
     FASTDEBUG_CFLAGS/zero  = -g
     FASTDEBUG_CFLAGS += $(DEBUG_CFLAGS/$(BUILDARCH))
     ifeq ($(FASTDEBUG_CFLAGS/$(BUILDARCH)),)
@@ -381,6 +384,7 @@ else
     OPT_CFLAGS/aarch64 = -g
     OPT_CFLAGS/arm   = -g
     OPT_CFLAGS/ppc   = -g
+    OPT_CFLAGS/ppc64 = -g
     OPT_CFLAGS/zero  = -g
     OPT_CFLAGS += $(OPT_CFLAGS/$(BUILDARCH))
     ifeq ($(OPT_CFLAGS/$(BUILDARCH)),)
