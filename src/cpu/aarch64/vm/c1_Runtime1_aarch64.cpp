@@ -63,7 +63,7 @@ int StubAssembler::call_RT(Register oop_result1, Register metadata_result, addre
   set_last_Java_frame(sp, rfp, retaddr, rscratch1);
 
   // do the call
-  mov(rscratch1, RuntimeAddress(entry));
+  lea(rscratch1, RuntimeAddress(entry));
   blrt(rscratch1, args_size + 1, 8, 1);
   bind(retaddr);
   int call_offset = offset();
@@ -553,7 +553,7 @@ OopMapSet* Runtime1::generate_patching(StubAssembler* sasm, address target) {
   Label retaddr;
   __ set_last_Java_frame(sp, rfp, retaddr, rscratch1);
   // do the call
-  __ mov(rscratch1, RuntimeAddress(target));
+  __ lea(rscratch1, RuntimeAddress(target));
   __ blrt(rscratch1, 1, 0, 1);
   __ bind(retaddr);
   OopMapSet* oop_maps = new OopMapSet();

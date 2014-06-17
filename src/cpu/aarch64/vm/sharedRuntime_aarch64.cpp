@@ -316,7 +316,7 @@ static void patch_callers_callsite(MacroAssembler *masm) {
 
   __ mov(c_rarg0, rmethod);
   __ mov(c_rarg1, lr);
-  __ mov(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, SharedRuntime::fixup_callers_callsite)));
+  __ lea(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, SharedRuntime::fixup_callers_callsite)));
   __ blrt(rscratch1, 2, 0, 0);
 
   __ pop_CPU_state();
@@ -1168,7 +1168,7 @@ static void rt_call(MacroAssembler* masm, address dest, int gpargs, int fpargs, 
   } else {
     assert((unsigned)gpargs < 256, "eek!");
     assert((unsigned)fpargs < 32, "eek!");
-    __ mov(rscratch1, RuntimeAddress(dest));
+    __ lea(rscratch1, RuntimeAddress(dest));
     __ mov(rscratch2, (gpargs << 6) | (fpargs << 2) | type);
     __ blrt(rscratch1, rscratch2);
     // __ blrt(rscratch1, gpargs, fpargs, type);
@@ -1965,9 +1965,9 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
   assert(frame::arg_reg_save_area_bytes == 0, "not expecting frame reg save area");
 #endif
     if (!is_critical_native) {
-      __ mov(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, JavaThread::check_special_condition_for_native_trans)));
+      __ lea(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, JavaThread::check_special_condition_for_native_trans)));
     } else {
-      __ mov(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, JavaThread::check_special_condition_for_native_trans_and_transition)));
+      __ lea(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, JavaThread::check_special_condition_for_native_trans_and_transition)));
     }
     __ blrt(rscratch1, 1, 0, 1);
     // Restore any method result value
@@ -2388,7 +2388,7 @@ void SharedRuntime::generate_deopt_blob() {
   }
 #endif // ASSERT
   __ mov(c_rarg0, rthread);
-  __ mov(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, Deoptimization::fetch_unroll_info)));
+  __ lea(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, Deoptimization::fetch_unroll_info)));
   __ blrt(rscratch1, 1, 0, 1);
   __ bind(retaddr);
 
@@ -2518,7 +2518,7 @@ void SharedRuntime::generate_deopt_blob() {
 
   __ mov(c_rarg0, rthread);
   __ movw(c_rarg1, rcpool); // second arg: exec_mode
-  __ mov(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, Deoptimization::unpack_frames)));
+  __ lea(rscratch1, RuntimeAddress(CAST_FROM_FN_PTR(address, Deoptimization::unpack_frames)));
   __ blrt(rscratch1, 2, 0, 0);
 
   // Set an oopmap for the call site
@@ -2871,7 +2871,7 @@ RuntimeStub* SharedRuntime::generate_resolve_blob(address destination, const cha
     __ set_last_Java_frame(sp, noreg, retaddr, rscratch1);
 
     __ mov(c_rarg0, rthread);
-    __ mov(rscratch1, RuntimeAddress(destination));
+    __ lea(rscratch1, RuntimeAddress(destination));
 
     __ blrt(rscratch1, 1, 0, 1);
     __ bind(retaddr);
