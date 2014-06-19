@@ -53,13 +53,6 @@ void NativeCall::print() { Unimplemented(); }
 // Inserts a native call instruction at a given pc
 void NativeCall::insert(address code_pos, address entry) { Unimplemented(); }
 
-// MT-safe patching of a call instruction.
-// First patches first word of instruction to two jmp's that jmps to them
-// selfs (spinlock). Then patches the last byte, and then atomicly replaces
-// the jmp's with the first 4 byte of the new instruction.
-void NativeCall::replace_mt_safe(address instr_addr, address code_buffer) { Unimplemented(); }
-
-
 void NativeMovConstReg::verify() {
   // make sure code pattern is actually mov reg64, imm64 instructions
 }
@@ -82,7 +75,6 @@ void NativeMovConstReg::set_data(intptr_t x) {
     MacroAssembler::pd_patch_instruction(instruction_address(), (address)x);
   }
 };
-
 
 void NativeMovConstReg::print() {
   tty->print_cr(PTR_FORMAT ": mov reg, " INTPTR_FORMAT,
@@ -207,6 +199,14 @@ bool NativeInstruction::is_ldrw_to_zr(address instr) {
           Instruction_aarch64::extract(insn, 4, 0) == 0b11111);
 }
 
+bool NativeInstruction::is_movz() {
+  return Instruction_aarch64::extract(int_at(0), 30, 23) == 0b10100101;
+}
+
+bool NativeInstruction::is_movk() {
+  return Instruction_aarch64::extract(int_at(0), 30, 23) == 0b11100101;
+}
+
 // MT safe inserting of a jump over an unknown instruction sequence (used by nmethod::makeZombie)
 
 void NativeJump::patch_verified_entry(address entry, address verified_entry, address dest) {
@@ -242,8 +242,7 @@ void NativeGeneralJump::insert_unconditional(address code_pos, address entry) {
 
 // MT-safe patching of a long jump instruction.
 void NativeGeneralJump::replace_mt_safe(address instr_addr, address code_buffer) {
-  assert((! DeoptimizeWhenPatching)
-	 || nativeInstruction_at(instr_addr)->is_jump_or_nop(),
+  assert(nativeInstruction_at(instr_addr)->is_jump_or_nop(),
 	 "Aarch64 cannot replace non-jump with jump");
   uint32_t instr = *(uint32_t*)code_buffer;
   *(uint32_t*)instr_addr = instr;

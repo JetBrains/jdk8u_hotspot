@@ -406,6 +406,8 @@ private:
   int push(unsigned int bitset, Register stack);
   int pop(unsigned int bitset, Register stack);
 
+  void mov(Register dst, Address a);
+
 public:
   int push(RegSet regs, Register stack) { if (regs.bits()) push(regs.bits(), stack); }
   int pop(RegSet regs, Register stack) { if (regs.bits()) pop(regs.bits(), stack); }
@@ -438,8 +440,7 @@ public:
     mov(dst, (long)i);
   }
 
-  void mov(Register dst, Address a);
-  void mov64(Register r, uintptr_t imm64);
+  void movptr(Register r, uintptr_t imm64);
 
   // macro instructions for accessing and updating floating point
   // status register
@@ -492,6 +493,8 @@ public:
 #ifndef PRODUCT
   static void pd_print_patched_instruction(address branch);
 #endif
+
+  static void patch_oop(address insn_addr, address o);
 
   // The following 4 methods return the offset of the appropriate move instruction
 
@@ -1111,7 +1114,7 @@ public:
   void pushoop(jobject obj);
 #endif
 
-  void movoop(Register dst, jobject obj);
+  void movoop(Register dst, jobject obj, bool immediate = false);
 
   // sign extend as need a l to ptr sized element
   void movl2ptr(Register dst, Address src) { Unimplemented(); }
@@ -1253,13 +1256,12 @@ public:
     Label*   retaddr = NULL
   );
 
-  void ldr_constant(Register dest, address const_addr) {
-    guarantee(const_addr, "constant pool overflow");
+  void ldr_constant(Register dest, const Address &const_addr) {
     if (NearCpool) {
-      ldr(dest, const_addr, relocInfo::internal_word_type);
+      ldr(dest, const_addr);
     } else {
       unsigned long offset;
-      adrp(dest, InternalAddress(const_addr), offset);
+      adrp(dest, InternalAddress(const_addr.target()), offset);
       ldr(dest, Address(dest, offset));
     }
   }

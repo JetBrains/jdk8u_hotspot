@@ -65,6 +65,7 @@
 #define BIND(label) bind(label); BLOCK_COMMENT(#label ":")
 
 void MacroAssembler::pd_patch_instruction(address branch, address target) {
+  assert((uint64_t)target < (1ul << 48), "48-bit overflow in address constant");
   long offset = (target - branch) >> 2;
   unsigned insn = *(unsigned*)branch;
   if ((Instruction_aarch64::extract(insn, 29, 24) & 0b111011) == 0b011000) {
@@ -136,19 +137,34 @@ void MacroAssembler::pd_patch_instruction(address branch, address target) {
     offset >>= 2;
     Instruction_aarch64::spatch(branch, 23, 5, offset);
     Instruction_aarch64::patch(branch, 30, 29, offset_lo);
-  } else if (Instruction_aarch64::extract(insn, 31, 23) == 0b110100101) {
-    // Move wide constant
+  } else if (Instruction_aarch64::extract(insn, 31, 21) == 0b11010010100) {
     u_int64_t dest = (u_int64_t)target;
+    // Move wide constant
+    assert(nativeInstruction_at(branch+4)->is_movk(), "wrong insns in patch");
+    assert(nativeInstruction_at(branch+8)->is_movk(), "wrong insns in patch");
     Instruction_aarch64::patch(branch, 20, 5, dest & 0xffff);
-    Instruction_aarch64::patch(branch += 4, 20, 5, (dest >>= 16) & 0xffff);
-    Instruction_aarch64::patch(branch += 4, 20, 5, (dest >>= 16) & 0xffff);
-    Instruction_aarch64::patch(branch += 4, 20, 5, (dest >>= 16));
+    Instruction_aarch64::patch(branch+4, 20, 5, (dest >>= 16) & 0xffff);
+    Instruction_aarch64::patch(branch+8, 20, 5, (dest >>= 16) & 0xffff);
+    assert(pd_call_destination(branch) == target, "should be");
   } else if (Instruction_aarch64::extract(insn, 31, 22) == 0b1011100101 &&
              Instruction_aarch64::extract(insn, 4, 0) == 0b11111) {
     // nothing to do
     assert(target == 0, "did not expect to relocate target for polling page load");
   } else {
     ShouldNotReachHere();
+  }
+}
+
+void MacroAssembler::patch_oop(address insn_addr, address o) {
+  unsigned insn = *(unsigned*)insn_addr;
+  if (Instruction_aarch64::extract(insn, 31, 21) == 0b11010010101) {
+      // Move narrow constant
+      assert(nativeInstruction_at(insn_addr+4)->is_movk(), "wrong insns in patch");
+      narrowOop n = oopDesc::encode_heap_oop((oop)o);
+      Instruction_aarch64::patch(insn_addr, 20, 5, n >> 16);
+      Instruction_aarch64::patch(insn_addr+4, 20, 5, n & 0xffff);
+  } else {
+    pd_patch_instruction(insn_addr, o);
   }
 }
 
@@ -216,14 +232,13 @@ address MacroAssembler::target_addr_for_insn(address insn_addr, unsigned insn) {
       ShouldNotReachHere();
     }
   } else if (Instruction_aarch64::extract(insn, 31, 23) == 0b110100101) {
-    // Move wide constant
-    // FIXME: We assume these instructions are movz, movk, movk, movk.
-    // We don't assert this; we should.
     u_int32_t *insns = (u_int32_t *)insn_addr;
+    // Move wide constant: movz, movk, movk.  See movptr().
+    assert(nativeInstruction_at(insns+1)->is_movk(), "wrong insns in patch");
+    assert(nativeInstruction_at(insns+2)->is_movk(), "wrong insns in patch");
     return address(u_int64_t(Instruction_aarch64::extract(insns[0], 20, 5))
 		   + (u_int64_t(Instruction_aarch64::extract(insns[1], 20, 5)) << 16)
-		   + (u_int64_t(Instruction_aarch64::extract(insns[2], 20, 5)) << 32)
-		   + (u_int64_t(Instruction_aarch64::extract(insns[3], 20, 5)) << 48));
+		   + (u_int64_t(Instruction_aarch64::extract(insns[2], 20, 5)) << 32));
   } else if (Instruction_aarch64::extract(insn, 31, 22) == 0b1011100101 &&
              Instruction_aarch64::extract(insn, 4, 0) == 0b11111) {
     return 0;
@@ -607,9 +622,10 @@ void MacroAssembler::call(Address entry) {
 
 void MacroAssembler::ic_call(address entry) {
   RelocationHolder rh = virtual_call_Relocation::spec(pc());
-  address const_ptr = long_constant((jlong)Universe::non_oop_word());
-  unsigned long offset;
-  ldr_constant(rscratch2, const_ptr);
+  // address const_ptr = long_constant((jlong)Universe::non_oop_word());
+  // unsigned long offset;
+  // ldr_constant(rscratch2, const_ptr);
+  movptr(rscratch2, (uintptr_t)Universe::non_oop_word());
   call(Address(entry, rh));
 }
 
@@ -1246,10 +1262,14 @@ void MacroAssembler::mov(Register r, Address dest) {
   InstructionMark im(this);
   code_section()->relocate(inst_mark(), dest.rspec());
   u_int64_t imm64 = (u_int64_t)dest.target();
-  mov64(r, imm64);
+  movptr(r, imm64);
 }
 
-void MacroAssembler::mov64(Register r, uintptr_t imm64) {
+// Move a constant pointer into r.  In AArch64 mode the virtual
+// address space is 48 bits in size, so we only need three
+// instructions to create a patchable instruction sequence that can
+// reach anywhere.
+void MacroAssembler::movptr(Register r, uintptr_t imm64) {
 #ifndef PRODUCT
   {
     char buffer[64];
@@ -1257,13 +1277,12 @@ void MacroAssembler::mov64(Register r, uintptr_t imm64) {
     block_comment(buffer);
   }
 #endif
+  assert(imm64 < (1ul << 48), "48-bit overflow in address constant");
   movz(r, imm64 & 0xffff);
   imm64 >>= 16;
   movk(r, imm64 & 0xffff, 16);
   imm64 >>= 16;
   movk(r, imm64 & 0xffff, 32);
-  imm64 >>= 16;
-  movk(r, imm64 & 0xffff, 48);
 }
 
 void MacroAssembler::mov_immediate64(Register dst, u_int64_t imm64)
@@ -2704,29 +2723,33 @@ void  MacroAssembler::decode_klass_not_null(Register r) {
   decode_klass_not_null(r, r);
 }
 
-// TODO
-//
-// these next two methods load a narrow oop or klass constant into a
-// register. they currently do the dumb thing of installing 64 bits of
-// unencoded constant into the register and then encoding it.
-// installing the encoded 32 bit constant directly requires updating
-// the relocation code so it can recognize that this is a 32 bit load
-// rather than a 64 bit load.
-
 void  MacroAssembler::set_narrow_oop(Register dst, jobject obj) {
-  assert (UseCompressedOops, "should only be used for compressed headers");
+  assert (UseCompressedOops, "should only be used for compressed oops");
   assert (Universe::heap() != NULL, "java heap should be initialized");
   assert (oop_recorder() != NULL, "this assembler needs an OopRecorder");
-  movoop(dst, obj);
-  encode_heap_oop_not_null(dst);
-}
 
+  int oop_index = oop_recorder()->find_index(obj);
+  assert(Universe::heap()->is_in_reserved(JNIHandles::resolve(obj)), "should be real oop");
+
+  InstructionMark im(this);
+  RelocationHolder rspec = oop_Relocation::spec(oop_index);
+  code_section()->relocate(inst_mark(), rspec);
+  movz(dst, 0xDEAD, 16);
+  movk(dst, 0xBEEF);
+}
 
 void  MacroAssembler::set_narrow_klass(Register dst, Klass* k) {
   assert (UseCompressedClassPointers, "should only be used for compressed headers");
   assert (oop_recorder() != NULL, "this assembler needs an OopRecorder");
-  mov_metadata(dst, k);
-  encode_klass_not_null(dst);
+  int index = oop_recorder()->find_index(k);
+  assert(! Universe::heap()->is_in_reserved(k), "should not be an oop");
+
+  InstructionMark im(this);
+  RelocationHolder rspec = metadata_Relocation::spec(index);
+  code_section()->relocate(inst_mark(), rspec);
+  narrowKlass nk = Klass::encode_klass(k);
+  movz(dst, (nk >> 16), 16);
+  movk(dst, nk & 0xffff);
 }
 
 void MacroAssembler::load_heap_oop(Register dst, Address src)
@@ -2736,7 +2759,7 @@ void MacroAssembler::load_heap_oop(Register dst, Address src)
     decode_heap_oop(dst);
   } else {
     ldr(dst, src);
-  }  
+  }
 }
 
 void MacroAssembler::load_heap_oop_not_null(Register dst, Address src)
@@ -2948,7 +2971,11 @@ Address MacroAssembler::allocate_metadata_address(Metadata* obj) {
   return Address((address)obj, rspec);
 }
 
-void MacroAssembler::movoop(Register dst, jobject obj) {
+// Move an oop into a register.  immediate is true if we want
+// immediate instrcutions, i.e. we are not going to patch this
+// instruction while the code is being executed by another thread.  In
+// that case we can use move immediates rather than the constant pool.
+void MacroAssembler::movoop(Register dst, jobject obj, bool immediate) {
   int oop_index;
   if (obj == NULL) {
     oop_index = oop_recorder()->allocate_oop_index(obj);
@@ -2957,15 +2984,14 @@ void MacroAssembler::movoop(Register dst, jobject obj) {
     assert(Universe::heap()->is_in_reserved(JNIHandles::resolve(obj)), "should be real oop");
   }
   RelocationHolder rspec = oop_Relocation::spec(oop_index);
-  address const_ptr = long_constant((jlong)obj);
-  if (! const_ptr) {
+  if (! immediate) {
+    address dummy = address(uintptr_t(pc()) & -wordSize); // A nearby aligned address
+    ldr_constant(dst, Address(dummy, rspec));
+  } else
     mov(dst, Address((address)obj, rspec));
-  } else {
-    code()->consts()->relocate(const_ptr, rspec);
-    ldr_constant(dst, const_ptr);
-  }
 }
 
+// Move a metadata address into a register.
 void MacroAssembler::mov_metadata(Register dst, Metadata* obj) {
   int oop_index;
   if (obj == NULL) {
@@ -2974,13 +3000,7 @@ void MacroAssembler::mov_metadata(Register dst, Metadata* obj) {
     oop_index = oop_recorder()->find_index(obj);
   }
   RelocationHolder rspec = metadata_Relocation::spec(oop_index);
-  address const_ptr = long_constant((jlong)obj);
-  if (! const_ptr) {
-    mov(dst, Address((address)obj, rspec));
-  } else {
-    code()->consts()->relocate(const_ptr, rspec);
-    ldr_constant(dst, const_ptr);
-  }
+  mov(dst, Address((address)obj, rspec));
 }
 
 Address MacroAssembler::constant_oop_address(jobject obj) {
@@ -3268,12 +3288,12 @@ address MacroAssembler::read_polling_page(Register r, relocInfo::relocType rtype
 
 void MacroAssembler::adrp(Register reg1, const Address &dest, unsigned long &byte_offset) {
   relocInfo::relocType rtype = dest.rspec().reloc()->type();
-  guarantee(rtype == relocInfo::none
-	    || rtype == relocInfo::external_word_type
-	    || rtype == relocInfo::poll_type
-	    || rtype == relocInfo::poll_return_type,
-	    "can only use a fixed address with an ADRP");
   if (labs(pc() - dest.target()) >= (1LL << 32)) {
+    guarantee(rtype == relocInfo::none
+	      || rtype == relocInfo::external_word_type
+	      || rtype == relocInfo::poll_type
+	      || rtype == relocInfo::poll_return_type,
+	      "can only use a fixed address with an ADRP");
     // Out of range.  This doesn't happen very often, but we have to
     // handle it
     mov(reg1, dest);
