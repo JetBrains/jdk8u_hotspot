@@ -1842,8 +1842,12 @@ void MacroAssembler::addw(Register Rd, Register Rn, RegisterOrConstant increment
 void MacroAssembler::reinit_heapbase()
 {
   if (UseCompressedOops) {
-    lea(rheapbase, ExternalAddress((address)Universe::narrow_ptrs_base_addr()));
-    ldr(rheapbase, Address(rheapbase));
+    if (Universe::is_fully_initialized()) {
+      mov(rheapbase, Universe::narrow_ptrs_base());
+    } else {
+      lea(rheapbase, ExternalAddress((address)Universe::narrow_ptrs_base_addr()));
+      ldr(rheapbase, Address(rheapbase));
+    }
   }
 }
 
@@ -3313,3 +3317,39 @@ void MacroAssembler::adrp(Register reg1, const Address &dest, unsigned long &byt
     return UseAcqRelForVolatileFields;
 #endif
   }
+
+void MacroAssembler::build_frame(int framesize) {
+  if (framesize == 0) {
+    // Is this even possible?
+    stp(rfp, lr, Address(pre(sp, -2 * wordSize)));
+  } else if (framesize < ((1 << 9) + 2 * wordSize)) {
+    sub(sp, sp, framesize);
+    stp(rfp, lr, Address(sp, framesize - 2 * wordSize));
+  } else {
+    stp(rfp, lr, Address(pre(sp, -2 * wordSize)));
+    if (framesize < ((1 << 12) + 2 * wordSize))
+      sub(sp, sp, framesize - 2 * wordSize);
+    else {
+      mov(rscratch1, framesize - 2 * wordSize);
+      sub(sp, sp, rscratch1);
+    }
+  }
+}
+
+void MacroAssembler::remove_frame(int framesize) {
+  if (framesize == 0) {
+    ldp(rfp, lr, Address(post(sp, 2 * wordSize)));
+  } else if (framesize < ((1 << 9) + 2 * wordSize)) {
+    ldp(rfp, lr, Address(sp, framesize - 2 * wordSize));
+    add(sp, sp, framesize);
+  } else {
+    if (framesize < ((1 << 12) + 2 * wordSize))
+      add(sp, sp, framesize - 2 * wordSize);
+    else {
+      mov(rscratch1, framesize - 2 * wordSize);
+      add(sp, sp, rscratch1);
+    }
+    ldp(rfp, lr, Address(post(sp, 2 * wordSize)));
+  }
+}
+
