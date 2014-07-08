@@ -1131,6 +1131,8 @@ void Arguments::set_tiered_flags() {
   // Increase the code cache size - tiered compiles a lot more.
   if (FLAG_IS_DEFAULT(ReservedCodeCacheSize)) {
     FLAG_SET_DEFAULT(ReservedCodeCacheSize, ReservedCodeCacheSize * 5);
+    // The maximum B/BL offset range on AArch64 is 128MB
+    AARCH64_ONLY(FLAG_SET_DEFAULT(ReservedCodeCacheSize, MIN2(ReservedCodeCacheSize, 128*M)));
   }
   if (!UseInterpreter) { // -Xcomp
     Tier3InvokeNotifyFreqLog = 0;
