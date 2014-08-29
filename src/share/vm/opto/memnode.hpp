@@ -488,6 +488,12 @@ public:
   // Conservatively release stores of object references in order to
   // ensure visibility of object initialization.
   static inline MemOrd release_if_reference(const BasicType t) {
+    // AArch64 doesn't need a release store because if there is an
+    // address dependency between a read and a write, then those
+    // memory accesses are observed in program order by all observers
+    // within the shareability domain.
+    AARCH64_ONLY(return unordered);
+
     const MemOrd mo = (t == T_ARRAY ||
                        t == T_ADDRESS || // Might be the address of an object reference (`boxing').
                        t == T_OBJECT) ? release : unordered;
