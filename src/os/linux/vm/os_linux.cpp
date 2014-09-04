@@ -49,6 +49,7 @@
 #include "runtime/javaCalls.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/objectMonitor.hpp"
+#include "runtime/orderAccess.inline.hpp"
 #include "runtime/osThread.hpp"
 #include "runtime/perfMemory.hpp"
 #include "runtime/sharedRuntime.hpp"
@@ -1558,9 +1559,6 @@ void os::die() {
   ::abort();
 }
 
-// unused on linux for now.
-void os::set_error_file(const char *logfile) {}
-
 
 // This method is a copy of JDK's sysGetLastErrorString
 // from src/solaris/hpi/src/system_md.c
@@ -2356,6 +2354,7 @@ void os::jvm_path(char *buf, jint buflen) {
         // determine if this is a legacy image or modules image
         // modules image doesn't have "jre" subdirectory
         len = strlen(buf);
+        assert(len < buflen, "Ran out of buffer room");
         jrelib_p = buf + len;
         snprintf(jrelib_p, buflen-len, "/jre/lib/%s", cpu_arch);
         if (0 != access(buf, F_OK)) {
@@ -2376,7 +2375,7 @@ void os::jvm_path(char *buf, jint buflen) {
     }
   }
 
-  strcpy(saved_jvm_path, buf);
+  strncpy(saved_jvm_path, buf, MAXPATHLEN);
 }
 
 void os::print_jni_name_prefix_on(outputStream* st, int args_size) {

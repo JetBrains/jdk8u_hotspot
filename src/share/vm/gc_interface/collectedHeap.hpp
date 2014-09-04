@@ -208,6 +208,9 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   // This is the correct place to place such initialization methods.
   virtual void post_initialize() = 0;
 
+  // Stop any onging concurrent work and prepare for exit.
+  virtual void stop() {}
+
   MemRegion reserved_region() const { return _reserved; }
   address base() const { return (address)reserved_region().start(); }
 
@@ -347,6 +350,12 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   static void fill_with_object(HeapWord* start, HeapWord* end, bool zap = true) {
     fill_with_object(start, pointer_delta(end, start), zap);
   }
+
+  // Return the address "addr" aligned by "alignment_in_bytes" if such
+  // an address is below "end".  Return NULL otherwise.
+  inline static HeapWord* align_allocation_or_fail(HeapWord* addr,
+                                                   HeapWord* end,
+                                                   unsigned short alignment_in_bytes);
 
   // Some heaps may offer a contiguous region for shared non-blocking
   // allocation, via inlined code (by exporting the address of the top and

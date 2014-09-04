@@ -283,6 +283,7 @@ else
 	@$(ECHO) "Error: trying to build a minimal target but JVM_VARIANT_MINIMAL1 is not true."
 endif
 
+$(warning FECK)
 # Export file rule
 generic_export: $(EXPORT_LIST)
 

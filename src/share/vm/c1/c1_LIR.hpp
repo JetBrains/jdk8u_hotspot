@@ -1129,6 +1129,7 @@ class LIR_Op: public CompilationResourceObj {
   virtual void print_instr(outputStream* out) const   = 0;
   virtual void print_on(outputStream* st) const PRODUCT_RETURN;
 
+  virtual bool is_patching() { return false; }
   virtual LIR_OpCall* as_OpCall() { return NULL; }
   virtual LIR_OpJavaCall* as_OpJavaCall() { return NULL; }
   virtual LIR_OpLabel* as_OpLabel() { return NULL; }
@@ -1389,6 +1390,7 @@ class LIR_Op1: public LIR_Op {
     return (LIR_MoveKind)_flags;
   }
 
+  virtual bool is_patching() { return _patch != lir_patch_none; }
   virtual void emit_code(LIR_Assembler* masm);
   virtual LIR_Op1* as_Op1() { return this; }
   virtual const char * name() const PRODUCT_RETURN0;
@@ -1621,6 +1623,7 @@ public:
   int       profiled_bci() const                 { return _profiled_bci;      }
   bool      should_profile() const               { return _should_profile;    }
 
+  virtual bool is_patching() { return _info_for_patch != NULL; }
   virtual void emit_code(LIR_Assembler* masm);
   virtual LIR_OpTypeCheck* as_OpTypeCheck() { return this; }
   void print_instr(outputStream* out) const PRODUCT_RETURN;

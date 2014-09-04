@@ -19,18 +19,34 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
+ *
  */
 
-/*
- * @test TestStringDeduplicationMemoryUsage
- * @summary Test string deduplication memory usage
- * @bug 8029075
- * @key gc
- * @library /testlibrary
- */
+#ifndef SHARE_VM_GC_IMPLEMENTATION_PARALLELSCAVENGE_PSPROMOTIONLAB_INLINE_HPP
+#define SHARE_VM_GC_IMPLEMENTATION_PARALLELSCAVENGE_PSPROMOTIONLAB_INLINE_HPP
 
-public class TestStringDeduplicationMemoryUsage {
-    public static void main(String[] args) throws Exception {
-        TestStringDeduplicationTools.testMemoryUsage();
-    }
+#include "gc_implementation/parallelScavenge/psPromotionLAB.hpp"
+#include "gc_interface/collectedHeap.inline.hpp"
+
+HeapWord* PSYoungPromotionLAB::allocate(size_t size) {
+  // Can't assert this, when young fills, we keep the LAB around, but flushed.
+  // assert(_state != flushed, "Sanity");
+  HeapWord* obj = CollectedHeap::align_allocation_or_fail(top(), end(), SurvivorAlignmentInBytes);
+  if (obj == NULL) {
+    return NULL;
+  }
+
+  HeapWord* new_top = obj + size;
+  // The 'new_top>obj' check is needed to detect overflow of obj+size.
+  if (new_top > obj && new_top <= end()) {
+    set_top(new_top);
+    assert(is_ptr_aligned(obj, SurvivorAlignmentInBytes) && is_object_aligned((intptr_t)new_top),
+           "checking alignment");
+    return obj;
+  } else {
+    set_top(obj);
+    return NULL;
+  }
 }
+
+#endif // SHARE_VM_GC_IMPLEMENTATION_PARALLELSCAVENGE_PSPROMOTIONLAB_INLINE_HPP

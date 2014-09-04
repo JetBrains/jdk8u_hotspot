@@ -58,6 +58,7 @@
 #include "runtime/memprofiler.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/objectMonitor.hpp"
+#include "runtime/orderAccess.inline.hpp"
 #include "runtime/osThread.hpp"
 #include "runtime/safepoint.hpp"
 #include "runtime/sharedRuntime.hpp"
@@ -833,7 +834,7 @@ bool Thread::claim_oops_do_par_case(int strong_roots_parity) {
   return false;
 }
 
-void Thread::oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf) {
+void Thread::oops_do(OopClosure* f, CLDClosure* cld_f, CodeBlobClosure* cf) {
   active_handles()->oops_do(f);
   // Do oop for ThreadShadow
   f->do_oop((oop*)&_pending_exception);
@@ -2729,7 +2730,7 @@ public:
   }
 };
 
-void JavaThread::oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf) {
+void JavaThread::oops_do(OopClosure* f, CLDClosure* cld_f, CodeBlobClosure* cf) {
   // Verify that the deferred card marks have been flushed.
   assert(deferred_card_mark().is_empty(), "Should be empty during GC");
 
@@ -3252,7 +3253,7 @@ CompilerThread::CompilerThread(CompileQueue* queue, CompilerCounters* counters)
 #endif
 }
 
-void CompilerThread::oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf) {
+void CompilerThread::oops_do(OopClosure* f, CLDClosure* cld_f, CodeBlobClosure* cf) {
   JavaThread::oops_do(f, cld_f, cf);
   if (_scanned_nmethod != NULL && cf != NULL) {
     // Safepoints can occur when the sweeper is scanning an nmethod so
@@ -3573,6 +3574,8 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // Set flag that basic initialization has completed. Used by exceptions and various
   // debug stuff, that does not work until all basic classes have been initialized.
   set_init_completed();
+
+  Metaspace::post_initialize();
 
 #ifndef USDT2
   HS_DTRACE_PROBE(hotspot, vm__init__end);
@@ -4011,14 +4014,8 @@ bool Threads::destroy_vm() {
     // GC vm_operations can get caught at the safepoint, and the
     // heap is unparseable if they are caught. Grab the Heap_lock
     // to prevent this. The GC vm_operations will not be able to
-    // queue until after the vm thread is dead.
-    // After this point, we'll never emerge out of the safepoint before
-    // the VM exits, so concurrent GC threads do not need to be explicitly
-    // stopped; they remain inactive until the process exits.
-    // Note: some concurrent G1 threads may be running during a safepoint,
-    // but these will not be accessing the heap, just some G1-specific side
-    // data structures that are not accessed by any other threads but them
-    // after this point in a terminal safepoint.
+    // queue until after the vm thread is dead. After this point,
+    // we'll never emerge out of the safepoint before the VM exits.
 
     MutexLocker ml(Heap_lock);
 
@@ -4170,22 +4167,22 @@ bool Threads::includes(JavaThread* p) {
 // uses the Threads_lock to gurantee this property. It also makes sure that
 // all threads gets blocked when exiting or starting).
 
-void Threads::oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf) {
+void Threads::oops_do(OopClosure* f, CLDClosure* cld_f, CodeBlobClosure* cf) {
   ALL_JAVA_THREADS(p) {
     p->oops_do(f, cld_f, cf);
   }
   VMThread::vm_thread()->oops_do(f, cld_f, cf);
 }
 
-void Threads::possibly_parallel_oops_do(OopClosure* f, CLDToOopClosure* cld_f, CodeBlobClosure* cf) {
+void Threads::possibly_parallel_oops_do(OopClosure* f, CLDClosure* cld_f, CodeBlobClosure* cf) {
   // Introduce a mechanism allowing parallel threads to claim threads as
   // root groups.  Overhead should be small enough to use all the time,
   // even in sequential code.
   SharedHeap* sh = SharedHeap::heap();
   // Cannot yet substitute active_workers for n_par_threads
   // because of G1CollectedHeap::verify() use of
-  // SharedHeap::process_strong_roots().  n_par_threads == 0 will
-  // turn off parallelism in process_strong_roots while active_workers
+  // SharedHeap::process_roots().  n_par_threads == 0 will
+  // turn off parallelism in process_roots while active_workers
   // is being used for parallelism elsewhere.
   bool is_par = sh->n_par_threads() > 0;
   assert(!is_par ||

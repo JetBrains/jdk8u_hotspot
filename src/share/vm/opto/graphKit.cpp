@@ -2435,30 +2435,31 @@ void GraphKit::merge_memory(Node* new_mem, Node* region, int new_path) {
     Node* new_slice = mms.memory2();
     if (old_slice != new_slice) {
       PhiNode* phi;
-      if (new_slice->is_Phi() && new_slice->as_Phi()->region() == region) {
-        phi = new_slice->as_Phi();
-        #ifdef ASSERT
-        if (old_slice->is_Phi() && old_slice->as_Phi()->region() == region)
-          old_slice = old_slice->in(new_path);
-        // Caller is responsible for ensuring that any pre-existing
-        // phis are already aware of old memory.
-        int old_path = (new_path > 1) ? 1 : 2;  // choose old_path != new_path
-        assert(phi->in(old_path) == old_slice, "pre-existing phis OK");
-        #endif
-        mms.set_memory(phi);
+      if (old_slice->is_Phi() && old_slice->as_Phi()->region() == region) {
+        if (mms.is_empty()) {
+          // clone base memory Phi's inputs for this memory slice
+          assert(old_slice == mms.base_memory(), "sanity");
+          phi = PhiNode::make(region, NULL, Type::MEMORY, mms.adr_type(C));
+          _gvn.set_type(phi, Type::MEMORY);
+          for (uint i = 1; i < phi->req(); i++) {
+            phi->init_req(i, old_slice->in(i));
+          }
+        } else {
+          phi = old_slice->as_Phi(); // Phi was generated already
+        }
       } else {
         phi = PhiNode::make(region, old_slice, Type::MEMORY, mms.adr_type(C));
         _gvn.set_type(phi, Type::MEMORY);
-        phi->set_req(new_path, new_slice);
-        mms.set_memory(_gvn.transform(phi));  // assume it is complete
       }
+      phi->set_req(new_path, new_slice);
+      mms.set_memory(phi);
     }
   }
 }
 
 //------------------------------make_slow_call_ex------------------------------
 // Make the exception handler hookups for the slow call
-void GraphKit::make_slow_call_ex(Node* call, ciInstanceKlass* ex_klass, bool separate_io_proj) {
+void GraphKit::make_slow_call_ex(Node* call, ciInstanceKlass* ex_klass, bool separate_io_proj, bool deoptimize) {
   if (stopped())  return;
 
   // Make a catch node with just two handlers:  fall-through and catch-all
@@ -2472,11 +2473,17 @@ void GraphKit::make_slow_call_ex(Node* call, ciInstanceKlass* ex_klass, bool sep
     set_i_o(i_o);
 
     if (excp != top()) {
-      // Create an exception state also.
-      // Use an exact type if the caller has specified a specific exception.
-      const Type* ex_type = TypeOopPtr::make_from_klass_unique(ex_klass)->cast_to_ptr_type(TypePtr::NotNull);
-      Node*       ex_oop  = new (C) CreateExNode(ex_type, control(), i_o);
-      add_exception_state(make_exception_state(_gvn.transform(ex_oop)));
+      if (deoptimize) {
+        // Deoptimize if an exception is caught. Don't construct exception state in this case.
+        uncommon_trap(Deoptimization::Reason_unhandled,
+                      Deoptimization::Action_none);
+      } else {
+        // Create an exception state also.
+        // Use an exact type if the caller has specified a specific exception.
+        const Type* ex_type = TypeOopPtr::make_from_klass_unique(ex_klass)->cast_to_ptr_type(TypePtr::NotNull);
+        Node*       ex_oop  = new (C) CreateExNode(ex_type, control(), i_o);
+        add_exception_state(make_exception_state(_gvn.transform(ex_oop)));
+      }
     }
   }
 
@@ -3290,7 +3297,8 @@ static void hook_memory_on_init(GraphKit& kit, int alias_idx,
 
 //---------------------------set_output_for_allocation-------------------------
 Node* GraphKit::set_output_for_allocation(AllocateNode* alloc,
-                                          const TypeOopPtr* oop_type) {
+                                          const TypeOopPtr* oop_type,
+                                          bool deoptimize_on_exception) {
   int rawidx = Compile::AliasIdxRaw;
   alloc->set_req( TypeFunc::FramePtr, frameptr() );
   add_safepoint_edges(alloc);
@@ -3298,7 +3306,7 @@ Node* GraphKit::set_output_for_allocation(AllocateNode* alloc,
   set_control( _gvn.transform(new (C) ProjNode(allocx, TypeFunc::Control) ) );
   // create memory projection for i_o
   set_memory ( _gvn.transform( new (C) ProjNode(allocx, TypeFunc::Memory, true) ), rawidx );
-  make_slow_call_ex(allocx, env()->Throwable_klass(), true);
+  make_slow_call_ex(allocx, env()->Throwable_klass(), true, deoptimize_on_exception);
 
   // create a memory projection as for the normal control path
   Node* malloc = _gvn.transform(new (C) ProjNode(allocx, TypeFunc::Memory));
@@ -3376,9 +3384,11 @@ Node* GraphKit::set_output_for_allocation(AllocateNode* alloc,
 // The optional arguments are for specialized use by intrinsics:
 //  - If 'extra_slow_test' if not null is an extra condition for the slow-path.
 //  - If 'return_size_val', report the the total object size to the caller.
+//  - deoptimize_on_exception controls how Java exceptions are handled (rethrow vs deoptimize)
 Node* GraphKit::new_instance(Node* klass_node,
                              Node* extra_slow_test,
-                             Node* *return_size_val) {
+                             Node* *return_size_val,
+                             bool deoptimize_on_exception) {
   // Compute size in doublewords
   // The size is always an integral number of doublewords, represented
   // as a positive bytewise size stored in the klass's layout_helper.
@@ -3447,7 +3457,7 @@ Node* GraphKit::new_instance(Node* klass_node,
                            size, klass_node,
                            initial_slow_test);
 
-  return set_output_for_allocation(alloc, oop_type);
+  return set_output_for_allocation(alloc, oop_type, deoptimize_on_exception);
 }
 
 //-------------------------------new_array-------------------------------------
@@ -3457,7 +3467,8 @@ Node* GraphKit::new_instance(Node* klass_node,
 Node* GraphKit::new_array(Node* klass_node,     // array klass (maybe variable)
                           Node* length,         // number of array elements
                           int   nargs,          // number of arguments to push back for uncommon trap
-                          Node* *return_size_val) {
+                          Node* *return_size_val,
+                          bool deoptimize_on_exception) {
   jint  layout_con = Klass::_lh_neutral_value;
   Node* layout_val = get_layout_helper(klass_node, layout_con);
   int   layout_is_con = (layout_val == NULL);
@@ -3600,7 +3611,7 @@ Node* GraphKit::new_array(Node* klass_node,     // array klass (maybe variable)
     ary_type = ary_type->is_aryptr()->cast_to_size(length_type);
   }
 
-  Node* javaoop = set_output_for_allocation(alloc, ary_type);
+  Node* javaoop = set_output_for_allocation(alloc, ary_type, deoptimize_on_exception);
 
   // Cast length on remaining path to be as narrow as possible
   if (map()->find_edge(length) >= 0) {

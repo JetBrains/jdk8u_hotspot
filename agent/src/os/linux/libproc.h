@@ -34,7 +34,7 @@
 #include "libproc_md.h"
 #endif
 
-#include <linux/ptrace.h>
+#include <sys/ptrace.h>
 
 #if defined(aarch64)
 #include "asm/ptrace.h"

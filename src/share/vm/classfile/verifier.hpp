@@ -403,6 +403,7 @@ class ClassVerifier : public StackObj {
   Symbol* create_temporary_symbol(const char *s, int length, TRAPS);
 
   TypeOrigin ref_ctx(const char* str, TRAPS);
+
 };
 
 inline int ClassVerifier::change_sig_to_verificationType(

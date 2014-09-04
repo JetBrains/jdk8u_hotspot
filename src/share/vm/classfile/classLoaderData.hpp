@@ -31,7 +31,6 @@
 #include "memory/metaspaceCounters.hpp"
 #include "runtime/mutex.hpp"
 #include "utilities/growableArray.hpp"
-
 #if INCLUDE_TRACE
 # include "utilities/ticks.hpp"
 #endif
@@ -59,6 +58,7 @@ class Metadebug;
 class ClassLoaderDataGraph : public AllStatic {
   friend class ClassLoaderData;
   friend class ClassLoaderDataGraphMetaspaceIterator;
+  friend class ClassLoaderDataGraphKlassIteratorAtomic;
   friend class VMStructs;
  private:
   // All CLDs (except the null CLD) can be reached by walking _head->_next->...
@@ -66,6 +66,7 @@ class ClassLoaderDataGraph : public AllStatic {
   static ClassLoaderData* _unloading;
   // CMS support.
   static ClassLoaderData* _saved_head;
+  static ClassLoaderData* _saved_unloading;
   static bool _should_purge;
 
   static ClassLoaderData* add(Handle class_loader, bool anonymous, TRAPS);
@@ -74,9 +75,16 @@ class ClassLoaderDataGraph : public AllStatic {
   static ClassLoaderData* find_or_create(Handle class_loader, TRAPS);
   static void purge();
   static void clear_claimed_marks();
+  // oops do
   static void oops_do(OopClosure* f, KlassClosure* klass_closure, bool must_claim);
-  static void always_strong_oops_do(OopClosure* blk, KlassClosure* klass_closure, bool must_claim);
   static void keep_alive_oops_do(OopClosure* blk, KlassClosure* klass_closure, bool must_claim);
+  static void always_strong_oops_do(OopClosure* blk, KlassClosure* klass_closure, bool must_claim);
+  // cld do
+  static void cld_do(CLDClosure* cl);
+  static void roots_cld_do(CLDClosure* strong, CLDClosure* weak);
+  static void keep_alive_cld_do(CLDClosure* cl);
+  static void always_strong_cld_do(CLDClosure* cl);
+  // klass do
   static void classes_do(KlassClosure* klass_closure);
   static void classes_do(void f(Klass* const));
   static void loaded_classes_do(KlassClosure* klass_closure);
@@ -101,6 +109,7 @@ class ClassLoaderDataGraph : public AllStatic {
   static void dump() { dump_on(tty); }
   static void verify();
 
+  static bool unload_list_contains(const void* x);
 #ifndef PRODUCT
   static bool contains_loader_data(ClassLoaderData* loader_data);
 #endif
@@ -133,6 +142,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   };
 
   friend class ClassLoaderDataGraph;
+  friend class ClassLoaderDataGraphKlassIteratorAtomic;
   friend class ClassLoaderDataGraphMetaspaceIterator;
   friend class MetaDataFactory;
   friend class Method;
@@ -148,7 +158,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
                            // classes in the class loader are allocated.
   Mutex* _metaspace_lock;  // Locks the metaspace for allocations and setup.
   bool _unloading;         // true if this class loader goes away
-  bool _keep_alive;        // if this CLD can be unloaded for anonymous loaders
+  bool _keep_alive;        // if this CLD is kept alive without a keep_alive_object().
   bool _is_anonymous;      // if this CLD is for an anonymous class
   volatile int _claimed;   // true if claimed, for example during GC traces.
                            // To avoid applying oop closure more than once.
@@ -194,7 +204,6 @@ class ClassLoaderData : public CHeapObj<mtClass> {
 
   void unload();
   bool keep_alive() const       { return _keep_alive; }
-  bool is_alive(BoolObjectClosure* is_alive_closure) const;
   void classes_do(void f(Klass*));
   void loaded_classes_do(KlassClosure* klass_closure);
   void classes_do(void f(InstanceKlass*));
@@ -206,6 +215,9 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   MetaWord* allocate(size_t size);
 
  public:
+
+  bool is_alive(BoolObjectClosure* is_alive_closure) const;
+
   // Accessors
   Metaspace* metaspace_or_null() const     { return _metaspace; }
 
@@ -239,13 +251,16 @@ class ClassLoaderData : public CHeapObj<mtClass> {
 
   oop class_loader() const      { return _class_loader; }
 
+  // The object the GC is using to keep this ClassLoaderData alive.
+  oop keep_alive_object() const;
+
   // Returns true if this class loader data is for a loader going away.
   bool is_unloading() const     {
     assert(!(is_the_null_class_loader_data() && _unloading), "The null class loader can never be unloaded");
     return _unloading;
   }
-  // Anonymous class loader data doesn't have anything to keep them from
-  // being unloaded during parsing the anonymous class.
+
+  // Used to make sure that this CLD is not unloaded.
   void set_keep_alive(bool value) { _keep_alive = value; }
 
   unsigned int identity_hash() {
@@ -284,6 +299,16 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   Metaspace* ro_metaspace();
   Metaspace* rw_metaspace();
   void initialize_shared_metaspaces();
+};
+
+// An iterator that distributes Klasses to parallel worker threads.
+class ClassLoaderDataGraphKlassIteratorAtomic : public StackObj {
+  volatile Klass* _next_klass;
+ public:
+  ClassLoaderDataGraphKlassIteratorAtomic();
+  Klass* next_klass();
+ private:
+  static Klass* next_klass_in_cldg(Klass* klass);
 };
 
 class ClassLoaderDataGraphMetaspaceIterator : public StackObj {

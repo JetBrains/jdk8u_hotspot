@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2013, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2013, 2014, Oracle and/or its affiliates. All rights reserved.
 # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 #
 # This code is free software; you can redistribute it and/or modify it
@@ -84,6 +84,7 @@ needs_jdk = \
   runtime/NMT/ThreadedVirtualAllocTestType.java \
   runtime/NMT/VirtualAllocTestType.java \
   runtime/RedefineObject/TestRedefineObject.java \
+  runtime/Thread/TestThreadDumpMonitorContention.java \
   runtime/XCheckJniJsig/XCheckJSig.java \
   serviceability/attach/AttachWithStalePidFile.java \
   serviceability/sa/jmap-hprof/JMapHProfLargeHeapTest.java
@@ -134,6 +135,8 @@ needs_compact3 = \
   gc/arguments/TestDynMaxHeapFreeRatio.java \
   runtime/InternalApi/ThreadCpuTimesDeadlock.java \
   serviceability/threads/TestFalseDeadLock.java \
+  serviceability/jvmti/GetObjectSizeOverflow.java \
+  serviceability/jvmti/TestRedefineWithUnresolvedClass.java \
   compiler/tiered/NonTieredLevelsTest.java \
   compiler/tiered/TieredLevelsTest.java \
   compiler/intrinsics/bmi/verifycode
@@ -166,6 +169,8 @@ compact1 = \
 #
 needs_full_vm_compact1 = \
   runtime/NMT \
+  gc/class_unloading/TestCMSClassUnloadingDisabledHWM.java \
+  gc/class_unloading/TestG1ClassUnloadingHWM.java \
   gc/g1/TestRegionAlignment.java \
   gc/g1/TestShrinkToOneRegion.java \
   gc/metaspace/G1AddMetaspaceDependency.java \
