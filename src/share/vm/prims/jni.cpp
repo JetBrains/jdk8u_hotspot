@@ -73,6 +73,7 @@
 #include "runtime/signature.hpp"
 #include "runtime/thread.inline.hpp"
 #include "runtime/vm_operations.hpp"
+#include "services/memTracker.hpp"
 #include "services/runtimeService.hpp"
 #include "trace/tracing.hpp"
 #include "utilities/defaultStream.hpp"
@@ -291,15 +292,6 @@ void jfieldIDWorkaround::verify_instance_jfieldID(Klass* k, jfieldID id) {
   guarantee(InstanceKlass::cast(k)->contains_field_offset(offset),
       "Bug in native code: jfieldID offset must address interior of object");
 }
-
-// Pick a reasonable higher bound for local capacity requested
-// for EnsureLocalCapacity and PushLocalFrame.  We don't want it too
-// high because a test (or very unusual application) may try to allocate
-// that many handles and run out of swap space.  An implementation is
-// permitted to allocate more handles than the ensured capacity, so this
-// value is set high enough to prevent compatibility problems.
-const int MAX_REASONABLE_LOCAL_CAPACITY = 4*K;
-
 
 // Wrapper to trace JNI functions
 
@@ -880,7 +872,8 @@ JNI_ENTRY(jint, jni_PushLocalFrame(JNIEnv *env, jint capacity))
                                    env, capacity);
 #endif /* USDT2 */
   //%note jni_11
-  if (capacity < 0 || capacity > MAX_REASONABLE_LOCAL_CAPACITY) {
+  if (capacity < 0 ||
+      ((MaxJNILocalCapacity > 0) && (capacity > MaxJNILocalCapacity))) {
 #ifndef USDT2
     DTRACE_PROBE1(hotspot_jni, PushLocalFrame__return, JNI_ERR);
 #else /* USDT2 */
@@ -1039,7 +1032,8 @@ JNI_LEAF(jint, jni_EnsureLocalCapacity(JNIEnv *env, jint capacity))
                                         env, capacity);
 #endif /* USDT2 */
   jint ret;
-  if (capacity >= 0 && capacity <= MAX_REASONABLE_LOCAL_CAPACITY) {
+  if (capacity >= 0 &&
+      ((MaxJNILocalCapacity <= 0) || (capacity <= MaxJNILocalCapacity))) {
     ret = JNI_OK;
   } else {
     ret = JNI_ERR;
@@ -3589,6 +3583,7 @@ static char* get_bad_address() {
     if (bad_address != NULL) {
       os::protect_memory(bad_address, size, os::MEM_PROT_READ,
                          /*is_committed*/false);
+      MemTracker::record_virtual_memory_type((void*)bad_address, mtInternal);
     }
   }
   return bad_address;
@@ -5084,11 +5079,13 @@ void TestMetachunk_test();
 void TestVirtualSpaceNode_test();
 void TestNewSize_test();
 void TestKlass_test();
+void Test_linked_list();
 #if INCLUDE_ALL_GCS
 void TestOldFreeSpaceCalculation_test();
 void TestG1BiasedArray_test();
 void TestBufferingOopClosure_test();
 void TestCodeCacheRemSet_test();
+void FreeRegionList_test();
 #endif
 
 void execute_internal_vm_tests() {
@@ -5110,6 +5107,7 @@ void execute_internal_vm_tests() {
     run_unit_test(test_loggc_filename());
     run_unit_test(TestNewSize_test());
     run_unit_test(TestKlass_test());
+    run_unit_test(Test_linked_list());
 #if INCLUDE_VM_STRUCTS
     run_unit_test(VMStructs::test());
 #endif
@@ -5119,6 +5117,9 @@ void execute_internal_vm_tests() {
     run_unit_test(HeapRegionRemSet::test_prt());
     run_unit_test(TestBufferingOopClosure_test());
     run_unit_test(TestCodeCacheRemSet_test());
+    if (UseG1GC) {
+      run_unit_test(FreeRegionList_test());
+    }
 #endif
     tty->print_cr("All internal VM tests passed");
   }

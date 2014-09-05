@@ -247,10 +247,10 @@ vm_version.o: $(filter-out vm_version.o,$(JVM_OBJ_FILES))
 # it also needs to provide an extra JVM API method for target JDK 7
 ifeq ($(BUILTIN_SIM), true)
   ifeq ($(JDK_MINOR_VERSION),7)
-mapfile : $(MAPFILE) vm.def
+mapfile : $(MAPFILE) vm.def mapfile_ext
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
-                 { system ("cat vm.def");		\
+                 { system ("cat mapfile_ext"); system ("cat vm.def");		\
                    print "	# jdk7 support";	\
                    print "      JVM_SetProtectionDomain;"; \
                    print "	# aarch64 sim support";	\
@@ -260,10 +260,10 @@ mapfile : $(MAPFILE) vm.def
                  { print $$0 }				\
              }' > $@ < $(MAPFILE)
   else
-mapfile : $(MAPFILE) vm.def
+mapfile : $(MAPFILE) vm.def mapfile_ext
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
-                 { system ("cat vm.def");		\
+                 { system ("cat mapfile_ext"); system ("cat vm.def");		\
                    print "	# aarch64 sim support";	\
                    print "	das1;";			\
                    print "	bccheck;"; }		\
@@ -273,20 +273,20 @@ mapfile : $(MAPFILE) vm.def
   endif
 else
   ifeq ($(JDK_MINOR_VERSION),7)
-mapfile : $(MAPFILE) vm.def
+mapfile : $(MAPFILE) vm.def mapfile_ext
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
-                 { system ("cat vm.def");		\
+                 { system ("cat mapfile_ext"); system ("cat vm.def");		\
                    print "	# jdk7 support";	\
                    print "      JVM_SetProtectionDomain;"; } \
                else					\
                  { print $$0 }				\
              }' > $@ < $(MAPFILE)
   else
-mapfile : $(MAPFILE) vm.def
+mapfile : $(MAPFILE) vm.def mapfile_ext
 	rm -f $@
 	awk '{ if ($$0 ~ "INSERT VTABLE SYMBOLS HERE")	\
-                 { system ("cat vm.def"); }             \
+                 { system ("cat mapfile_ext"); system ("cat vm.def"); }             \
                else					\
                  { print $$0 }				\
              }' > $@ < $(MAPFILE)
@@ -299,6 +299,13 @@ mapfile_reorder : mapfile $(REORDERFILE)
 
 vm.def: $(Res_Files) $(Obj_Files)
 	sh $(GAMMADIR)/make/linux/makefiles/build_vm_def.sh *.o > $@
+
+mapfile_ext:
+	rm -f $@
+	touch $@
+	if [ -f $(HS_ALT_MAKE)/linux/makefiles/mapfile-ext ]; then \
+	  cat $(HS_ALT_MAKE)/linux/makefiles/mapfile-ext > $@; \
+	fi
 
 ifeq ($(JVM_VARIANT_ZEROSHARK), true)
   STATIC_CXX = false
