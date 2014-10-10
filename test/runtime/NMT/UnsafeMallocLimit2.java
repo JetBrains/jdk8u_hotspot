@@ -19,12 +19,36 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
- *
  */
 
-#include "precompiled.hpp"
-#include "runtime/arguments.hpp"
+/*
+ * @test
+ * @bug 8058818
+ * @library /testlibrary
+ * @build UnsafeMallocLimit2
+ * @run main/othervm -Xmx32m -XX:NativeMemoryTracking=off UnsafeMallocLimit2
+ */
 
-bool Arguments::check_vm_args_consistency_ext() {
-  return true;
+import com.oracle.java.testlibrary.*;
+import sun.misc.Unsafe;
+
+public class UnsafeMallocLimit2 {
+
+    public static void main(String args[]) throws Exception {
+        if (Platform.is32bit()) {
+            Unsafe unsafe = Utils.getUnsafe();
+            try {
+                // Allocate greater than MALLOC_MAX and likely won't fail to allocate,
+                // so it hits the NMT code that asserted.
+                // Test that this doesn't cause an assertion with NMT off.
+                // The option above overrides if all the tests are run with NMT on.
+                unsafe.allocateMemory(0x40000000);
+                System.out.println("Allocation succeeded");
+            } catch (OutOfMemoryError e) {
+                System.out.println("Allocation failed");
+            }
+        } else {
+            System.out.println("Test only valid on 32-bit platforms");
+        }
+    }
 }

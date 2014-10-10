@@ -39,11 +39,13 @@ void HeapRegionSetBase::fill_in_ext_msg(hrs_ext_msg* msg, const char* message) {
 
 #ifndef PRODUCT
 void HeapRegionSetBase::verify_region(HeapRegion* hr) {
-  assert(hr->containing_set() == this, err_msg("Inconsistent containing set for %u", hr->hrs_index()));
-  assert(!hr->is_young(), err_msg("Adding young region %u", hr->hrs_index())); // currently we don't use these sets for young regions
-  assert(hr->isHumongous() == regions_humongous(), err_msg("Wrong humongous state for region %u and set %s", hr->hrs_index(), name()));
-  assert(hr->is_empty() == regions_empty(), err_msg("Wrong empty state for region %u and set %s", hr->hrs_index(), name()));
-  assert(hr->rem_set()->verify_ready_for_par_iteration(), err_msg("Wrong iteration state %u", hr->hrs_index()));
+  assert(hr->containing_set() == this, err_msg("Inconsistent containing set for %u", hr->hrm_index()));
+  assert(!hr->is_young(), err_msg("Adding young region %u", hr->hrm_index())); // currently we don't use these sets for young regions
+  assert(hr->isHumongous() == regions_humongous(), err_msg("Wrong humongous state for region %u and set %s", hr->hrm_index(), name()));
+  assert(hr->is_free() == regions_free(), err_msg("Wrong free state for region %u and set %s", hr->hrm_index(), name()));
+  assert(!hr->is_free() || hr->is_empty(), err_msg("Free region %u is not empty for set %s", hr->hrm_index(), name()));
+  assert(!hr->is_empty() || hr->is_free(), err_msg("Empty region %u is not free for set %s", hr->hrm_index(), name()));
+  assert(hr->rem_set()->verify_ready_for_par_iteration(), err_msg("Wrong iteration state %u", hr->hrm_index()));
 }
 #endif
 
@@ -85,16 +87,16 @@ void HeapRegionSetBase::print_on(outputStream* out, bool print_contents) {
   out->print_cr("Set: %s ("PTR_FORMAT")", name(), this);
   out->print_cr("  Region Assumptions");
   out->print_cr("    humongous         : %s", BOOL_TO_STR(regions_humongous()));
-  out->print_cr("    empty             : %s", BOOL_TO_STR(regions_empty()));
+  out->print_cr("    free              : %s", BOOL_TO_STR(regions_free()));
   out->print_cr("  Attributes");
   out->print_cr("    length            : %14u", length());
   out->print_cr("    total capacity    : "SIZE_FORMAT_W(14)" bytes",
                 total_capacity_bytes());
 }
 
-HeapRegionSetBase::HeapRegionSetBase(const char* name, bool humongous, bool empty, HRSMtSafeChecker* mt_safety_checker)
+HeapRegionSetBase::HeapRegionSetBase(const char* name, bool humongous, bool free, HRSMtSafeChecker* mt_safety_checker)
   : _name(name), _verify_in_progress(false),
-    _is_humongous(humongous), _is_empty(empty), _mt_safety_checker(mt_safety_checker),
+    _is_humongous(humongous), _is_free(free), _mt_safety_checker(mt_safety_checker),
     _count()
 { }
 
@@ -158,7 +160,7 @@ void FreeRegionList::add_ordered(FreeRegionList* from_list) {
     HeapRegion* curr_from = from_list->_head;
 
     while (curr_from != NULL) {
-      while (curr_to != NULL && curr_to->hrs_index() < curr_from->hrs_index()) {
+      while (curr_to != NULL && curr_to->hrm_index() < curr_from->hrm_index()) {
         curr_to = curr_to->next();
       }
 
@@ -183,7 +185,7 @@ void FreeRegionList::add_ordered(FreeRegionList* from_list) {
       }
     }
 
-    if (_tail->hrs_index() < from_list->_tail->hrs_index()) {
+    if (_tail->hrm_index() < from_list->_tail->hrm_index()) {
       _tail = from_list->_tail;
     }
   }
@@ -309,8 +311,8 @@ void FreeRegionList::verify_list() {
     if (curr->next() != NULL) {
       guarantee(curr->next()->prev() == curr, "Next or prev pointers messed up");
     }
-    guarantee(curr->hrs_index() == 0 || curr->hrs_index() > last_index, "List should be sorted");
-    last_index = curr->hrs_index();
+    guarantee(curr->hrm_index() == 0 || curr->hrm_index() > last_index, "List should be sorted");
+    last_index = curr->hrm_index();
 
     capacity += curr->capacity();
 
@@ -319,7 +321,7 @@ void FreeRegionList::verify_list() {
     curr = curr->next();
   }
 
-  guarantee(_tail == prev0, err_msg("Expected %s to end with %u but it ended with %u.", name(), _tail->hrs_index(), prev0->hrs_index()));
+  guarantee(_tail == prev0, err_msg("Expected %s to end with %u but it ended with %u.", name(), _tail->hrm_index(), prev0->hrm_index()));
   guarantee(_tail == NULL || _tail->next() == NULL, "_tail should not have a next");
   guarantee(length() == count, err_msg("%s count mismatch. Expected %u, actual %u.", name(), length(), count));
   guarantee(total_capacity_bytes() == capacity, err_msg("%s capacity mismatch. Expected " SIZE_FORMAT ", actual " SIZE_FORMAT,

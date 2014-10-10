@@ -1,4 +1,4 @@
-/*
+  /*
  * Copyright (c) 2001, 2014, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -25,6 +25,8 @@
 #ifndef SHARE_VM_GC_IMPLEMENTATION_G1_G1COLLECTEDHEAP_HPP
 #define SHARE_VM_GC_IMPLEMENTATION_G1_G1COLLECTEDHEAP_HPP
 
+#include "gc_implementation/g1/g1AllocationContext.hpp"
+#include "gc_implementation/g1/g1Allocator.hpp"
 #include "gc_implementation/g1/concurrentMark.hpp"
 #include "gc_implementation/g1/evacuationInfo.hpp"
 #include "gc_implementation/g1/g1AllocRegion.hpp"
@@ -33,7 +35,7 @@
 #include "gc_implementation/g1/g1MonitoringSupport.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/g1/g1YCTypes.hpp"
-#include "gc_implementation/g1/heapRegionSeq.hpp"
+#include "gc_implementation/g1/heapRegionManager.hpp"
 #include "gc_implementation/g1/heapRegionSet.hpp"
 #include "gc_implementation/shared/hSpaceCounters.hpp"
 #include "gc_implementation/shared/parGCAllocBuffer.hpp"
@@ -79,12 +81,6 @@ typedef GenericTaskQueueSet<RefToScanQueue, mtGC> RefToScanQueueSet;
 
 typedef int RegionIdx_t;   // needs to hold [ 0..max_regions() )
 typedef int CardIdx_t;     // needs to hold [ 0..CardsPerRegion )
-
-enum GCAllocPurpose {
-  GCAllocForTenured,
-  GCAllocForSurvived,
-  GCAllocPurposeCount
-};
 
 class YoungList : public CHeapObj<mtGC> {
 private:
@@ -158,40 +154,6 @@ public:
   void          print();
 };
 
-class MutatorAllocRegion : public G1AllocRegion {
-protected:
-  virtual HeapRegion* allocate_new_region(size_t word_size, bool force);
-  virtual void retire_region(HeapRegion* alloc_region, size_t allocated_bytes);
-public:
-  MutatorAllocRegion()
-    : G1AllocRegion("Mutator Alloc Region", false /* bot_updates */) { }
-};
-
-class SurvivorGCAllocRegion : public G1AllocRegion {
-protected:
-  virtual HeapRegion* allocate_new_region(size_t word_size, bool force);
-  virtual void retire_region(HeapRegion* alloc_region, size_t allocated_bytes);
-public:
-  SurvivorGCAllocRegion()
-  : G1AllocRegion("Survivor GC Alloc Region", false /* bot_updates */) { }
-};
-
-class OldGCAllocRegion : public G1AllocRegion {
-protected:
-  virtual HeapRegion* allocate_new_region(size_t word_size, bool force);
-  virtual void retire_region(HeapRegion* alloc_region, size_t allocated_bytes);
-public:
-  OldGCAllocRegion()
-  : G1AllocRegion("Old GC Alloc Region", true /* bot_updates */) { }
-
-  // This specialization of release() makes sure that the last card that has been
-  // allocated into has been completely filled by a dummy object.
-  // This avoids races when remembered set scanning wants to update the BOT of the
-  // last card in the retained old gc alloc region, and allocation threads
-  // allocating into that card at the same time.
-  virtual HeapRegion* release();
-};
-
 // The G1 STW is alive closure.
 // An instance is embedded into the G1CH and used as the
 // (optional) _is_alive_non_header closure in the STW
@@ -222,6 +184,9 @@ class G1CollectedHeap : public SharedHeap {
   friend class MutatorAllocRegion;
   friend class SurvivorGCAllocRegion;
   friend class OldGCAllocRegion;
+  friend class G1Allocator;
+  friend class G1DefaultAllocator;
+  friend class G1ResManAllocator;
 
   // Closures used in implementation.
   template <G1Barrier barrier, G1Mark do_mark_object>
@@ -232,6 +197,8 @@ class G1CollectedHeap : public SharedHeap {
   friend class G1ParScanClosureSuper;
   friend class G1ParEvacuateFollowersClosure;
   friend class G1ParTask;
+  friend class G1ParGCAllocator;
+  friend class G1DefaultParGCAllocator;
   friend class G1FreeGarbageRegionClosure;
   friend class RefineCardTableEntryClosure;
   friend class G1PrepareCompactClosure;
@@ -291,45 +258,19 @@ private:
   G1RegionMappingChangedListener _listener;
 
   // The sequence of all heap regions in the heap.
-  HeapRegionSeq _hrs;
+  HeapRegionManager _hrm;
 
-  // Alloc region used to satisfy mutator allocation requests.
-  MutatorAllocRegion _mutator_alloc_region;
+  // Class that handles the different kinds of allocations.
+  G1Allocator* _allocator;
 
-  // Alloc region used to satisfy allocation requests by the GC for
-  // survivor objects.
-  SurvivorGCAllocRegion _survivor_gc_alloc_region;
+  // Statistics for each allocation context
+  AllocationContextStats _allocation_context_stats;
 
   // PLAB sizing policy for survivors.
   PLABStats _survivor_plab_stats;
 
-  // Alloc region used to satisfy allocation requests by the GC for
-  // old objects.
-  OldGCAllocRegion _old_gc_alloc_region;
-
   // PLAB sizing policy for tenured objects.
   PLABStats _old_plab_stats;
-
-  PLABStats* stats_for_purpose(GCAllocPurpose purpose) {
-    PLABStats* stats = NULL;
-
-    switch (purpose) {
-    case GCAllocForSurvived:
-      stats = &_survivor_plab_stats;
-      break;
-    case GCAllocForTenured:
-      stats = &_old_plab_stats;
-      break;
-    default:
-      assert(false, "unrecognized GCAllocPurpose");
-    }
-
-    return stats;
-  }
-
-  // The last old region we allocated to during the last GC.
-  // Typically, it is not full so we should re-use it during the next GC.
-  HeapRegion* _retained_old_gc_alloc_region;
 
   // It specifies whether we should attempt to expand the heap after a
   // region allocation failure. If heap expansion fails we set this to
@@ -348,9 +289,6 @@ private:
   // It initializes the GC alloc regions at the start of a GC.
   void init_gc_alloc_regions(EvacuationInfo& evacuation_info);
 
-  // Setup the retained old gc alloc region as the currrent old gc alloc region.
-  void use_retained_old_gc_alloc_region(EvacuationInfo& evacuation_info);
-
   // It releases the GC alloc regions at the end of a GC.
   void release_gc_alloc_regions(uint no_of_gc_workers, EvacuationInfo& evacuation_info);
 
@@ -360,13 +298,6 @@ private:
 
   // Helper for monitoring and management support.
   G1MonitoringSupport* _g1mm;
-
-  // Determines PLAB size for a particular allocation purpose.
-  size_t desired_plab_sz(GCAllocPurpose purpose);
-
-  // Outside of GC pauses, the number of bytes used in all regions other
-  // than the current allocation region.
-  size_t _summary_bytes_used;
 
   // Records whether the region at the given index is kept live by roots or
   // references from the young generation.
@@ -429,7 +360,7 @@ private:
 
   // If the HR printer is active, dump the state of the regions in the
   // heap after a compaction.
-  void print_hrs_post_compaction();
+  void print_hrm_post_compaction();
 
   double verify(bool guard, const char* msg);
   void verify_before_gc();
@@ -525,11 +456,12 @@ protected:
   // humongous region.
   HeapWord* humongous_obj_allocate_initialize_regions(uint first,
                                                       uint num_regions,
-                                                      size_t word_size);
+                                                      size_t word_size,
+                                                      AllocationContext_t context);
 
   // Attempt to allocate a humongous object of the given size. Return
   // NULL if unsuccessful.
-  HeapWord* humongous_obj_allocate(size_t word_size);
+  HeapWord* humongous_obj_allocate(size_t word_size, AllocationContext_t context);
 
   // The following two methods, allocate_new_tlab() and
   // mem_allocate(), are the two main entry points from the runtime
@@ -585,6 +517,7 @@ protected:
   // retry the allocation attempt, potentially scheduling a GC
   // pause. This should only be used for non-humongous allocations.
   HeapWord* attempt_allocation_slow(size_t word_size,
+                                    AllocationContext_t context,
                                     unsigned int* gc_count_before_ret,
                                     int* gclocker_retry_count_ret);
 
@@ -599,7 +532,8 @@ protected:
   // specifies whether the mutator alloc region is expected to be NULL
   // or not.
   HeapWord* attempt_allocation_at_safepoint(size_t word_size,
-                                       bool expect_null_mutator_alloc_region);
+                                            AllocationContext_t context,
+                                            bool expect_null_mutator_alloc_region);
 
   // It dirties the cards that cover the block so that so that the post
   // write barrier never queues anything when updating objects on this
@@ -611,7 +545,9 @@ protected:
   // allocation region, either by picking one or expanding the
   // heap, and then allocate a block of the given size. The block
   // may not be a humongous - it must fit into a single heap region.
-  HeapWord* par_allocate_during_gc(GCAllocPurpose purpose, size_t word_size);
+  HeapWord* par_allocate_during_gc(GCAllocPurpose purpose,
+                                   size_t word_size,
+                                   AllocationContext_t context);
 
   HeapWord* allocate_during_gc_slow(GCAllocPurpose purpose,
                                     HeapRegion*    alloc_region,
@@ -623,10 +559,12 @@ protected:
   void par_allocate_remaining_space(HeapRegion* r);
 
   // Allocation attempt during GC for a survivor object / PLAB.
-  inline HeapWord* survivor_attempt_allocation(size_t word_size);
+  inline HeapWord* survivor_attempt_allocation(size_t word_size,
+                                               AllocationContext_t context);
 
   // Allocation attempt during GC for an old object / PLAB.
-  inline HeapWord* old_attempt_allocation(size_t word_size);
+  inline HeapWord* old_attempt_allocation(size_t word_size,
+                                          AllocationContext_t context);
 
   // These methods are the "callbacks" from the G1AllocRegion class.
 
@@ -665,13 +603,15 @@ protected:
   // Callback from VM_G1CollectForAllocation operation.
   // This function does everything necessary/possible to satisfy a
   // failed allocation request (including collection, expansion, etc.)
-  HeapWord* satisfy_failed_allocation(size_t word_size, bool* succeeded);
+  HeapWord* satisfy_failed_allocation(size_t word_size,
+                                      AllocationContext_t context,
+                                      bool* succeeded);
 
   // Attempting to expand the heap sufficiently
   // to support an allocation of the given "word_size".  If
   // successful, perform the allocation and return the address of the
   // allocated block, or else "NULL".
-  HeapWord* expand_and_allocate(size_t word_size);
+  HeapWord* expand_and_allocate(size_t word_size, AllocationContext_t context);
 
   // Process any reference objects discovered during
   // an incremental evacuation pause.
@@ -683,6 +623,10 @@ protected:
 
 public:
 
+  G1Allocator* allocator() {
+    return _allocator;
+  }
+
   G1MonitoringSupport* g1mm() {
     assert(_g1mm != NULL, "should have been initialized");
     return _g1mm;
@@ -693,6 +637,29 @@ public:
   // false otherwise.
   // (Rounds up to a HeapRegion boundary.)
   bool expand(size_t expand_bytes);
+
+  // Returns the PLAB statistics given a purpose.
+  PLABStats* stats_for_purpose(GCAllocPurpose purpose) {
+    PLABStats* stats = NULL;
+
+    switch (purpose) {
+    case GCAllocForSurvived:
+      stats = &_survivor_plab_stats;
+      break;
+    case GCAllocForTenured:
+      stats = &_old_plab_stats;
+      break;
+    default:
+      assert(false, "unrecognized GCAllocPurpose");
+    }
+
+    return stats;
+  }
+
+  // Determines PLAB size for a particular allocation purpose.
+  size_t desired_plab_sz(GCAllocPurpose purpose);
+
+  inline AllocationContextStats& allocation_context_stats();
 
   // Do anything common to GC's.
   virtual void gc_prologue(bool full);
@@ -715,7 +682,7 @@ public:
   // We register a region with the fast "in collection set" test. We
   // simply set to true the array slot corresponding to this region.
   void register_region_with_in_cset_fast_test(HeapRegion* r) {
-    _in_cset_fast_test.set_in_cset(r->hrs_index());
+    _in_cset_fast_test.set_in_cset(r->hrm_index());
   }
 
   // This is a fast test on whether a reference points into the
@@ -1171,17 +1138,17 @@ public:
   // But G1CollectedHeap doesn't yet support this.
 
   virtual bool is_maximal_no_gc() const {
-    return _hrs.available() == 0;
+    return _hrm.available() == 0;
   }
 
   // The current number of regions in the heap.
-  uint num_regions() const { return _hrs.length(); }
+  uint num_regions() const { return _hrm.length(); }
 
   // The max number of regions in the heap.
-  uint max_regions() const { return _hrs.max_length(); }
+  uint max_regions() const { return _hrm.max_length(); }
 
   // The number of regions that are completely free.
-  uint num_free_regions() const { return _hrs.num_free_regions(); }
+  uint num_free_regions() const { return _hrm.num_free_regions(); }
 
   // The number of regions that are not completely free.
   uint num_used_regions() const { return num_regions() - num_free_regions(); }
@@ -1233,7 +1200,7 @@ public:
 
 #ifdef ASSERT
   bool is_on_master_free_list(HeapRegion* hr) {
-    return _hrs.is_free(hr);
+    return _hrm.is_free(hr);
   }
 #endif // ASSERT
 
@@ -1245,7 +1212,7 @@ public:
   }
 
   void append_secondary_free_list() {
-    _hrs.insert_list_into_free_list(&_secondary_free_list);
+    _hrm.insert_list_into_free_list(&_secondary_free_list);
   }
 
   void append_secondary_free_list_if_not_empty_with_lock() {
@@ -1271,7 +1238,7 @@ public:
   // Determine whether the given region is one that we are using as an
   // old GC alloc region.
   bool is_old_gc_alloc_region(HeapRegion* hr) {
-    return hr == _retained_old_gc_alloc_region;
+    return _allocator->is_retained_old_region(hr);
   }
 
   // Perform a collection of the heap; intended for use in implementing
@@ -1281,6 +1248,11 @@ public:
 
   // The same as above but assume that the caller holds the Heap_lock.
   void collect_locked(GCCause::Cause cause);
+
+  virtual void copy_allocation_context_stats(const jint* contexts,
+                                             jlong* totals,
+                                             jbyte* accuracy,
+                                             jint len);
 
   // True iff an evacuation has failed in the most-recent collection.
   bool evacuation_failed() { return _evacuation_failed; }
@@ -1356,13 +1328,13 @@ public:
   // Return "TRUE" iff the given object address is in the reserved
   // region of g1.
   bool is_in_g1_reserved(const void* p) const {
-    return _hrs.reserved().contains(p);
+    return _hrm.reserved().contains(p);
   }
 
   // Returns a MemRegion that corresponds to the space that has been
   // reserved for the heap
   MemRegion g1_reserved() const {
-    return _hrs.reserved();
+    return _hrm.reserved();
   }
 
   virtual bool is_in_closed_subset(const void* p) const;
@@ -1661,12 +1633,6 @@ public:
   // Unregister the given nmethod from the G1 heap
   virtual void unregister_nmethod(nmethod* nm);
 
-  // Migrate the nmethods in the code root lists of the regions
-  // in the collection set to regions in to-space. In the event
-  // of an evacuation failure, nmethods that reference objects
-  // that were not successfullly evacuated are not migrated.
-  void migrate_strong_code_roots();
-
   // Free up superfluous code root memory.
   void purge_code_root_memory();
 
@@ -1750,30 +1716,6 @@ public:
 
 protected:
   size_t _max_heap_capacity;
-};
-
-class G1ParGCAllocBuffer: public ParGCAllocBuffer {
-private:
-  bool        _retired;
-
-public:
-  G1ParGCAllocBuffer(size_t gclab_word_size);
-  virtual ~G1ParGCAllocBuffer() {
-    guarantee(_retired, "Allocation buffer has not been retired");
-  }
-
-  virtual void set_buf(HeapWord* buf) {
-    ParGCAllocBuffer::set_buf(buf);
-    _retired = false;
-  }
-
-  virtual void retire(bool end_of_gc, bool retain) {
-    if (_retired) {
-      return;
-    }
-    ParGCAllocBuffer::retire(end_of_gc, retain);
-    _retired = true;
-  }
 };
 
 #endif // SHARE_VM_GC_IMPLEMENTATION_G1_G1COLLECTEDHEAP_HPP
