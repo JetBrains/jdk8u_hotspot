@@ -2830,6 +2830,11 @@ void ClassFileParser::parse_classfile_bootstrap_methods_attribute(u4 attribute_b
       "bootstrap_method_index %u has bad constant type in class file %s",
       bootstrap_method_index,
       CHECK);
+
+    guarantee_property((operand_fill_index + 1 + argument_count) < operands->length(),
+      "Invalid BootstrapMethods num_bootstrap_methods or num_bootstrap_arguments value in class file %s",
+      CHECK);
+
     operands->at_put(operand_fill_index++, bootstrap_method_index);
     operands->at_put(operand_fill_index++, argument_count);
 
@@ -2847,7 +2852,6 @@ void ClassFileParser::parse_classfile_bootstrap_methods_attribute(u4 attribute_b
   }
 
   assert(operand_fill_index == operands->length(), "exact fill");
-  assert(ConstantPool::operand_array_length(operands) == attribute_array_length, "correct decode");
 
   u1* current_end = cfs->current();
   guarantee_property(current_end == current_start + attribute_byte_length,
@@ -4161,8 +4165,12 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
         tty->print("[Loaded %s from %s]\n", this_klass->external_name(),
                    cfs->source());
       } else if (class_loader.is_null()) {
-        if (THREAD->is_Java_thread()) {
-          Klass* caller = ((JavaThread*)THREAD)->security_get_caller_class(1);
+        Klass* caller =
+            THREAD->is_Java_thread()
+                ? ((JavaThread*)THREAD)->security_get_caller_class(1)
+                : NULL;
+        // caller can be NULL, for example, during a JVMTI VM_Init hook
+        if (caller != NULL) {
           tty->print("[Loaded %s by instance of %s]\n",
                      this_klass->external_name(),
                      InstanceKlass::cast(caller)->external_name());

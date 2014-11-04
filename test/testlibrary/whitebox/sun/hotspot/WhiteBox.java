@@ -101,6 +101,7 @@ public class WhiteBox {
   public native void NMTOverflowHashBucket(long num);
   public native long NMTMallocWithPseudoStack(long size, int index);
   public native boolean NMTIsDetailSupported();
+  public native boolean NMTChangeTrackingLevel();
 
   // Compiler
   public native void    deoptimizeAll();
@@ -152,6 +153,8 @@ public class WhiteBox {
   public native void readReservedMemory();
   public native long allocateMetaspace(ClassLoader classLoader, long size);
   public native void freeMetaspace(ClassLoader classLoader, long addr, long size);
+  public native long incMetaspaceCapacityUntilGC(long increment);
+  public native long metaspaceCapacityUntilGC();
 
   // force Young GC
   public native void youngGC();

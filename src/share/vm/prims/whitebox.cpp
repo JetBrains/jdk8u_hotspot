@@ -331,7 +331,36 @@ WB_ENTRY(void, WB_NMTOverflowHashBucket(JNIEnv* env, jobject o, jlong num))
   }
 WB_END
 
+WB_ENTRY(jboolean, WB_NMTChangeTrackingLevel(JNIEnv* env))
+  // Test that we can downgrade NMT levels but not upgrade them.
+  if (MemTracker::tracking_level() == NMT_off) {
+    MemTracker::transition_to(NMT_off);
+    return MemTracker::tracking_level() == NMT_off;
+  } else {
+    assert(MemTracker::tracking_level() == NMT_detail, "Should start out as detail tracking");
+    MemTracker::transition_to(NMT_summary);
+    assert(MemTracker::tracking_level() == NMT_summary, "Should be summary now");
 
+    // Can't go to detail once NMT is set to summary.
+    MemTracker::transition_to(NMT_detail);
+    assert(MemTracker::tracking_level() == NMT_summary, "Should still be summary now");
+
+    // Shutdown sets tracking level to minimal.
+    MemTracker::shutdown();
+    assert(MemTracker::tracking_level() == NMT_minimal, "Should be minimal now");
+
+    // Once the tracking level is minimal, we cannot increase to summary.
+    // The code ignores this request instead of asserting because if the malloc site
+    // table overflows in another thread, it tries to change the code to summary.
+    MemTracker::transition_to(NMT_summary);
+    assert(MemTracker::tracking_level() == NMT_minimal, "Should still be minimal now");
+
+    // Really can never go up to detail, verify that the code would never do this.
+    MemTracker::transition_to(NMT_detail);
+    assert(MemTracker::tracking_level() == NMT_minimal, "Should still be minimal now");
+    return MemTracker::tracking_level() == NMT_minimal;
+  }
+WB_END
 #endif // INCLUDE_NMT
 
 static jmethodID reflected_method_to_jmid(JavaThread* thread, JNIEnv* env, jobject method) {
@@ -794,6 +823,33 @@ WB_ENTRY(void, WB_FreeMetaspace(JNIEnv* env, jobject wb, jobject class_loader, j
   MetadataFactory::free_array(cld, (Array<u1>*)(uintptr_t)addr);
 WB_END
 
+WB_ENTRY(jlong, WB_IncMetaspaceCapacityUntilGC(JNIEnv* env, jobject wb, jlong inc))
+  if (inc < 0) {
+    THROW_MSG_0(vmSymbols::java_lang_IllegalArgumentException(),
+        err_msg("WB_IncMetaspaceCapacityUntilGC: inc is negative: " JLONG_FORMAT, inc));
+  }
+
+  jlong max_size_t = (jlong) ((size_t) -1);
+  if (inc > max_size_t) {
+    THROW_MSG_0(vmSymbols::java_lang_IllegalArgumentException(),
+        err_msg("WB_IncMetaspaceCapacityUntilGC: inc does not fit in size_t: " JLONG_FORMAT, inc));
+  }
+
+  size_t new_cap_until_GC = 0;
+  size_t aligned_inc = align_size_down((size_t) inc, Metaspace::commit_alignment());
+  bool success = MetaspaceGC::inc_capacity_until_GC(aligned_inc, &new_cap_until_GC);
+  if (!success) {
+    THROW_MSG_0(vmSymbols::java_lang_IllegalStateException(),
+                "WB_IncMetaspaceCapacityUntilGC: could not increase capacity until GC "
+                "due to contention with another thread");
+  }
+  return (jlong) new_cap_until_GC;
+WB_END
+
+WB_ENTRY(jlong, WB_MetaspaceCapacityUntilGC(JNIEnv* env, jobject wb))
+  return (jlong) MetaspaceGC::capacity_until_GC();
+WB_END
+
 //Some convenience methods to deal with objects from java
 int WhiteBox::offset_for_field(const char* field_name, oop object,
     Symbol* signature_symbol) {
@@ -909,6 +965,7 @@ static JNINativeMethod methods[] = {
   {CC"NMTReleaseMemory",    CC"(JJ)V",                (void*)&WB_NMTReleaseMemory   },
   {CC"NMTOverflowHashBucket", CC"(J)V",               (void*)&WB_NMTOverflowHashBucket},
   {CC"NMTIsDetailSupported",CC"()Z",                  (void*)&WB_NMTIsDetailSupported},
+  {CC"NMTChangeTrackingLevel", CC"()Z",               (void*)&WB_NMTChangeTrackingLevel},
 #endif // INCLUDE_NMT
   {CC"deoptimizeAll",      CC"()V",                   (void*)&WB_DeoptimizeAll     },
   {CC"deoptimizeMethod",   CC"(Ljava/lang/reflect/Executable;Z)I",
@@ -962,6 +1019,8 @@ static JNINativeMethod methods[] = {
      CC"(Ljava/lang/ClassLoader;J)J",                 (void*)&WB_AllocateMetaspace },
   {CC"freeMetaspace",
      CC"(Ljava/lang/ClassLoader;JJ)V",                (void*)&WB_FreeMetaspace },
+  {CC"incMetaspaceCapacityUntilGC", CC"(J)J",         (void*)&WB_IncMetaspaceCapacityUntilGC },
+  {CC"metaspaceCapacityUntilGC", CC"()J",             (void*)&WB_MetaspaceCapacityUntilGC },
   {CC"getCPUFeatures",     CC"()Ljava/lang/String;",  (void*)&WB_GetCPUFeatures     },
   {CC"getNMethod",         CC"(Ljava/lang/reflect/Executable;Z)[Ljava/lang/Object;",
                                                       (void*)&WB_GetNMethod         },
