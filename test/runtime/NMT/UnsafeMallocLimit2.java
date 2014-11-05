@@ -21,39 +21,34 @@
  * questions.
  */
 
-import sun.hotspot.WhiteBox;
+/*
+ * @test
+ * @bug 8058818
+ * @library /testlibrary
+ * @build UnsafeMallocLimit2
+ * @run main/othervm -Xmx32m -XX:NativeMemoryTracking=off UnsafeMallocLimit2
+ */
 
-class AllocateBeyondMetaspaceSize {
-  public static Object dummy;
+import com.oracle.java.testlibrary.*;
+import sun.misc.Unsafe;
 
-  public static void main(String [] args) {
-    if (args.length != 2) {
-      throw new IllegalArgumentException("Usage: <MetaspaceSize> <YoungGenSize>");
+public class UnsafeMallocLimit2 {
+
+    public static void main(String args[]) throws Exception {
+        if (Platform.is32bit()) {
+            Unsafe unsafe = Utils.getUnsafe();
+            try {
+                // Allocate greater than MALLOC_MAX and likely won't fail to allocate,
+                // so it hits the NMT code that asserted.
+                // Test that this doesn't cause an assertion with NMT off.
+                // The option above overrides if all the tests are run with NMT on.
+                unsafe.allocateMemory(0x40000000);
+                System.out.println("Allocation succeeded");
+            } catch (OutOfMemoryError e) {
+                System.out.println("Allocation failed");
+            }
+        } else {
+            System.out.println("Test only valid on 32-bit platforms");
+        }
     }
-
-    long metaspaceSize = Long.parseLong(args[0]);
-    long youngGenSize = Long.parseLong(args[1]);
-
-    run(metaspaceSize, youngGenSize);
-  }
-
-  private static void run(long metaspaceSize, long youngGenSize) {
-    WhiteBox wb = WhiteBox.getWhiteBox();
-
-    long allocationBeyondMetaspaceSize  = metaspaceSize * 2;
-    long metaspace = wb.allocateMetaspace(null, allocationBeyondMetaspaceSize);
-
-    triggerYoungGC(youngGenSize);
-
-    wb.freeMetaspace(null, metaspace, metaspace);
-  }
-
-  private static void triggerYoungGC(long youngGenSize) {
-    long approxAllocSize = 32 * 1024;
-    long numAllocations  = 2 * youngGenSize / approxAllocSize;
-
-    for (long i = 0; i < numAllocations; i++) {
-      dummy = new byte[(int)approxAllocSize];
-    }
-  }
 }

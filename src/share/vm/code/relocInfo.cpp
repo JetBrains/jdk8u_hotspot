@@ -875,11 +875,7 @@ address external_word_Relocation::target() {
 void internal_word_Relocation::fix_relocation_after_move(const CodeBuffer* src, CodeBuffer* dest) {
   address target = _target;
   if (target == NULL) {
-    if (addr_in_const()) {
-      target = new_addr_for(*(address*)addr(), src, dest);
-    } else {
-      target = new_addr_for(pd_get_address_from_code(), src, dest);
-    }
+    target = new_addr_for(this->target(), src, dest);
   }
   set_value(target);
 }
@@ -888,7 +884,11 @@ void internal_word_Relocation::fix_relocation_after_move(const CodeBuffer* src, 
 address internal_word_Relocation::target() {
   address target = _target;
   if (target == NULL) {
-    target = pd_get_address_from_code();
+    if (addr_in_const()) {
+      target = *(address*)addr();
+    } else {
+      target = pd_get_address_from_code();
+    }
   }
   return target;
 }

@@ -28,8 +28,9 @@
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1OopClosures.inline.hpp"
 #include "gc_implementation/g1/heapRegion.inline.hpp"
+#include "gc_implementation/g1/heapRegionBounds.inline.hpp"
 #include "gc_implementation/g1/heapRegionRemSet.hpp"
-#include "gc_implementation/g1/heapRegionSeq.inline.hpp"
+#include "gc_implementation/g1/heapRegionManager.inline.hpp"
 #include "gc_implementation/shared/liveRange.hpp"
 #include "memory/genOopClosures.inline.hpp"
 #include "memory/iterator.hpp"
@@ -137,32 +138,16 @@ void HeapRegionDCTOC::walk_mem_region(MemRegion mr,
   }
 }
 
-// Minimum region size; we won't go lower than that.
-// We might want to decrease this in the future, to deal with small
-// heaps a bit more efficiently.
-#define MIN_REGION_SIZE  (      1024 * 1024 )
-
-// Maximum region size; we don't go higher than that. There's a good
-// reason for having an upper bound. We don't want regions to get too
-// large, otherwise cleanup's effectiveness would decrease as there
-// will be fewer opportunities to find totally empty regions after
-// marking.
-#define MAX_REGION_SIZE  ( 32 * 1024 * 1024 )
-
-// The automatic region size calculation will try to have around this
-// many regions in the heap (based on the min heap size).
-#define TARGET_REGION_NUMBER          2048
-
 size_t HeapRegion::max_region_size() {
-  return (size_t)MAX_REGION_SIZE;
+  return HeapRegionBounds::max_size();
 }
 
 void HeapRegion::setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size) {
   uintx region_size = G1HeapRegionSize;
   if (FLAG_IS_DEFAULT(G1HeapRegionSize)) {
     size_t average_heap_size = (initial_heap_size + max_heap_size) / 2;
-    region_size = MAX2(average_heap_size / TARGET_REGION_NUMBER,
-                       (uintx) MIN_REGION_SIZE);
+    region_size = MAX2(average_heap_size / HeapRegionBounds::target_number(),
+                       (uintx) HeapRegionBounds::min_size());
   }
 
   int region_size_log = log2_long((jlong) region_size);
@@ -172,10 +157,10 @@ void HeapRegion::setup_heap_region_size(size_t initial_heap_size, size_t max_hea
   region_size = ((uintx)1 << region_size_log);
 
   // Now make sure that we don't go over or under our limits.
-  if (region_size < MIN_REGION_SIZE) {
-    region_size = MIN_REGION_SIZE;
-  } else if (region_size > MAX_REGION_SIZE) {
-    region_size = MAX_REGION_SIZE;
+  if (region_size < HeapRegionBounds::min_size()) {
+    region_size = HeapRegionBounds::min_size();
+  } else if (region_size > HeapRegionBounds::max_size()) {
+    region_size = HeapRegionBounds::max_size();
   }
 
   // And recalculate the log.
@@ -210,8 +195,6 @@ void HeapRegion::reset_after_compaction() {
 }
 
 void HeapRegion::hr_clear(bool par, bool clear_space, bool locked) {
-  assert(_humongous_type == NotHumongous,
-         "we should have already filtered out humongous regions");
   assert(_humongous_start_region == NULL,
          "we should have already filtered out humongous regions");
   assert(_end == _orig_end,
@@ -219,9 +202,10 @@ void HeapRegion::hr_clear(bool par, bool clear_space, bool locked) {
 
   _in_collection_set = false;
 
+  set_allocation_context(AllocationContext::system());
   set_young_index_in_cset(-1);
   uninstall_surv_rate_group();
-  set_young_type(NotYoung);
+  set_free();
   reset_pre_dummy_top();
 
   if (!par) {
@@ -272,7 +256,7 @@ void HeapRegion::set_startsHumongous(HeapWord* new_top, HeapWord* new_end) {
   assert(top() == bottom(), "should be empty");
   assert(bottom() <= new_top && new_top <= new_end, "pre-condition");
 
-  _humongous_type = StartsHumongous;
+  _type.set_starts_humongous();
   _humongous_start_region = this;
 
   set_end(new_end);
@@ -286,11 +270,11 @@ void HeapRegion::set_continuesHumongous(HeapRegion* first_hr) {
   assert(top() == bottom(), "should be empty");
   assert(first_hr->startsHumongous(), "pre-condition");
 
-  _humongous_type = ContinuesHumongous;
+  _type.set_continues_humongous();
   _humongous_start_region = first_hr;
 }
 
-void HeapRegion::set_notHumongous() {
+void HeapRegion::clear_humongous() {
   assert(isHumongous(), "pre-condition");
 
   if (startsHumongous()) {
@@ -306,7 +290,6 @@ void HeapRegion::set_notHumongous() {
   }
 
   assert(capacity() == HeapRegion::GrainBytes, "pre-condition");
-  _humongous_type = NotHumongous;
   _humongous_start_region = NULL;
 }
 
@@ -321,40 +304,18 @@ bool HeapRegion::claimHeapRegion(jint claimValue) {
   return false;
 }
 
-HeapWord* HeapRegion::next_block_start_careful(HeapWord* addr) {
-  HeapWord* low = addr;
-  HeapWord* high = end();
-  while (low < high) {
-    size_t diff = pointer_delta(high, low);
-    // Must add one below to bias toward the high amount.  Otherwise, if
-  // "high" were at the desired value, and "low" were one less, we
-    // would not converge on "high".  This is not symmetric, because
-    // we set "high" to a block start, which might be the right one,
-    // which we don't do for "low".
-    HeapWord* middle = low + (diff+1)/2;
-    if (middle == high) return high;
-    HeapWord* mid_bs = block_start_careful(middle);
-    if (mid_bs < addr) {
-      low = middle;
-    } else {
-      high = mid_bs;
-    }
-  }
-  assert(low == high && low >= addr, "Didn't work.");
-  return low;
-}
-
-HeapRegion::HeapRegion(uint hrs_index,
+HeapRegion::HeapRegion(uint hrm_index,
                        G1BlockOffsetSharedArray* sharedOffsetArray,
                        MemRegion mr) :
     G1OffsetTableContigSpace(sharedOffsetArray, mr),
-    _hrs_index(hrs_index),
-    _humongous_type(NotHumongous), _humongous_start_region(NULL),
+    _hrm_index(hrm_index),
+    _allocation_context(AllocationContext::system()),
+    _humongous_start_region(NULL),
     _in_collection_set(false),
     _next_in_special_set(NULL), _orig_end(NULL),
     _claimed(InitialClaimValue), _evacuation_failed(false),
     _prev_marked_bytes(0), _next_marked_bytes(0), _gc_efficiency(0.0),
-    _young_type(NotYoung), _next_young_region(NULL),
+    _next_young_region(NULL),
     _next_dirty_cards_region(NULL), _next(NULL), _prev(NULL),
 #ifdef ASSERT
     _containing_set(NULL),
@@ -565,19 +526,15 @@ void HeapRegion::add_strong_code_root(nmethod* nm) {
   hrrs->add_strong_code_root(nm);
 }
 
+void HeapRegion::add_strong_code_root_locked(nmethod* nm) {
+  assert_locked_or_safepoint(CodeCache_lock);
+  HeapRegionRemSet* hrrs = rem_set();
+  hrrs->add_strong_code_root_locked(nm);
+}
+
 void HeapRegion::remove_strong_code_root(nmethod* nm) {
   HeapRegionRemSet* hrrs = rem_set();
   hrrs->remove_strong_code_root(nm);
-}
-
-void HeapRegion::migrate_strong_code_roots() {
-  assert(in_collection_set(), "only collection set regions");
-  assert(!isHumongous(),
-          err_msg("humongous region "HR_FORMAT" should not have been added to collection set",
-                  HR_FORMAT_PARAMS(this)));
-
-  HeapRegionRemSet* hrrs = rem_set();
-  hrrs->migrate_strong_code_roots();
 }
 
 void HeapRegion::strong_code_roots_do(CodeBlobClosure* blk) const {
@@ -715,26 +672,12 @@ void HeapRegion::verify_strong_code_roots(VerifyOption vo, bool* failures) const
 
 void HeapRegion::print() const { print_on(gclog_or_tty); }
 void HeapRegion::print_on(outputStream* st) const {
-  if (isHumongous()) {
-    if (startsHumongous())
-      st->print(" HS");
-    else
-      st->print(" HC");
-  } else {
-    st->print("   ");
-  }
+  st->print("AC%4u", allocation_context());
+  st->print(" %2s", get_short_type_str());
   if (in_collection_set())
     st->print(" CS");
   else
     st->print("   ");
-  if (is_young())
-    st->print(is_survivor() ? " SU" : " Y ");
-  else
-    st->print("   ");
-  if (is_empty())
-    st->print(" F");
-  else
-    st->print("  ");
   st->print(" TS %5d", _gc_time_stamp);
   st->print(" PTAMS "PTR_FORMAT" NTAMS "PTR_FORMAT,
             prev_top_at_mark_start(), next_top_at_mark_start());

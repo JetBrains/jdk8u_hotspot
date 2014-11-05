@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "classfile/classLoader.hpp"
 #include "classfile/javaAssertions.hpp"
 #include "classfile/symbolTable.hpp"
 #include "compiler/compilerOracle.hpp"
@@ -34,12 +35,14 @@
 #include "oops/oop.inline.hpp"
 #include "prims/jvmtiExport.hpp"
 #include "runtime/arguments.hpp"
+#include "runtime/arguments_ext.hpp"
 #include "runtime/globals_extension.hpp"
 #include "runtime/java.hpp"
 #include "services/management.hpp"
 #include "services/memTracker.hpp"
 #include "utilities/defaultStream.hpp"
 #include "utilities/macros.hpp"
+#include "utilities/stringUtils.hpp"
 #include "utilities/taskqueue.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "os_linux.inline.hpp"
@@ -1111,11 +1114,11 @@ void Arguments::set_mode_flags(Mode mode) {
 // Conflict: required to use shared spaces (-Xshare:on), but
 // incompatible command line options were chosen.
 
-static void no_shared_spaces() {
+static void no_shared_spaces(const char* message) {
   if (RequireSharedSpaces) {
     jio_fprintf(defaultStream::error_stream(),
       "Class data sharing is inconsistent with other specified options.\n");
-    vm_exit_during_initialization("Unable to use shared archive.", NULL);
+    vm_exit_during_initialization("Unable to use shared archive.", message);
   } else {
     FLAG_SET_DEFAULT(UseSharedSpaces, false);
   }
@@ -1531,24 +1534,25 @@ void Arguments::set_conservative_max_heap_alignment() {
                                           CollectorPolicy::compute_heap_alignment());
 }
 
-void Arguments::set_ergonomics_flags() {
-
+void Arguments::select_gc_ergonomically() {
   if (os::is_server_class_machine()) {
-    // If no other collector is requested explicitly,
-    // let the VM select the collector based on
-    // machine class and automatic selection policy.
-    if (!UseSerialGC &&
-        !UseConcMarkSweepGC &&
-        !UseG1GC &&
-        !UseParNewGC &&
-        FLAG_IS_DEFAULT(UseParallelGC)) {
-      if (should_auto_select_low_pause_collector()) {
-        FLAG_SET_ERGO(bool, UseConcMarkSweepGC, true);
-      } else {
-        FLAG_SET_ERGO(bool, UseParallelGC, true);
-      }
+    if (should_auto_select_low_pause_collector()) {
+      FLAG_SET_ERGO(bool, UseConcMarkSweepGC, true);
+    } else {
+      FLAG_SET_ERGO(bool, UseParallelGC, true);
     }
   }
+}
+
+void Arguments::select_gc() {
+  if (!gc_selected()) {
+    ArgumentsExt::select_gc_ergonomically();
+  }
+}
+
+void Arguments::set_ergonomics_flags() {
+  select_gc();
+
 #ifdef COMPILER2
   // Shared spaces work fine with other GCs but causes bytecode rewriting
   // to be disabled, which hurts interpreter performance and decreases
@@ -1557,7 +1561,7 @@ void Arguments::set_ergonomics_flags() {
   // at link time, or rewrite bytecodes in non-shared methods.
   if (!DumpSharedSpaces && !RequireSharedSpaces &&
       (FLAG_IS_DEFAULT(UseSharedSpaces) || !UseSharedSpaces)) {
-    no_shared_spaces();
+    no_shared_spaces("COMPILER2 default: -Xshare:auto | off, have to manually setup to on.");
   }
 #endif
 
@@ -1643,6 +1647,12 @@ void Arguments::set_g1_gc_flags() {
                      Abstract_VM_Version::parallel_worker_threads());
   }
 
+#if INCLUDE_ALL_GCS
+  if (G1ConcRefinementThreads == 0) {
+    FLAG_SET_DEFAULT(G1ConcRefinementThreads, ParallelGCThreads);
+  }
+#endif
+
   // MarkStackSize will be set (if it hasn't been set by the user)
   // when concurrent marking is initialized.
   // Its value will be based upon the number of parallel marking threads.
@@ -1666,6 +1676,46 @@ void Arguments::set_g1_gc_flags() {
       (unsigned int) (MarkStackSize / K), (uint) (MarkStackSizeMax / K));
     tty->print_cr("ConcGCThreads: %u", (uint) ConcGCThreads);
   }
+}
+
+#if !INCLUDE_ALL_GCS
+#ifdef ASSERT
+static bool verify_serial_gc_flags() {
+  return (UseSerialGC &&
+        !(UseParNewGC || (UseConcMarkSweepGC || CMSIncrementalMode) || UseG1GC ||
+          UseParallelGC || UseParallelOldGC));
+}
+#endif // ASSERT
+#endif // INCLUDE_ALL_GCS
+
+void Arguments::set_gc_specific_flags() {
+#if INCLUDE_ALL_GCS
+  // Set per-collector flags
+  if (UseParallelGC || UseParallelOldGC) {
+    set_parallel_gc_flags();
+  } else if (UseConcMarkSweepGC) { // Should be done before ParNew check below
+    set_cms_and_parnew_gc_flags();
+  } else if (UseParNewGC) {  // Skipped if CMS is set above
+    set_parnew_gc_flags();
+  } else if (UseG1GC) {
+    set_g1_gc_flags();
+  }
+  check_deprecated_gcs();
+  check_deprecated_gc_flags();
+  if (AssumeMP && !UseSerialGC) {
+    if (FLAG_IS_DEFAULT(ParallelGCThreads) && ParallelGCThreads == 1) {
+      warning("If the number of processors is expected to increase from one, then"
+              " you should configure the number of parallel GC threads appropriately"
+              " using -XX:ParallelGCThreads=N");
+    }
+  }
+  if (MinHeapFreeRatio == 100) {
+    // Keeping the heap 100% free is hard ;-) so limit it to 99%.
+    FLAG_SET_ERGO(uintx, MinHeapFreeRatio, 99);
+  }
+#else // INCLUDE_ALL_GCS
+  assert(verify_serial_gc_flags(), "SerialGC unset");
+#endif // INCLUDE_ALL_GCS
 }
 
 julong Arguments::limit_by_allocatable_memory(julong limit) {
@@ -1891,16 +1941,6 @@ bool Arguments::verify_percentage(uintx value, const char* name) {
   return false;
 }
 
-#if !INCLUDE_ALL_GCS
-#ifdef ASSERT
-static bool verify_serial_gc_flags() {
-  return (UseSerialGC &&
-        !(UseParNewGC || (UseConcMarkSweepGC || CMSIncrementalMode) || UseG1GC ||
-          UseParallelGC || UseParallelOldGC));
-}
-#endif // ASSERT
-#endif // INCLUDE_ALL_GCS
-
 // check if do gclog rotation
 // +UseGCLogFileRotation is a must,
 // no gc log rotation when log file not supplied or
@@ -2001,7 +2041,7 @@ bool Arguments::verify_MaxHeapFreeRatio(FormatBuffer<80>& err_msg, uintx max_hea
 }
 
 // Check consistency of GC selection
-bool Arguments::check_gc_consistency() {
+bool Arguments::check_gc_consistency_user() {
   check_gclog_consistency();
   bool status = true;
   // Ensure that the user has not selected conflicting sets
@@ -2167,7 +2207,7 @@ bool Arguments::check_vm_args_consistency() {
     FLAG_SET_DEFAULT(UseGCOverheadLimit, false);
   }
 
-  status = status && check_gc_consistency();
+  status = status && ArgumentsExt::check_gc_consistency_user();
   status = status && check_stack_pages();
 
   if (CMSIncrementalMode) {
@@ -2350,6 +2390,9 @@ bool Arguments::check_vm_args_consistency() {
   status = status && verify_percentage(MarkSweepDeadRatio, "MarkSweepDeadRatio");
 
   status = status && verify_min_value(MarkSweepAlwaysCompactCount, 1, "MarkSweepAlwaysCompactCount");
+#ifdef COMPILER1
+  status = status && verify_min_value(ValueMapInitialSize, 1, "ValueMapInitialSize");
+#endif
 
   if (PrintNMTStatistics) {
 #if INCLUDE_NMT
@@ -2415,7 +2458,9 @@ bool Arguments::check_vm_args_consistency() {
     warning("The VM option CICompilerCountPerCPU overrides CICompilerCount.");
   }
 
-  status &= check_vm_args_consistency_ext();
+#ifdef COMPILER1
+  status &= verify_interval(SafepointPollOffset, 0, os::vm_page_size() - BytesPerWord, "SafepointPollOffset");
+#endif
 
   return status;
 }
@@ -3252,6 +3297,15 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args,
     }
   }
 
+  // PrintSharedArchiveAndExit will turn on
+  //   -Xshare:on
+  //   -XX:+TraceClassPaths
+  if (PrintSharedArchiveAndExit) {
+    FLAG_SET_CMDLINE(bool, UseSharedSpaces, true);
+    FLAG_SET_CMDLINE(bool, RequireSharedSpaces, true);
+    FLAG_SET_CMDLINE(bool, TraceClassPaths, true);
+  }
+
   // Change the default value for flags  which have different default values
   // when working with older JDKs.
 #ifdef LINUX
@@ -3260,7 +3314,53 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args,
     FLAG_SET_DEFAULT(UseLinuxPosixThreadCPUClocks, false);
   }
 #endif // LINUX
+  fix_appclasspath();
   return JNI_OK;
+}
+
+// Remove all empty paths from the app classpath (if IgnoreEmptyClassPaths is enabled)
+//
+// This is necessary because some apps like to specify classpath like -cp foo.jar:${XYZ}:bar.jar
+// in their start-up scripts. If XYZ is empty, the classpath will look like "-cp foo.jar::bar.jar".
+// Java treats such empty paths as if the user specified "-cp foo.jar:.:bar.jar". I.e., an empty
+// path is treated as the current directory.
+//
+// This causes problems with CDS, which requires that all directories specified in the classpath
+// must be empty. In most cases, applications do NOT want to load classes from the current
+// directory anyway. Adding -XX:+IgnoreEmptyClassPaths will make these applications' start-up
+// scripts compatible with CDS.
+void Arguments::fix_appclasspath() {
+  if (IgnoreEmptyClassPaths) {
+    const char separator = *os::path_separator();
+    const char* src = _java_class_path->value();
+
+    // skip over all the leading empty paths
+    while (*src == separator) {
+      src ++;
+    }
+
+    char* copy = AllocateHeap(strlen(src) + 1, mtInternal);
+    strncpy(copy, src, strlen(src) + 1);
+
+    // trim all trailing empty paths
+    for (char* tail = copy + strlen(copy) - 1; tail >= copy && *tail == separator; tail--) {
+      *tail = '\0';
+    }
+
+    char from[3] = {separator, separator, '\0'};
+    char to  [2] = {separator, '\0'};
+    while (StringUtils::replace_no_expand(copy, from, to) > 0) {
+      // Keep replacing "::" -> ":" until we have no more "::" (non-windows)
+      // Keep replacing ";;" -> ";" until we have no more ";;" (windows)
+    }
+
+    _java_class_path->set_value(copy);
+    FreeHeap(copy); // a copy was made by set_value, so don't need this anymore
+  }
+
+  if (!PrintSharedArchiveAndExit) {
+    ClassLoader::trace_class_path("[classpath: ", _java_class_path->value());
+  }
 }
 
 jint Arguments::finalize_vm_init_args(SysClassPath* scp_p, bool scp_assembly_required) {
@@ -3332,7 +3432,7 @@ jint Arguments::finalize_vm_init_args(SysClassPath* scp_p, bool scp_assembly_req
     }
   }
 
-  if (!check_vm_args_consistency()) {
+  if (!ArgumentsExt::check_vm_args_consistency()) {
     return JNI_ERR;
   }
 
@@ -3433,9 +3533,8 @@ void Arguments::set_shared_spaces_flags() {
         "Cannot dump shared archive when UseCompressedOops or UseCompressedClassPointers is off.", NULL);
     }
   } else {
-    // UseCompressedOops and UseCompressedClassPointers must be on for UseSharedSpaces.
     if (!UseCompressedOops || !UseCompressedClassPointers) {
-      no_shared_spaces();
+      no_shared_spaces("UseCompressedOops and UseCompressedClassPointers must be on for UseSharedSpaces.");
     }
 #endif
   }
@@ -3546,9 +3645,9 @@ jint Arguments::parse(const JavaVMInitArgs* args) {
 #if INCLUDE_NMT
     if (match_option(option, "-XX:NativeMemoryTracking", &tail)) {
       // The launcher did not setup nmt environment variable properly.
-//      if (!MemTracker::check_launcher_nmt_support(tail)) {
-//        warning("Native Memory Tracking did not setup properly, using wrong launcher?");
-//      }
+      if (!MemTracker::check_launcher_nmt_support(tail)) {
+        warning("Native Memory Tracking did not setup properly, using wrong launcher?");
+      }
 
       // Verify if nmt option is valid.
       if (MemTracker::verify_nmt_option()) {
@@ -3614,6 +3713,11 @@ jint Arguments::parse(const JavaVMInitArgs* args) {
   SharedArchivePath = get_shared_archive_path();
   if (SharedArchivePath == NULL) {
     return JNI_ENOMEM;
+  }
+
+  // Set up VerifySharedSpaces
+  if (FLAG_IS_DEFAULT(VerifySharedSpaces) && SharedArchiveFile != NULL) {
+    VerifySharedSpaces = true;
   }
 
   // Delay warning until here so that we've had a chance to process
@@ -3693,7 +3797,7 @@ jint Arguments::parse(const JavaVMInitArgs* args) {
     FLAG_SET_DEFAULT(UseSharedSpaces, false);
     FLAG_SET_DEFAULT(PrintSharedSpaces, false);
   }
-  no_shared_spaces();
+  no_shared_spaces("CDS Disabled");
 #endif // INCLUDE_CDS
 
   return JNI_OK;
@@ -3707,7 +3811,7 @@ jint Arguments::apply_ergo() {
   set_shared_spaces_flags();
 
   // Check the GC selections again.
-  if (!check_gc_consistency()) {
+  if (!ArgumentsExt::check_gc_consistency_ergo()) {
     return JNI_EINVAL;
   }
 
@@ -3729,33 +3833,7 @@ jint Arguments::apply_ergo() {
   // Set heap size based on available physical memory
   set_heap_size();
 
-#if INCLUDE_ALL_GCS
-  // Set per-collector flags
-  if (UseParallelGC || UseParallelOldGC) {
-    set_parallel_gc_flags();
-  } else if (UseConcMarkSweepGC) { // Should be done before ParNew check below
-    set_cms_and_parnew_gc_flags();
-  } else if (UseParNewGC) {  // Skipped if CMS is set above
-    set_parnew_gc_flags();
-  } else if (UseG1GC) {
-    set_g1_gc_flags();
-  }
-  check_deprecated_gcs();
-  check_deprecated_gc_flags();
-  if (AssumeMP && !UseSerialGC) {
-    if (FLAG_IS_DEFAULT(ParallelGCThreads) && ParallelGCThreads == 1) {
-      warning("If the number of processors is expected to increase from one, then"
-              " you should configure the number of parallel GC threads appropriately"
-              " using -XX:ParallelGCThreads=N");
-    }
-  }
-  if (MinHeapFreeRatio == 100) {
-    // Keeping the heap 100% free is hard ;-) so limit it to 99%.
-    FLAG_SET_ERGO(uintx, MinHeapFreeRatio, 99);
-  }
-#else // INCLUDE_ALL_GCS
-  assert(verify_serial_gc_flags(), "SerialGC unset");
-#endif // INCLUDE_ALL_GCS
+  set_gc_specific_flags();
 
   // Initialize Metaspace flags and alignments.
   Metaspace::ergo_initialize();

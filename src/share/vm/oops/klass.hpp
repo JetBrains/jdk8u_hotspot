@@ -90,6 +90,7 @@ class ClassLoaderData;
 class klassVtable;
 class ParCompactionManager;
 class KlassSizeStats;
+class fieldDescriptor;
 
 class Klass : public Metadata {
   friend class VMStructs;
@@ -174,6 +175,16 @@ class Klass : public Metadata {
   // Remembered sets support for the oops in the klasses.
   jbyte _modified_oops;             // Card Table Equivalent (YC/CMS support)
   jbyte _accumulated_modified_oops; // Mod Union Equivalent (CMS support)
+
+private:
+  // This is an index into FileMapHeader::_classpath_entry_table[], to
+  // associate this class with the JAR file where it's loaded from during
+  // dump time. If a class is not loaded from the shared archive, this field is
+  // -1.
+  jshort _shared_class_path_index;
+
+  friend class SharedClassUtil;
+protected:
 
   // Constructor
   Klass();
@@ -280,6 +291,15 @@ class Klass : public Metadata {
   void accumulate_modified_oops()        { if (has_modified_oops()) _accumulated_modified_oops = 1; }
   void clear_accumulated_modified_oops() { _accumulated_modified_oops = 0; }
   bool has_accumulated_modified_oops()   { return _accumulated_modified_oops == 1; }
+
+  int shared_classpath_index() const   {
+    return _shared_class_path_index;
+  };
+
+  void set_shared_classpath_index(int index) {
+    _shared_class_path_index = index;
+  };
+
 
  protected:                                // internal accessors
   Klass* subklass_oop() const            { return _subklass; }
@@ -422,6 +442,7 @@ class Klass : public Metadata {
   virtual void initialize(TRAPS);
   // lookup operation for MethodLookupCache
   friend class MethodLookupCache;
+  virtual Klass* find_field(Symbol* name, Symbol* signature, fieldDescriptor* fd) const;
   virtual Method* uncached_lookup_method(Symbol* name, Symbol* signature, MethodLookupMode mode) const;
  public:
   Method* lookup_method(Symbol* name, Symbol* signature) const {
@@ -452,7 +473,7 @@ class Klass : public Metadata {
  public:
   // CDS support - remove and restore oops from metadata. Oops are not shared.
   virtual void remove_unshareable_info();
-  virtual void restore_unshareable_info(TRAPS);
+  virtual void restore_unshareable_info(ClassLoaderData* loader_data, Handle protection_domain, TRAPS);
 
  protected:
   // computes the subtype relationship

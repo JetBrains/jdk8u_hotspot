@@ -34,8 +34,8 @@
 #include "gc_implementation/g1/g1OopClosures.inline.hpp"
 #include "gc_implementation/g1/g1RemSet.hpp"
 #include "gc_implementation/g1/heapRegion.inline.hpp"
+#include "gc_implementation/g1/heapRegionManager.inline.hpp"
 #include "gc_implementation/g1/heapRegionRemSet.hpp"
-#include "gc_implementation/g1/heapRegionSeq.inline.hpp"
 #include "gc_implementation/g1/heapRegionSet.inline.hpp"
 #include "gc_implementation/shared/vmGCOperations.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
@@ -130,7 +130,10 @@ void CMBitMap::initialize(MemRegion heap, G1RegionToSpaceMapper* storage) {
   storage->set_mapping_changed_listener(&_listener);
 }
 
-void CMBitMapMappingChangedListener::on_commit(uint start_region, size_t num_regions) {
+void CMBitMapMappingChangedListener::on_commit(uint start_region, size_t num_regions, bool zero_filled) {
+  if (zero_filled) {
+    return;
+  }
   // We need to clear the bitmap on commit, removing any existing information.
   MemRegion mr(G1CollectedHeap::heap()->bottom_addr_for_region(start_region), num_regions * HeapRegion::GrainWords);
   _bm->clearRange(mr);
@@ -431,10 +434,6 @@ void CMMarkStack::oops_do(OopClosure* f) {
   for (int i = 0; i < _index; i += 1) {
     f->do_oop(&_base[i]);
   }
-}
-
-bool ConcurrentMark::not_yet_marked(oop obj) const {
-  return _g1h->is_obj_ill(obj);
 }
 
 CMRootRegions::CMRootRegions() :
@@ -891,7 +890,16 @@ class CheckBitmapClearHRClosure : public HeapRegionClosure {
   }
 
   virtual bool doHeapRegion(HeapRegion* r) {
-    return _bitmap->getNextMarkedWordAddress(r->bottom(), r->end()) != r->end();
+    // This closure can be called concurrently to the mutator, so we must make sure
+    // that the result of the getNextMarkedWordAddress() call is compared to the
+    // value passed to it as limit to detect any found bits.
+    // We can use the region's orig_end() for the limit and the comparison value
+    // as it always contains the "real" end of the region that never changes and
+    // has no side effects.
+    // Due to the latter, there can also be no problem with the compiler generating
+    // reloads of the orig_end() call.
+    HeapWord* end = r->orig_end();
+    return _bitmap->getNextMarkedWordAddress(r->bottom(), end) != end;
   }
 };
 
@@ -1116,20 +1124,17 @@ public:
     if (!_cm->has_aborted()) {
       do {
         double start_vtime_sec = os::elapsedVTime();
-        double start_time_sec = os::elapsedTime();
         double mark_step_duration_ms = G1ConcMarkStepDurationMillis;
 
         the_task->do_marking_step(mark_step_duration_ms,
                                   true  /* do_termination */,
                                   false /* is_serial*/);
 
-        double end_time_sec = os::elapsedTime();
         double end_vtime_sec = os::elapsedVTime();
         double elapsed_vtime_sec = end_vtime_sec - start_vtime_sec;
-        double elapsed_time_sec = end_time_sec - start_time_sec;
         _cm->clear_has_overflown();
 
-        bool ret = _cm->do_yield_check(worker_id);
+        _cm->do_yield_check(worker_id);
 
         jlong sleep_time_ms;
         if (!_cm->has_aborted() && the_task->has_aborted()) {
@@ -1139,17 +1144,6 @@ public:
           os::sleep(Thread::current(), sleep_time_ms, false);
           SuspendibleThreadSet::join();
         }
-        double end_time2_sec = os::elapsedTime();
-        double elapsed_time2_sec = end_time2_sec - start_time_sec;
-
-#if 0
-          gclog_or_tty->print_cr("CM: elapsed %1.4lf ms, sleep %1.4lf ms, "
-                                 "overhead %1.4lf",
-                                 elapsed_vtime_sec * 1000.0, (double) sleep_time_ms,
-                                 the_task->conc_overhead(os::elapsedTime()) * 8.0);
-          gclog_or_tty->print_cr("elapsed time %1.4lf ms, time 2: %1.4lf ms",
-                                 elapsed_time_sec * 1000.0, elapsed_time2_sec * 1000.0);
-#endif
       } while (!_cm->has_aborted() && the_task->has_aborted());
     }
     the_task->record_end_time();
@@ -1408,7 +1402,7 @@ protected:
   void set_bit_for_region(HeapRegion* hr) {
     assert(!hr->continuesHumongous(), "should have filtered those out");
 
-    BitMap::idx_t index = (BitMap::idx_t) hr->hrs_index();
+    BitMap::idx_t index = (BitMap::idx_t) hr->hrm_index();
     if (!hr->startsHumongous()) {
       // Normal (non-humongous) case: just set the bit.
       _region_bm->par_at_put(index, true);
@@ -1596,7 +1590,7 @@ public:
       if (_verbose) {
         gclog_or_tty->print_cr("Region %u: marked bytes mismatch: "
                                "expected: " SIZE_FORMAT ", actual: " SIZE_FORMAT,
-                               hr->hrs_index(), exp_marked_bytes, act_marked_bytes);
+                               hr->hrm_index(), exp_marked_bytes, act_marked_bytes);
       }
       failures += 1;
     }
@@ -1605,7 +1599,7 @@ public:
     // (which was just calculated) region bit maps.
     // We're not OK if the bit in the calculated expected region
     // bitmap is set and the bit in the actual region bitmap is not.
-    BitMap::idx_t index = (BitMap::idx_t) hr->hrs_index();
+    BitMap::idx_t index = (BitMap::idx_t) hr->hrm_index();
 
     bool expected = _exp_region_bm->at(index);
     bool actual = _region_bm->at(index);
@@ -1613,7 +1607,7 @@ public:
       if (_verbose) {
         gclog_or_tty->print_cr("Region %u: region bitmap mismatch: "
                                "expected: %s, actual: %s",
-                               hr->hrs_index(),
+                               hr->hrm_index(),
                                BOOL_TO_STR(expected), BOOL_TO_STR(actual));
       }
       failures += 1;
@@ -1634,7 +1628,7 @@ public:
         if (_verbose) {
           gclog_or_tty->print_cr("Region %u: card bitmap mismatch at " SIZE_FORMAT ": "
                                  "expected: %s, actual: %s",
-                                 hr->hrs_index(), i,
+                                 hr->hrm_index(), i,
                                  BOOL_TO_STR(expected), BOOL_TO_STR(actual));
         }
         failures += 1;
@@ -2947,11 +2941,6 @@ void ConcurrentMark::clearRangeNextBitmap(MemRegion mr) {
   _nextMarkBitMap->clearRange(mr);
 }
 
-void ConcurrentMark::clearRangeBothBitmaps(MemRegion mr) {
-  clearRangePrevBitmap(mr);
-  clearRangeNextBitmap(mr);
-}
-
 HeapRegion*
 ConcurrentMark::claim_region(uint worker_id) {
   // "checkpoint" the finger
@@ -3254,7 +3243,7 @@ class AggregateCountDataHRClosure: public HeapRegionClosure {
     assert(limit_idx <= end_idx, "or else use atomics");
 
     // Aggregate the "stripe" in the count data associated with hr.
-    uint hrs_index = hr->hrs_index();
+    uint hrm_index = hr->hrm_index();
     size_t marked_bytes = 0;
 
     for (uint i = 0; i < _max_worker_id; i += 1) {
@@ -3263,7 +3252,7 @@ class AggregateCountDataHRClosure: public HeapRegionClosure {
 
       // Fetch the marked_bytes in this region for task i and
       // add it to the running total for this region.
-      marked_bytes += marked_bytes_array[hrs_index];
+      marked_bytes += marked_bytes_array[hrm_index];
 
       // Now union the bitmaps[0,max_worker_id)[start_idx..limit_idx)
       // into the global card bitmap.
@@ -3346,6 +3335,7 @@ void ConcurrentMark::aggregate_count_data() {
   } else {
     g1_par_agg_task.work(0);
   }
+  _g1h->allocation_context_stats().update_at_remark();
 }
 
 // Clear the per-worker arrays used to store the per-region counting data
@@ -3495,17 +3485,6 @@ bool ConcurrentMark::do_yield_check(uint worker_id) {
   } else {
     return false;
   }
-}
-
-bool ConcurrentMark::containing_card_is_marked(void* p) {
-  size_t offset = pointer_delta(p, _g1h->reserved_region().start(), 1);
-  return _card_bm.at(offset >> CardTableModRefBS::card_shift);
-}
-
-bool ConcurrentMark::containing_cards_are_marked(void* start,
-                                                 void* last) {
-  return containing_card_is_marked(start) &&
-         containing_card_is_marked(last);
 }
 
 #ifndef PRODUCT
@@ -3760,7 +3739,7 @@ void CMTask::regular_clock_call() {
 
   if (_cm->verbose_medium()) {
       gclog_or_tty->print_cr("[%u] regular clock, interval = %1.2lfms, "
-                        "scanned = %d%s, refs reached = %d%s",
+                        "scanned = "SIZE_FORMAT"%s, refs reached = "SIZE_FORMAT"%s",
                         _worker_id, last_interval_ms,
                         _words_scanned,
                         (_words_scanned >= _words_scanned_limit) ? " (*)" : "",
@@ -4760,7 +4739,7 @@ void G1PrintRegionLivenessInfoClosure::get_hum_bytes(size_t* used_bytes,
 }
 
 bool G1PrintRegionLivenessInfoClosure::doHeapRegion(HeapRegion* r) {
-  const char* type = "";
+  const char* type       = r->get_type_str();
   HeapWord* bottom       = r->bottom();
   HeapWord* end          = r->end();
   size_t capacity_bytes  = r->capacity();
@@ -4771,15 +4750,7 @@ bool G1PrintRegionLivenessInfoClosure::doHeapRegion(HeapRegion* r) {
   size_t remset_bytes    = r->rem_set()->mem_size();
   size_t strong_code_roots_bytes = r->rem_set()->strong_code_roots_mem_size();
 
-  if (r->used() == 0) {
-    type = "FREE";
-  } else if (r->is_survivor()) {
-    type = "SURV";
-  } else if (r->is_young()) {
-    type = "EDEN";
-  } else if (r->startsHumongous()) {
-    type = "HUMS";
-
+  if (r->startsHumongous()) {
     assert(_hum_used_bytes == 0 && _hum_capacity_bytes == 0 &&
            _hum_prev_live_bytes == 0 && _hum_next_live_bytes == 0,
            "they should have been zeroed after the last time we used them");
@@ -4792,12 +4763,9 @@ bool G1PrintRegionLivenessInfoClosure::doHeapRegion(HeapRegion* r) {
                   &prev_live_bytes, &next_live_bytes);
     end = bottom + HeapRegion::GrainWords;
   } else if (r->continuesHumongous()) {
-    type = "HUMC";
     get_hum_bytes(&used_bytes, &capacity_bytes,
                   &prev_live_bytes, &next_live_bytes);
     assert(end == bottom + HeapRegion::GrainWords, "invariant");
-  } else {
-    type = "OLD";
   }
 
   _total_used_bytes      += used_bytes;
