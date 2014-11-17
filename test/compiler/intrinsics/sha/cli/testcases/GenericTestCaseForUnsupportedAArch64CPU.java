@@ -24,32 +24,27 @@
 import com.oracle.java.testlibrary.ExitCode;
 import com.oracle.java.testlibrary.Platform;
 import com.oracle.java.testlibrary.cli.CommandLineOptionTest;
+import com.oracle.java.testlibrary.cli.predicate.AndPredicate;
 import com.oracle.java.testlibrary.cli.predicate.NotPredicate;
-import com.oracle.java.testlibrary.cli.predicate.OrPredicate;
 
 /**
- * Generic test case for SHA-related options targeted to non-x86 and
- * non-SPARC CPUs.
+ * Generic test case for SHA-related options targeted to AArch64 CPUs which don't
+ * support instruction required by the tested option.
  */
-public class GenericTestCaseForOtherCPU extends
+public class GenericTestCaseForUnsupportedAArch64CPU extends
         SHAOptionsBase.TestCase {
-    public GenericTestCaseForOtherCPU(String optionName) {
-        // Execute the test case on any CPU except SPARC and X86
-        super(optionName, new NotPredicate(new OrPredicate(Platform::isSparc,
-                new OrPredicate(Platform::isAArch64,
-                        new OrPredicate(Platform::isX64, Platform::isX86)))));
+    public GenericTestCaseForUnsupportedAArch64CPU(String optionName) {
+        super(optionName, new AndPredicate(Platform::isAArch64,
+                new NotPredicate(SHAOptionsBase.getPredicateForOption(
+                        optionName))));
     }
 
     @Override
     protected void verifyWarnings() throws Throwable {
-        // Verify that on non-x86 and non-SPARC CPU usage of SHA-related
-        // options will not cause any warnings.
-        CommandLineOptionTest.verifySameJVMStartup(null,
-                new String[] { ".*" + optionName + ".*" }, ExitCode.OK,
-                CommandLineOptionTest.prepareBooleanFlag(optionName, true));
-
-        CommandLineOptionTest.verifySameJVMStartup(null,
-                new String[] { ".*" + optionName + ".*" }, ExitCode.OK,
+        //Verify that option could be disabled without any warnings.
+        CommandLineOptionTest.verifySameJVMStartup(null, new String[] {
+                        SHAOptionsBase.getWarningForUnsupportedCPU(optionName)
+                }, ExitCode.OK,
                 CommandLineOptionTest.prepareBooleanFlag(optionName, false));
     }
 
@@ -63,9 +58,9 @@ public class GenericTestCaseForOtherCPU extends
         CommandLineOptionTest.verifyOptionValueForSameVM(optionName, "false",
                 CommandLineOptionTest.prepareBooleanFlag(optionName, true));
 
-        // Verify that option is disabled when it explicitly disabled
-        // using CLI options.
+        // Verify that option is disabled when +UseSHA was passed to JVM.
         CommandLineOptionTest.verifyOptionValueForSameVM(optionName, "false",
-                CommandLineOptionTest.prepareBooleanFlag(optionName, false));
+                CommandLineOptionTest.prepareBooleanFlag(
+                        SHAOptionsBase.USE_SHA_OPTION, true));
     }
 }
