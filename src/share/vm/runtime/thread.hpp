@@ -42,11 +42,10 @@
 #include "runtime/threadLocalStorage.hpp"
 #include "runtime/thread_ext.hpp"
 #include "runtime/unhandledOops.hpp"
-#include "utilities/macros.hpp"
-
 #include "trace/traceBackend.hpp"
 #include "trace/traceMacros.hpp"
 #include "utilities/exceptions.hpp"
+#include "utilities/macros.hpp"
 #include "utilities/top.hpp"
 #if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/dirtyCardQueue.hpp"
@@ -82,6 +81,10 @@ class jvmtiDeferredLocalVariableSet;
 class GCTaskQueue;
 class ThreadClosure;
 class IdealGraphPrinter;
+
+class Metadata;
+template <class T, MEMFLAGS F> class ChunkedList;
+typedef ChunkedList<Metadata*, mtInternal> MetadataOnStackBuffer;
 
 DEBUG_ONLY(class ResourceMark;)
 
@@ -255,6 +258,9 @@ class Thread: public ThreadShadow {
   ThreadLocalAllocBuffer _tlab;                 // Thread-local eden
   jlong _allocated_bytes;                       // Cumulative number of bytes allocated on
                                                 // the Java heap
+
+  // Thread-local buffer used by MetadataOnStackMark.
+  MetadataOnStackBuffer* _metadata_on_stack_buffer;
 
   TRACE_DATA _trace_data;                       // Thread-local data for tracing
 
@@ -517,7 +523,10 @@ public:
   // creation fails due to lack of memory, too many threads etc.
   bool set_as_starting_thread();
 
- protected:
+  void set_metadata_on_stack_buffer(MetadataOnStackBuffer* buffer) { _metadata_on_stack_buffer = buffer; }
+  MetadataOnStackBuffer* metadata_on_stack_buffer() const          { return _metadata_on_stack_buffer; }
+
+protected:
   // OS data associated with the thread
   OSThread* _osthread;  // Platform-specific thread information
 
@@ -923,6 +932,12 @@ class JavaThread: public Thread {
   // JVMTI PopFrame support
   // This is set to popframe_pending to signal that top Java frame should be popped immediately
   int _popframe_condition;
+
+  // If reallocation of scalar replaced objects fails, we throw OOM
+  // and during exception propagation, pop the top
+  // _frames_to_pop_failed_realloc frames, the ones that reference
+  // failed reallocations.
+  int _frames_to_pop_failed_realloc;
 
 #ifndef PRODUCT
   int _jmp_ring_index;
@@ -1575,6 +1590,10 @@ public:
   void set_pop_frame_in_process(void)                 { _popframe_condition |= popframe_processing_bit; }
   void clr_pop_frame_in_process(void)                 { _popframe_condition &= ~popframe_processing_bit; }
 #endif
+
+  int frames_to_pop_failed_realloc() const            { return _frames_to_pop_failed_realloc; }
+  void set_frames_to_pop_failed_realloc(int nb)       { _frames_to_pop_failed_realloc = nb; }
+  void dec_frames_to_pop_failed_realloc()             { _frames_to_pop_failed_realloc--; }
 
  private:
   // Saved incoming arguments to popped frame.

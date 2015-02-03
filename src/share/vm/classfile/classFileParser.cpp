@@ -2529,7 +2529,7 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
 Array<Method*>* ClassFileParser::parse_methods(bool is_interface,
                                                AccessFlags* promoted_flags,
                                                bool* has_final_method,
-                                               bool* has_default_methods,
+                                               bool* declares_default_methods,
                                                TRAPS) {
   ClassFileStream* cfs = stream();
   cfs->guarantee_more(2, CHECK_NULL);  // length
@@ -2548,11 +2548,11 @@ Array<Method*>* ClassFileParser::parse_methods(bool is_interface,
       if (method->is_final()) {
         *has_final_method = true;
       }
-      if (is_interface && !(*has_default_methods)
-        && !method->is_abstract() && !method->is_static()
-        && !method->is_private()) {
-        // default method
-        *has_default_methods = true;
+      // declares_default_methods: declares concrete instance methods, any access flags
+      // used for interface initialization, and default method inheritance analysis
+      if (is_interface && !(*declares_default_methods)
+        && !method->is_abstract() && !method->is_static()) {
+        *declares_default_methods = true;
       }
       _methods->at_put(index, method());
     }
@@ -3058,21 +3058,39 @@ void ClassFileParser::apply_parsed_class_attributes(instanceKlassHandle k) {
   }
 }
 
-// Transfer ownership of metadata allocated to the InstanceKlass.
-void ClassFileParser::apply_parsed_class_metadata(
-                                            instanceKlassHandle this_klass,
-                                            int java_fields_count, TRAPS) {
-  // Assign annotations if needed
-  if (_annotations != NULL || _type_annotations != NULL ||
-      _fields_annotations != NULL || _fields_type_annotations != NULL) {
+// Create the Annotations object that will
+// hold the annotations array for the Klass.
+void ClassFileParser::create_combined_annotations(TRAPS) {
+    if (_annotations == NULL &&
+        _type_annotations == NULL &&
+        _fields_annotations == NULL &&
+        _fields_type_annotations == NULL) {
+      // Don't create the Annotations object unnecessarily.
+      return;
+    }
+
     Annotations* annotations = Annotations::allocate(_loader_data, CHECK);
     annotations->set_class_annotations(_annotations);
     annotations->set_class_type_annotations(_type_annotations);
     annotations->set_fields_annotations(_fields_annotations);
     annotations->set_fields_type_annotations(_fields_type_annotations);
-    this_klass->set_annotations(annotations);
-  }
 
+    // This is the Annotations object that will be
+    // assigned to InstanceKlass being constructed.
+    _combined_annotations = annotations;
+
+    // The annotations arrays below has been transfered the
+    // _combined_annotations so these fields can now be cleared.
+    _annotations             = NULL;
+    _type_annotations        = NULL;
+    _fields_annotations      = NULL;
+    _fields_type_annotations = NULL;
+}
+
+// Transfer ownership of metadata allocated to the InstanceKlass.
+void ClassFileParser::apply_parsed_class_metadata(
+                                            instanceKlassHandle this_klass,
+                                            int java_fields_count, TRAPS) {
   _cp->set_pool_holder(this_klass());
   this_klass->set_constants(_cp);
   this_klass->set_fields(_fields, java_fields_count);
@@ -3080,6 +3098,7 @@ void ClassFileParser::apply_parsed_class_metadata(
   this_klass->set_inner_classes(_inner_classes);
   this_klass->set_local_interfaces(_local_interfaces);
   this_klass->set_transitive_interfaces(_transitive_interfaces);
+  this_klass->set_annotations(_combined_annotations);
 
   // Clear out these fields so they don't get deallocated by the destructor
   clear_class_metadata();
@@ -3691,6 +3710,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
   JvmtiCachedClassFileData *cached_class_file = NULL;
   Handle class_loader(THREAD, loader_data->class_loader());
   bool has_default_methods = false;
+  bool declares_default_methods = false;
   ResourceMark rm(THREAD);
 
   ClassFileStream* cfs = stream();
@@ -3928,12 +3948,19 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     Array<Method*>* methods = parse_methods(access_flags.is_interface(),
                                             &promoted_flags,
                                             &has_final_method,
-                                            &has_default_methods,
+                                            &declares_default_methods,
                                             CHECK_(nullHandle));
+    if (declares_default_methods) {
+      has_default_methods = true;
+    }
 
     // Additional attributes
     ClassAnnotationCollector parsed_annotations;
     parse_classfile_attributes(&parsed_annotations, CHECK_(nullHandle));
+
+    // Finalize the Annotations metadata object,
+    // now that all annotation arrays have been created.
+    create_combined_annotations(CHECK_(nullHandle));
 
     // Make sure this is the end of class file stream
     guarantee_property(cfs->at_eos(), "Extra bytes at the end of class file %s", CHECK_(nullHandle));
@@ -4072,6 +4099,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     this_klass->set_minor_version(minor_version);
     this_klass->set_major_version(major_version);
     this_klass->set_has_default_methods(has_default_methods);
+    this_klass->set_declares_default_methods(declares_default_methods);
 
     if (!host_klass.is_null()) {
       assert (this_klass->is_anonymous(), "should be the same");
@@ -4234,10 +4262,27 @@ ClassFileParser::~ClassFileParser() {
   InstanceKlass::deallocate_interfaces(_loader_data, _super_klass(),
                                        _local_interfaces, _transitive_interfaces);
 
-  MetadataFactory::free_array<u1>(_loader_data, _annotations);
-  MetadataFactory::free_array<u1>(_loader_data, _type_annotations);
-  Annotations::free_contents(_loader_data, _fields_annotations);
-  Annotations::free_contents(_loader_data, _fields_type_annotations);
+  if (_combined_annotations != NULL) {
+    // After all annotations arrays have been created, they are installed into the
+    // Annotations object that will be assigned to the InstanceKlass being created.
+
+    // Deallocate the Annotations object and the installed annotations arrays.
+    _combined_annotations->deallocate_contents(_loader_data);
+
+    // If the _combined_annotations pointer is non-NULL,
+    // then the other annotations fields should have been cleared.
+    assert(_annotations             == NULL, "Should have been cleared");
+    assert(_type_annotations        == NULL, "Should have been cleared");
+    assert(_fields_annotations      == NULL, "Should have been cleared");
+    assert(_fields_type_annotations == NULL, "Should have been cleared");
+  } else {
+    // If the annotations arrays were not installed into the Annotations object,
+    // then they have to be deallocated explicitly.
+    MetadataFactory::free_array<u1>(_loader_data, _annotations);
+    MetadataFactory::free_array<u1>(_loader_data, _type_annotations);
+    Annotations::free_contents(_loader_data, _fields_annotations);
+    Annotations::free_contents(_loader_data, _fields_type_annotations);
+  }
 
   clear_class_metadata();
 

@@ -327,6 +327,7 @@ class Arguments : AllStatic {
 
   // Tiered
   static void set_tiered_flags();
+  static int  get_min_number_of_compiler_threads();
   // CMS/ParNew garbage collectors
   static void set_parnew_gc_flags();
   static void set_cms_and_parnew_gc_flags();
@@ -341,7 +342,6 @@ class Arguments : AllStatic {
   static void select_gc();
   static void set_ergonomics_flags();
   static void set_shared_spaces_flags();
-  static void set_gc_specific_flags();
   // limits the given memory size by the maximum amount of memory this process is
   // currently allowed to allocate or reserve.
   static julong limit_by_allocatable_memory(julong size);
@@ -453,6 +453,7 @@ class Arguments : AllStatic {
   // Adjusts the arguments after the OS have adjusted the arguments
   static jint adjust_after_os();
 
+  static void set_gc_specific_flags();
   static inline bool gc_selected(); // whether a gc has been selected
   static void select_gc_ergonomically();
 

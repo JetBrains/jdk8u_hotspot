@@ -23,28 +23,35 @@
 
 /*
  * @test
- * @bug 8055289
+ * @bug 8034775
+ * @summary Ensures correct minimal number of compiler threads (provided by -XX:CICompilerCount=)
  * @library /testlibrary
- * @build UnsafeMallocLimit
- * @run main/othervm -Xmx32m -XX:NativeMemoryTracking=summary UnsafeMallocLimit
  */
-
 import com.oracle.java.testlibrary.*;
-import sun.misc.Unsafe;
 
-public class UnsafeMallocLimit {
+public class NumCompilerThreadsCheck {
 
-    public static void main(String args[]) throws Exception {
-        if (Platform.is32bit()) {
-            Unsafe unsafe = Utils.getUnsafe();
-            try {
-                unsafe.allocateMemory(1 << 30);
-                throw new RuntimeException("Did not get expected OOME");
-            } catch (OutOfMemoryError e) {
-                // Expected exception
-            }
-        } else {
-            System.out.println("Test only valid on 32-bit platforms");
-        }
+  public static void main(String[] args) throws Exception {
+    ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:CICompilerCount=-1");
+    OutputAnalyzer out = new OutputAnalyzer(pb.start());
+
+    String expectedOutput = "CICompilerCount of -1 is invalid";
+    out.shouldContain(expectedOutput);
+
+    if (isZeroVm()) {
+      String expectedLowWaterMarkText = "must be at least 0";
+      out.shouldContain(expectedLowWaterMarkText);
     }
+  }
+
+  private static boolean isZeroVm() {
+    String vmName = System.getProperty("java.vm.name");
+    if (vmName == null) {
+      throw new RuntimeException("No VM name");
+    }
+    if (vmName.toLowerCase().contains("zero")) {
+      return true;
+    }
+    return false;
+  }
 }

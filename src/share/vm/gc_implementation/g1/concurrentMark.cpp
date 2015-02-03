@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "classfile/metadataOnStackMark.hpp"
 #include "classfile/symbolTable.hpp"
 #include "code/codeCache.hpp"
 #include "gc_implementation/g1/concurrentMark.inline.hpp"
@@ -2174,6 +2175,7 @@ void ConcurrentMark::cleanup() {
   // We reclaimed old regions so we should calculate the sizes to make
   // sure we update the old gen/space data.
   g1h->g1mm()->update_sizes();
+  g1h->allocation_context_stats().update_after_mark();
 
   g1h->trace_heap_after_concurrent_cycle();
 }
@@ -2602,16 +2604,26 @@ void ConcurrentMark::weakRefsWork(bool clear_all_soft_refs) {
     G1RemarkGCTraceTime trace("Unloading", G1Log::finer());
 
     if (ClassUnloadingWithConcurrentMark) {
+      // Cleaning of klasses depends on correct information from MetadataMarkOnStack. The CodeCache::mark_on_stack
+      // part is too slow to be done serially, so it is handled during the weakRefsWorkParallelPart phase.
+      // Defer the cleaning until we have complete on_stack data.
+      MetadataOnStackMark md_on_stack(false /* Don't visit the code cache at this point */);
+
       bool purged_classes;
 
       {
         G1RemarkGCTraceTime trace("System Dictionary Unloading", G1Log::finest());
-        purged_classes = SystemDictionary::do_unloading(&g1_is_alive);
+        purged_classes = SystemDictionary::do_unloading(&g1_is_alive, false /* Defer klass cleaning */);
       }
 
       {
         G1RemarkGCTraceTime trace("Parallel Unloading", G1Log::finest());
         weakRefsWorkParallelPart(&g1_is_alive, purged_classes);
+      }
+
+      {
+        G1RemarkGCTraceTime trace("Deallocate Metadata", G1Log::finest());
+        ClassLoaderDataGraph::free_deallocate_lists();
       }
     }
 
@@ -3335,7 +3347,6 @@ void ConcurrentMark::aggregate_count_data() {
   } else {
     g1_par_agg_task.work(0);
   }
-  _g1h->allocation_context_stats().update_at_remark();
 }
 
 // Clear the per-worker arrays used to store the per-region counting data

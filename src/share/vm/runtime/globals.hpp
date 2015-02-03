@@ -325,6 +325,8 @@ struct Flag {
   bool is_writeable_ext() const;
   bool is_external_ext() const;
 
+  void unlock_diagnostic();
+
   void get_locked_message(char*, int) const;
   void get_locked_message_ext(char*, int) const;
 
@@ -1219,6 +1221,9 @@ class CommandLineFlags {
                                                                             \
   product(bool, CheckJNICalls, false,                                       \
           "Verify all arguments to JNI calls")                              \
+                                                                            \
+  product(bool, CheckEndorsedAndExtDirs, false,                             \
+          "Verify the endorsed and extension directories are not used")     \
                                                                             \
   product(bool, UseFastJNIAccessors, false,                                 \
           "Use optimized versions of Get<Primitive>Field")                  \

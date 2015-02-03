@@ -624,6 +624,9 @@ class Method : public Metadata {
   // returns true if the method is an accessor function (setter/getter).
   bool is_accessor() const;
 
+  // returns true if the method does nothing but return a constant of primitive type
+  bool is_constant_getter() const;
+
   // returns true if the method is an initializer (<init> or <clinit>).
   bool is_initializer() const;
 
@@ -796,6 +799,10 @@ class Method : public Metadata {
   // On-stack replacement support
   bool has_osr_nmethod(int level, bool match_level) {
    return method_holder()->lookup_osr_nmethod(this, InvocationEntryBci, level, match_level) != NULL;
+  }
+
+  int mark_osr_nmethods() {
+    return method_holder()->mark_osr_nmethods(this);
   }
 
   nmethod* lookup_osr_nmethod_for(int bci, int level, bool match_level) {

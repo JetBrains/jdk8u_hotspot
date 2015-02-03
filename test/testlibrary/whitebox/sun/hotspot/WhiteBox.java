@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import java.security.BasicPermission;
+import java.net.URL;
 
 import sun.hotspot.parser.DiagnosticCommand;
 
@@ -84,6 +85,15 @@ public class WhiteBox {
   }
   private native boolean isClassAlive0(String name);
 
+  // Resource/Class Lookup Cache
+  public native boolean classKnownToNotExist(ClassLoader loader, String name);
+  public native URL[] getLookupCacheURLs(ClassLoader loader);
+  public native int[] getLookupCacheMatches(ClassLoader loader, String name);
+
+  // JVMTI
+  public native void addToBootstrapClassLoaderSearch(String segment);
+  public native void addToSystemClassLoaderSearch(String segment);
+
   // G1
   public native boolean g1InConcurrentMark();
   public native boolean g1IsHumongous(Object o);
@@ -98,10 +108,10 @@ public class WhiteBox {
   public native void NMTCommitMemory(long addr, long size);
   public native void NMTUncommitMemory(long addr, long size);
   public native void NMTReleaseMemory(long addr, long size);
-  public native void NMTOverflowHashBucket(long num);
   public native long NMTMallocWithPseudoStack(long size, int index);
   public native boolean NMTIsDetailSupported();
   public native boolean NMTChangeTrackingLevel();
+  public native int NMTGetHashSize();
 
   // Compiler
   public native void    deoptimizeAll();
@@ -202,4 +212,13 @@ public class WhiteBox {
                        .findAny()
                        .orElse(null);
   }
+  public native int getOffsetForName0(String name);
+  public int getOffsetForName(String name) throws Exception {
+    int offset = getOffsetForName0(name);
+    if (offset == -1) {
+      throw new RuntimeException(name + " not found");
+    }
+    return offset;
+  }
+
 }

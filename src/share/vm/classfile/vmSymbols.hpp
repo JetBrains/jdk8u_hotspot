@@ -79,6 +79,7 @@
   template(java_lang_ref_WeakReference,               "java/lang/ref/WeakReference")              \
   template(java_lang_ref_FinalReference,              "java/lang/ref/FinalReference")             \
   template(java_lang_ref_PhantomReference,            "java/lang/ref/PhantomReference")           \
+  template(sun_misc_Cleaner,                          "sun/misc/Cleaner")                         \
   template(java_lang_ref_Finalizer,                   "java/lang/ref/Finalizer")                  \
   template(java_lang_reflect_AccessibleObject,        "java/lang/reflect/AccessibleObject")       \
   template(java_lang_reflect_Method,                  "java/lang/reflect/Method")                 \
@@ -116,6 +117,7 @@
   template(java_lang_AssertionStatusDirectives,       "java/lang/AssertionStatusDirectives")      \
   template(getBootClassPathEntryForClass_name,        "getBootClassPathEntryForClass")            \
   template(sun_misc_PostVMInitHook,                   "sun/misc/PostVMInitHook")                  \
+  template(sun_misc_Launcher_AppClassLoader,          "sun/misc/Launcher$AppClassLoader")         \
   template(sun_misc_Launcher_ExtClassLoader,          "sun/misc/Launcher$ExtClassLoader")         \
                                                                                                   \
   /* Java runtime version access */                                                               \

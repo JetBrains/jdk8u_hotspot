@@ -563,6 +563,15 @@ bool Method::is_accessor() const {
   return true;
 }
 
+bool Method::is_constant_getter() const {
+  int last_index = code_size() - 1;
+  // Check if the first 1-3 bytecodes are a constant push
+  // and the last bytecode is a return.
+  return (2 <= code_size() && code_size() <= 4 &&
+          Bytecodes::is_const(java_code_at(0)) &&
+          Bytecodes::length_for(java_code_at(0)) == last_index &&
+          Bytecodes::is_return(java_code_at(last_index)));
+}
 
 bool Method::is_initializer() const {
   return name() == vmSymbols::object_initializer_name() || is_static_initializer();
@@ -1880,9 +1889,12 @@ Method* Method::checked_resolve_jmethod_id(jmethodID mid) {
 void Method::set_on_stack(const bool value) {
   // Set both the method itself and its constant pool.  The constant pool
   // on stack means some method referring to it is also on the stack.
-  _access_flags.set_on_stack(value);
   constants()->set_on_stack(value);
-  if (value) MetadataOnStackMark::record(this);
+
+  bool succeeded = _access_flags.set_on_stack(value);
+  if (value && succeeded) {
+    MetadataOnStackMark::record(this, Thread::current());
+  }
 }
 
 // Called when the class loader is unloaded to make all methods weak.

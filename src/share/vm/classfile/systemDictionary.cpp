@@ -64,9 +64,8 @@
 #include "services/threadService.hpp"
 #include "utilities/macros.hpp"
 #include "utilities/ticks.hpp"
-
 #if INCLUDE_TRACE
- #include "trace/tracing.hpp"
+#include "trace/tracing.hpp"
 #endif
 
 Dictionary*            SystemDictionary::_dictionary          = NULL;
@@ -1691,9 +1690,9 @@ public:
 
 // Assumes classes in the SystemDictionary are only unloaded at a safepoint
 // Note: anonymous classes are not in the SD.
-bool SystemDictionary::do_unloading(BoolObjectClosure* is_alive) {
+bool SystemDictionary::do_unloading(BoolObjectClosure* is_alive, bool clean_alive) {
   // First, mark for unload all ClassLoaderData referencing a dead class loader.
-  bool unloading_occurred = ClassLoaderDataGraph::do_unloading(is_alive);
+  bool unloading_occurred = ClassLoaderDataGraph::do_unloading(is_alive, clean_alive);
   if (unloading_occurred) {
     dictionary()->do_unloading();
     constraints()->purge_loader_constraints();
@@ -1908,11 +1907,12 @@ void SystemDictionary::initialize_preloaded_classes(TRAPS) {
   InstanceKlass::cast(WK_KLASS(Reference_klass))->set_reference_type(REF_OTHER);
   InstanceRefKlass::update_nonstatic_oop_maps(WK_KLASS(Reference_klass));
 
-  initialize_wk_klasses_through(WK_KLASS_ENUM_NAME(PhantomReference_klass), scan, CHECK);
+  initialize_wk_klasses_through(WK_KLASS_ENUM_NAME(Cleaner_klass), scan, CHECK);
   InstanceKlass::cast(WK_KLASS(SoftReference_klass))->set_reference_type(REF_SOFT);
   InstanceKlass::cast(WK_KLASS(WeakReference_klass))->set_reference_type(REF_WEAK);
   InstanceKlass::cast(WK_KLASS(FinalReference_klass))->set_reference_type(REF_FINAL);
   InstanceKlass::cast(WK_KLASS(PhantomReference_klass))->set_reference_type(REF_PHANTOM);
+  InstanceKlass::cast(WK_KLASS(Cleaner_klass))->set_reference_type(REF_CLEANER);
 
   // JSR 292 classes
   WKID jsr292_group_start = WK_KLASS_ENUM_NAME(MethodHandle_klass);
@@ -2664,7 +2664,7 @@ void SystemDictionary::post_class_load_event(const Ticks& start_time,
                                       class_loader->klass() : (Klass*)NULL);
     event.commit();
   }
-#endif /* INCLUDE_TRACE */
+#endif // INCLUDE_TRACE
 }
 
 #ifndef PRODUCT

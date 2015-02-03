@@ -21,34 +21,42 @@
  * questions.
  */
 
-/*
+/**
  * @test
- * @bug 8058818
- * @library /testlibrary
- * @build UnsafeMallocLimit2
- * @run main/othervm -Xmx32m -XX:NativeMemoryTracking=off UnsafeMallocLimit2
+ * @bug 8059556
+ * @run main/othervm -Xbatch NullConstantReceiver
  */
 
-import com.oracle.java.testlibrary.*;
-import sun.misc.Unsafe;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 
-public class UnsafeMallocLimit2 {
-
-    public static void main(String args[]) throws Exception {
-        if (Platform.is32bit()) {
-            Unsafe unsafe = Utils.getUnsafe();
-            try {
-                // Allocate greater than MALLOC_MAX and likely won't fail to allocate,
-                // so it hits the NMT code that asserted.
-                // Test that this doesn't cause an assertion with NMT off.
-                // The option above overrides if all the tests are run with NMT on.
-                unsafe.allocateMemory(0x40000000);
-                System.out.println("Allocation succeeded");
-            } catch (OutOfMemoryError e) {
-                System.out.println("Allocation failed");
-            }
-        } else {
-            System.out.println("Test only valid on 32-bit platforms");
+public class NullConstantReceiver {
+    static final MethodHandle target;
+    static {
+        try {
+            target = MethodHandles.lookup().findVirtual(NullConstantReceiver.class, "test", MethodType.methodType(void.class));
+        } catch (ReflectiveOperationException e) {
+            throw new Error(e);
         }
+    }
+
+    public void test() {}
+
+    static void run() throws Throwable {
+        target.invokeExact((NullConstantReceiver) null);
+    }
+
+    public static void main(String[] args) throws Throwable {
+        for (int i = 0; i<15000; i++) {
+            try {
+                run();
+            } catch (NullPointerException e) {
+                // expected
+                continue;
+            }
+            throw new AssertionError("NPE wasn't thrown");
+        }
+        System.out.println("TEST PASSED");
     }
 }

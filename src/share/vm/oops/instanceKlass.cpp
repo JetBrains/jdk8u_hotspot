@@ -780,6 +780,41 @@ void InstanceKlass::link_methods(TRAPS) {
   }
 }
 
+// Eagerly initialize superinterfaces that declare default methods (concrete instance: any access)
+void InstanceKlass::initialize_super_interfaces(instanceKlassHandle this_oop, TRAPS) {
+  if (this_oop->has_default_methods()) {
+    for (int i = 0; i < this_oop->local_interfaces()->length(); ++i) {
+      Klass* iface = this_oop->local_interfaces()->at(i);
+      InstanceKlass* ik = InstanceKlass::cast(iface);
+      if (ik->should_be_initialized()) {
+        if (ik->has_default_methods()) {
+          ik->initialize_super_interfaces(ik, THREAD);
+        }
+        // Only initialize() interfaces that "declare" concrete methods.
+        // has_default_methods drives searching superinterfaces since it
+        // means has_default_methods in its superinterface hierarchy
+        if (!HAS_PENDING_EXCEPTION && ik->declares_default_methods()) {
+          ik->initialize(THREAD);
+        }
+        if (HAS_PENDING_EXCEPTION) {
+          Handle e(THREAD, PENDING_EXCEPTION);
+          CLEAR_PENDING_EXCEPTION;
+          {
+            EXCEPTION_MARK;
+            // Locks object, set state, and notify all waiting threads
+            this_oop->set_initialization_state_and_notify(
+                initialization_error, THREAD);
+
+            // ignore any exception thrown, superclass initialization error is
+            // thrown below
+            CLEAR_PENDING_EXCEPTION;
+          }
+          THROW_OOP(e());
+        }
+      }
+    }
+  }
+}
 
 void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
   // Make sure klass is linked (verified) before initialization
@@ -859,33 +894,11 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
     }
   }
 
+  // Recursively initialize any superinterfaces that declare default methods
+  // Only need to recurse if has_default_methods which includes declaring and
+  // inheriting default methods
   if (this_oop->has_default_methods()) {
-    // Step 7.5: initialize any interfaces which have default methods
-    for (int i = 0; i < this_oop->local_interfaces()->length(); ++i) {
-      Klass* iface = this_oop->local_interfaces()->at(i);
-      InstanceKlass* ik = InstanceKlass::cast(iface);
-      if (ik->has_default_methods() && ik->should_be_initialized()) {
-        ik->initialize(THREAD);
-
-        if (HAS_PENDING_EXCEPTION) {
-          Handle e(THREAD, PENDING_EXCEPTION);
-          CLEAR_PENDING_EXCEPTION;
-          {
-            EXCEPTION_MARK;
-            // Locks object, set state, and notify all waiting threads
-            this_oop->set_initialization_state_and_notify(
-                initialization_error, THREAD);
-
-            // ignore any exception thrown, superclass initialization error is
-            // thrown below
-            CLEAR_PENDING_EXCEPTION;
-          }
-          DTRACE_CLASSINIT_PROBE_WAIT(
-              super__failed, InstanceKlass::cast(this_oop()), -1, wait);
-          THROW_OOP(e());
-        }
-      }
-    }
+    this_oop->initialize_super_interfaces(this_oop, CHECK);
   }
 
   // Step 8
@@ -1440,30 +1453,39 @@ Method* InstanceKlass::find_method(Symbol* name, Symbol* signature) const {
 }
 
 Method* InstanceKlass::find_method_impl(Symbol* name, Symbol* signature, bool skipping_overpass) const {
-  return InstanceKlass::find_method_impl(methods(), name, signature, skipping_overpass);
+  return InstanceKlass::find_method_impl(methods(), name, signature, skipping_overpass, false);
 }
 
 // find_instance_method looks up the name/signature in the local methods array
 // and skips over static methods
 Method* InstanceKlass::find_instance_method(
     Array<Method*>* methods, Symbol* name, Symbol* signature) {
-  Method* meth = InstanceKlass::find_method(methods, name, signature);
-  if (meth != NULL && meth->is_static()) {
-      meth = NULL;
-  }
+  Method* meth = InstanceKlass::find_method_impl(methods, name, signature, false, true);
   return meth;
+}
+
+// find_instance_method looks up the name/signature in the local methods array
+// and skips over static methods
+Method* InstanceKlass::find_instance_method(Symbol* name, Symbol* signature) {
+    return InstanceKlass::find_instance_method(methods(), name, signature);
 }
 
 // find_method looks up the name/signature in the local methods array
 Method* InstanceKlass::find_method(
     Array<Method*>* methods, Symbol* name, Symbol* signature) {
-  return InstanceKlass::find_method_impl(methods, name, signature, false);
+  return InstanceKlass::find_method_impl(methods, name, signature, false, false);
 }
 
 Method* InstanceKlass::find_method_impl(
-    Array<Method*>* methods, Symbol* name, Symbol* signature, bool skipping_overpass) {
-  int hit = find_method_index(methods, name, signature, skipping_overpass);
+    Array<Method*>* methods, Symbol* name, Symbol* signature, bool skipping_overpass, bool skipping_static) {
+  int hit = find_method_index(methods, name, signature, skipping_overpass, skipping_static);
   return hit >= 0 ? methods->at(hit): NULL;
+}
+
+bool InstanceKlass::method_matches(Method* m, Symbol* signature, bool skipping_overpass, bool skipping_static) {
+    return (m->signature() == signature) &&
+            (!skipping_overpass || !m->is_overpass()) &&
+            (!skipping_static || !m->is_static());
 }
 
 // Used directly for default_methods to find the index into the
@@ -1474,13 +1496,14 @@ Method* InstanceKlass::find_method_impl(
 // is important during method resolution to prefer a static method, for example,
 // over an overpass method.
 int InstanceKlass::find_method_index(
-    Array<Method*>* methods, Symbol* name, Symbol* signature, bool skipping_overpass) {
+    Array<Method*>* methods, Symbol* name, Symbol* signature, bool skipping_overpass, bool skipping_static) {
   int hit = binary_search(methods, name);
   if (hit != -1) {
     Method* m = methods->at(hit);
+
     // Do linear search to find matching signature.  First, quick check
     // for common case, ignoring overpasses if requested.
-    if ((m->signature() == signature) && (!skipping_overpass || !m->is_overpass())) return hit;
+    if (method_matches(m, signature, skipping_overpass, skipping_static)) return hit;
 
     // search downwards through overloaded methods
     int i;
@@ -1488,18 +1511,18 @@ int InstanceKlass::find_method_index(
         Method* m = methods->at(i);
         assert(m->is_method(), "must be method");
         if (m->name() != name) break;
-        if ((m->signature() == signature) && (!skipping_overpass || !m->is_overpass())) return i;
+        if (method_matches(m, signature, skipping_overpass, skipping_static)) return i;
     }
     // search upwards
     for (i = hit + 1; i < methods->length(); ++i) {
         Method* m = methods->at(i);
         assert(m->is_method(), "must be method");
         if (m->name() != name) break;
-        if ((m->signature() == signature) && (!skipping_overpass || !m->is_overpass())) return i;
+        if (method_matches(m, signature, skipping_overpass, skipping_static)) return i;
     }
     // not found
 #ifdef ASSERT
-    int index = skipping_overpass ? -1 : linear_search(methods, name, signature);
+    int index = skipping_overpass || skipping_static ? -1 : linear_search(methods, name, signature);
     assert(index == -1, err_msg("binary search should have found entry %d", index));
 #endif
   }
@@ -2877,6 +2900,22 @@ void InstanceKlass::remove_osr_nmethod(nmethod* n) {
   OsrList_lock->unlock();
 }
 
+int InstanceKlass::mark_osr_nmethods(const Method* m) {
+  // This is a short non-blocking critical region, so the no safepoint check is ok.
+  MutexLockerEx ml(OsrList_lock, Mutex::_no_safepoint_check_flag);
+  nmethod* osr = osr_nmethods_head();
+  int found = 0;
+  while (osr != NULL) {
+    assert(osr->is_osr_method(), "wrong kind of nmethod found in chain");
+    if (osr->method() == m) {
+      osr->mark_for_deoptimization();
+      found++;
+    }
+    osr = osr->osr_link();
+  }
+  return found;
+}
+
 nmethod* InstanceKlass::lookup_osr_nmethod(const Method* m, int bci, int comp_level, bool match_level) const {
   // This is a short non-blocking critical region, so the no safepoint check is ok.
   OsrList_lock->lock_without_safepoint_check();
@@ -2918,28 +2957,27 @@ nmethod* InstanceKlass::lookup_osr_nmethod(const Method* m, int bci, int comp_le
   return NULL;
 }
 
-void InstanceKlass::add_member_name(int index, Handle mem_name) {
+bool InstanceKlass::add_member_name(Handle mem_name) {
   jweak mem_name_wref = JNIHandles::make_weak_global(mem_name);
   MutexLocker ml(MemberNameTable_lock);
-  assert(0 <= index && index < idnum_allocated_count(), "index is out of bounds");
   DEBUG_ONLY(No_Safepoint_Verifier nsv);
+
+  // Check if method has been redefined while taking out MemberNameTable_lock, if so
+  // return false.  We cannot cache obsolete methods. They will crash when the function
+  // is called!
+  Method* method = (Method*)java_lang_invoke_MemberName::vmtarget(mem_name());
+  if (method->is_obsolete()) {
+    return false;
+  } else if (method->is_old()) {
+    // Replace method with redefined version
+    java_lang_invoke_MemberName::set_vmtarget(mem_name(), method_with_idnum(method->method_idnum()));
+  }
 
   if (_member_names == NULL) {
     _member_names = new (ResourceObj::C_HEAP, mtClass) MemberNameTable(idnum_allocated_count());
   }
-  _member_names->add_member_name(index, mem_name_wref);
-}
-
-oop InstanceKlass::get_member_name(int index) {
-  MutexLocker ml(MemberNameTable_lock);
-  assert(0 <= index && index < idnum_allocated_count(), "index is out of bounds");
-  DEBUG_ONLY(No_Safepoint_Verifier nsv);
-
-  if (_member_names == NULL) {
-    return NULL;
-  }
-  oop mem_name =_member_names->get_member_name(index);
-  return mem_name;
+  _member_names->add_member_name(mem_name_wref);
+  return true;
 }
 
 // -----------------------------------------------------------------------------------------------------

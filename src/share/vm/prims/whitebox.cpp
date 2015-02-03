@@ -56,6 +56,7 @@
 #endif // INCLUDE_NMT
 
 #include "compiler/compileBroker.hpp"
+#include "jvmtifiles/jvmtiEnv.hpp"
 #include "runtime/compilationPolicy.hpp"
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
@@ -103,6 +104,51 @@ WB_ENTRY(jboolean, WB_IsClassAlive(JNIEnv* env, jobject target, jstring name))
 
   return closure.found();
 WB_END
+
+WB_ENTRY(jboolean, WB_ClassKnownToNotExist(JNIEnv* env, jobject o, jobject loader, jstring name))
+  ThreadToNativeFromVM ttnfv(thread);   // can't be in VM when we call JNI
+  const char* class_name = env->GetStringUTFChars(name, NULL);
+  jboolean result = JVM_KnownToNotExist(env, loader, class_name);
+  env->ReleaseStringUTFChars(name, class_name);
+  return result;
+WB_END
+
+WB_ENTRY(jobjectArray, WB_GetLookupCacheURLs(JNIEnv* env, jobject o, jobject loader))
+  ThreadToNativeFromVM ttnfv(thread);   // can't be in VM when we call JNI
+  return JVM_GetResourceLookupCacheURLs(env, loader);
+WB_END
+
+WB_ENTRY(jintArray, WB_GetLookupCacheMatches(JNIEnv* env, jobject o, jobject loader, jstring name))
+  ThreadToNativeFromVM ttnfv(thread);   // can't be in VM when we call JNI
+  const char* resource_name = env->GetStringUTFChars(name, NULL);
+  jintArray result = JVM_GetResourceLookupCache(env, loader, resource_name);
+
+  env->ReleaseStringUTFChars(name, resource_name);
+  return result;
+WB_END
+
+WB_ENTRY(void, WB_AddToBootstrapClassLoaderSearch(JNIEnv* env, jobject o, jstring segment)) {
+#if INCLUDE_JVMTI
+  ResourceMark rm;
+  const char* seg = java_lang_String::as_utf8_string(JNIHandles::resolve_non_null(segment));
+  JvmtiEnv* jvmti_env = JvmtiEnv::create_a_jvmti(JVMTI_VERSION);
+  jvmtiError err = jvmti_env->AddToBootstrapClassLoaderSearch(seg);
+  assert(err == JVMTI_ERROR_NONE, "must not fail");
+#endif
+}
+WB_END
+
+WB_ENTRY(void, WB_AddToSystemClassLoaderSearch(JNIEnv* env, jobject o, jstring segment)) {
+#if INCLUDE_JVMTI
+  ResourceMark rm;
+  const char* seg = java_lang_String::as_utf8_string(JNIHandles::resolve_non_null(segment));
+  JvmtiEnv* jvmti_env = JvmtiEnv::create_a_jvmti(JVMTI_VERSION);
+  jvmtiError err = jvmti_env->AddToSystemClassLoaderSearch(seg);
+  assert(err == JVMTI_ERROR_NONE, "must not fail");
+#endif
+}
+WB_END
+
 
 WB_ENTRY(jlong, WB_GetCompressedOopsMaxHeapSize(JNIEnv* env, jobject o)) {
   return (jlong)Arguments::max_heap_for_compressed_oops();
@@ -278,7 +324,7 @@ WB_END
 // NMT picks it up correctly
 WB_ENTRY(jlong, WB_NMTMalloc(JNIEnv* env, jobject o, jlong size))
   jlong addr = 0;
-    addr = (jlong)(uintptr_t)os::malloc(size, mtTest);
+  addr = (jlong)(uintptr_t)os::malloc(size, mtTest);
   return addr;
 WB_END
 
@@ -287,7 +333,7 @@ WB_END
 WB_ENTRY(jlong, WB_NMTMallocWithPseudoStack(JNIEnv* env, jobject o, jlong size, jint pseudo_stack))
   address pc = (address)(size_t)pseudo_stack;
   NativeCallStack stack(&pc, 1);
-  return (jlong)os::malloc(size, mtTest, stack);
+  return (jlong)(uintptr_t)os::malloc(size, mtTest, stack);
 WB_END
 
 // Free the memory allocated by NMTAllocTest
@@ -322,15 +368,6 @@ WB_ENTRY(jboolean, WB_NMTIsDetailSupported(JNIEnv* env))
   return MemTracker::tracking_level() == NMT_detail;
 WB_END
 
-WB_ENTRY(void, WB_NMTOverflowHashBucket(JNIEnv* env, jobject o, jlong num))
-  address pc = (address)1;
-  for (jlong index = 0; index < num; index ++) {
-    NativeCallStack stack(&pc, 1);
-    os::malloc(0, mtTest, stack);
-    pc += MallocSiteTable::hash_buckets();
-  }
-WB_END
-
 WB_ENTRY(jboolean, WB_NMTChangeTrackingLevel(JNIEnv* env))
   // Test that we can downgrade NMT levels but not upgrade them.
   if (MemTracker::tracking_level() == NMT_off) {
@@ -361,6 +398,12 @@ WB_ENTRY(jboolean, WB_NMTChangeTrackingLevel(JNIEnv* env))
     return MemTracker::tracking_level() == NMT_minimal;
   }
 WB_END
+
+WB_ENTRY(jint, WB_NMTGetHashSize(JNIEnv* env, jobject o))
+  int hash_size = MallocSiteTable::hash_buckets();
+  assert(hash_size > 0, "NMT hash_size should be > 0");
+  return (jint)hash_size;
+WB_END
 #endif // INCLUDE_NMT
 
 static jmethodID reflected_method_to_jmid(JavaThread* thread, JNIEnv* env, jobject method) {
@@ -382,19 +425,10 @@ WB_ENTRY(jint, WB_DeoptimizeMethod(JNIEnv* env, jobject o, jobject method, jbool
   CHECK_JNI_EXCEPTION_(env, result);
   MutexLockerEx mu(Compile_lock);
   methodHandle mh(THREAD, Method::checked_resolve_jmethod_id(jmid));
-  nmethod* code;
   if (is_osr) {
-    int bci = InvocationEntryBci;
-    while ((code = mh->lookup_osr_nmethod_for(bci, CompLevel_none, false)) != NULL) {
-      code->mark_for_deoptimization();
-      ++result;
-      bci = code->osr_entry_bci() + 1;
-    }
-  } else {
-    code = mh->code();
-  }
-  if (code != NULL) {
-    code->mark_for_deoptimization();
+    result += mh->mark_osr_nmethods();
+  } else if (mh->code() != NULL) {
+    mh->code()->mark_for_deoptimization();
     ++result;
   }
   result += CodeCache::mark_for_deoptimization(mh());
@@ -939,10 +973,19 @@ static JNINativeMethod methods[] = {
   {CC"isObjectInOldGen",   CC"(Ljava/lang/Object;)Z", (void*)&WB_isObjectInOldGen  },
   {CC"getHeapOopSize",     CC"()I",                   (void*)&WB_GetHeapOopSize    },
   {CC"isClassAlive0",      CC"(Ljava/lang/String;)Z", (void*)&WB_IsClassAlive      },
+  {CC"classKnownToNotExist",
+                           CC"(Ljava/lang/ClassLoader;Ljava/lang/String;)Z",(void*)&WB_ClassKnownToNotExist},
+  {CC"getLookupCacheURLs", CC"(Ljava/lang/ClassLoader;)[Ljava/net/URL;",    (void*)&WB_GetLookupCacheURLs},
+  {CC"getLookupCacheMatches", CC"(Ljava/lang/ClassLoader;Ljava/lang/String;)[I",
+                                                      (void*)&WB_GetLookupCacheMatches},
   {CC"parseCommandLine",
       CC"(Ljava/lang/String;[Lsun/hotspot/parser/DiagnosticCommand;)[Ljava/lang/Object;",
       (void*) &WB_ParseCommandLine
   },
+  {CC"addToBootstrapClassLoaderSearch", CC"(Ljava/lang/String;)V",
+                                                      (void*)&WB_AddToBootstrapClassLoaderSearch},
+  {CC"addToSystemClassLoaderSearch",    CC"(Ljava/lang/String;)V",
+                                                      (void*)&WB_AddToSystemClassLoaderSearch},
   {CC"getCompressedOopsMaxHeapSize", CC"()J",
       (void*)&WB_GetCompressedOopsMaxHeapSize},
   {CC"printHeapSizes",     CC"()V",                   (void*)&WB_PrintHeapSizes    },
@@ -963,9 +1006,9 @@ static JNINativeMethod methods[] = {
   {CC"NMTCommitMemory",     CC"(JJ)V",                (void*)&WB_NMTCommitMemory    },
   {CC"NMTUncommitMemory",   CC"(JJ)V",                (void*)&WB_NMTUncommitMemory  },
   {CC"NMTReleaseMemory",    CC"(JJ)V",                (void*)&WB_NMTReleaseMemory   },
-  {CC"NMTOverflowHashBucket", CC"(J)V",               (void*)&WB_NMTOverflowHashBucket},
   {CC"NMTIsDetailSupported",CC"()Z",                  (void*)&WB_NMTIsDetailSupported},
   {CC"NMTChangeTrackingLevel", CC"()Z",               (void*)&WB_NMTChangeTrackingLevel},
+  {CC"NMTGetHashSize",      CC"()I",                  (void*)&WB_NMTGetHashSize     },
 #endif // INCLUDE_NMT
   {CC"deoptimizeAll",      CC"()V",                   (void*)&WB_DeoptimizeAll     },
   {CC"deoptimizeMethod",   CC"(Ljava/lang/reflect/Executable;Z)I",

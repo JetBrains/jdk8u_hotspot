@@ -24,6 +24,7 @@
 
 #include "precompiled.hpp"
 #include "classfile/dictionary.hpp"
+#include "classfile/classLoaderExt.hpp"
 #include "classfile/loaderConstraints.hpp"
 #include "classfile/placeholders.hpp"
 #include "classfile/sharedClassUtil.hpp"
@@ -39,6 +40,7 @@
 #include "runtime/signature.hpp"
 #include "runtime/vm_operations.hpp"
 #include "runtime/vmThread.hpp"
+#include "utilities/hashtable.hpp"
 #include "utilities/hashtable.inline.hpp"
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
@@ -533,6 +535,8 @@ void VM_PopulateDumpSharedSpace::doit() {
   ClassLoader::copy_package_info_table(&md_top, md_end);
   ClassLoader::verify();
 
+  ClassLoaderExt::copy_lookup_cache_to_archive(&md_top, md_end);
+
   // Write the other data to the output array.
   WriteClosure wc(md_top, md_end);
   MetaspaceShared::serialize(&wc);
@@ -745,6 +749,8 @@ void MetaspaceShared::preload_and_dump(TRAPS) {
   }
   tty->print_cr("Loading classes to share: done.");
 
+  ClassLoaderExt::init_lookup_cache(THREAD);
+
   if (PrintSharedSpaces) {
     tty->print_cr("Shared spaces: preloaded %d classes", class_count);
   }
@@ -845,7 +851,7 @@ bool MetaspaceShared::try_link_class(InstanceKlass* ik, TRAPS) {
     ik->link_class(THREAD);
     if (HAS_PENDING_EXCEPTION) {
       ResourceMark rm;
-      tty->print_cr("Preload Error: Verification failed for %s",
+      tty->print_cr("Preload Warning: Verification failed for %s",
                     ik->external_name());
       CLEAR_PENDING_EXCEPTION;
       ik->set_in_error_state();
@@ -961,7 +967,7 @@ bool MetaspaceShared::map_shared_spaces(FileMapInfo* mapinfo) {
 #endif
     // If -Xshare:on is specified, print out the error message and exit VM,
     // otherwise, set UseSharedSpaces to false and continue.
-    if (RequireSharedSpaces) {
+    if (RequireSharedSpaces || PrintSharedArchiveAndExit) {
       vm_exit_during_initialization("Unable to use shared archive.", "Failed map_region for using -Xshare:on.");
     } else {
       FLAG_SET_DEFAULT(UseSharedSpaces, false);
@@ -1059,6 +1065,8 @@ void MetaspaceShared::initialize_shared_spaces() {
   len = *(intptr_t*)buffer;     // skip over package info table char[] arrays.
   buffer += sizeof(intptr_t);
   buffer += len;
+
+  buffer = ClassLoaderExt::restore_lookup_cache_from_archive(buffer);
 
   intptr_t* array = (intptr_t*)buffer;
   ReadClosure rc(&array);

@@ -229,12 +229,13 @@ class InstanceKlass: public Klass {
   bool            _has_unloaded_dependent;
 
   enum {
-    _misc_rewritten            = 1 << 0, // methods rewritten.
-    _misc_has_nonstatic_fields = 1 << 1, // for sizing with UseCompressedOops
-    _misc_should_verify_class  = 1 << 2, // allow caching of preverification
-    _misc_is_anonymous         = 1 << 3, // has embedded _host_klass field
-    _misc_is_contended         = 1 << 4, // marked with contended annotation
-    _misc_has_default_methods  = 1 << 5  // class/superclass/implemented interfaces has default methods
+    _misc_rewritten                = 1 << 0, // methods rewritten.
+    _misc_has_nonstatic_fields     = 1 << 1, // for sizing with UseCompressedOops
+    _misc_should_verify_class      = 1 << 2, // allow caching of preverification
+    _misc_is_anonymous             = 1 << 3, // has embedded _host_klass field
+    _misc_is_contended             = 1 << 4, // marked with contended annotation
+    _misc_has_default_methods      = 1 << 5, // class/superclass/implemented interfaces has default methods
+    _misc_declares_default_methods = 1 << 6  // directly declares default methods (any access)
   };
   u2              _misc_flags;
   u2              _minor_version;        // minor version number of class file
@@ -519,10 +520,16 @@ class InstanceKlass: public Klass {
   // find a local method (returns NULL if not found)
   Method* find_method(Symbol* name, Symbol* signature) const;
   static Method* find_method(Array<Method*>* methods, Symbol* name, Symbol* signature);
+
+  // find a local method, but skip static methods
+  Method* find_instance_method(Symbol* name, Symbol* signature);
   static Method* find_instance_method(Array<Method*>* methods, Symbol* name, Symbol* signature);
 
+  // true if method matches signature and conforms to skipping_X conditions.
+  static bool method_matches(Method* m, Symbol* signature, bool skipping_overpass, bool skipping_static);
+
   // find a local method index in default_methods (returns -1 if not found)
-  static int find_method_index(Array<Method*>* methods, Symbol* name, Symbol* signature, bool skipping_overpass);
+  static int find_method_index(Array<Method*>* methods, Symbol* name, Symbol* signature, bool skipping_overpass, bool skipping_static);
 
   // lookup operation (returns NULL if not found)
   Method* uncached_lookup_method(Symbol* name, Symbol* signature, MethodLookupMode mode) const;
@@ -680,6 +687,17 @@ class InstanceKlass: public Klass {
     }
   }
 
+  bool declares_default_methods() const {
+    return (_misc_flags & _misc_declares_default_methods) != 0;
+  }
+  void set_declares_default_methods(bool b) {
+    if (b) {
+      _misc_flags |= _misc_declares_default_methods;
+    } else {
+      _misc_flags &= ~_misc_declares_default_methods;
+    }
+  }
+
   // for adding methods, ConstMethod::UNSET_IDNUM means no more ids available
   inline u2 next_method_idnum();
   void set_initial_method_idnum(u2 value)             { _idnum_allocated_count = value; }
@@ -771,6 +789,7 @@ class InstanceKlass: public Klass {
   void set_osr_nmethods_head(nmethod* h)     { _osr_nmethods_head = h; };
   void add_osr_nmethod(nmethod* n);
   void remove_osr_nmethod(nmethod* n);
+  int mark_osr_nmethods(const Method* m);
   nmethod* lookup_osr_nmethod(const Method* m, int bci, int level, bool match_level) const;
 
   // Breakpoint support (see methods on Method* for details)
@@ -1046,6 +1065,7 @@ private:
   static bool link_class_impl                           (instanceKlassHandle this_oop, bool throw_verifyerror, TRAPS);
   static bool verify_code                               (instanceKlassHandle this_oop, bool throw_verifyerror, TRAPS);
   static void initialize_impl                           (instanceKlassHandle this_oop, TRAPS);
+  static void initialize_super_interfaces               (instanceKlassHandle this_oop, TRAPS);
   static void eager_initialize_impl                     (instanceKlassHandle this_oop);
   static void set_initialization_state_and_notify_impl  (instanceKlassHandle this_oop, ClassState state, TRAPS);
   static void call_class_initializer_impl               (instanceKlassHandle this_oop, TRAPS);
@@ -1062,7 +1082,7 @@ private:
 
   // find a local method (returns NULL if not found)
   Method* find_method_impl(Symbol* name, Symbol* signature, bool skipping_overpass) const;
-  static Method* find_method_impl(Array<Method*>* methods, Symbol* name, Symbol* signature, bool skipping_overpass);
+  static Method* find_method_impl(Array<Method*>* methods, Symbol* name, Symbol* signature, bool skipping_overpass, bool skipping_static);
 
   // Free CHeap allocated fields.
   void release_C_heap_structures();
@@ -1077,8 +1097,7 @@ public:
   // JSR-292 support
   MemberNameTable* member_names() { return _member_names; }
   void set_member_names(MemberNameTable* member_names) { _member_names = member_names; }
-  void add_member_name(int index, Handle member_name);
-  oop  get_member_name(int index);
+  bool add_member_name(Handle member_name);
 
 public:
   // JVMTI support

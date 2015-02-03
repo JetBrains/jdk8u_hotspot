@@ -476,6 +476,9 @@
   product(bool, DoEscapeAnalysis, true,                                     \
           "Perform escape analysis")                                        \
                                                                             \
+  product(double, EscapeAnalysisTimeout, 20. DEBUG_ONLY(+40.),              \
+          "Abort EA when it reaches time limit (in sec)")                   \
+                                                                            \
   develop(bool, ExitEscapeAnalysisOnTimeout, true,                          \
           "Exit or throw assert in EA when it reaches time limit")          \
                                                                             \
@@ -647,7 +650,7 @@
   develop(bool, AlwaysIncrementalInline, false,                             \
           "do all inlining incrementally")                                  \
                                                                             \
-  product(intx, LiveNodeCountInliningCutoff, 20000,                         \
+  product(intx, LiveNodeCountInliningCutoff, 40000,                         \
           "max number of live nodes in a method")                           \
                                                                             \
   diagnostic(bool, OptimizeExpensiveOps, true,                              \
