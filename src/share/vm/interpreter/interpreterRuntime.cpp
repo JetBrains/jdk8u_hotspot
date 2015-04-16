@@ -401,6 +401,7 @@ IRT_ENTRY(address, InterpreterRuntime::exception_handler_for_exception(JavaThrea
   int                handler_bci;
   int                current_bci = bci(thread);
 
+#ifndef CC_INTERP
   if (thread->frames_to_pop_failed_realloc() > 0) {
     // Allocation of scalar replaced object used in this frame
     // failed. Unconditionally pop the frame.
@@ -412,6 +413,7 @@ IRT_ENTRY(address, InterpreterRuntime::exception_handler_for_exception(JavaThrea
     thread->set_do_not_unlock_if_synchronized(true);
     return Interpreter::remove_activation_entry();
   }
+#endif
 
   // Need to do this check first since when _do_not_unlock_if_synchronized
   // is set, we don't want to trigger any classloading which may make calls
