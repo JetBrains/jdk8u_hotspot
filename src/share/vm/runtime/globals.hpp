@@ -732,6 +732,9 @@ class CommandLineFlags {
   product(bool, UseCRC32Intrinsics, false,                                  \
           "use intrinsics for java.util.zip.CRC32")                         \
                                                                             \
+  product(bool, UseMultiplyToLenIntrinsic, false,                           \
+          "Enables intrinsification of BigInteger.multiplyToLen()")         \
+                                                                            \
   develop(bool, TraceCallFixup, false,                                      \
           "Trace all call fixups")                                          \
                                                                             \
