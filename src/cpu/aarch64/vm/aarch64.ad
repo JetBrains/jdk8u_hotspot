@@ -8796,7 +8796,7 @@ instruct XorL_reg_URShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::LSR,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -8834,7 +8834,7 @@ instruct XorL_reg_RShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::ASR,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -8872,7 +8872,7 @@ instruct XorL_reg_LShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::LSL,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -8910,7 +8910,7 @@ instruct OrL_reg_URShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::LSR,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -8948,7 +8948,7 @@ instruct OrL_reg_RShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::ASR,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -8986,7 +8986,7 @@ instruct OrL_reg_LShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::LSL,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -9024,7 +9024,7 @@ instruct AddL_reg_URShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::LSR,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -9062,7 +9062,7 @@ instruct AddL_reg_RShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::ASR,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -9100,7 +9100,7 @@ instruct AddL_reg_LShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::LSL,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -9138,7 +9138,7 @@ instruct SubL_reg_URShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::LSR,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -9176,7 +9176,7 @@ instruct SubL_reg_RShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::ASR,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
@@ -9214,7 +9214,7 @@ instruct SubL_reg_LShift_reg(iRegLNoSp dst,
               as_Register($src1$$reg),
               as_Register($src2$$reg),
               Assembler::LSL,
-              $src3$$constant & 0x1f);
+              $src3$$constant & 0x3f);
   %}
 
   ins_pipe(ialu_reg_reg_shift);
