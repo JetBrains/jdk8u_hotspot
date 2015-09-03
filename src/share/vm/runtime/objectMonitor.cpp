@@ -471,9 +471,7 @@ void ATTR ObjectMonitor::enter(TRAPS) {
     event.commit();
   }
 
-  if (ObjectMonitor::_sync_ContendedLockAttempts != NULL) {
-     ObjectMonitor::_sync_ContendedLockAttempts->inc() ;
-  }
+  OM_PERFDATA_OP(ContendedLockAttempts, inc());
 }
 
 
@@ -634,16 +632,16 @@ void ATTR ObjectMonitor::EnterI (TRAPS) {
 
         if (TryLock(Self) > 0) break ;
 
-        // The lock is still contested.
-        // Keep a tally of the # of futile wakeups.
-        // Note that the counter is not protected by a lock or updated by atomics.
-        // That is by design - we trade "lossy" counters which are exposed to
-        // races during updates for a lower probe effect.
-        TEVENT (Inflated enter - Futile wakeup) ;
-        if (ObjectMonitor::_sync_FutileWakeups != NULL) {
-           ObjectMonitor::_sync_FutileWakeups->inc() ;
-        }
-        ++ nWakeups ;
+    // The lock is still contested.
+    // Keep a tally of the # of futile wakeups.
+    // Note that the counter is not protected by a lock or updated by atomics.
+    // That is by design - we trade "lossy" counters which are exposed to
+    // races during updates for a lower probe effect.
+    TEVENT(Inflated enter - Futile wakeup);
+    // This PerfData object can be used in parallel with a safepoint.
+    // See the work around in PerfDataManager::destroy().
+    OM_PERFDATA_OP(FutileWakeups, inc());
+    ++nWakeups;
 
         // Assuming this is not a spurious wakeup we'll normally find _succ == Self.
         // We can defer clearing _succ until after the spin completes
@@ -814,9 +812,9 @@ void ATTR ObjectMonitor::ReenterI (Thread * Self, ObjectWaiter * SelfNode) {
         // *must* retry  _owner before parking.
         OrderAccess::fence() ;
 
-        if (ObjectMonitor::_sync_FutileWakeups != NULL) {
-          ObjectMonitor::_sync_FutileWakeups->inc() ;
-        }
+        // This PerfData object can be used in parallel with a safepoint.
+        // See the work around in PerfDataManager::destroy().
+        OM_PERFDATA_OP(FutileWakeups, inc());
     }
 
     // Self has acquired the lock -- Unlink Self from the cxq or EntryList .
@@ -1352,10 +1350,8 @@ void ObjectMonitor::ExitEpilog (Thread * Self, ObjectWaiter * Wakee) {
    DTRACE_MONITOR_PROBE(contended__exit, this, object(), Self);
    Trigger->unpark() ;
 
-   // Maintain stats and report events to JVMTI
-   if (ObjectMonitor::_sync_Parks != NULL) {
-      ObjectMonitor::_sync_Parks->inc() ;
-   }
+  // Maintain stats and report events to JVMTI
+  OM_PERFDATA_OP(Parks, inc());
 }
 
 
@@ -1808,8 +1804,8 @@ void ObjectMonitor::notify(TRAPS) {
 
   Thread::SpinRelease (&_WaitSetLock) ;
 
-  if (iterator != NULL && ObjectMonitor::_sync_Notifications != NULL) {
-     ObjectMonitor::_sync_Notifications->inc() ;
+  if (iterator != NULL) {
+      OM_PERFDATA_OP(Notifications, inc(1));
   }
 }
 
@@ -1920,21 +1916,9 @@ void ObjectMonitor::notifyAll(TRAPS) {
      if (Policy < 4) {
        iterator->wait_reenter_begin(this);
      }
-
-     // _WaitSetLock protects the wait queue, not the EntryList.  We could
-     // move the add-to-EntryList operation, above, outside the critical section
-     // protected by _WaitSetLock.  In practice that's not useful.  With the
-     // exception of  wait() timeouts and interrupts the monitor owner
-     // is the only thread that grabs _WaitSetLock.  There's almost no contention
-     // on _WaitSetLock so it's not profitable to reduce the length of the
-     // critical section.
   }
 
-  Thread::SpinRelease (&_WaitSetLock) ;
-
-  if (Tally != 0 && ObjectMonitor::_sync_Notifications != NULL) {
-     ObjectMonitor::_sync_Notifications->inc(Tally) ;
-  }
+  OM_PERFDATA_OP(Notifications, inc(Tally));
 }
 
 // -----------------------------------------------------------------------------

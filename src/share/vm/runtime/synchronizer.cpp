@@ -1318,20 +1318,20 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
           guarantee (object->mark() == markOopDesc::INFLATING(), "invariant") ;
           object->release_set_mark(markOopDesc::encode(m));
 
-          // Hopefully the performance counters are allocated on distinct cache lines
-          // to avoid false sharing on MP systems ...
-          if (ObjectMonitor::_sync_Inflations != NULL) ObjectMonitor::_sync_Inflations->inc() ;
-          TEVENT(Inflate: overwrite stacklock) ;
-          if (TraceMonitorInflation) {
-            if (object->is_instance()) {
-              ResourceMark rm;
-              tty->print_cr("Inflating object " INTPTR_FORMAT " , mark " INTPTR_FORMAT " , type %s",
-                (void *) object, (intptr_t) object->mark(),
-                object->klass()->external_name());
-            }
-          }
-          return m ;
+      // Hopefully the performance counters are allocated on distinct cache lines
+      // to avoid false sharing on MP systems ...
+      OM_PERFDATA_OP(Inflations, inc());
+      TEVENT(Inflate: overwrite stacklock);
+      if (TraceMonitorInflation) {
+        if (object->is_instance()) {
+          ResourceMark rm;
+          tty->print_cr("Inflating object " INTPTR_FORMAT " , mark " INTPTR_FORMAT " , type %s",
+                        (void *) object, (intptr_t) object->mark(),
+                        object->klass()->external_name());
+        }
       }
+      return m;
+    }
 
       // CASE: neutral
       // TODO-FIXME: for entry we currently inflate and then try to CAS _owner.
@@ -1368,19 +1368,19 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
           // live-lock -- "Inflated" is an absorbing state.
       }
 
-      // Hopefully the performance counters are allocated on distinct
-      // cache lines to avoid false sharing on MP systems ...
-      if (ObjectMonitor::_sync_Inflations != NULL) ObjectMonitor::_sync_Inflations->inc() ;
-      TEVENT(Inflate: overwrite neutral) ;
-      if (TraceMonitorInflation) {
-        if (object->is_instance()) {
-          ResourceMark rm;
-          tty->print_cr("Inflating object " INTPTR_FORMAT " , mark " INTPTR_FORMAT " , type %s",
-            (void *) object, (intptr_t) object->mark(),
-            object->klass()->external_name());
-        }
+    // Hopefully the performance counters are allocated on distinct
+    // cache lines to avoid false sharing on MP systems ...
+    OM_PERFDATA_OP(Inflations, inc());
+    TEVENT(Inflate: overwrite neutral);
+    if (TraceMonitorInflation) {
+      if (object->is_instance()) {
+        ResourceMark rm;
+        tty->print_cr("Inflating object " INTPTR_FORMAT " , mark " INTPTR_FORMAT " , type %s",
+                      (void *) object, (intptr_t) object->mark(),
+                      object->klass()->external_name());
       }
-      return m ;
+    }
+    return m;
   }
 }
 
@@ -1586,8 +1586,8 @@ void ObjectSynchronizer::deflate_idle_monitors() {
   }
   Thread::muxRelease (&ListLock) ;
 
-  if (ObjectMonitor::_sync_Deflations != NULL) ObjectMonitor::_sync_Deflations->inc(nScavenged) ;
-  if (ObjectMonitor::_sync_MonExtant  != NULL) ObjectMonitor::_sync_MonExtant ->set_value(nInCirculation);
+  OM_PERFDATA_OP(Deflations, inc(nScavenged));
+  OM_PERFDATA_OP(MonExtant, set_value(nInCirculation));
 
   // TODO: Add objectMonitor leak detection.
   // Audit/inventory the objectMonitors -- make sure they're all accounted for.
