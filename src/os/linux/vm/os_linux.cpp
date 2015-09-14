@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1999, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -229,32 +229,7 @@ bool os::have_special_privileges() {
 #endif
 
 // Cpu architecture string
-#if   defined(ZERO)
-static char cpu_arch[] = ZERO_LIBARCH;
-#elif defined(IA64)
-static char cpu_arch[] = "ia64";
-#elif defined(IA32)
-static char cpu_arch[] = "i386";
-#elif defined(AMD64)
-static char cpu_arch[] = "amd64";
-#elif defined(ARM)
-static char cpu_arch[] = "arm";
-#elif defined(PPC32)
-static char cpu_arch[] = "ppc";
-#elif defined(PPC64)
-static char cpu_arch[] = "ppc64";
-#elif defined(SPARC)
-#  ifdef _LP64
-static char cpu_arch[] = "sparcv9";
-#  else
-static char cpu_arch[] = "sparc";
-#  endif
-#elif defined(AARCH64)
-static char cpu_arch[] = "aarch64";
-#else
-#error Add appropriate cpu_arch setting
-#endif
-
+static char cpu_arch[] = HOTSPOT_LIB_ARCH;
 
 // pid_t gettid()
 //
@@ -5977,22 +5952,6 @@ void Parker::unpark() {
 
 
 extern char** environ;
-
-#ifndef __NR_fork
-#ifdef BUILTIN_SIM
-#define __NR_fork 57
-#else
-#define __NR_fork IA32_ONLY(2) IA64_ONLY(not defined) AMD64_ONLY(57) AARCH64_ONLY(1079)
-#endif
-#endif
-
-#ifndef __NR_execve
-#ifdef BUILTIN_SIM
-#define __NR_execve 59
-#else
-#define __NR_execve IA32_ONLY(11) IA64_ONLY(1033) AMD64_ONLY(59) AARCH64_ONLY(221)
-#endif
-#endif
 
 // Run the specified command in a separate process. Return its exit value,
 // or -1 on failure (e.g. can't fork a new process).
