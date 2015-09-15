@@ -388,7 +388,7 @@ IRT_END
 // the exception oop (via TLS) and sets the bci/bcp for the continuation.
 // The exception oop is returned to make sure it is preserved over GC (it
 // is only on the stack if the exception was thrown explicitly via athrow).
-// During this operation, the expression stack contains teh values for the
+// During this operation, the expression stack contains the values for the
 // bci where the exception happened. If the exception was propagated back
 // from a call, the expression stack contains the values for the bci at the
 // invoke w/o arguments (i.e., as if one were inside the call).

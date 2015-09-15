@@ -1496,8 +1496,6 @@ void os::abort(bool dump_core) {
     jio_snprintf(buf, sizeof(buf), UINTX_FORMAT, os::current_thread_id());
     out.print_raw_cr(buf);
     out.print_raw_cr("Dumping core ...");
-    out.print_raw_cr("LOOPING...");
-    for (;;);
 #endif
     ::abort(); // dump core
   }

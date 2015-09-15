@@ -732,9 +732,6 @@ class CommandLineFlags {
   product(bool, UseCRC32Intrinsics, false,                                  \
           "use intrinsics for java.util.zip.CRC32")                         \
                                                                             \
-  product(bool, UseMultiplyToLenIntrinsic, false,                           \
-          "Enables intrinsification of BigInteger.multiplyToLen()")         \
-                                                                            \
   develop(bool, TraceCallFixup, false,                                      \
           "Trace all call fixups")                                          \
                                                                             \
@@ -1228,7 +1225,7 @@ class CommandLineFlags {
   product(bool, CheckEndorsedAndExtDirs, false,                             \
           "Verify the endorsed and extension directories are not used")     \
                                                                             \
-  product(bool, UseFastJNIAccessors, false,                                 \
+  product(bool, UseFastJNIAccessors, true,                                  \
           "Use optimized versions of Get<Primitive>Field")                  \
                                                                             \
   product(intx, MaxJNILocalCapacity, 65536,                                 \
@@ -1261,8 +1258,6 @@ class CommandLineFlags {
   product(bool, CompactFields, true,                                        \
           "Allocate nonstatic fields in gaps between previous fields")      \
                                                                             \
-  product(bool, UseBiasedLocking, true,                                     \
-		      "Enable biased locking in JVM")			    \
   notproduct(bool, PrintFieldLayout, false,                                 \
           "Print field layout for each class")                              \
                                                                             \
@@ -1275,6 +1270,8 @@ class CommandLineFlags {
   product(bool, RestrictContended, true,                                    \
           "Restrict @Contended to trusted classes")                         \
                                                                             \
+  product(bool, UseBiasedLocking, true,                                     \
+          "Enable biased locking in JVM")                                   \
                                                                             \
   product(intx, BiasedLockingStartupDelay, 4000,                            \
           "Number of milliseconds to wait before enabling biased locking")  \
@@ -3823,7 +3820,7 @@ class CommandLineFlags {
   product(uintx, SharedMiscDataSize,    NOT_LP64(2*M) LP64_ONLY(4*M),       \
           "Size of the shared miscellaneous data area (in bytes)")          \
                                                                             \
-  product(uintx, SharedMiscCodeSize,    192*K,                              \
+  product(uintx, SharedMiscCodeSize,    AARCH64_ONLY(192*K) NOT_AARCH64(120*K), \
           "Size of the shared miscellaneous code area (in bytes)")          \
                                                                             \
   product(uintx, SharedBaseAddress, LP64_ONLY(32*G)                         \
