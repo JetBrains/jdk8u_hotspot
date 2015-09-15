@@ -29,6 +29,9 @@
 #ifdef TARGET_ARCH_x86
 # include "c2_globals_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "c2_globals_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "c2_globals_sparc.hpp"
 #endif
@@ -655,9 +658,6 @@
                                                                             \
   product(bool, UseMathExactIntrinsics, true,                               \
           "Enables intrinsification of various java.lang.Math functions")   \
-                                                                            \
-  product(bool, UseMultiplyToLenIntrinsic, false,                           \
-          "Enables intrinsification of BigInteger.multiplyToLen()")         \
                                                                             \
   product(bool, UseTypeSpeculation, true,                                   \
           "Speculatively propagate types from profiles")                    \

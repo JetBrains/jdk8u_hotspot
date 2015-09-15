@@ -1044,7 +1044,7 @@ class EndTreeSearchClosure : public DescendTreeSearchClosure<Chunk_t, FreeList_t
 template <class Chunk_t, class FreeList_t>
 Chunk_t* BinaryTreeDictionary<Chunk_t, FreeList_t>::find_chunk_ends_at(HeapWord* target) const {
   EndTreeSearchClosure<Chunk_t, FreeList_t> etsc(target);
-  bool found_target = etsc.do_tree(root());
+  bool found_target = etsc.do_tree(this->root());
   assert(found_target || etsc.found() == NULL, "Consistency check");
   assert(!found_target || etsc.found() != NULL, "Consistency check");
   return etsc.found();
@@ -1056,7 +1056,7 @@ void BinaryTreeDictionary<Chunk_t, FreeList_t>::begin_sweep_dict_census(double c
   BeginSweepClosure<Chunk_t, FreeList_t> bsc(coalSurplusPercent, inter_sweep_current,
                                             inter_sweep_estimate,
                                             intra_sweep_estimate);
-  bsc.do_tree(root());
+  bsc.do_tree(this->root());
 }
 
 // Closures and methods for calculating total bytes returned to the

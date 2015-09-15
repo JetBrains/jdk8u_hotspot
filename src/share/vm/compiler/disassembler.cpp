@@ -35,6 +35,9 @@
 #ifdef TARGET_ARCH_x86
 # include "depChecker_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "depChecker_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "depChecker_sparc.hpp"
 #endif
@@ -469,7 +472,7 @@ address decode_env::decode_instructions(address start, address end) {
                                                     start, end - start,
                                                     NULL, (void*) xmlout,
                                                     NULL, (void*) out,
-                                                    options(), 0/*nice new line*/)
+                                                    options(), 1/*nice new line*/)
       :
       (address)
       (*Disassembler::_decode_instructions)(start, end,

@@ -55,6 +55,17 @@ const TypePtr *MemNode::adr_type() const {
   return calculate_adr_type(adr->bottom_type(), cross_check);
 }
 
+bool MemNode::is_volatile() const {
+#ifndef ASSERT
+  // fake the missing field
+  const TypePtr* _adr_type = NULL;
+  if (in(Address) != NULL)
+    _adr_type = in(Address)->bottom_type()->isa_ptr();
+#endif
+  Compile* C = Compile::current();
+  return C->alias_type(_adr_type)->is_volatile();
+}
+
 #ifndef PRODUCT
 void MemNode::dump_spec(outputStream *st) const {
   if (in(Address) == NULL)  return; // node is dead

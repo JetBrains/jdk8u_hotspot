@@ -109,6 +109,15 @@ ifneq (,$(findstring $(ARCH), i686 i586))
   HS_ARCH          = x86
 endif
 
+# AARCH64
+ifeq ($(ARCH), aarch64)
+  ARCH_DATA_MODEL  = 64
+  MAKE_ARGS        += LP64=1
+  PLATFORM         = linux-aarch64
+  VM_PLATFORM      = linux_aarch64
+  HS_ARCH          = aarch64
+endif 
+
 # PPC64
 ifeq ($(ARCH), ppc64)
   ARCH_DATA_MODEL  = 64
@@ -295,6 +304,8 @@ endif
 ADD_SA_BINARIES/x86   = $(EXPORT_JRE_LIB_ARCH_DIR)/libsaproc.$(LIBRARY_SUFFIX) \
                         $(EXPORT_LIB_DIR)/sa-jdi.jar
 ADD_SA_BINARIES/sparc = $(EXPORT_JRE_LIB_ARCH_DIR)/libsaproc.$(LIBRARY_SUFFIX) \
+                        $(EXPORT_LIB_DIR)/sa-jdi.jar
+ADD_SA_BINARIES/aarch64 = $(EXPORT_JRE_LIB_ARCH_DIR)/libsaproc.$(LIBRARY_SUFFIX) \
                         $(EXPORT_LIB_DIR)/sa-jdi.jar
 ifeq ($(ENABLE_FULL_DEBUG_SYMBOLS),1)
   ifeq ($(ZIP_DEBUGINFO_FILES),1)
