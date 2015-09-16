@@ -825,6 +825,11 @@ static Klass* resolve_field_return_klass(methodHandle caller, int bci, TRAPS) {
 JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_id ))
   NOT_PRODUCT(_patch_code_slowcase_cnt++;)
 
+#ifdef AARCH64
+  // AArch64 does not patch C1-generated code.
+  ShouldNotReachHere();
+#endif
+
   ResourceMark rm(thread);
   RegisterMap reg_map(thread, false);
   frame runtime_frame = thread->last_frame();
@@ -1072,7 +1077,7 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
           ShouldNotReachHere();
         }
 
-#if defined(SPARC) || defined(PPC) || defined(AARCH64)
+#if defined(SPARC) || defined(PPC)
         if (load_klass_or_mirror_patch_id ||
             stub_id == Runtime1::load_appendix_patching_id) {
           // Update the location in the nmethod with the proper
@@ -1147,19 +1152,13 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
           ICache::invalidate_range(instr_pc, *byte_count);
           NativeGeneralJump::replace_mt_safe(instr_pc, copy_buff);
 
-          if (load_klass_or_mirror_patch_id
-              || stub_id == Runtime1::load_appendix_patching_id
-	      AARCH64_ONLY(|| stub_id == Runtime1::access_field_patching_id)) {
-            relocInfo::relocType rtype;
-	    switch(stub_id) {
-	    case Runtime1::load_klass_patching_id:
-	      rtype = relocInfo::metadata_type; break;
-	    case Runtime1::access_field_patching_id:
-	      rtype = relocInfo::section_word_type; break;
-	    default:
-	      rtype = relocInfo::oop_type; break;
-	    }
-                                   ;
+          if (load_klass_or_mirror_patch_id ||
+              stub_id == Runtime1::load_appendix_patching_id) {
+            relocInfo::relocType rtype =
+              (stub_id == Runtime1::load_klass_patching_id) ?
+                                   relocInfo::metadata_type :
+                                   relocInfo::oop_type;
+
             // update relocInfo to metadata
             nmethod* nm = CodeCache::find_nmethod(instr_pc);
             assert(nm != NULL, "invalid nmethod_pc");
@@ -1183,30 +1182,6 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
             relocInfo::change_reloc_info_for_address(&iter2, (address) instr_pc2,
                                                      relocInfo::none, rtype);
           }
-#endif
-#if defined(TARGET_ARCH_aarch64)
-            // Update the location in the nmethod with the proper
-            // metadata.
-            RelocIterator mds(nm, instr_pc, instr_pc + 1);
-            bool found = false;
-            while (mds.next() && !found) {
-              if (mds.type() == relocInfo::oop_type) {
-                assert(stub_id == Runtime1::load_mirror_patching_id, "wrong stub id");
-                oop_Relocation* r = mds.oop_reloc();
-                oop* oop_adr = r->oop_addr();
-                *oop_adr = mirror();
-                r->fix_oop_relocation();
-                found = true;
-              } else if (mds.type() == relocInfo::metadata_type) {
-                assert(stub_id == Runtime1::load_klass_patching_id, "wrong stub id");
-                metadata_Relocation* r = mds.metadata_reloc();
-                Metadata** metadata_adr = r->metadata_addr();
-                *metadata_adr = load_klass();
-                r->fix_metadata_relocation();
-                found = true;
-              }
-            }
-            assert(found, "the metadata must exist!");
 #endif
           }
 
