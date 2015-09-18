@@ -133,5 +133,9 @@ class MetaspaceShared : AllStatic {
 
   static int count_class(const char* classlist_file);
   static void estimate_regions_size() NOT_CDS_RETURN;
+
+#if defined(BUILTIN_SIM)
+  static void relocate_vtbl_list(char **buffer);
+#endif
 };
 #endif // SHARE_VM_MEMORY_METASPACE_SHARED_HPP

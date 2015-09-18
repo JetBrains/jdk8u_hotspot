@@ -1237,7 +1237,11 @@ void JvmtiExport::post_method_exit(JavaThread *thread, Method* method, frame cur
     }
   }
 
-  state->decr_cur_stack_depth();
+  // FIXME: this is just a kludge to get JVMTI going.  Compiled
+  // MethodHandle code doesn't call the JVMTI notify routines, so the
+  // stack depth we see here is wrong.
+  state->invalidate_cur_stack_depth();
+  // state->decr_cur_stack_depth();
 }
 
 

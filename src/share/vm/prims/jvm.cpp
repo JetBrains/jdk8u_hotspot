@@ -1252,6 +1252,16 @@ JVM_ENTRY(jobject, JVM_GetProtectionDomain(JNIEnv *env, jclass cls))
   return (jobject) JNIHandles::make_local(env, pd);
 JVM_END
 
+// we need to export SetProtectionDomain when running with target JDK 7
+// it does nothing but it is still required to resolve JDK/JVM linkage
+#if defined(TARGET_JDK_VERSION) && (TARGET_JDK_VERSION == 7)
+JVM_ENTRY(void, JVM_SetProtectionDomain(JNIEnv *env, jclass cls, jobject protection_domain))
+  JVMWrapper("JVM_GetProtectionDomain");
+  if (JNIHandles::resolve(cls) == NULL) {
+    THROW(vmSymbols::java_lang_NullPointerException());
+  }
+JVM_END
+#endif
 
 static bool is_authorized(Handle context, instanceKlassHandle klass, TRAPS) {
   // If there is a security manager and protection domain, check the access

@@ -394,15 +394,19 @@ void JavaCalls::call_helper(JavaValue* result, methodHandle* m, JavaCallArgument
   { JavaCallWrapper link(method, receiver, result, CHECK);
     { HandleMark hm(thread);  // HandleMark used by HandleMarkCleaner
 
-      StubRoutines::call_stub()(
+      StubRoutines::CallStub stub = StubRoutines::call_stub();
+      int size_of_parameters = args->size_of_parameters();
+      intptr_t* parameters = args->parameters();
+      Method* meth =  method();
+      stub(
         (address)&link,
         // (intptr_t*)&(result->_value), // see NOTE above (compiler problem)
         result_val_address,          // see NOTE above (compiler problem)
         result_type,
-        method(),
+        meth,
         entry_point,
-        args->parameters(),
-        args->size_of_parameters(),
+        parameters,
+        size_of_parameters,
         CHECK
       );
 
