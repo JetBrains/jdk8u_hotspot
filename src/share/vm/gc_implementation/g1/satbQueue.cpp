@@ -99,7 +99,7 @@ inline bool requires_marking(const void* entry, G1CollectedHeap* heap) {
 // are compacted toward the top of the buffer.
 
 void ObjPtrQueue::filter() {
-  G1CollectedHeap* g1h = G1CollectedHeap::heap();
+  CollectedHeap* heap = Universe::heap();
   void** buf = _buf;
   size_t sz = _sz;
 
@@ -126,7 +126,8 @@ void ObjPtrQueue::filter() {
     // far, we'll just end up copying it to the same place.
     *p = NULL;
 
-    if (requires_marking(entry, g1h) && !g1h->isMarkedNext((oop)entry)) {
+    bool retain = heap->is_obj_ill(oop(entry));
+    if (retain) {
       assert(new_index > 0, "we should not have already filled up the buffer");
       new_index -= oopSize;
       assert(new_index >= i,

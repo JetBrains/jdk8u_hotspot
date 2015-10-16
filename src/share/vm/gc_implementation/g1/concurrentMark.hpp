@@ -142,7 +142,7 @@ class CMBitMap : public CMBitMapRO {
   CMBitMap() : CMBitMapRO(LogMinObjAlignment), _listener() { _listener.set_bitmap(this); }
 
   // Initializes the underlying BitMap to cover the given area.
-  void initialize(MemRegion heap, G1RegionToSpaceMapper* storage);
+  void initialize(MemRegion heap, MemRegion bitmap);
 
   // Write marks.
   inline void mark(HeapWord* addr);
@@ -151,6 +151,7 @@ class CMBitMap : public CMBitMapRO {
   inline bool parClear(HeapWord* addr);
 
   void markRange(MemRegion mr);
+  void parMarkRange(MemRegion mr);
   void clearRange(MemRegion mr);
 
   // Starting at the bit corresponding to "addr" (inclusive), find the next
@@ -164,6 +165,17 @@ class CMBitMap : public CMBitMapRO {
 
   // Clear the whole mark bitmap.
   void clearAll();
+};
+
+class G1CMBitMap : public CMBitMap {
+ private:
+  CMBitMapMappingChangedListener _listener;
+
+ public:
+  G1CMBitMap() : CMBitMap(), _listener() { _listener.set_bitmap(this); }
+
+  // Initializes the underlying BitMap to cover the given area.
+  void initialize(MemRegion heap, G1RegionToSpaceMapper* storage);
 };
 
 // Represents a marking stack used by ConcurrentMarking in the G1 collector.
@@ -402,8 +414,8 @@ protected:
   FreeRegionList        _cleanup_list;
 
   // Concurrent marking support structures
-  CMBitMap                _markBitMap1;
-  CMBitMap                _markBitMap2;
+  G1CMBitMap                _markBitMap1;
+  G1CMBitMap                _markBitMap2;
   CMBitMapRO*             _prevMarkBitMap; // completed mark bitmap
   CMBitMap*               _nextMarkBitMap; // under-construction mark bitmap
 

@@ -50,7 +50,7 @@ SharedHeap::SharedHeap(CollectorPolicy* policy_) :
   if ((UseParNewGC ||
       (UseConcMarkSweepGC && (CMSParallelInitialMarkEnabled ||
                               CMSParallelRemarkEnabled)) ||
-       UseG1GC) &&
+       UseG1GC || UseShenandoahGC) &&
       ParallelGCThreads > 0) {
     _workers = new FlexibleWorkGang("Parallel GC Threads", ParallelGCThreads,
                             /* are_GC_task_threads */true,

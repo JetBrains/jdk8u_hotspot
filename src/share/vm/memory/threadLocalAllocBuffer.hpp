@@ -58,8 +58,7 @@ private:
 
   AdaptiveWeightedAverage _allocation_fraction;  // fraction of eden allocated in tlabs
 
-  void accumulate_statistics();
-  void initialize_statistics();
+  bool _gclab;
 
   void set_start(HeapWord* start)                { _start = start; }
   void set_end(HeapWord* end)                    { _end = end; }
@@ -77,9 +76,6 @@ private:
 
   // Make parsable and release it.
   void reset();
-
-  // Resize based on amount of allocation, etc.
-  void resize();
 
   void invariants() const { assert(top() >= start() && top() <= end(), "invalid tlab"); }
 
@@ -124,11 +120,16 @@ public:
   // Allocate size HeapWords. The memory is NOT initialized to zero.
   inline HeapWord* allocate(size_t size);
 
-  // Reserve space at the end of TLAB
-  static size_t end_reserve() {
-    int reserve_size = typeArrayOopDesc::header_size(T_INT);
-    return MAX2(reserve_size, VM_Version::reserve_for_allocation_prefetch());
-  }
+  // Resize based on amount of allocation, etc.
+  void resize();
+
+  void accumulate_statistics();
+  void initialize_statistics();
+
+  // Rolls back a single allocation of the given size.
+  void rollback(size_t size);
+
+  static size_t end_reserve();
   static size_t alignment_reserve()              { return align_object_size(end_reserve()); }
   static size_t alignment_reserve_in_bytes()     { return alignment_reserve() * HeapWordSize; }
 
@@ -156,7 +157,7 @@ public:
   static void resize_all_tlabs();
 
   void fill(HeapWord* start, HeapWord* top, size_t new_size);
-  void initialize();
+  void initialize(bool gclab);
 
   static size_t refill_waste_limit_increment()   { return TLABWasteIncrement; }
 

@@ -64,7 +64,8 @@ public:
     PSScavenge,
     PSMarkSweep,
     G1YoungGen,
-    G1OldGen
+    G1OldGen,
+    Shenandoah
   };
 
   MemoryManager();
@@ -77,7 +78,7 @@ public:
 
   void add_pool(MemoryPool* pool);
 
-  bool is_manager(instanceHandle mh)     { return mh() == _memory_mgr_obj; }
+  bool is_manager(instanceHandle mh)     { return oopDesc::bs()->write_barrier(mh()) == oopDesc::bs()->write_barrier(_memory_mgr_obj); }
 
   virtual instanceOop get_memory_manager_instance(TRAPS);
   virtual MemoryManager::Name kind()     { return MemoryManager::Abstract; }
@@ -98,6 +99,7 @@ public:
   static GCMemoryManager* get_psMarkSweep_memory_manager();
   static GCMemoryManager* get_g1YoungGen_memory_manager();
   static GCMemoryManager* get_g1OldGen_memory_manager();
+  static GCMemoryManager* get_shenandoah_memory_manager();
 
 };
 
@@ -282,6 +284,16 @@ public:
 
   MemoryManager::Name kind() { return MemoryManager::G1OldGen; }
   const char* name()         { return "G1 Old Generation"; }
+};
+
+class ShenandoahMemoryManager : public GCMemoryManager {
+private:
+public:
+  ShenandoahMemoryManager() : GCMemoryManager() {}
+
+  MemoryManager::Name kind() { return MemoryManager::Shenandoah; }
+  const char* name()         { return "Shenandoah";}
+
 };
 
 #endif // SHARE_VM_SERVICES_MEMORYMANAGER_HPP

@@ -241,6 +241,10 @@ ciObject* ciObjectFactory::get(oop key) {
 
   assert(Universe::heap()->is_in_reserved(key), "must be");
 
+  // In Shenandoah we need to make sure that nobody forwards the key elsewhere
+  // under our hood.
+  key = oopDesc::bs()->write_barrier(key);
+
   NonPermObject* &bucket = find_non_perm(key);
   if (bucket != NULL) {
     return bucket->object();

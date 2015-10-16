@@ -202,6 +202,10 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
   // Compute address and memory type.
   int offset = field->offset_in_bytes();
   const TypePtr* adr_type = C->alias_type(field)->adr_type();
+
+  // Insert read barrier for Shenandoah.
+  obj = shenandoah_read_barrier(obj);
+
   Node *adr = basic_plus_adr(obj, obj, offset);
   BasicType bt = field->layout_type();
 
@@ -283,6 +287,9 @@ void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
   // another volatile read.
   if (is_vol)  insert_mem_bar(Op_MemBarRelease);
 
+  // Insert write barrier for Shenandoah.
+  obj = shenandoah_write_barrier(obj);
+
   // Compute address and memory type.
   int offset = field->offset_in_bytes();
   const TypePtr* adr_type = C->alias_type(field)->adr_type();
@@ -312,6 +319,9 @@ void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
     } else {
       field_type = TypeOopPtr::make_from_klass(field->type()->as_klass());
     }
+
+    val = shenandoah_read_barrier_nomem(val);
+
     store = store_oop_to_object(control(), obj, adr, adr_type, val, field_type, bt, mo);
   } else {
     store = store_to_memory(control(), adr, val, bt, adr_type, mo, is_vol);

@@ -1008,6 +1008,15 @@ void LIR_OpVisitState::visit(LIR_Op* op) {
       do_temp(opProfileType->_tmp);
       break;
     }
+    case lir_shenandoah_wb: {
+      assert(op->as_OpShenandoahWriteBarrier() != NULL, "must be");
+      LIR_OpShenandoahWriteBarrier* opShenandoahWB = (LIR_OpShenandoahWriteBarrier*) op;
+      do_input(opShenandoahWB->_opr);
+      do_output(opShenandoahWB->_result);
+      do_temp(opShenandoahWB->_tmp1);
+      do_temp(opShenandoahWB->_tmp2);
+      break;
+    }
   default:
     ShouldNotReachHere();
   }
@@ -1104,6 +1113,10 @@ void LIR_OpBranch::emit_code(LIR_Assembler* masm) {
   if (stub()) {
     masm->append_code_stub(stub());
   }
+}
+
+void LIR_OpShenandoahWriteBarrier::emit_code(LIR_Assembler* masm) {
+  masm->emit_opShenandoahWriteBarrier(this);
 }
 
 void LIR_OpConvert::emit_code(LIR_Assembler* masm) {
@@ -1816,6 +1829,7 @@ const char * LIR_Op::name() const {
      case lir_profile_call:          s = "profile_call";  break;
      // LIR_OpProfileType
      case lir_profile_type:          s = "profile_type";  break;
+     case lir_shenandoah_wb:         s = "shenandoah_wb"; break;
      // LIR_OpAssert
 #ifdef ASSERT
      case lir_assert:                s = "assert";        break;
@@ -1824,6 +1838,13 @@ const char * LIR_Op::name() const {
     default:                         s = "illegal_op";    break;
   }
   return s;
+}
+
+void LIR_OpShenandoahWriteBarrier::print_instr(outputStream* out) const {
+  out->print("[obj: "); in_opr()->print(out); out->print("]");
+  out->print("[res: "); result_opr()->print(out); out->print("]");
+  out->print("[tmp1: "); tmp1_opr()->print(out); out->print("]");
+  out->print("[tmp2: "); tmp2_opr()->print(out); out->print("]");
 }
 
 // LIR_OpJavaCall

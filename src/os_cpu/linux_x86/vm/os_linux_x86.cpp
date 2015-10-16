@@ -430,6 +430,21 @@ JVM_handle_linux_signal(int sig,
     }
   }
 
+    if ((sig == SIGSEGV) && UseShenandoahGC
+        && (ShenandoahVerifyWritesToFromSpace || ShenandoahVerifyReadsToFromSpace)) {
+      if (Universe::heap()->is_in(info->si_addr)) {
+        ucontext_t* uc = (ucontext_t*) ucVoid;
+        address pc = (address) os::Linux::ucontext_get_pc(uc);
+        os::print_context(tty, ucVoid);
+        Universe::heap()->print();
+        if (ShenandoahVerifyReadsToFromSpace) {
+          assert(false, "Illegal read to From Space");
+        } else {
+          assert(false, "Illegal write to From Space");
+        }
+      }
+    }
+
 #ifndef AMD64
   // Execution protection violation
   //

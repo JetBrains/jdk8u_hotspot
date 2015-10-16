@@ -24,6 +24,7 @@
 
 #include "precompiled.hpp"
 #include "compiler/compileLog.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "libadt/vectset.hpp"
 #include "opto/addnode.hpp"
 #include "opto/callnode.hpp"
@@ -38,6 +39,7 @@
 #include "opto/phaseX.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/runtime.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/subnode.hpp"
 #include "opto/type.hpp"
 #include "runtime/sharedRuntime.hpp"
@@ -844,6 +846,9 @@ bool PhaseMacroExpand::scalar_replacement(AllocateNode *alloc, GrowableArray <Sa
           field_val = transform_later(new (C) DecodeNNode(field_val, field_val->get_ptr_type()));
         }
       }
+      if (field_val->isa_ShenandoahBarrier()) {
+        field_val = field_val->in(ShenandoahBarrierNode::ValueIn);
+      }
       sfpt->add_req(field_val);
     }
     JVMState *jvms = sfpt->jvms();
@@ -1284,6 +1289,13 @@ void PhaseMacroExpand::expand_allocate_common(
 
     transform_later(old_eden_top);
     // Add to heap top to get a new heap top
+
+    if (UseShenandoahGC) {
+      // Allocate one word more for the Shenandoah brooks pointer.
+      size_in_bytes = new (C) AddLNode(size_in_bytes, _igvn.MakeConX(8));
+      transform_later(size_in_bytes);
+    }
+
     Node *new_eden_top = new (C) AddPNode(top(), old_eden_top, size_in_bytes);
     transform_later(new_eden_top);
     // Check for needing a GC; compare against heap end
@@ -1372,6 +1384,13 @@ void PhaseMacroExpand::expand_allocate_common(
       transform_later(new_alloc_bytes);
       fast_oop_rawmem = make_store(fast_oop_ctrl, store_eden_top, alloc_bytes_adr,
                                    0, new_alloc_bytes, T_LONG);
+    }
+
+    if (UseShenandoahGC) {
+      // Bump up object by one word. The preceding word is used for
+      // the Shenandoah brooks pointer.
+      fast_oop = new (C) AddPNode(top(), fast_oop, _igvn.MakeConX(8));
+      transform_later(fast_oop);
     }
 
     InitializeNode* init = alloc->initialization();
@@ -1649,6 +1668,11 @@ PhaseMacroExpand::initialize_object(AllocateNode* alloc,
     ciKlass* k = _igvn.type(klass_node)->is_klassptr()->klass();
     if (k->is_array_klass())    // we know the exact header size in most cases:
       header_size = Klass::layout_helper_header_size(k->layout_helper());
+  }
+
+  if (UseShenandoahGC) {
+    // Initialize Shenandoah brooks pointer to point to the object itself.
+    rawmem = make_store(control, rawmem, object, BrooksPointer::BYTE_OFFSET, object, T_OBJECT);
   }
 
   // Clear the object body, if necessary.

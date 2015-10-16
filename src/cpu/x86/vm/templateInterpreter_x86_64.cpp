@@ -542,6 +542,7 @@ void InterpreterGenerator::lock_method(void) {
 #endif // ASSERT
 
     __ bind(done);
+    oopDesc::bs()->interpreter_write_barrier(_masm, rax);
   }
 
   // add space for monitor & lock
@@ -783,7 +784,7 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
   const int referent_offset = java_lang_ref_Reference::referent_offset;
   guarantee(referent_offset > 0, "referent offset not initialized");
 
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     Label slow_path;
     // rbx: method
 
@@ -793,6 +794,8 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
 
     __ testptr(rax, rax);
     __ jcc(Assembler::zero, slow_path);
+
+    oopDesc::bs()->interpreter_read_barrier_not_null(_masm, rax);
 
     // rax: local 0
     // rbx: method (but can be used as scratch now)
@@ -924,6 +927,7 @@ address InterpreterGenerator::generate_CRC32_updateBytes_entry(AbstractInterpret
       __ movl(crc,   Address(rsp, 5*wordSize)); // Initial CRC
     } else {
       __ movptr(buf, Address(rsp, 3*wordSize)); // byte[] array
+      oopDesc::bs()->interpreter_read_barrier_not_null(_masm, buf);
       __ addptr(buf, arrayOopDesc::base_offset_in_bytes(T_BYTE)); // + header size
       __ movl2ptr(off, Address(rsp, 2*wordSize)); // offset
       __ addq(buf, off); // + offset

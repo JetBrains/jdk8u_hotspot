@@ -3083,7 +3083,7 @@ void PhaseIdealLoop::build_loop_early( VectorSet &visited, Node_List &worklist, 
         ++i;
         if (in == NULL) continue;
         if (in->pinned() && !in->is_CFG())
-          set_ctrl(in, in->in(0));
+          set_ctrl(in, in->Opcode() == Op_ShenandoahWBMemProj ? in->in(0)->in(0) : in->in(0));
         int is_visited = visited.test_set( in->_idx );
         if (!has_node(in)) {  // No controlling input yet?
           assert( !in->is_CFG(), "CFG Node with no controlling input?" );
@@ -3268,7 +3268,7 @@ Node *PhaseIdealLoop::get_late_ctrl( Node *n, Node *early ) {
         }
       } else {
         Node *sctrl = has_ctrl(s) ? get_ctrl(s) : s->in(0);
-        assert(sctrl != NULL || s->outcnt() == 0, "must have control");
+        assert(sctrl != NULL || s->outcnt() == 0 || s->is_ShenandoahBarrier(), "must have control");
         if (sctrl != NULL && !sctrl->is_top() && is_dominator(early, sctrl)) {
           LCA = dom_lca_for_get_late_ctrl(LCA, sctrl, n);
         }
@@ -3489,6 +3489,8 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
     case Op_StrEquals:
     case Op_StrIndexOf:
     case Op_AryEq:
+    case Op_ShenandoahReadBarrier:
+    case Op_ShenandoahWriteBarrier:
       pinned = false;
     }
     if( pinned ) {

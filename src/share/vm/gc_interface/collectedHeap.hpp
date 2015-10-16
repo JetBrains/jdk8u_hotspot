@@ -79,6 +79,7 @@ class GCHeapLog : public EventLogBase<GCMessage> {
 //   SharedHeap
 //     GenCollectedHeap
 //     G1CollectedHeap
+//   ShenandoahHeap
 //   ParallelScavengeHeap
 //
 class CollectedHeap : public CHeapObj<mtInternal> {
@@ -188,7 +189,8 @@ class CollectedHeap : public CHeapObj<mtInternal> {
     SharedHeap,
     GenCollectedHeap,
     ParallelScavengeHeap,
-    G1CollectedHeap
+    G1CollectedHeap,
+    ShenandoahHeap
   };
 
   static inline size_t filler_array_max_size() {
@@ -196,6 +198,8 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   }
 
   virtual CollectedHeap::Name kind() const { return CollectedHeap::Abstract; }
+
+  virtual HeapWord* tlab_post_allocation_setup(HeapWord* obj);
 
   /**
    * Returns JNI error code JNI_ENOMEM if memory could not be allocated,
@@ -322,6 +326,12 @@ class CollectedHeap : public CHeapObj<mtInternal> {
 
   inline static void post_allocation_install_obj_klass(KlassHandle klass,
                                                        oop obj);
+
+  virtual uint oop_extra_words();
+
+#ifndef CC_INTERP
+  virtual void compile_prepare_oop(MacroAssembler* masm, Register obj);
+#endif
 
   // Raw memory allocation facilities
   // The obj and array allocate methods are covers for these methods.
@@ -609,6 +619,12 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   // Heap verification
   virtual void verify(bool silent, VerifyOption option) = 0;
 
+  // Shut down all GC workers and other GC related threads.
+  virtual void shutdown();
+
+  // Accumulate additional statistics from GCLABs.
+  virtual void accumulate_statistics_all_gclabs();
+
   // Non product verification and debugging.
 #ifndef PRODUCT
   // Support for PromotionFailureALot.  Return true if it's time to cause a
@@ -647,6 +663,10 @@ class CollectedHeap : public CHeapObj<mtInternal> {
                                              jbyte* accuracy,
                                              jint len) {
     return false;
+  }
+
+  virtual bool is_obj_ill(const oop obj) const {
+    return true;
   }
 
   /////////////// Unit tests ///////////////

@@ -121,14 +121,12 @@ size_t CMBitMap::mark_distance() {
   return MinObjAlignmentInBytes * BitsPerByte;
 }
 
-void CMBitMap::initialize(MemRegion heap, G1RegionToSpaceMapper* storage) {
+void CMBitMap::initialize(MemRegion heap, MemRegion bitmap) {
   _bmStartWord = heap.start();
   _bmWordSize = heap.word_size();
 
-  _bm.set_map((BitMap::bm_word_t*) storage->reserved().start());
+  _bm.set_map((BitMap::bm_word_t*) bitmap.start());
   _bm.set_size(_bmWordSize >> _shifter);
-
-  storage->set_mapping_changed_listener(&_listener);
 }
 
 void CMBitMapMappingChangedListener::on_commit(uint start_region, size_t num_regions, bool zero_filled) {
@@ -197,6 +195,17 @@ void CMBitMap::markRange(MemRegion mr) {
                    heapWordToOffset(mr.end()), true);
 }
 
+void CMBitMap::parMarkRange(MemRegion mr) {
+  mr.intersection(MemRegion(_bmStartWord, _bmWordSize));
+  assert(!mr.is_empty(), "unexpected empty region");
+  assert((offsetToHeapWord(heapWordToOffset(mr.end())) ==
+          ((HeapWord *) mr.end())),
+         "markRange memory region end is not card aligned");
+  // convert address range into offset range
+  _bm.par_at_put_range(heapWordToOffset(mr.start()),
+                   heapWordToOffset(mr.end()), true);
+}
+
 void CMBitMap::clearRange(MemRegion mr) {
   mr.intersection(MemRegion(_bmStartWord, _bmWordSize));
   assert(!mr.is_empty(), "unexpected empty region");
@@ -217,6 +226,13 @@ MemRegion CMBitMap::getAndClearMarkedRegion(HeapWord* addr,
     clearRange(mr);
   }
   return mr;
+}
+
+void G1CMBitMap::initialize(MemRegion heap, G1RegionToSpaceMapper* storage) {
+
+  CMBitMap::initialize(heap, storage->reserved());
+
+  storage->set_mapping_changed_listener(&_listener);
 }
 
 CMMarkStack::CMMarkStack(ConcurrentMark* cm) :

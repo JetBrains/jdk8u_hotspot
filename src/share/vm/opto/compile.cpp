@@ -32,6 +32,7 @@
 #include "compiler/compileLog.hpp"
 #include "compiler/disassembler.hpp"
 #include "compiler/oopMap.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "opto/addnode.hpp"
 #include "opto/block.hpp"
 #include "opto/c2compiler.hpp"
@@ -58,6 +59,7 @@
 #include "opto/phaseX.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/runtime.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/stringopts.hpp"
 #include "opto/type.hpp"
 #include "opto/vectornode.hpp"
@@ -758,7 +760,7 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       StartNode* s = new (this) StartNode(root(), tf()->domain());
       initial_gvn()->set_type_bottom(s);
       init_start(s);
-      if (method()->intrinsic_id() == vmIntrinsics::_Reference_get && UseG1GC) {
+      if (method()->intrinsic_id() == vmIntrinsics::_Reference_get && (UseG1GC || UseShenandoahGC)) {
         // With java.lang.ref.reference.get() we must go through the
         // intrinsic when G1 is enabled - even when get() is the root
         // method of the compile - so that, if necessary, the value in
@@ -1392,6 +1394,9 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
         tj = TypeInstPtr::MARK;
         ta = TypeAryPtr::RANGE; // generic ignored junk
         ptr = TypePtr::BotPTR;
+      } else if (offset == BrooksPointer::BYTE_OFFSET && UseShenandoahGC) {
+        // Need to distinguish brooks ptr as is.
+        tj = ta = TypeAryPtr::make(ptr,ta->ary(),ta->klass(),false,offset);
       } else {                  // Random constant offset into array body
         offset = Type::OffsetBot;   // Flatten constant access into array body
         tj = ta = TypeAryPtr::make(ptr,ta->ary(),ta->klass(),false,offset);
@@ -1456,7 +1461,7 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
       if (!is_known_inst) { // Do it only for non-instance types
         tj = to = TypeInstPtr::make(TypePtr::BotPTR, env()->Object_klass(), false, NULL, offset);
       }
-    } else if (offset < 0 || offset >= k->size_helper() * wordSize) {
+    } else if ((offset != BrooksPointer::BYTE_OFFSET || !UseShenandoahGC) && (offset < 0 || offset >= k->size_helper() * wordSize)) {
       // Static fields are in the space above the normal instance
       // fields in the java.lang.Class instance.
       if (to->klass() != ciEnv::current()->Class_klass()) {
@@ -1554,7 +1559,8 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
           (offset == Type::OffsetBot && tj == TypePtr::BOTTOM) ||
           (offset == oopDesc::mark_offset_in_bytes() && tj->base() == Type::AryPtr) ||
           (offset == oopDesc::klass_offset_in_bytes() && tj->base() == Type::AryPtr) ||
-          (offset == arrayOopDesc::length_offset_in_bytes() && tj->base() == Type::AryPtr)  ,
+          (offset == arrayOopDesc::length_offset_in_bytes() && tj->base() == Type::AryPtr) ||
+          (offset == BrooksPointer::BYTE_OFFSET && tj->base() == Type::AryPtr && UseShenandoahGC),
           "For oops, klasses, raw offset must be constant; for arrays the offset is never known" );
   assert( tj->ptr() != TypePtr::TopPTR &&
           tj->ptr() != TypePtr::AnyNull &&
@@ -3072,6 +3078,11 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
       n->set_req(MemBarNode::Precedent, top());
     }
     break;
+  case Op_ShenandoahReadBarrier:
+    break;
+  case Op_ShenandoahWriteBarrier:
+    n->set_req(ShenandoahBarrierNode::Memory, immutable_memory());
+    break;
   default:
     assert( !n->is_Call(), "" );
     assert( !n->is_Mem(), "" );
@@ -3436,7 +3447,7 @@ void Compile::verify_graph_edges(bool no_dead_code) {
 // Currently supported:
 // - G1 pre-barriers (see GraphKit::g1_write_barrier_pre())
 void Compile::verify_barriers() {
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     // Verify G1 pre-barriers
     const int marking_offset = in_bytes(JavaThread::satb_mark_queue_offset() + PtrQueue::byte_offset_of_active());
 

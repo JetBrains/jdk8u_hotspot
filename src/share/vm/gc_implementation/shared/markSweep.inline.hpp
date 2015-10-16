@@ -26,6 +26,7 @@
 #define SHARE_VM_GC_IMPLEMENTATION_SHARED_MARKSWEEP_INLINE_HPP
 
 #include "gc_implementation/shared/markSweep.hpp"
+#include "memory/barrierSet.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "utilities/stack.inline.hpp"
 #include "utilities/macros.hpp"
@@ -63,6 +64,7 @@ template <class T> inline void MarkSweep::follow_root(T* p) {
   T heap_oop = oopDesc::load_heap_oop(p);
   if (!oopDesc::is_null(heap_oop)) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
+    obj = oopDesc::bs()->resolve_and_update_oop(p, obj);
     if (!obj->mark()->is_marked()) {
       mark_object(obj);
       obj->follow_contents();
@@ -76,6 +78,7 @@ template <class T> inline void MarkSweep::mark_and_push(T* p) {
   T heap_oop = oopDesc::load_heap_oop(p);
   if (!oopDesc::is_null(heap_oop)) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
+    obj = oopDesc::bs()->resolve_and_update_oop(p, obj);
     if (!obj->mark()->is_marked()) {
       mark_object(obj);
       _marking_stack.push(obj);

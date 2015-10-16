@@ -391,8 +391,9 @@ JNI_ENTRY(jclass, jni_DefineClass(JNIEnv *env, const char *name, jobject loaderR
   if (UsePerfData && !class_loader.is_null()) {
     // check whether the current caller thread holds the lock or not.
     // If not, increment the corresponding counter
+    Handle class_loader1 (THREAD, oopDesc::bs()->write_barrier(class_loader()));
     if (ObjectSynchronizer::
-        query_lock_ownership((JavaThread*)THREAD, class_loader) !=
+        query_lock_ownership((JavaThread*)THREAD, class_loader1) !=
         ObjectSynchronizer::owner_self) {
       ClassLoader::sync_JNIDefineClassLockFreeCounter()->inc();
     }
@@ -666,6 +667,11 @@ JNI_QUICK_ENTRY(jboolean, jni_IsAssignableFrom(JNIEnv *env, jclass sub, jclass s
   if (java_lang_Class::is_primitive(sub_mirror) ||
       java_lang_Class::is_primitive(super_mirror)) {
     jboolean ret = (sub_mirror == super_mirror);
+    if (ret == JNI_FALSE) {
+      sub_mirror = oopDesc::bs()->read_barrier(sub_mirror);
+      super_mirror = oopDesc::bs()->read_barrier(super_mirror);
+      ret = (sub_mirror == super_mirror);
+    }
 #ifndef USDT2
     DTRACE_PROBE1(hotspot_jni, IsAssignableFrom__return, ret);
 #else /* USDT2 */
@@ -995,6 +1001,11 @@ JNI_QUICK_ENTRY(jboolean, jni_IsSameObject(JNIEnv *env, jobject r1, jobject r2))
   oop a = JNIHandles::resolve(r1);
   oop b = JNIHandles::resolve(r2);
   jboolean ret = (a == b) ? JNI_TRUE : JNI_FALSE;
+  if (UseShenandoahGC && ret == JNI_FALSE) {
+    a = oopDesc::bs()->read_barrier(a);
+    b = oopDesc::bs()->read_barrier(b);
+    ret = (a == b) ? JNI_TRUE : JNI_FALSE;
+  }
 #ifndef USDT2
   DTRACE_PROBE1(hotspot_jni, IsSameObject__return, ret);
 #else /* USDT2 */
@@ -2605,7 +2616,7 @@ JNI_ENTRY(jobject, jni_GetObjectField(JNIEnv *env, jobject obj, jfieldID fieldID
   // If G1 is enabled and we are accessing the value of the referent
   // field in a reference object then we need to register a non-null
   // referent with the SATB barrier.
-  if (UseG1GC) {
+if (UseG1GC || UseShenandoahGC) {
     bool needs_barrier = false;
 
     if (ret != NULL &&
@@ -3592,6 +3603,7 @@ JNI_QUICK_ENTRY(ElementType*, \
   DTRACE_PROBE3(hotspot_jni, Get##Result##ArrayElements__entry, env, array, isCopy);\
   /* allocate an chunk of memory in c land */ \
   typeArrayOop a = typeArrayOop(JNIHandles::resolve_non_null(array)); \
+  a = typeArrayOop(oopDesc::bs()->read_barrier(a)); \
   ElementType* result; \
   int len = a->length(); \
   if (len == 0) { \
@@ -3692,6 +3704,7 @@ JNI_QUICK_ENTRY(void, \
   JNIWrapper("Release" XSTR(Result) "ArrayElements"); \
   DTRACE_PROBE4(hotspot_jni, Release##Result##ArrayElements__entry, env, array, buf, mode);\
   typeArrayOop a = typeArrayOop(JNIHandles::resolve_non_null(array)); \
+  a = typeArrayOop(oopDesc::bs()->write_barrier(a)); \
   int len = a->length(); \
   if (len != 0) {   /* Empty array:  nothing to free or copy. */  \
     if ((mode == 0) || (mode == JNI_COMMIT)) { \
@@ -3773,6 +3786,7 @@ jni_Get##Result##ArrayRegion(JNIEnv *env, ElementType##Array array, jsize start,
   DTRACE_PROBE5(hotspot_jni, Get##Result##ArrayRegion__entry, env, array, start, len, buf);\
   DT_VOID_RETURN_MARK(Get##Result##ArrayRegion); \
   typeArrayOop src = typeArrayOop(JNIHandles::resolve_non_null(array)); \
+  src = typeArrayOop(oopDesc::bs()->read_barrier(src)); \
   if (start < 0 || len < 0 || ((unsigned int)start + (unsigned int)len > (unsigned int)src->length())) { \
     THROW(vmSymbols::java_lang_ArrayIndexOutOfBoundsException()); \
   } else { \
@@ -3857,6 +3871,7 @@ jni_Set##Result##ArrayRegion(JNIEnv *env, ElementType##Array array, jsize start,
   DTRACE_PROBE5(hotspot_jni, Set##Result##ArrayRegion__entry, env, array, start, len, buf);\
   DT_VOID_RETURN_MARK(Set##Result##ArrayRegion); \
   typeArrayOop dst = typeArrayOop(JNIHandles::resolve_non_null(array)); \
+  dst = typeArrayOop(oopDesc::bs()->write_barrier(dst)); \
   if (start < 0 || len < 0 || ((unsigned int)start + (unsigned int)len > (unsigned int)dst->length())) { \
     THROW(vmSymbols::java_lang_ArrayIndexOutOfBoundsException()); \
   } else { \
@@ -4119,7 +4134,7 @@ JNI_ENTRY(jint, jni_MonitorEnter(JNIEnv *env, jobject jobj))
     THROW_(vmSymbols::java_lang_NullPointerException(), JNI_ERR);
   }
 
-  Handle obj(thread, JNIHandles::resolve_non_null(jobj));
+  Handle obj(thread, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
   ObjectSynchronizer::jni_enter(obj, CHECK_(JNI_ERR));
   ret = JNI_OK;
   return ret;
@@ -4147,7 +4162,7 @@ JNI_ENTRY(jint, jni_MonitorExit(JNIEnv *env, jobject jobj))
     THROW_(vmSymbols::java_lang_NullPointerException(), JNI_ERR);
   }
 
-  Handle obj(THREAD, JNIHandles::resolve_non_null(jobj));
+  Handle obj(THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
   ObjectSynchronizer::jni_exit(obj(), CHECK_(JNI_ERR));
 
   ret = JNI_OK;
@@ -4238,6 +4253,7 @@ JNI_ENTRY(void*, jni_GetPrimitiveArrayCritical(JNIEnv *env, jarray array, jboole
     *isCopy = JNI_FALSE;
   }
   oop a = JNIHandles::resolve_non_null(array);
+  a = oopDesc::bs()->write_barrier(a);
   assert(a->is_array(), "just checking");
   BasicType type;
   if (a->is_objArray()) {

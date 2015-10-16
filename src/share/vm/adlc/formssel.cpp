@@ -781,7 +781,9 @@ bool InstructForm::captures_bottom_type(FormDict &globals) const {
         !strcmp(_matrule->_rChild->_opType,"CreateEx")     ||  // type of exception
         !strcmp(_matrule->_rChild->_opType,"CheckCastPP")  ||
         !strcmp(_matrule->_rChild->_opType,"GetAndSetP")   ||
-        !strcmp(_matrule->_rChild->_opType,"GetAndSetN")) )  return true;
+        !strcmp(_matrule->_rChild->_opType,"GetAndSetN")   ||
+        !strcmp(_matrule->_rChild->_opType,"ShenandoahReadBarrier") ||
+        !strcmp(_matrule->_rChild->_opType,"ShenandoahWriteBarrier")) )  return true;
   else if ( is_ideal_load() == Form::idealP )                return true;
   else if ( is_ideal_store() != Form::none  )                return true;
 
@@ -3485,6 +3487,7 @@ int MatchNode::needs_ideal_memory_edge(FormDict &globals) const {
     "ClearArray",
     "GetAndAddI", "GetAndSetI", "GetAndSetP",
     "GetAndAddL", "GetAndSetL", "GetAndSetN",
+    "ShenandoahReadBarrier", "ShenandoahWriteBarrier",
   };
   int cnt = sizeof(needs_ideal_memory_list)/sizeof(char*);
   if( strcmp(_opType,"PrefetchRead")==0 ||

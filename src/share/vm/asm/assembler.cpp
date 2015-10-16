@@ -26,6 +26,7 @@
 #include "asm/macroAssembler.hpp"
 #include "asm/macroAssembler.inline.hpp"
 #include "asm/codeBuffer.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/atomic.inline.hpp"
 #include "runtime/icache.hpp"
@@ -313,5 +314,5 @@ bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
     }
   }
 #endif
-  return offset < 0 || os::vm_page_size() <= offset;
+  return (offset < 0 && ((!UseShenandoahGC) || offset != BrooksPointer::BYTE_OFFSET)) || os::vm_page_size() <= offset;
 }

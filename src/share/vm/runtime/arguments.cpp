@@ -63,6 +63,7 @@
 #include "gc_implementation/concurrentMarkSweep/compactibleFreeListSpace.hpp"
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #endif // INCLUDE_ALL_GCS
 
 // Note: This is a special bug reporting site for the JVM
@@ -1491,6 +1492,11 @@ void Arguments::set_use_compressed_oops() {
   // the only value that can override MaxHeapSize if we are
   // to use UseCompressedOops is InitialHeapSize.
   size_t max_heap_size = MAX2(MaxHeapSize, InitialHeapSize);
+  if (UseShenandoahGC && FLAG_IS_DEFAULT(UseCompressedOops)) {
+    warning("Compressed Oops not supported with ShenandoahGC");
+    FLAG_SET_ERGO(bool, UseCompressedOops, false);
+    FLAG_SET_ERGO(bool, UseCompressedClassPointers, false);
+  }
 
   if (max_heap_size <= max_heap_for_compressed_oops()) {
 #if !defined(COMPILER1) || defined(TIERED)
@@ -1558,6 +1564,10 @@ void Arguments::set_conservative_max_heap_alignment() {
     heap_alignment = ParallelScavengeHeap::conservative_max_heap_alignment();
   } else if (UseG1GC) {
     heap_alignment = G1CollectedHeap::conservative_max_heap_alignment();
+  } else if (UseShenandoahGC) {
+    // TODO: This sucks. Can't we have a clean interface to call the GC's collector
+    // policy for this?
+    heap_alignment = ShenandoahHeap::conservative_max_heap_alignment();
   }
 #endif // INCLUDE_ALL_GCS
   _conservative_max_heap_alignment = MAX4(heap_alignment,
@@ -1710,6 +1720,22 @@ void Arguments::set_g1_gc_flags() {
   }
 }
 
+void Arguments::set_shenandoah_gc_flags() {
+  FLAG_SET_DEFAULT(ClassUnloadingWithConcurrentMark, false);
+  FLAG_SET_DEFAULT(UseDynamicNumberOfGCThreads, true);
+  FLAG_SET_DEFAULT(ParallelGCThreads,
+                   Abstract_VM_Version::parallel_worker_threads());
+
+  if (FLAG_IS_DEFAULT(ConcGCThreads)) {
+    uint conc_threads = MAX2((uintx) 1, ParallelGCThreads);
+    FLAG_SET_DEFAULT(ConcGCThreads, conc_threads);
+  }
+
+  if (FLAG_IS_DEFAULT(ParallelRefProcEnabled)) {
+    FLAG_SET_DEFAULT(ParallelRefProcEnabled, true);
+  }
+}
+
 #if !INCLUDE_ALL_GCS
 #ifdef ASSERT
 static bool verify_serial_gc_flags() {
@@ -1731,6 +1757,8 @@ void Arguments::set_gc_specific_flags() {
     set_parnew_gc_flags();
   } else if (UseG1GC) {
     set_g1_gc_flags();
+  } else if (UseShenandoahGC) {
+    set_shenandoah_gc_flags();
   }
   check_deprecated_gcs();
   check_deprecated_gc_flags();

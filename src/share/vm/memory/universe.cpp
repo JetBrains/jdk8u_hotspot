@@ -80,6 +80,8 @@
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1CollectorPolicy_ext.hpp"
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #endif // INCLUDE_ALL_GCS
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
@@ -807,6 +809,15 @@ jint Universe::initialize_heap() {
     Universe::_collectedHeap = g1h;
 #else  // INCLUDE_ALL_GCS
     fatal("UseG1GC not supported in java kernel vm.");
+#endif // INCLUDE_ALL_GCS
+
+  } else if (UseShenandoahGC) {
+#if INCLUDE_ALL_GCS
+    ShenandoahCollectorPolicy* shcp = new ShenandoahCollectorPolicy();
+    ShenandoahHeap* sh = new ShenandoahHeap(shcp);
+    Universe::_collectedHeap = sh;
+#else  // INCLUDE_ALL_GCS
+    fatal("UseShenandoahGC not supported in java kernel vm.");
 #endif // INCLUDE_ALL_GCS
 
   } else {

@@ -31,6 +31,7 @@
 #include "opto/matcher.hpp"
 #include "opto/mulnode.hpp"
 #include "opto/rootnode.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/subnode.hpp"
 
 //=============================================================================
@@ -109,21 +110,25 @@ Node *PhaseIdealLoop::split_thru_phi( Node *n, Node *region, int policy ) {
       // otherwise it will be not updated during igvn->transform since
       // igvn->type(x) is set to x->Value() already.
       x->raise_bottom_type(t);
-      Node *y = x->Identity(&_igvn);
-      if (y != x) {
-        wins++;
-        x = y;
-      } else {
-        y = _igvn.hash_find(x);
-        if (y) {
+      if (x->Opcode() != Op_ShenandoahWriteBarrier) {
+        Node *y = x->Identity(&_igvn);
+        if (y != x) {
           wins++;
           x = y;
         } else {
-          // Else x is a new node we are keeping
-          // We do not need register_new_node_with_optimizer
-          // because set_type has already been called.
-          _igvn._worklist.push(x);
+          y = _igvn.hash_find(x);
+          if (y) {
+            wins++;
+            x = y;
+          } else {
+            // Else x is a new node we are keeping
+            // We do not need register_new_node_with_optimizer
+            // because set_type has already been called.
+            _igvn._worklist.push(x);
+          }
         }
+      } else {
+        _igvn._worklist.push(x);
       }
     }
     if (x != the_clone && the_clone != NULL)
@@ -190,6 +195,41 @@ Node *PhaseIdealLoop::split_thru_phi( Node *n, Node *region, int policy ) {
   }
 
   return phi;
+}
+
+/**
+ * When splitting a Shenandoah write barrier through a phi, we
+ * can not replace the write-barrier input of the ShenandoahWBMemProj
+ * with the phi. We must also split the ShenandoahWBMemProj through the
+ * phi and generate a new memory phi for it.
+ */
+void PhaseIdealLoop::split_mem_thru_phi(Node* n, Node* r, Node* phi) {
+  if (n->Opcode() == Op_ShenandoahWriteBarrier) {
+    if (n->has_out_with(Op_ShenandoahWBMemProj)) {
+      Node* old_mem_phi = n->in(ShenandoahBarrierNode::Memory);
+      assert(r->is_Region(), "need region to control phi");
+      assert(phi->is_Phi(), "expect phi");
+      Node* memphi = PhiNode::make(r, old_mem_phi, Type::MEMORY, C->alias_type(n->adr_type())->adr_type());
+      for (uint i = 1; i < r->req(); i++) {
+        Node* wb = phi->in(i);
+        if (wb->Opcode() == Op_ShenandoahWriteBarrier) {
+          assert(! wb->has_out_with(Op_ShenandoahWBMemProj), "new clone does not have mem proj");
+          Node* new_proj = new (C) ShenandoahWBMemProjNode(wb);
+          register_new_node(new_proj, r->in(i));
+          memphi->set_req(i, new_proj);
+        } else {
+          if (old_mem_phi->is_Phi() && old_mem_phi->in(0) == r) {
+            memphi->set_req(i, old_mem_phi->in(i));
+          }
+        }
+      }
+      register_new_node(memphi, r);
+      Node* old_mem_out = n->find_out_with(Op_ShenandoahWBMemProj);
+      assert(old_mem_out != NULL, "expect memory projection");
+      _igvn.replace_node(old_mem_out, memphi);
+    }
+    assert(! n->has_out_with(Op_ShenandoahWBMemProj), "no more memory outs");
+  }
 }
 
 //------------------------------dominated_by------------------------------------
@@ -724,10 +764,16 @@ Node *PhaseIdealLoop::split_if_with_blocks_pre( Node *n ) {
 
   // Found a Phi to split thru!
   // Replace 'n' with the new phi
+  split_mem_thru_phi(n, n_blk, phi);
   _igvn.replace_node( n, phi );
   // Moved a load around the loop, 'en-registering' something.
   if (n_blk->is_Loop() && n->is_Load() &&
       !phi->in(LoopNode::LoopBackControl)->is_Load())
+    C->set_major_progress();
+
+  // Moved a barrier around the loop, 'en-registering' something.
+  if (n_blk->is_Loop() && n->is_ShenandoahBarrier() &&
+      !phi->in(LoopNode::LoopBackControl)->is_ShenandoahBarrier())
     C->set_major_progress();
 
   return phi;
@@ -1019,7 +1065,7 @@ void PhaseIdealLoop::split_if_with_blocks_post( Node *n ) {
             // to fold a StoreP and an AddP together (as part of an
             // address expression) and the AddP and StoreP have
             // different controls.
-            if (!x->is_Load() && !x->is_DecodeNarrowPtr()) _igvn._worklist.yank(x);
+            if (!x->is_Load() && !x->is_DecodeNarrowPtr() && !x->is_ShenandoahBarrier()) _igvn._worklist.yank(x);
           }
           _igvn.remove_dead_node(n);
         }
@@ -1453,12 +1499,13 @@ void PhaseIdealLoop::clone_loop( IdealLoopTree *loop, Node_List &old_new, int dd
         // private Phi and those Phis need to be merged here.
         Node *phi;
         if( prev->is_Region() ) {
-          if( idx == 0 ) {      // Updating control edge?
+          if( idx == 0  && use->Opcode() != Op_ShenandoahWBMemProj) {      // Updating control edge?
             phi = prev;         // Just use existing control
           } else {              // Else need a new Phi
             phi = PhiNode::make( prev, old );
             // Now recursively fix up the new uses of old!
-            for( uint i = 1; i < prev->req(); i++ ) {
+            uint first = use->Opcode() != Op_ShenandoahWBMemProj ? 1 : 0;
+            for( uint i = first; i < prev->req(); i++ ) {
               worklist.push(phi); // Onto worklist once for each 'old' input
             }
           }
@@ -1466,7 +1513,7 @@ void PhaseIdealLoop::clone_loop( IdealLoopTree *loop, Node_List &old_new, int dd
           // Get new RegionNode merging old and new loop exits
           prev = old_new[prev->_idx];
           assert( prev, "just made this in step 7" );
-          if( idx == 0 ) {      // Updating control edge?
+          if( idx == 0 && use->Opcode() != Op_ShenandoahWBMemProj) {      // Updating control edge?
             phi = prev;         // Just use existing control
           } else {              // Else need a new Phi
             // Make a new Phi merging data values properly

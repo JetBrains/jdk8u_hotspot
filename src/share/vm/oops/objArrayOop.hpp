@@ -25,6 +25,7 @@
 #ifndef SHARE_VM_OOPS_OBJARRAYOOP_HPP
 #define SHARE_VM_OOPS_OBJARRAYOOP_HPP
 
+#include "memory/barrierSet.hpp"
 #include "oops/arrayOop.hpp"
 
 // An objArrayOop is an array containing oops.
@@ -79,20 +80,22 @@ private:
 
   // Accessing
   oop obj_at(int index) const {
+    objArrayOop p = (objArrayOop) oopDesc::bs()->read_barrier((oop) this);
     // With UseCompressedOops decode the narrow oop in the objArray to an
     // uncompressed oop.  Otherwise this is simply a "*" operator.
     if (UseCompressedOops) {
-      return load_decode_heap_oop(obj_at_addr<narrowOop>(index));
+      return load_decode_heap_oop(p->obj_at_addr<narrowOop>(index));
     } else {
-      return load_decode_heap_oop(obj_at_addr<oop>(index));
+      return load_decode_heap_oop(p->obj_at_addr<oop>(index));
     }
   }
 
   void obj_at_put(int index, oop value) {
+    objArrayOop p = (objArrayOop) oopDesc::bs()->write_barrier(this);
     if (UseCompressedOops) {
-      oop_store(obj_at_addr<narrowOop>(index), value);
+      oop_store(p->obj_at_addr<narrowOop>(index), value);
     } else {
-      oop_store(obj_at_addr<oop>(index), value);
+      oop_store(p->obj_at_addr<oop>(index), value);
     }
   }
   // Sizing

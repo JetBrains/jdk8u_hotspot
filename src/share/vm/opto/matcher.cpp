@@ -2128,6 +2128,11 @@ void Matcher::find_shared( Node *n ) {
       case Op_SafePoint:
         mem_op = true;
         break;
+      case Op_ShenandoahReadBarrier:
+      case Op_ShenandoahWriteBarrier:
+        mem_op = true;
+        set_shared(n);
+        break;
       default:
         if( n->is_Store() ) {
           // Do match stores, despite no ideal reg

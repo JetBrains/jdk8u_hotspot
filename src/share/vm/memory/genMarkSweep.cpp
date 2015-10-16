@@ -179,7 +179,7 @@ void GenMarkSweep::allocate_stacks() {
 
 
 void GenMarkSweep::deallocate_stacks() {
-  if (!UseG1GC) {
+  if (!UseG1GC  && !UseShenandoahGC) {
     GenCollectedHeap* gch = GenCollectedHeap::heap();
     gch->release_scratch();
   }

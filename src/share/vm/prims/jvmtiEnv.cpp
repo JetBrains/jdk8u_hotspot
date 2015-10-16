@@ -468,7 +468,7 @@ JvmtiEnv::AddToBootstrapClassLoaderSearch(const char* segment) {
     // lock the loader
     Thread* thread = Thread::current();
     HandleMark hm;
-    Handle loader_lock = Handle(thread, SystemDictionary::system_loader_lock());
+    Handle loader_lock = Handle(thread, oopDesc::bs()->write_barrier(SystemDictionary::system_loader_lock()));
 
     ObjectLocker ol(loader_lock, thread);
 
@@ -514,7 +514,7 @@ JvmtiEnv::AddToSystemClassLoaderSearch(const char* segment) {
 
     // lock the loader
     Thread* THREAD = Thread::current();
-    Handle loader = Handle(THREAD, SystemDictionary::java_system_loader());
+    Handle loader = Handle(THREAD, oopDesc::bs()->write_barrier(SystemDictionary::java_system_loader()));
 
     ObjectLocker ol(loader, THREAD);
 

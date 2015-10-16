@@ -52,9 +52,9 @@
 ciObject::ciObject(oop o) {
   ASSERT_IN_VM;
   if (ciObjectFactory::is_initialized()) {
-    _handle = JNIHandles::make_local(o);
+    _handle = JNIHandles::make_local(oopDesc::bs()->write_barrier(o));
   } else {
-    _handle = JNIHandles::make_global(o);
+    _handle = JNIHandles::make_global(oopDesc::bs()->write_barrier(o));
   }
   _klass = NULL;
   init_flags_from(o);

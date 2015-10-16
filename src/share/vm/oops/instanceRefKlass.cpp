@@ -58,6 +58,7 @@ void specialized_oop_follow_contents(InstanceRefKlass* ref, oop obj) {
   )
   if (!oopDesc::is_null(heap_oop)) {
     oop referent = oopDesc::decode_heap_oop_not_null(heap_oop);
+    referent = oopDesc::bs()->resolve_and_update_oop(referent_addr, referent);
     if (!referent->is_gc_marked() &&
         MarkSweep::ref_processor()->discover_reference(obj, ref->reference_type())) {
       // reference was discovered, referent will be traversed later
@@ -255,6 +256,7 @@ int InstanceRefKlass::oop_adjust_pointers(oop obj) {
   ReferenceProcessor* rp = closure->_ref_processor;                             \
   if (!oopDesc::is_null(heap_oop)) {                                            \
     oop referent = oopDesc::decode_heap_oop_not_null(heap_oop);                 \
+    referent = oopDesc::bs()->resolve_and_update_oop(referent_addr, referent);  \
     if (!referent->is_gc_marked() && (rp != NULL) &&                            \
         rp->discover_reference(obj, reference_type())) {                        \
       return size;                                                              \
@@ -511,7 +513,7 @@ void InstanceRefKlass::oop_verify_on(oop obj, outputStream* st) {
 
 bool InstanceRefKlass::owns_pending_list_lock(JavaThread* thread) {
   if (java_lang_ref_Reference::pending_list_lock() == NULL) return false;
-  Handle h_lock(thread, java_lang_ref_Reference::pending_list_lock());
+  Handle h_lock(thread, oopDesc::bs()->write_barrier(java_lang_ref_Reference::pending_list_lock()));
   return ObjectSynchronizer::current_thread_holds_lock(thread, h_lock);
 }
 
@@ -524,7 +526,7 @@ void InstanceRefKlass::acquire_pending_list_lock(BasicLock *pending_list_basic_l
   // to hold the pending list lock. We want to free this handle.
   HandleMark hm;
 
-  Handle h_lock(THREAD, java_lang_ref_Reference::pending_list_lock());
+  Handle h_lock(THREAD, oopDesc::bs()->write_barrier(java_lang_ref_Reference::pending_list_lock()));
   ObjectSynchronizer::fast_enter(h_lock, pending_list_basic_lock, false, THREAD);
   assert(ObjectSynchronizer::current_thread_holds_lock(
            JavaThread::current(), h_lock),
@@ -542,7 +544,7 @@ void InstanceRefKlass::release_and_notify_pending_list_lock(
   // to hold the pending list lock. We want to free this handle.
   HandleMark hm;
 
-  Handle h_lock(THREAD, java_lang_ref_Reference::pending_list_lock());
+  Handle h_lock(THREAD, oopDesc::bs()->write_barrier(java_lang_ref_Reference::pending_list_lock()));
   assert(ObjectSynchronizer::current_thread_holds_lock(
            JavaThread::current(), h_lock),
          "Lock should be held");

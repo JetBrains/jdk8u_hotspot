@@ -165,6 +165,7 @@ Handle ThreadService::get_current_contended_monitor(JavaThread* thread) {
     // If obj == NULL, then ObjectMonitor is raw which doesn't count.
   }
 
+  obj = oopDesc::bs()->write_barrier(obj);
   Handle h(obj);
   return h;
 }
@@ -588,6 +589,8 @@ void ThreadStackTrace::dump_stack_at_safepoint(int maxDepth) {
 bool ThreadStackTrace::is_owned_monitor_on_stack(oop object) {
   assert(SafepointSynchronize::is_at_safepoint(), "all threads are stopped");
 
+  object = oopDesc::bs()->write_barrier(object);
+
   bool found = false;
   int num_frames = get_stack_depth();
   for (int depth = 0; depth < num_frames; depth++) {
@@ -596,6 +599,7 @@ bool ThreadStackTrace::is_owned_monitor_on_stack(oop object) {
     GrowableArray<oop>* locked_monitors = frame->locked_monitors();
     for (int j = 0; j < len; j++) {
       oop monitor = locked_monitors->at(j);
+      monitor = oopDesc::bs()->write_barrier(monitor);
       assert(monitor != NULL && monitor->is_instance(), "must be a Java object");
       if (monitor == object) {
         found = true;

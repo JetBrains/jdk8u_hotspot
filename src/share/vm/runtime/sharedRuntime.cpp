@@ -235,6 +235,12 @@ JRT_LEAF(void, SharedRuntime::g1_wb_post(void* card_addr, JavaThread* thread))
   thread->dirty_card_queue().enqueue(card_addr);
 JRT_END
 
+// Shenandoah clone barrier: makes sure that references point to to-space
+// in cloned objects.
+JRT_LEAF(void, SharedRuntime::shenandoah_clone_barrier(oopDesc* obj))
+  oopDesc::bs()->write_region(MemRegion((HeapWord*) obj, obj->size()));
+JRT_END
+
 #endif // INCLUDE_ALL_GCS
 
 
@@ -1849,7 +1855,7 @@ JRT_END
 int SharedRuntime::_monitor_enter_ctr=0;
 #endif
 JRT_ENTRY_NO_ASYNC(void, SharedRuntime::complete_monitor_locking_C(oopDesc* _obj, BasicLock* lock, JavaThread* thread))
-  oop obj(_obj);
+  oop obj(oopDesc::bs()->write_barrier(_obj));
 #ifndef PRODUCT
   _monitor_enter_ctr++;             // monitor enter slow
 #endif
@@ -1871,7 +1877,7 @@ int SharedRuntime::_monitor_exit_ctr=0;
 #endif
 // Handles the uncommon cases of monitor unlocking in compiled code
 JRT_LEAF(void, SharedRuntime::complete_monitor_unlocking_C(oopDesc* _obj, BasicLock* lock))
-   oop obj(_obj);
+  oop obj(oopDesc::bs()->write_barrier(_obj));
 #ifndef PRODUCT
   _monitor_exit_ctr++;              // monitor exit slow
 #endif

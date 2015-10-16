@@ -144,6 +144,11 @@ void Parse::array_store_check() {
   Node *idx = peek(1);
   Node *ary = peek(2);
 
+  if (ShenandoahVerifyReadsToFromSpace) {
+    obj = shenandoah_read_barrier(obj);
+    ary = shenandoah_read_barrier(ary);
+  }
+
   if (_gvn.type(obj) == TypePtr::NULL_PTR) {
     // There's never a type check on null values.
     // This cutout lets us avoid the uncommon_trap(Reason_array_check)

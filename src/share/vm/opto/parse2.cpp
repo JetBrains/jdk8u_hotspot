@@ -46,7 +46,7 @@ extern int explicit_null_checks_inserted,
 //---------------------------------array_load----------------------------------
 void Parse::array_load(BasicType elem_type) {
   const Type* elem = Type::TOP;
-  Node* adr = array_addressing(elem_type, 0, &elem);
+  Node* adr = array_addressing(elem_type, 0, false, &elem);
   if (stopped())  return;     // guaranteed null or range check
   dec_sp(2);                  // Pop array and index
   const TypeAryPtr* adr_type = TypeAryPtr::get_array_body_type(elem_type);
@@ -57,7 +57,7 @@ void Parse::array_load(BasicType elem_type) {
 
 //--------------------------------array_store----------------------------------
 void Parse::array_store(BasicType elem_type) {
-  Node* adr = array_addressing(elem_type, 1);
+  Node* adr = array_addressing(elem_type, 1, true);
   if (stopped())  return;     // guaranteed null or range check
   Node* val = pop();
   dec_sp(2);                  // Pop array and index
@@ -68,7 +68,7 @@ void Parse::array_store(BasicType elem_type) {
 
 //------------------------------array_addressing-------------------------------
 // Pull array and index from the stack.  Compute pointer-to-element.
-Node* Parse::array_addressing(BasicType type, int vals, const Type* *result2) {
+Node* Parse::array_addressing(BasicType type, int vals, bool is_store, const Type* *result2) {
   Node *idx   = peek(0+vals);   // Get from stack without popping
   Node *ary   = peek(1+vals);   // in case of exception
 
@@ -76,6 +76,12 @@ Node* Parse::array_addressing(BasicType type, int vals, const Type* *result2) {
   ary = null_check(ary, T_ARRAY);
   // Compile-time detect of null-exception?
   if (stopped())  return top();
+
+  if (is_store) {
+    ary = shenandoah_write_barrier(ary);
+  } else {
+    ary = shenandoah_read_barrier(ary);
+  }
 
   const TypeAryPtr* arytype  = _gvn.type(ary)->is_aryptr();
   const TypeInt*    sizetype = arytype->size();
@@ -1690,14 +1696,14 @@ void Parse::do_one_bytecode() {
   case Bytecodes::_faload: array_load(T_FLOAT);  break;
   case Bytecodes::_aaload: array_load(T_OBJECT); break;
   case Bytecodes::_laload: {
-    a = array_addressing(T_LONG, 0);
+    a = array_addressing(T_LONG, 0, false);
     if (stopped())  return;     // guaranteed null or range check
     dec_sp(2);                  // Pop array and index
     push_pair(make_load(control(), a, TypeLong::LONG, T_LONG, TypeAryPtr::LONGS, MemNode::unordered));
     break;
   }
   case Bytecodes::_daload: {
-    a = array_addressing(T_DOUBLE, 0);
+    a = array_addressing(T_DOUBLE, 0, false);
     if (stopped())  return;     // guaranteed null or range check
     dec_sp(2);                  // Pop array and index
     push_pair(make_load(control(), a, Type::DOUBLE, T_DOUBLE, TypeAryPtr::DOUBLES, MemNode::unordered));
@@ -1709,7 +1715,7 @@ void Parse::do_one_bytecode() {
   case Bytecodes::_sastore: array_store(T_SHORT); break;
   case Bytecodes::_fastore: array_store(T_FLOAT); break;
   case Bytecodes::_aastore: {
-    d = array_addressing(T_OBJECT, 1);
+    d = array_addressing(T_OBJECT, 1, true);
     if (stopped())  return;     // guaranteed null or range check
     array_store_check();
     c = pop();                  // Oop to store
@@ -1717,11 +1723,16 @@ void Parse::do_one_bytecode() {
     a = pop();                  // the array itself
     const TypeOopPtr* elemtype  = _gvn.type(a)->is_aryptr()->elem()->make_oopptr();
     const TypeAryPtr* adr_type = TypeAryPtr::OOPS;
+    // Note: We don't need a write barrier for Shenandoah on a here, because
+    // a is not used except for an assert. The address d already has the
+    // write barrier. Adding a barrier on a only results in additional code
+    // being generated.
+    c = shenandoah_read_barrier_nomem(c);
     Node* store = store_oop_to_array(control(), a, d, adr_type, c, elemtype, T_OBJECT, MemNode::release);
     break;
   }
   case Bytecodes::_lastore: {
-    a = array_addressing(T_LONG, 2);
+    a = array_addressing(T_LONG, 2, true);
     if (stopped())  return;     // guaranteed null or range check
     c = pop_pair();
     dec_sp(2);                  // Pop array and index
@@ -1729,7 +1740,7 @@ void Parse::do_one_bytecode() {
     break;
   }
   case Bytecodes::_dastore: {
-    a = array_addressing(T_DOUBLE, 2);
+    a = array_addressing(T_DOUBLE, 2, true);
     if (stopped())  return;     // guaranteed null or range check
     c = pop_pair();
     dec_sp(2);                  // Pop array and index
@@ -2261,6 +2272,7 @@ void Parse::do_one_bytecode() {
     maybe_add_safepoint(iter().get_dest());
     a = pop();
     b = pop();
+    shenandoah_acmp_barrier(a, b);
     c = _gvn.transform( new (C) CmpPNode(b, a) );
     c = optimize_cmp_with_klass(c);
     do_if(btest, c);

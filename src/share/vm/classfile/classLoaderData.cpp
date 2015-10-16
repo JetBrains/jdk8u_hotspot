@@ -230,7 +230,7 @@ void ClassLoaderData::Dependencies::locked_add(objArrayHandle last_handle,
   // Have to lock and put the new dependency on the end of the dependency
   // array so the card mark for CMS sees that this dependency is new.
   // Can probably do this lock free with some effort.
-  ObjectLocker ol(Handle(THREAD, _list_head), THREAD);
+  ObjectLocker ol(Handle(THREAD, oopDesc::bs()->write_barrier(_list_head)), THREAD);
 
   oop loader_or_mirror = new_dependency->obj_at(0);
 
@@ -557,7 +557,7 @@ ClassLoaderData* ClassLoaderDataGraph::add(Handle loader, bool is_anonymous, TRA
 
 
   if (!is_anonymous) {
-    ClassLoaderData** cld_addr = java_lang_ClassLoader::loader_data_addr(loader());
+    ClassLoaderData** cld_addr = java_lang_ClassLoader::loader_data_addr(oopDesc::bs()->write_barrier(loader()));
     // First, Atomically set it
     ClassLoaderData* old = (ClassLoaderData*) Atomic::cmpxchg_ptr(cld, cld_addr, NULL);
     if (old != NULL) {

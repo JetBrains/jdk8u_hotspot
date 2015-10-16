@@ -27,9 +27,12 @@
 
 #include "memory/memRegion.hpp"
 #include "oops/oopsHierarchy.hpp"
+#include "asm/register.hpp"
 
 // This class provides the interface between a barrier implementation and
 // the rest of the system.
+
+class MacroAssembler;
 
 class BarrierSet: public CHeapObj<mtGC> {
   friend class VMStructs;
@@ -40,6 +43,7 @@ public:
     CardTableExtension,
     G1SATBCT,
     G1SATBCTLogging,
+    ShenandoahBarrierSet,
     Other,
     Uninit
   };
@@ -182,6 +186,32 @@ public:
 
   // Print a description of the memory for the barrier set
   virtual void print_on(outputStream* st) const = 0;
+
+  virtual oop read_barrier(oop src) {
+    return src;
+  }
+  virtual oop write_barrier(oop src) {
+    return src;
+  }
+  virtual oop resolve_and_update_oop(oop* p, oop src) {
+    return src;
+  }
+  virtual oop resolve_and_update_oop(narrowOop* p, oop src) {
+    return src;
+  }
+#ifndef CC_INTERP
+  virtual void interpreter_read_barrier(MacroAssembler* masm, Register dst) {
+    // Default implementation does nothing.
+  }
+
+  virtual void interpreter_read_barrier_not_null(MacroAssembler* masm, Register dst) {
+    // Default implementation does nothing.
+  }
+
+  virtual void interpreter_write_barrier(MacroAssembler* masm, Register dst) {
+    // Default implementation does nothing.
+  }
+#endif
 };
 
 #endif // SHARE_VM_MEMORY_BARRIERSET_HPP

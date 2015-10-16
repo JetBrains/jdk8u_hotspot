@@ -25,6 +25,9 @@
 #include "precompiled.hpp"
 #include "asm/macroAssembler.hpp"
 #include "asm/macroAssembler.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "interpreter/interpreter.hpp"
 #include "nativeInst_x86.hpp"
 #include "oops/instanceOop.hpp"
@@ -752,6 +755,92 @@ class StubGenerator: public StubCodeGenerator {
     return start;
   }
 
+  address generate_shenandoah_wb() {
+    StubCodeMark mark(this, "StubRoutines", "shenandoah_wb");
+    address start = __ pc();
+
+    Label done;
+
+    __ push(rbx);
+    // Check for object beeing in the collection set.
+    // TODO: Can we use only 1 register here?
+    __ movptr(rdi, rax);
+    __ shrptr(rdi, ShenandoahHeapRegion::RegionSizeShift);
+    __ movptr(rbx, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
+    __ movbool(rbx, Address(rbx, rdi, Address::times_1));
+    __ testbool(rbx);
+    __ jcc(Assembler::zero, done);
+
+    __ push(rcx);
+    __ push(rdx);
+    __ push(rdi);
+    __ push(rsi);
+    __ push(r8);
+    __ push(r9);
+    __ push(r10);
+    __ push(r11);
+    __ push(r12);
+    __ push(r13);
+    __ push(r14);
+    __ push(r15);
+    __ subptr(rsp, 128);
+    __ movdbl(Address(rsp, 0), xmm0);
+    __ movdbl(Address(rsp, 8), xmm1);
+    __ movdbl(Address(rsp, 16), xmm2);
+    __ movdbl(Address(rsp, 24), xmm3);
+    __ movdbl(Address(rsp, 32), xmm4);
+    __ movdbl(Address(rsp, 40), xmm5);
+    __ movdbl(Address(rsp, 48), xmm6);
+    __ movdbl(Address(rsp, 56), xmm7);
+    __ movdbl(Address(rsp, 64), xmm8);
+    __ movdbl(Address(rsp, 72), xmm9);
+    __ movdbl(Address(rsp, 80), xmm10);
+    __ movdbl(Address(rsp, 88), xmm11);
+    __ movdbl(Address(rsp, 96), xmm12);
+    __ movdbl(Address(rsp, 104), xmm13);
+    __ movdbl(Address(rsp, 112), xmm14);
+    __ movdbl(Address(rsp, 120), xmm15);
+    __ movptr(rdi, rax);
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_c2), rdi);
+    __ movdbl(xmm0, Address(rsp, 0));
+    __ movdbl(xmm1, Address(rsp, 8));
+    __ movdbl(xmm2, Address(rsp, 16));
+    __ movdbl(xmm3, Address(rsp, 24));
+    __ movdbl(xmm4, Address(rsp, 32));
+    __ movdbl(xmm5, Address(rsp, 40));
+    __ movdbl(xmm6, Address(rsp, 48));
+    __ movdbl(xmm7, Address(rsp, 56));
+    __ movdbl(xmm8, Address(rsp, 64));
+    __ movdbl(xmm9, Address(rsp, 72));
+    __ movdbl(xmm10, Address(rsp, 80));
+    __ movdbl(xmm11, Address(rsp, 88));
+    __ movdbl(xmm12, Address(rsp, 96));
+    __ movdbl(xmm13, Address(rsp, 104));
+    __ movdbl(xmm14, Address(rsp, 112));
+    __ movdbl(xmm15, Address(rsp, 120));
+    __ addptr(rsp, 128);
+    __ pop(r15);
+    __ pop(r14);
+    __ pop(r13);
+    __ pop(r12);
+    __ pop(r11);
+    __ pop(r10);
+    __ pop(r9);
+    __ pop(r8);
+    __ pop(rsi);
+    __ pop(rdi);
+    __ pop(rdx);
+    __ pop(rcx);
+
+    __ bind(done);
+
+    __ pop(rbx);
+
+    __ ret(0);
+
+    return start;
+  }
+
   address generate_f2i_fixup() {
     StubCodeMark mark(this, "StubRoutines", "f2i_fixup");
     Address inout(rsp, 5 * wordSize); // return address + 4 saves
@@ -1183,6 +1272,7 @@ class StubGenerator: public StubCodeGenerator {
     switch (bs->kind()) {
       case BarrierSet::G1SATBCT:
       case BarrierSet::G1SATBCTLogging:
+      case BarrierSet::ShenandoahBarrierSet:
         // With G1, don't generate the call if we statically know that the target in uninitialized
         if (!dest_uninitialized) {
            __ pusha();                      // push registers
@@ -1228,6 +1318,7 @@ class StubGenerator: public StubCodeGenerator {
     switch (bs->kind()) {
       case BarrierSet::G1SATBCT:
       case BarrierSet::G1SATBCTLogging:
+      case BarrierSet::ShenandoahBarrierSet:
         {
           __ pusha();             // push registers (overkill)
           if (c_rarg0 == count) { // On win64 c_rarg0 == rcx
@@ -3948,6 +4039,9 @@ class StubGenerator: public StubCodeGenerator {
                                                 throw_NullPointerException_at_call));
 
     // entry points that are platform specific
+    if (UseShenandoahGC) {
+      StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb();
+    }
     StubRoutines::x86::_f2i_fixup = generate_f2i_fixup();
     StubRoutines::x86::_f2l_fixup = generate_f2l_fixup();
     StubRoutines::x86::_d2i_fixup = generate_d2i_fixup();

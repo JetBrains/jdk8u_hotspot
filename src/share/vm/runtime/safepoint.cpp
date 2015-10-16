@@ -76,6 +76,7 @@
 #if INCLUDE_ALL_GCS
 #include "gc_implementation/concurrentMarkSweep/concurrentMarkSweepThread.hpp"
 #include "gc_implementation/shared/suspendibleThreadSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
 #endif // INCLUDE_ALL_GCS
 #ifdef COMPILER1
 #include "c1/c1_globals.hpp"
@@ -113,6 +114,8 @@ void SafepointSynchronize::begin() {
     ConcurrentMarkSweepThread::synchronize(false);
   } else if (UseG1GC) {
     SuspendibleThreadSet::synchronize();
+  } else if (UseShenandoahGC) {
+    ShenandoahConcurrentThread::safepoint_synchronize();
   }
 #endif // INCLUDE_ALL_GCS
 
@@ -489,6 +492,8 @@ void SafepointSynchronize::end() {
     ConcurrentMarkSweepThread::desynchronize(false);
   } else if (UseG1GC) {
     SuspendibleThreadSet::desynchronize();
+  } else if (UseShenandoahGC) {
+    ShenandoahConcurrentThread::safepoint_desynchronize();
   }
 #endif // INCLUDE_ALL_GCS
   // record this time so VMThread can keep track how much time has elasped
@@ -1057,6 +1062,9 @@ void ThreadSafepointState::handle_polling_page_exception() {
       // the other registers. In order to preserve it over GCs we need
       // to keep it in a handle.
       oop result = caller_fr.saved_oop_result(&map);
+      if (ShenandoahVerifyReadsToFromSpace) {
+        result = oopDesc::bs()->read_barrier(result);
+      }
       assert(result == NULL || result->is_oop(), "must be oop");
       return_value = Handle(thread(), result);
       assert(Universe::heap()->is_in_or_null(result), "must be heap pointer");

@@ -891,6 +891,22 @@ Node* Node::uncast() const {
     return (Node*) this;
 }
 
+// Find out of current node that matches opcode.
+Node* Node::find_out_with(int opcode) {
+  for (DUIterator_Fast imax, i = fast_outs(imax); i < imax; i++) {
+    Node* use = fast_out(i);
+    if (use->Opcode() == opcode) {
+      return use;
+    }
+  }
+  return NULL;
+}
+
+// Return true if the current node has an out that matches opcode.
+bool Node::has_out_with(int opcode) {
+  return (find_out_with(opcode) != NULL);
+}
+
 //---------------------------uncast_helper-------------------------------------
 Node* Node::uncast_helper(const Node* p) {
 #ifdef ASSERT

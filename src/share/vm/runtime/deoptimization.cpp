@@ -961,7 +961,7 @@ void Deoptimization::relock_objects(GrowableArray<MonitorInfo*>* monitors, JavaT
     if (mon_info->eliminated()) {
       assert(!mon_info->owner_is_scalar_replaced() || realloc_failures, "reallocation was missed");
       if (!mon_info->owner_is_scalar_replaced()) {
-        Handle obj = Handle(mon_info->owner());
+        Handle obj = Handle(oopDesc::bs()->write_barrier(mon_info->owner()));
         markOop mark = obj->mark();
         if (UseBiasedLocking && mark->has_bias_pattern()) {
           // New allocated objects may have the mark set to anonymously biased.
@@ -1084,7 +1084,7 @@ void Deoptimization::pop_frames_failed_reallocs(JavaThread* thread, vframeArray*
       for (int j = 0; j < monitors->number_of_monitors(); j++) {
         BasicObjectLock* src = monitors->at(j);
         if (src->obj() != NULL) {
-          ObjectSynchronizer::fast_exit(src->obj(), src->lock(), thread);
+          ObjectSynchronizer::fast_exit(oopDesc::bs()->write_barrier(src->obj()), src->lock(), thread);
         }
       }
       array->element(i)->free_monitors(thread);

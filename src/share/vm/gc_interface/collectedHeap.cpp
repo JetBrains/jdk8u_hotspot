@@ -302,7 +302,7 @@ HeapWord* CollectedHeap::allocate_from_tlab_slow(KlassHandle klass, Thread* thre
 #endif // ASSERT
   }
   thread->tlab().fill(obj, obj + size, new_tlab_size);
-  return obj;
+  return Universe::heap()->tlab_post_allocation_setup(obj);
 }
 
 void CollectedHeap::flush_deferred_store_barrier(JavaThread* thread) {
@@ -606,5 +606,28 @@ void CollectedHeap::test_is_in() {
   void* after_heap = (void*)(heap_end + epsilon);
   assert(!heap->is_in(after_heap),
       err_msg("after_heap: " PTR_FORMAT " is unexpectedly in the heap", p2i(after_heap)));
+}
+#endif
+
+HeapWord* CollectedHeap::tlab_post_allocation_setup(HeapWord* obj) {
+  return obj;
+}
+
+uint CollectedHeap::oop_extra_words() {
+  // Default implementation doesn't need extra space for oops.
+  return 0;
+}
+
+void CollectedHeap::shutdown() {
+  // Default implementation does nothing.
+}
+
+void CollectedHeap::accumulate_statistics_all_gclabs() {
+  // Default implementation does nothing.
+}
+
+#ifndef CC_INTERP
+void CollectedHeap::compile_prepare_oop(MacroAssembler* masm, Register obj) {
+  // Default implementation does nothing.
 }
 #endif

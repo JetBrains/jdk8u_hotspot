@@ -190,6 +190,7 @@
 #include "opto/parse.hpp"
 #include "opto/regalloc.hpp"
 #include "opto/rootnode.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/subnode.hpp"
 #include "opto/vectornode.hpp"
 #if defined ADGLOBALS_MD_HPP
@@ -2034,6 +2035,10 @@ typedef TwoOopHashtable<Symbol*, mtClass>     SymbolTwoOopHashtable;
   declare_c2_type(OverflowAddLNode, OverflowLNode)                        \
   declare_c2_type(OverflowSubLNode, OverflowLNode)                        \
   declare_c2_type(OverflowMulLNode, OverflowLNode)                        \
+  declare_c2_type(ShenandoahBarrierNode, TypeNode)                        \
+  declare_c2_type(ShenandoahReadBarrierNode, ShenandoahBarrierNode)       \
+  declare_c2_type(ShenandoahWriteBarrierNode, ShenandoahBarrierNode)      \
+  declare_c2_type(ShenandoahWBMemProjNode, ProjNode)                      \
                                                                           \
   /*********************/                                                 \
   /* Adapter Blob Entries */                                              \
@@ -2214,6 +2219,7 @@ typedef TwoOopHashtable<Symbol*, mtClass>     SymbolTwoOopHashtable;
   declare_constant(BarrierSet::CardTableExtension)                        \
   declare_constant(BarrierSet::G1SATBCT)                                  \
   declare_constant(BarrierSet::G1SATBCTLogging)                           \
+  declare_constant(BarrierSet::ShenandoahBarrierSet)                      \
   declare_constant(BarrierSet::Other)                                     \
                                                                           \
   declare_constant(BlockOffsetSharedArray::LogN)                          \

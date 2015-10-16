@@ -3733,6 +3733,11 @@ void MacroAssembler::null_check(Register reg, int offset) {
     // provoke OS NULL exception if reg = NULL by
     // accessing M[reg] w/o changing any (non-CC) registers
     // NOTE: cmpl is plenty here to provoke a segv
+
+    if (ShenandoahVerifyReadsToFromSpace) {
+      oopDesc::bs()->interpreter_read_barrier(this, reg);
+    }
+
     cmpptr(rax, Address(reg, 0));
     // Note: should probably use testl(rax, Address(reg, 0));
     //       may be shorter code (however, this version of
@@ -4231,6 +4236,13 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
   assert(thread == r15_thread, "must be");
 #endif // _LP64
 
+  if (UseShenandoahGC) {
+    // No need for this in Shenandoah.
+    return;
+  }
+
+  assert(UseG1GC, "expect G1 GC");
+
   Address queue_index(thread, in_bytes(JavaThread::dirty_card_queue_offset() +
                                        PtrQueue::byte_offset_of_index()));
   Address buffer(thread, in_bytes(JavaThread::dirty_card_queue_offset() +
@@ -4407,10 +4419,15 @@ void MacroAssembler::tlab_allocate(Register obj,
 
   NOT_LP64(get_thread(thread));
 
+  uint oop_extra_words = Universe::heap()->oop_extra_words();
+
   movptr(obj, Address(thread, JavaThread::tlab_top_offset()));
   if (var_size_in_bytes == noreg) {
-    lea(end, Address(obj, con_size_in_bytes));
+    lea(end, Address(obj, con_size_in_bytes + oop_extra_words * HeapWordSize));
   } else {
+    if (oop_extra_words > 0) {
+      addq(var_size_in_bytes, oop_extra_words * HeapWordSize);
+    }
     lea(end, Address(obj, var_size_in_bytes, Address::times_1));
   }
   cmpptr(end, Address(thread, JavaThread::tlab_end_offset()));
@@ -4418,6 +4435,8 @@ void MacroAssembler::tlab_allocate(Register obj,
 
   // update the tlab top pointer
   movptr(Address(thread, JavaThread::tlab_top_offset()), end);
+
+  Universe::heap()->compile_prepare_oop(this, obj);
 
   // recover var_size_in_bytes if necessary
   if (var_size_in_bytes == end) {
@@ -5678,6 +5697,9 @@ void MacroAssembler::restore_cpu_control_state_after_jni() {
 
 
 void MacroAssembler::load_klass(Register dst, Register src) {
+  if (ShenandoahVerifyReadsToFromSpace) {
+    oopDesc::bs()->interpreter_read_barrier(this, src);
+  }
 #ifdef _LP64
   if (UseCompressedClassPointers) {
     movl(dst, Address(src, oopDesc::klass_offset_in_bytes()));
