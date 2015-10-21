@@ -373,7 +373,7 @@ private:
 public:
   AdaptiveHeuristics() : ShenandoahHeuristics() {
     if (PrintGCDetails) {
-      tty->print_cr("Initializing dynamic heuristics");
+      tty->print_cr("Initializing adaptive heuristics");
     }
 
     _max_live_data = 0;
@@ -547,7 +547,7 @@ static DynamicHeuristics *configureDynamicHeuristics() {
   heuristics->set_allocation_threshold(ShenandoahAllocationThreshold);
   heuristics->set_free_threshold(ShenandoahFreeThreshold);
   if (ShenandoahLogConfig) {
-    tty->print_cr("Shenandoah dynamic heuristics thresholds: allocation "SIZE_FORMAT", used "SIZE_FORMAT", garbage "SIZE_FORMAT,
+    tty->print_cr("Shenandoah dynamic heuristics thresholds: allocation "SIZE_FORMAT", free "SIZE_FORMAT", garbage "SIZE_FORMAT,
                   heuristics->get_allocation_threshold(),
                   heuristics->get_free_threshold(),
                   heuristics->get_garbage_threshold());
@@ -646,10 +646,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() {
       fatal("Unknown -XX:ShenandoahGCHeuristics option");
     }
   } else {
-      if (ShenandoahLogConfig) {
-        tty->print_cr("Shenandoah heuristics: statusquo (default)");
-      }
-    _heuristics = new StatusQuoHeuristics();
+    ShouldNotReachHere();
   }
 
 }
