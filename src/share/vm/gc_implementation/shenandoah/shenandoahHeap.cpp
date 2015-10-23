@@ -370,7 +370,6 @@ size_t ShenandoahHeap::used() const {
 
 void ShenandoahHeap::increase_used(size_t bytes) {
   _used += bytes;
-  // Atomic::add_ptr(bytes, &_used);
 }
 
 void ShenandoahHeap::set_used(size_t bytes) {
@@ -1712,7 +1711,10 @@ void ShenandoahHeap::collect(GCCause::Cause cause) {
   } else if (cause == GCCause::_allocation_failure) {
 
     if (ShenandoahTraceFullGC) {
-      gclog_or_tty->print_cr("Shenandoah-full-gc: full GC for allocation failure heap free: "SIZE_FORMAT", available: "SIZE_FORMAT, capacity() - used(), free_regions()->capacity() - free_regions()->used());
+      size_t f_used = free_regions()->used();
+      size_t f_capacity = free_regions()->capacity();
+      assert(f_used <= f_capacity, "must use less than we have");
+      gclog_or_tty->print_cr("Shenandoah-full-gc: full GC for allocation failure heap free: "SIZE_FORMAT", available: "SIZE_FORMAT, capacity() - used(),  f_capacity - f_used);
     }
     cancel_concgc();
     collector_policy()->set_should_clear_all_soft_refs(true);

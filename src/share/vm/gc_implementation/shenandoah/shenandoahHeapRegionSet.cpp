@@ -46,7 +46,9 @@ ShenandoahHeapRegionSet::ShenandoahHeapRegionSet(size_t max_regions, ShenandoahH
   _max_regions(num_regions),
   _regions(NEW_C_HEAP_ARRAY(ShenandoahHeapRegion*, max_regions, mtGC)),
   _garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes / 2),
-  _free_threshold(ShenandoahHeapRegion::RegionSizeBytes / 2) {
+  _free_threshold(ShenandoahHeapRegion::RegionSizeBytes / 2),
+  _capacity(0), _used(0)
+{
 
   // Make copy of the regions array so that we can sort without destroying the original.
   memcpy(_regions, regions, sizeof(ShenandoahHeapRegion*) * num_regions);
@@ -110,6 +112,7 @@ void ShenandoahHeapRegionSet::append(ShenandoahHeapRegion* region) {
   *next_free = region;
 
   _capacity += region->free();
+  assert(_used <= _capacity, "must not use more than we have");
 }
 
 void ShenandoahHeapRegionSet::clear() {
@@ -329,7 +332,7 @@ size_t ShenandoahHeapRegionSet::garbage() {
   return garbage;
 }
 
-size_t ShenandoahHeapRegionSet::used() {
+size_t ShenandoahHeapRegionSet::calculate_used() const {
   size_t used = 0;
   for (ShenandoahHeapRegion** i = _regions; i < _next_free; i++) {
     ShenandoahHeapRegion* region = *i;
@@ -348,6 +351,7 @@ size_t ShenandoahHeapRegionSet::live_data() {
 }
 
 void ShenandoahHeapRegionSet::decrease_available(size_t num_bytes) {
+  assert(_used <= _capacity, "must not use more than we have");
   _used += num_bytes;
 }
 
@@ -356,6 +360,14 @@ size_t ShenandoahHeapRegionSet::capacity() const {
 }
 
 size_t ShenandoahHeapRegionSet::used() const {
-  assert(ShenandoahHeap::heap()->used() >= _used, "must not be > heap used");
+#ifdef ASSERT
+  {
+    MutexLockerEx ml(ShenandoahHeap_lock, true);
+    assert(_capacity - _used <= ShenandoahHeap::heap()->capacity() - ShenandoahHeap::heap()->used(),
+           err_msg("free-set-available must be smaller/equal heap-available, freeset-used: "SIZE_FORMAT", freeset-capacity: "SIZE_FORMAT", heap-used: "SIZE_FORMAT", heap-capacity: "SIZE_FORMAT,
+                   _used, _capacity, ShenandoahHeap::heap()->used(), ShenandoahHeap::heap()->capacity()));
+    assert(ShenandoahHeap::heap()->used() >= _used, err_msg("must not be > heap used: freeset-used: "SIZE_FORMAT", heap-used: "SIZE_FORMAT, _used, ShenandoahHeap::heap()->used()));
+  }
+#endif
   return _used;
 }

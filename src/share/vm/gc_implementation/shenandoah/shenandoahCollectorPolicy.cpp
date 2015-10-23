@@ -300,7 +300,10 @@ public:
     bool shouldStartConcurrentMark = false;
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    size_t available = heap->free_regions()->capacity() - heap->free_regions()->used();
+    size_t free_capacity = heap->free_regions()->capacity();
+    size_t free_used = heap->free_regions()->used();
+    assert(free_used <= free_capacity, "must use less than capacity");
+    size_t available =  free_capacity - free_used;
     uintx factor = heap->need_update_refs() ? ShenandoahFreeThreshold : ShenandoahInitialFreeThreshold;
     size_t targetStartMarking = (capacity * factor) / 100;
 
@@ -314,7 +317,7 @@ public:
     }
 
     if (shouldStartConcurrentMark && ShenandoahTracePhases) {
-      tty->print_cr("Start GC at available: "SIZE_FORMAT", factor: "UINTX_FORMAT", update-refs: %s", available, factor, BOOL_TO_STR(heap->need_update_refs()));
+      tty->print_cr("Start GC at available: "SIZE_FORMAT", capacity: "SIZE_FORMAT", used: "SIZE_FORMAT", factor: "UINTX_FORMAT", update-refs: %s", available, free_capacity, free_used, factor, BOOL_TO_STR(heap->need_update_refs()));
     }
     return shouldStartConcurrentMark;
   }

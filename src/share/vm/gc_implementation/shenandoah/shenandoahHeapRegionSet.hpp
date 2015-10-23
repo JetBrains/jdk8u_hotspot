@@ -76,7 +76,7 @@ public:
   void print();
 
   size_t garbage();
-  size_t used();
+  size_t calculate_used() const;
   size_t live_data();
   size_t reclaimed() {return _reclaimed;}
 
