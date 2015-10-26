@@ -92,15 +92,16 @@ void ShenandoahMarkCompact::do_mark_compact() {
 
   _heap->cleanup_after_cancelconcgc();
 
-  ReferenceProcessor* rp = _heap->ref_processor();
+  MemRegion mr = _heap->reserved_region();
+  ReferenceProcessor rp(mr, false, 0, false, 0, true, NULL);
 
   // hook up weak ref data so it can be used during Mark-Sweep
   assert(MarkSweep::ref_processor() == NULL, "no stomping");
-  assert(rp != NULL, "should be non-NULL");
-  assert(rp == ShenandoahHeap::heap()->ref_processor(), "Precondition");
-  bool clear_all_softrefs = true;  //fixme
-  GenMarkSweep::_ref_processor = rp;
-  rp->setup_policy(clear_all_softrefs);
+  bool clear_all_softrefs = _heap->collector_policy()->use_should_clear_all_soft_refs(true /*ignored*/);
+  GenMarkSweep::_ref_processor = &rp;
+
+  rp.enable_discovery(true, true);
+  rp.setup_policy(clear_all_softrefs);
 
   CodeCache::gc_prologue();
   allocate_stacks();
@@ -140,8 +141,9 @@ void ShenandoahMarkCompact::do_mark_compact() {
   JvmtiExport::gc_epilogue();
 
   // refs processing: clean slate
-  GenMarkSweep::_ref_processor = NULL;
+  rp.enqueue_discovered_references();
 
+  GenMarkSweep::_ref_processor = NULL;
 
   if (ShenandoahVerify) {
     _heap->verify_heap_after_evacuation();
@@ -176,24 +178,7 @@ public:
 
 void ShenandoahMarkCompact::phase1_mark_heap() {
   ShenandoahHeap* _heap = ShenandoahHeap::heap();
-  ReferenceProcessor* rp = _heap->ref_processor();
-
-  GenMarkSweep::_ref_processor = rp;
-
-  // First, update _all_ references in GC roots to point to to-space.
-  {
-    // Need cleared claim bits for the roots processing
-    /*
-    ClassLoaderDataGraph::clear_claimed_marks();
-    UpdateRefsClosure uprefs;
-    CLDToOopClosure cld_uprefs(&uprefs);
-    CodeBlobToOopClosure code_uprefs(&uprefs, CodeBlobToOopClosure::FixRelocations);
-    ShenandoahRootProcessor rp(_heap, 1);
-    rp.process_all_roots(&uprefs,
-                         &cld_uprefs,
-                         &code_uprefs);
-    */
-  }
+  ReferenceProcessor* ref_proc = GenMarkSweep::ref_processor();
 
   {
     MarkingCodeBlobClosure follow_code_closure(&MarkSweep::follow_root_closure, CodeBlobToOopClosure::FixRelocations);
@@ -207,24 +192,27 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
     // Also update (without marking) weak CLD refs, in case they're reachable.
     UpdateRefsClosure uprefs;
     CLDToOopClosure cld_uprefs(&uprefs);
+    CodeBlobToOopClosure code_uprefs(&uprefs, CodeBlobToOopClosure::FixRelocations);
     ClassLoaderDataGraph::roots_cld_do(NULL, &cld_uprefs);
 
     // Same for weak JNI handles.
     ShenandoahAlwaysTrueClosure always_true;
     JNIHandles::weak_oops_do(&always_true, &uprefs);
+    ref_proc->weak_oops_do(&uprefs);
+
+    CodeCache::blobs_do(&code_uprefs);
+
   }
 
   _heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::weakrefs);
-  bool clear_soft_refs = false; //fixme
-  rp->setup_policy(clear_soft_refs);
 
   const ReferenceProcessorStats& stats =
-    rp->process_discovered_references(&MarkSweep::is_alive,
-                                      &GenMarkSweep::keep_alive,
-                                      &MarkSweep::follow_stack_closure,
-                                      NULL,
-                                      NULL,
-                                      _heap->tracer()->gc_id());
+    ref_proc->process_discovered_references(&MarkSweep::is_alive,
+                                            &GenMarkSweep::keep_alive,
+                                            &MarkSweep::follow_stack_closure,
+                                            NULL,
+                                            NULL,
+                                            _heap->tracer()->gc_id());
 
   //     heap->tracer()->report_gc_reference_stats(stats);
 
@@ -358,11 +346,12 @@ void ShenandoahMarkCompact::phase3_update_references() {
                          &adjust_code_closure);
   }
 
-  assert(MarkSweep::ref_processor() == heap->ref_processor(), "Sanity");
-
   // Now adjust pointers in remaining weak roots.  (All of which should
   // have been cleared if they pointed to non-surviving objects.)
-  heap->weak_roots_iterate(&MarkSweep::adjust_pointer_closure);
+  GenMarkSweep::ref_processor()->weak_oops_do(&MarkSweep::adjust_pointer_closure);
+
+  ShenandoahAlwaysTrueClosure always_true;
+  JNIHandles::weak_oops_do(&always_true, &MarkSweep::adjust_pointer_closure);
 
   //  if (G1StringDedup::is_enabled()) {
   //    G1StringDedup::oops_do(&MarkSweep::adjust_pointer_closure);
