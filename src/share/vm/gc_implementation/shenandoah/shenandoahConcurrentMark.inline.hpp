@@ -139,8 +139,34 @@ inline bool ShenandoahConcurrentMark::try_to_steal(uint worker_id, ShenandoahMar
     return false;
 }
 
-inline bool ShenandoahConcurrentMark:: try_draining_an_satb_buffer(uint worker_id) {
-  return drain_one_satb_buffer(worker_id);
+class ShenandoahSATBBufferClosure : public SATBBufferClosure {
+private:
+  SCMObjToScanQueue* _queue;
+  ShenandoahHeap* _heap;
+public:
+  ShenandoahSATBBufferClosure(SCMObjToScanQueue* q) :
+    _queue(q), _heap(ShenandoahHeap::heap())
+  {
+  }
+
+  void do_buffer(void** buffer, size_t size) {
+    // tty->print_cr("draining one satb buffer");
+    for (size_t i = 0; i < size; ++i) {
+      void* entry = buffer[i];
+      oop obj = oop(entry);
+      // tty->print_cr("satb buffer entry: "PTR_FORMAT, p2i((HeapWord*) obj));
+      if (!oopDesc::is_null(obj)) {
+        obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
+        ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
+      }
+    }
+  }
+};
+
+inline bool ShenandoahConcurrentMark:: try_draining_an_satb_buffer(SCMObjToScanQueue* q) {
+  ShenandoahSATBBufferClosure cl(q);
+  SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
+  return satb_mq_set.apply_closure_to_completed_buffer(&cl);
 }
 
 inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q) {

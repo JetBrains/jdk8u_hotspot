@@ -97,12 +97,18 @@ public:
   void finish_mark_from_roots();
   // Those are only needed public because they're called from closures.
 
+  template <class T>
+  void concurrent_mark_loop(ShenandoahMarkObjsClosure<T>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
+
+  template <class T>
+  void final_mark_loop(ShenandoahMarkObjsClosure<T>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
+
   SCMObjToScanQueue* get_queue(uint worker_id);
   template <class T>
   inline bool try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T>* cl);
   template <class T>
   inline bool try_to_steal(uint worker_id, ShenandoahMarkObjsClosure<T>* cl, int *seed);
-  inline bool try_draining_an_satb_buffer(uint worker_id);
+  inline bool try_draining_an_satb_buffer(SCMObjToScanQueue* q);
   void drain_satb_buffers(uint worker_id, bool remark = false);
   SCMObjToScanQueueSet* task_queues() { return _task_queues;}
   uint max_conc_worker_id() { return _max_conc_worker_id; }
@@ -115,7 +121,6 @@ private:
   void verify_roots();
 #endif
 
-  bool drain_one_satb_buffer(uint worker_id);
   void weak_refs_work();
 
   ParallelTaskTerminator* terminator() { return _terminator;}

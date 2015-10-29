@@ -182,44 +182,26 @@ class SCMConcurrentMarkingTask : public AbstractGangTask {
 private:
   ShenandoahConcurrentMark* _cm;
   ParallelTaskTerminator* _terminator;
-  int _seed;
   bool _update_refs;
 
 public:
   SCMConcurrentMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs) :
-    AbstractGangTask("Root Region Scan"), _cm(cm), _terminator(terminator), _update_refs(update_refs), _seed(17) {
+    AbstractGangTask("Root Region Scan"), _cm(cm), _terminator(terminator), _update_refs(update_refs) {
   }
 
 
   void work(uint worker_id) {
 
     SCMObjToScanQueue* q = _cm->get_queue(worker_id);
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    QHolder qh(q);
     if (_update_refs) {
-      QHolder qh(q);
       ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure> cl(&qh);
-      while (true) {
-        if (heap->cancelled_concgc() ||
-            (!_cm->try_queue(q, &cl) &&
-             !_cm->try_draining_an_satb_buffer(worker_id) &&
-             !_cm->try_to_steal(worker_id, &cl, &_seed))
-            ) {
-          if (_terminator->offer_termination()) break;
-        }
-      }
+      _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
     } else {
-      QHolder qh(q);
       ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure> cl(&qh);
-      while (true) {
-        if (heap->cancelled_concgc() ||
-            (!_cm->try_queue(q, &cl) &&
-             !_cm->try_draining_an_satb_buffer(worker_id) &&
-             !_cm->try_to_steal(worker_id, &cl, &_seed))
-            ) {
-          if (_terminator->offer_termination()) break;
-        }
-      }
+      _cm->concurrent_mark_loop(&cl, worker_id, q,  _terminator);
     }
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
     if (ShenandoahTracePhases && heap->cancelled_concgc()) {
       tty->print_cr("Cancelled concurrent marking");
     }
@@ -230,36 +212,24 @@ class SCMFinalMarkingTask : public AbstractGangTask {
 private:
   ShenandoahConcurrentMark* _cm;
   ParallelTaskTerminator* _terminator;
-  int _seed;
   bool _update_refs;
 
 public:
   SCMFinalMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs) :
-    AbstractGangTask("Shenandoah Final Marking"), _cm(cm), _terminator(terminator), _update_refs(update_refs), _seed(17) {
+    AbstractGangTask("Shenandoah Final Marking"), _cm(cm), _terminator(terminator), _update_refs(update_refs) {
   }
 
   void work(uint worker_id) {
 
     SCMObjToScanQueue* q = _cm->get_queue(worker_id);
     ShenandoahHeap* heap = ShenandoahHeap::heap();
+    QHolder qh(q);
     if (_update_refs) {
-      QHolder qh(q);
       ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure> cl(&qh);
-      while (true) {
-        if (!_cm->try_queue(q, &cl) &&
-            !_cm->try_to_steal(worker_id, &cl, &_seed)) {
-          if (_terminator->offer_termination()) break;
-        }
-      }
+      heap->concurrentMark()->final_mark_loop(&cl, worker_id, q, _terminator);
     } else {
-      QHolder qh(q);
       ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure> cl(&qh);
-      while (true) {
-        if (!_cm->try_queue(q, &cl) &&
-            !_cm->try_to_steal(worker_id, &cl, &_seed)) {
-          if (_terminator->offer_termination()) break;
-        }
-      }
+      heap->concurrentMark()->final_mark_loop(&cl, worker_id, q, _terminator);
     }
   }
 };
@@ -503,30 +473,6 @@ void ShenandoahConcurrentMark::verify_roots() {
 }
 #endif
 
-class ShenandoahSATBBufferClosure : public SATBBufferClosure {
-private:
-  SCMObjToScanQueue* _queue;
-  ShenandoahHeap* _heap;
-public:
-  ShenandoahSATBBufferClosure(SCMObjToScanQueue* q) :
-    _queue(q), _heap(ShenandoahHeap::heap())
-  {
-  }
-
-  void do_buffer(void** buffer, size_t size) {
-    // tty->print_cr("draining one satb buffer");
-    for (size_t i = 0; i < size; ++i) {
-      void* entry = buffer[i];
-      oop obj = oop(entry);
-      // tty->print_cr("satb buffer entry: "PTR_FORMAT, p2i((HeapWord*) obj));
-      if (!oopDesc::is_null(obj)) {
-        obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-        ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
-      }
-    }
-  }
-};
-
 class ShenandoahSATBThreadsClosure : public ThreadClosure {
   ShenandoahSATBBufferClosure* _satb_cl;
   int _thread_parity;
@@ -568,17 +514,6 @@ void ShenandoahConcurrentMark::drain_satb_buffers(uint worker_id, bool remark) {
 
   // tty->print_cr("end draining SATB buffers");
 
-}
-
-bool ShenandoahConcurrentMark::drain_one_satb_buffer(uint worker_id) {
-
-  ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
-  SCMObjToScanQueue* q = get_queue(worker_id);
-  ShenandoahSATBBufferClosure cl(q);
-
-  SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
-  bool result = satb_mq_set.apply_closure_to_completed_buffer(&cl);
-  return result;
 }
 
 #if TASKQUEUE_STATS
@@ -632,10 +567,12 @@ class ShenandoahCMDrainMarkingStackClosure: public VoidClosure {
   ShenandoahHeap* _sh;
   ShenandoahConcurrentMark* _scm;
   uint _worker_id;
-  int _seed;
+  ParallelTaskTerminator* _terminator;
 
 public:
-  ShenandoahCMDrainMarkingStackClosure(uint worker_id): _worker_id(worker_id), _seed(17) {
+  ShenandoahCMDrainMarkingStackClosure(uint worker_id, ParallelTaskTerminator* t):
+    _worker_id(worker_id),
+    _terminator(t) {
     _sh = (ShenandoahHeap*) Universe::heap();
     _scm = _sh->concurrentMark();
   }
@@ -644,24 +581,13 @@ public:
   void do_void() {
 
     SCMObjToScanQueue* q = _scm->get_queue(_worker_id);
+    QHolder qh(q);
     if (_sh->need_update_refs()) {
-      QHolder qh(q);
       ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure> cl(&qh);
-      while (true) {
-        if (!_scm->try_queue(q, &cl) &&
-            !_scm->try_to_steal(_worker_id, &cl, &_seed)) {
-          break;
-        }
-      }
+      _scm->final_mark_loop(&cl, _worker_id, q, _terminator);
     } else {
-      QHolder qh(q);
       ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure> cl(&qh);
-      while (true) {
-        if (!_scm->try_queue(q, &cl) &&
-            !_scm->try_to_steal(_worker_id, &cl, &_seed)) {
-          break;
-        }
-      }
+      _scm->final_mark_loop(&cl, _worker_id, q, _terminator);
     }
   }
 };
@@ -719,19 +645,21 @@ class ShenandoahRefProcTaskProxy : public AbstractGangTask {
 
 private:
   AbstractRefProcTaskExecutor::ProcessTask& _proc_task;
-
+  ParallelTaskTerminator* _terminator;
 public:
 
-  ShenandoahRefProcTaskProxy(AbstractRefProcTaskExecutor::ProcessTask& proc_task) :
+  ShenandoahRefProcTaskProxy(AbstractRefProcTaskExecutor::ProcessTask& proc_task,
+                             ParallelTaskTerminator* t) :
     AbstractGangTask("Process reference objects in parallel"),
-    _proc_task(proc_task) {
+    _proc_task(proc_task),
+    _terminator(t) {
   }
 
   void work(uint worker_id) {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     ShenandoahIsAliveClosure is_alive;
     ShenandoahCMKeepAliveAndDrainClosure keep_alive(heap->concurrentMark()->get_queue(worker_id));
-    ShenandoahCMDrainMarkingStackClosure complete_gc(worker_id);
+    ShenandoahCMDrainMarkingStackClosure complete_gc(worker_id, _terminator);
     _proc_task.work(worker_id, is_alive, keep_alive, complete_gc);
   }
 };
@@ -765,7 +693,9 @@ public:
 
   // Executes a task using worker threads.
   void execute(ProcessTask& task) {
-    ShenandoahRefProcTaskProxy proc_task_proxy(task);
+    ShenandoahConcurrentMark* cm = ShenandoahHeap::heap()->concurrentMark();
+    ParallelTaskTerminator terminator(cm->max_conc_worker_id(), cm->task_queues());
+    ShenandoahRefProcTaskProxy proc_task_proxy(task, &terminator);
     _workers->run_task(&proc_task_proxy);
   }
 
@@ -790,7 +720,8 @@ void ShenandoahConcurrentMark::weak_refs_work() {
    uint serial_worker_id = 0;
    ShenandoahIsAliveClosure is_alive;
    ShenandoahCMKeepAliveAndDrainClosure keep_alive(get_queue(serial_worker_id));
-   ShenandoahCMDrainMarkingStackClosure complete_gc(serial_worker_id);
+   ParallelTaskTerminator terminator(1, task_queues());
+   ShenandoahCMDrainMarkingStackClosure complete_gc(serial_worker_id, &terminator);
    ShenandoahRefProcTaskExecutor par_task_executor;
    bool processing_is_mt = true;
    AbstractRefProcTaskExecutor* executor = (processing_is_mt ? &par_task_executor : NULL);
@@ -805,7 +736,7 @@ void ShenandoahConcurrentMark::weak_refs_work() {
                                      ShenandoahHeap::heap()->tracer()->gc_id());
 
    if (ShenandoahTraceWeakReferences) {
-     gclog_or_tty->print_cr("finished processing references, processed "SIZE_FORMAT" refs", keep_alive.ref_count());
+     gclog_or_tty->print_cr("finished processing references");
      gclog_or_tty->print_cr("start enqueuing references");
    }
 
@@ -858,4 +789,37 @@ void ShenandoahConcurrentMark::cancel() {
 SCMObjToScanQueue* ShenandoahConcurrentMark::get_queue(uint worker_id) {
   worker_id = worker_id % _max_conc_worker_id;
   return _task_queues->queue(worker_id);
+}
+
+template <class T>
+void ShenandoahConcurrentMark::concurrent_mark_loop(ShenandoahMarkObjsClosure<T>* cl,
+                                                    uint worker_id,
+                                                    SCMObjToScanQueue* q,
+                                                    ParallelTaskTerminator* terminator) {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  int seed = 17;
+  while (true) {
+    if (heap->cancelled_concgc() ||
+        (!try_queue(q, cl) &&
+         !try_draining_an_satb_buffer(q) &&
+         !try_to_steal(worker_id, cl, &seed))
+        ) {
+      if (terminator->offer_termination()) break;
+    }
+  }
+}
+
+template <class T>
+void ShenandoahConcurrentMark::final_mark_loop(ShenandoahMarkObjsClosure<T>* cl,
+                                               uint worker_id,
+                                               SCMObjToScanQueue* q,
+                                               ParallelTaskTerminator* terminator) {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  int seed = 17;
+  while (true) {
+    if (!try_queue(q, cl) &&
+        !try_to_steal(worker_id, cl, &seed)) {
+      if (terminator->offer_termination()) break;
+    }
+  }
 }
