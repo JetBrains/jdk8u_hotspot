@@ -31,17 +31,13 @@
 #include "oops/oop.inline.hpp"
 #include "runtime/prefetch.inline.hpp"
 
-void ShenandoahMarkRefsClosure::do_oop(oop* p) {
+inline void ShenandoahMarkUpdateRefsClosure::do_oop_nv(oop* p) {
   // We piggy-back reference updating to the marking tasks.
 #ifdef ASSERT
   oop* old = p;
 #endif
-  oop obj;
-  if (_update_refs) {
-    obj = _heap->maybe_update_oop_ref(p);
-  } else {
-    obj = oopDesc::load_heap_oop(p);
-  }
+
+  oop obj = _heap->maybe_update_oop_ref(p);
   assert(obj == ShenandoahBarrierSet::resolve_oop_static(obj), "need to-space object here");
 
 #ifdef ASSERT
@@ -53,32 +49,22 @@ void ShenandoahMarkRefsClosure::do_oop(oop* p) {
   }
 #endif
 
-  // NOTE: We used to assert the following here. This does not always work because
-  // a concurrent Java thread could change the the field after we updated it.
-  // oop obj = oopDesc::load_heap_oop(p);
-  // assert(oopDesc::bs()->resolve_oop(obj) == *p, "we just updated the referrer");
-  // assert(obj == NULL || ! _heap->heap_region_containing(obj)->is_dirty(), "must not point to dirty region");
-
-  //  ShenandoahExtendedMarkObjsClosure cl(_heap->ref_processor(), _worker_id);
-  //  ShenandoahMarkObjsClosure mocl(cl, _worker_id);
-
-  if (obj != NULL) {
-    if (_update_refs) {
-      Prefetch::write(obj, 128);
-    } else {
-      Prefetch::read(obj, 128);
-    }
-
-#ifdef ASSERT
-    uint region_idx  = _heap->heap_region_index_containing(obj);
-    ShenandoahHeapRegion* r = _heap->heap_regions()[region_idx];
-    assert(r->bottom() < (HeapWord*) obj && r->top() > (HeapWord*) obj, "object must be in region");
-#endif
-    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
+  if (! oopDesc::is_null(obj)) {
+    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue->queue());
   }
 }
 
-void ShenandoahMarkObjsClosure::do_object(oop obj, int index) {
+inline void ShenandoahMarkRefsClosure::do_oop_nv(oop* p) {
+  oop obj = oopDesc::load_heap_oop(p);
+  assert(obj == ShenandoahBarrierSet::resolve_oop_static(obj), "need to-space object here");
+
+  if (! oopDesc::is_null(obj)) {
+    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue->queue());
+  }
+}
+
+template <class T>
+void ShenandoahMarkObjsClosure<T>::do_object(oop obj, int index) {
 
   assert(obj != NULL, "expect non-null object");
 
@@ -122,13 +108,14 @@ void ShenandoahMarkObjsClosure::do_object(oop obj, int index) {
     array->oop_iterate_range(&_mark_refs, beg_index, end_index);
     // Push continuation
     if (end_index < len) {
-      bool pushed = _queue->push(ObjArrayTask(obj, end_index));
+      bool pushed = _queue->queue()->push(ObjArrayTask(obj, end_index));
       assert(pushed, "overflow queue should always succeed pushing");
     }
   }
 }
 
-inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure* cl) {
+template <class T>
+inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T>* cl) {
   ObjArrayTask task;
   if (q->pop_local(task)) {
     assert(task.obj() != NULL, "Can't mark null");
@@ -142,7 +129,8 @@ inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, Shenandoah
   }
 }
 
-inline bool ShenandoahConcurrentMark::try_to_steal(uint worker_id, ShenandoahMarkObjsClosure* cl, int *seed) {
+template <class T>
+inline bool ShenandoahConcurrentMark::try_to_steal(uint worker_id, ShenandoahMarkObjsClosure<T>* cl, int *seed) {
   ObjArrayTask task;
   if (task_queues()->steal(worker_id, seed, task)) {
     cl->do_object(task.obj(), task.index());

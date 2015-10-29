@@ -27,11 +27,24 @@
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 
+#include "gc_implementation/shenandoah/shenandoahOopClosures.hpp"
+
 typedef OverflowTaskQueue<ObjArrayTask, mtGC> ShenandoahOverflowTaskQueue;
 typedef Padded<ShenandoahOverflowTaskQueue> SCMObjToScanQueue;
 typedef GenericTaskQueueSet<SCMObjToScanQueue, mtGC> SCMObjToScanQueueSet;
 
 class ShenandoahConcurrentMark;
+
+class QHolder {
+private:
+  SCMObjToScanQueue* _queue;
+public:
+  QHolder(SCMObjToScanQueue* q) : _queue(q) {
+  }
+  inline SCMObjToScanQueue* queue() {
+    return _queue;
+  }
+};
 
 #ifdef ASSERT
 class ShenandoahVerifyRootsClosure1 : public OopClosure {
@@ -43,29 +56,15 @@ class ShenandoahVerifyRootsClosure1 : public OopClosure {
 };
 #endif
 
-class ShenandoahMarkRefsClosure : public MetadataAwareOopClosure {
-  SCMObjToScanQueue* _queue;
-  ShenandoahHeap* _heap;
-  bool _update_refs;
-  ShenandoahConcurrentMark* _scm;
-
-public:
-  ShenandoahMarkRefsClosure(SCMObjToScanQueue* q, bool update_refs);
-
-  void do_oop(narrowOop* p);
-
-  inline void do_oop(oop* p);
-
-};
-
+template <class T>
 class ShenandoahMarkObjsClosure {
   ShenandoahHeap* _heap;
-  ShenandoahMarkRefsClosure _mark_refs;
-  SCMObjToScanQueue* _queue;
+  T _mark_refs;
+  QHolder* _queue;
   uint _last_region_idx;
   size_t _live_data;
 public:
-  ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs);
+  ShenandoahMarkObjsClosure(QHolder* q);
   ~ShenandoahMarkObjsClosure();
 
   inline void do_object(oop obj, int index);
@@ -99,8 +98,10 @@ public:
   // Those are only needed public because they're called from closures.
 
   SCMObjToScanQueue* get_queue(uint worker_id);
-  inline bool try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure* cl);
-  inline bool try_to_steal(uint worker_id, ShenandoahMarkObjsClosure* cl, int *seed);
+  template <class T>
+  inline bool try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T>* cl);
+  template <class T>
+  inline bool try_to_steal(uint worker_id, ShenandoahMarkObjsClosure<T>* cl, int *seed);
   inline bool try_draining_an_satb_buffer(uint worker_id);
   void drain_satb_buffers(uint worker_id, bool remark = false);
   SCMObjToScanQueueSet* task_queues() { return _task_queues;}

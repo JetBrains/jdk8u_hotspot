@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc_implementation/shenandoah/shenandoah_specialized_oop_closures.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "memory/referenceProcessor.hpp"
 #include "memory/sharedHeap.hpp"
@@ -94,34 +95,36 @@ public:
 
 
 // Mark the object and add it to the queue to be scanned
-ShenandoahMarkObjsClosure::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs) :
+template <class T>
+ShenandoahMarkObjsClosure<T>::ShenandoahMarkObjsClosure(QHolder* q) :
   _heap((ShenandoahHeap*)(Universe::heap())),
-  _mark_refs(ShenandoahMarkRefsClosure(q, update_refs)),
+  _mark_refs(T(q)),
   _queue(q),
   _last_region_idx(0),
   _live_data(0)
 {
 }
 
-ShenandoahMarkObjsClosure::~ShenandoahMarkObjsClosure() {
+template <class T>
+ShenandoahMarkObjsClosure<T>::~ShenandoahMarkObjsClosure() {
   // tty->print_cr("got "SIZE_FORMAT" x region: "UINT32_FORMAT, _live_data_count, _last_region_idx);
   ShenandoahHeapRegion* r = _heap->heap_regions()[_last_region_idx];
   r->increase_live_data(_live_data);
 }
 
-ShenandoahMarkRefsClosure::ShenandoahMarkRefsClosure(SCMObjToScanQueue* q, bool update_refs) :
+ShenandoahMarkUpdateRefsClosure::ShenandoahMarkUpdateRefsClosure(QHolder* q) :
   MetadataAwareOopClosure(((ShenandoahHeap *) Universe::heap())->ref_processor()),
   _queue(q),
-  _heap((ShenandoahHeap*) Universe::heap()),
-  _scm(_heap->concurrentMark()),
-  _update_refs(update_refs)
+  _heap((ShenandoahHeap*) Universe::heap())
 {
 }
 
-void ShenandoahMarkRefsClosure::do_oop(narrowOop* p) {
-  Unimplemented();
+ShenandoahMarkRefsClosure::ShenandoahMarkRefsClosure(QHolder* q) :
+  MetadataAwareOopClosure(((ShenandoahHeap *) Universe::heap())->ref_processor()),
+  _queue(q),
+  _heap((ShenandoahHeap*) Universe::heap())
+{
 }
-
 
 // Walks over all the objects in the generation updating any
 // references to from space.
@@ -191,15 +194,30 @@ public:
   void work(uint worker_id) {
 
     SCMObjToScanQueue* q = _cm->get_queue(worker_id);
-    ShenandoahMarkObjsClosure cl(q, _update_refs);
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    while (true) {
-      if (heap->cancelled_concgc() ||
-          (!_cm->try_queue(q, &cl) &&
-           !_cm->try_draining_an_satb_buffer(worker_id) &&
-           !_cm->try_to_steal(worker_id, &cl, &_seed))
-          ) {
-        if (_terminator->offer_termination()) break;
+    if (_update_refs) {
+      QHolder qh(q);
+      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure> cl(&qh);
+      while (true) {
+        if (heap->cancelled_concgc() ||
+            (!_cm->try_queue(q, &cl) &&
+             !_cm->try_draining_an_satb_buffer(worker_id) &&
+             !_cm->try_to_steal(worker_id, &cl, &_seed))
+            ) {
+          if (_terminator->offer_termination()) break;
+        }
+      }
+    } else {
+      QHolder qh(q);
+      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure> cl(&qh);
+      while (true) {
+        if (heap->cancelled_concgc() ||
+            (!_cm->try_queue(q, &cl) &&
+             !_cm->try_draining_an_satb_buffer(worker_id) &&
+             !_cm->try_to_steal(worker_id, &cl, &_seed))
+            ) {
+          if (_terminator->offer_termination()) break;
+        }
       }
     }
     if (ShenandoahTracePhases && heap->cancelled_concgc()) {
@@ -223,12 +241,24 @@ public:
   void work(uint worker_id) {
 
     SCMObjToScanQueue* q = _cm->get_queue(worker_id);
-    ShenandoahMarkObjsClosure cl(q, _update_refs);
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    while (true) {
-      if (!_cm->try_queue(q, &cl) &&
-          !_cm->try_to_steal(worker_id, &cl, &_seed)) {
-        if (_terminator->offer_termination()) break;
+    if (_update_refs) {
+      QHolder qh(q);
+      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure> cl(&qh);
+      while (true) {
+        if (!_cm->try_queue(q, &cl) &&
+            !_cm->try_to_steal(worker_id, &cl, &_seed)) {
+          if (_terminator->offer_termination()) break;
+        }
+      }
+    } else {
+      QHolder qh(q);
+      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure> cl(&qh);
+      while (true) {
+        if (!_cm->try_queue(q, &cl) &&
+            !_cm->try_to_steal(worker_id, &cl, &_seed)) {
+          if (_terminator->offer_termination()) break;
+        }
       }
     }
   }
@@ -268,7 +298,7 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
 
     // Mark through any class loaders that have been found alive.
     if (ClassUnloadingWithConcurrentMark) {
-      ShenandoahMarkRefsClosure cl(get_queue(0), update_refs);
+      ShenandoahMarkUpdateRootsClosure cl(get_queue(0));
       CLDToOopClosure cldCl(&cl);
       CLDMarkAliveClosure cld_keep_alive(&cldCl);
       ClassLoaderDataGraph::roots_cld_do(NULL, &cld_keep_alive);
@@ -614,12 +644,23 @@ public:
   void do_void() {
 
     SCMObjToScanQueue* q = _scm->get_queue(_worker_id);
-    ShenandoahMarkObjsClosure cl(q, _sh->need_update_refs());
-    while (true) {
-      if (!_scm->try_queue(q, &cl) &&
-          !_scm->try_draining_an_satb_buffer(_worker_id) &&
-          !_scm->try_to_steal(_worker_id, &cl, &_seed)) {
-        break;
+    if (_sh->need_update_refs()) {
+      QHolder qh(q);
+      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure> cl(&qh);
+      while (true) {
+        if (!_scm->try_queue(q, &cl) &&
+            !_scm->try_to_steal(_worker_id, &cl, &_seed)) {
+          break;
+        }
+      }
+    } else {
+      QHolder qh(q);
+      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure> cl(&qh);
+      while (true) {
+        if (!_scm->try_queue(q, &cl) &&
+            !_scm->try_to_steal(_worker_id, &cl, &_seed)) {
+          break;
+        }
       }
     }
   }
