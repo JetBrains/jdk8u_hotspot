@@ -644,7 +644,7 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
     if (my_current_region == NULL) {
       return NULL; // No more room to make a new region. OOM.
     }
-    _free_regions->decrease_available(remaining);
+    // _free_regions->decrease_available(remaining);
     assert(my_current_region != NULL, "should have a region at this point");
     assert(! my_current_region->is_in_collection_set(), "never get targetted regions in free-lists");
     assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
