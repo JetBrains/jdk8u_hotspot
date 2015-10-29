@@ -201,8 +201,8 @@ public:
     oop_iterate(cl, false, false);
   }
 
-  void roots_iterate(ExtendedOopClosure* cl);
-  void weak_roots_iterate(ExtendedOopClosure* cl);
+  void roots_iterate(OopClosure* cl);
+  void weak_roots_iterate(OopClosure* cl);
 
   void object_iterate(ObjectClosure* cl);
   void object_iterate_careful(ObjectClosureCareful* cl);

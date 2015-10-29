@@ -37,6 +37,36 @@
 #include "oops/oop.inline.hpp"
 #include "utilities/taskqueue.hpp"
 
+class ShenandoahMarkRootsClosure : public OopClosure {
+  SCMObjToScanQueue* _queue;
+  ShenandoahHeap* _heap;
+
+public:
+  ShenandoahMarkRootsClosure(SCMObjToScanQueue* q) :
+    _queue(q),
+    _heap((ShenandoahHeap*) Universe::heap())
+  {
+  }
+
+  void do_oop(narrowOop* p) {
+    Unimplemented();
+  }
+
+  inline void do_oop(oop* p) {
+    oop obj = oopDesc::load_heap_oop(p);
+    if (! oopDesc::is_null(obj)) {
+      oop forw = ShenandoahBarrierSet::resolve_oop_static(obj);
+      if (forw != obj) {
+        obj = forw;
+        oopDesc::store_heap_oop(p, obj);
+      }
+      ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
+    }
+  }
+
+};
+
+
 // Mark the object and add it to the queue to be scanned
 ShenandoahMarkObjsClosure::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs) :
   _heap((ShenandoahHeap*)(Universe::heap())),
@@ -98,7 +128,7 @@ public:
     // tty->print_cr("start mark roots worker: "INT32_FORMAT, worker_id);
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     SCMObjToScanQueue* q = heap->concurrentMark()->get_queue(worker_id);
-    ShenandoahMarkRefsClosure cl(q, _update_refs);
+    ShenandoahMarkRootsClosure cl(q);
 
     CodeBlobToOopClosure blobsCl(&cl, true);
     CLDToOopClosure cldCl(&cl);
@@ -205,21 +235,22 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
     heap->set_par_threads(0);
 
     // Mark through any class loaders that have been found alive.
-    ShenandoahMarkRefsClosure cl(get_queue(0), update_refs);
-    CLDToOopClosure cldCl(&cl);
-    CLDMarkAliveClosure cld_keep_alive(&cldCl);
-    ClassLoaderDataGraph::roots_cld_do(NULL, &cld_keep_alive);
+    if (ClassUnloadingWithConcurrentMark) {
+      ShenandoahMarkRefsClosure cl(get_queue(0), update_refs);
+      CLDToOopClosure cldCl(&cl);
+      CLDMarkAliveClosure cld_keep_alive(&cldCl);
+      ClassLoaderDataGraph::roots_cld_do(NULL, &cld_keep_alive);
+    }
 
   } else {
-    ShenandoahMarkRefsClosure cl(get_queue(0), update_refs);
+    ShenandoahMarkRootsClosure cl(get_queue(0));
     heap->roots_iterate(&cl);
   }
 
-  if (!(ShenandoahProcessReferences && ClassUnloadingWithConcurrentMark)) {
-    ShenandoahMarkRefsClosure cl(get_queue(0), update_refs);
+  if (!ShenandoahProcessReferences) {
+    ShenandoahMarkRootsClosure cl(get_queue(0));
     heap->weak_roots_iterate(&cl);
   }
-
   // tty->print_cr("all root marker threads done");
 }
 

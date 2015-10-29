@@ -1584,7 +1584,7 @@ public:
 
 };
 
-void ShenandoahHeap::roots_iterate(ExtendedOopClosure* cl) {
+void ShenandoahHeap::roots_iterate(OopClosure* cl) {
 
   assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
 
@@ -1597,7 +1597,7 @@ void ShenandoahHeap::roots_iterate(ExtendedOopClosure* cl) {
   rp.process_all_roots(cl, &cldCl, &blobsCl);
 }
 
-void ShenandoahHeap::weak_roots_iterate(ExtendedOopClosure* cl) {
+void ShenandoahHeap::weak_roots_iterate(OopClosure* cl) {
   if (ShenandoahProcessReferences) {
     ref_processor()->weak_oops_do(cl);
   }
