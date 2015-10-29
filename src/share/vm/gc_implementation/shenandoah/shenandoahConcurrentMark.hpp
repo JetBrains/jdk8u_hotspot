@@ -60,13 +60,10 @@ public:
 
 class ShenandoahMarkObjsClosure : public ObjectClosure {
   ShenandoahHeap* _heap;
-  size_t* _live_data;
   ShenandoahMarkRefsClosure _mark_refs;
 
 public:
   ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs);
-
-  ~ShenandoahMarkObjsClosure();
 
   inline void do_object(oop obj);
 };

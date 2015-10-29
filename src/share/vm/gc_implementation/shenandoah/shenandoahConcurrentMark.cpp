@@ -40,22 +40,8 @@
 // Mark the object and add it to the queue to be scanned
 ShenandoahMarkObjsClosure::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs) :
   _heap((ShenandoahHeap*)(Universe::heap())),
-  _mark_refs(ShenandoahMarkRefsClosure(q, update_refs)),
-  _live_data(NEW_C_HEAP_ARRAY(size_t, _heap->max_regions(), mtGC))
+  _mark_refs(ShenandoahMarkRefsClosure(q, update_refs))
 {
-  Copy::zero_to_bytes(_live_data, _heap->max_regions() * sizeof(size_t));
-}
-
-ShenandoahMarkObjsClosure::~ShenandoahMarkObjsClosure() {
-  // Merge liveness data back into actual regions.
-
-  // We need to lock the heap here, to avoid race with growing of heap.
-  MutexLockerEx ml(ShenandoahHeap_lock, true);
-  ShenandoahHeapRegion** regions = _heap->heap_regions();
-  for (uint i = 0; i < _heap->num_regions(); i++) {
-    regions[i]->increase_live_data(_live_data[i]);
-  }
-  FREE_C_HEAP_ARRAY(size_t, _live_data, mtGC);
 }
 
 ShenandoahMarkRefsClosure::ShenandoahMarkRefsClosure(SCMObjToScanQueue* q, bool update_refs) :

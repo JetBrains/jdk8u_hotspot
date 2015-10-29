@@ -98,7 +98,7 @@ public:
 
   void clearLiveData();
   void setLiveData(size_t s);
-  void increase_live_data(size_t s);
+  inline void increase_live_data(size_t s);
 
   size_t getLiveData() const;
 

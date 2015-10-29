@@ -30,4 +30,9 @@ inline bool ShenandoahHeapRegion::allocated_after_mark_start(HeapWord* addr) {
   return addr >= _top_at_mark_start;
 }
 
+inline void ShenandoahHeapRegion::increase_live_data(size_t s) {
+  size_t new_live_data = (size_t) Atomic::add((jlong) s, (jlong*) &liveData);
+  assert(new_live_data <= used() || is_humongous(), "can't have more live data than used");
+}
+
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP

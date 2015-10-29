@@ -66,11 +66,6 @@ void ShenandoahHeapRegion::setLiveData(size_t s) {
   Atomic::store_ptr(s, (intptr_t*) &liveData);
 }
 
-void ShenandoahHeapRegion::increase_live_data(size_t s) {
-  size_t new_live_data = (size_t) Atomic::add((jlong) s, (jlong*) &liveData);
-  assert(new_live_data <= used() || is_humongous(), "can't have more live data than used");
-}
-
 size_t ShenandoahHeapRegion::getLiveData() const {
   return liveData;
 }
