@@ -27,8 +27,8 @@
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 
-typedef OverflowTaskQueue<oop, mtGC> OopOverflowTaskQueue;
-typedef Padded<OopOverflowTaskQueue> SCMObjToScanQueue;
+typedef OverflowTaskQueue<ObjArrayTask, mtGC> ShenandoahOverflowTaskQueue;
+typedef Padded<ShenandoahOverflowTaskQueue> SCMObjToScanQueue;
 typedef GenericTaskQueueSet<SCMObjToScanQueue, mtGC> SCMObjToScanQueueSet;
 
 class ShenandoahConcurrentMark;
@@ -58,16 +58,18 @@ public:
 
 };
 
-class ShenandoahMarkObjsClosure : public ObjectClosure {
+class ShenandoahMarkObjsClosure {
   ShenandoahHeap* _heap;
   ShenandoahMarkRefsClosure _mark_refs;
+  SCMObjToScanQueue* _queue;
   uint _last_region_idx;
   size_t _live_data;
   size_t _live_data_count;
 public:
   ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs);
   ~ShenandoahMarkObjsClosure();
-  inline void do_object(oop obj);
+
+  inline void do_object(oop obj, int index);
 };
 
 class ShenandoahConcurrentMark: public CHeapObj<mtGC> {
@@ -83,6 +85,8 @@ private:
 public:
   // We need to do this later when the heap is already created.
   void initialize();
+
+  static inline void mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q);
 
   void mark_from_roots();
 

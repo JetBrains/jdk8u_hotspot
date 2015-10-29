@@ -41,6 +41,7 @@
 ShenandoahMarkObjsClosure::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs) :
   _heap((ShenandoahHeap*)(Universe::heap())),
   _mark_refs(ShenandoahMarkRefsClosure(q, update_refs)),
+  _queue(q),
   _last_region_idx(0),
   _live_data(0),
   _live_data_count(0)
@@ -428,10 +429,7 @@ public:
       // tty->print_cr("satb buffer entry: "PTR_FORMAT, p2i((HeapWord*) obj));
       if (!oopDesc::is_null(obj)) {
         obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-        if (_heap->mark_current(obj)) {
-          bool pushed = _queue->push(obj);
-          assert(pushed, "overflow queue should always succeed pushing");
-        }
+        ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
       }
     }
   }
@@ -605,11 +603,7 @@ public:
                                p2i(p), p2i((void*) obj));
         obj->print();
       }
-      if (_sh->mark_current(obj)) {
-        bool pushed = _queue->push(obj);
-        assert(pushed, "overflow queue should always succeed pushing");
-      }
-
+      ShenandoahConcurrentMark::mark_and_push(obj, _sh, _queue);
       _ref_count++;
     }
   }
