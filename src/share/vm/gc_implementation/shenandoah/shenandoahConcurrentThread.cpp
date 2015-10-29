@@ -22,7 +22,7 @@
  */
 
 #include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahJNICritical.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "memory/iterator.hpp"

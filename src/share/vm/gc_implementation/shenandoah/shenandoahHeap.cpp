@@ -2674,11 +2674,6 @@ void ShenandoahHeap::cancel_concgc() {
   }
 }
 
-bool ShenandoahHeap::cancelled_concgc() {
-  bool cancelled = _cancelled_concgc;
-  return cancelled;
-}
-
 void ShenandoahHeap::clear_cancelled_concgc() {
   _cancelled_concgc = false;
 }

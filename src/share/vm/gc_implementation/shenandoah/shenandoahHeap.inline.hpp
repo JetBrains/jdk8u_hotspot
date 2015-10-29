@@ -140,4 +140,9 @@ oop ShenandoahHeap::maybe_update_oop_ref(oop* p) {
   return NULL;
 }
 
+inline bool ShenandoahHeap::cancelled_concgc() const {
+  bool cancelled = _cancelled_concgc;
+  return cancelled;
+}
+
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

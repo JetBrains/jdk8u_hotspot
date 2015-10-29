@@ -151,6 +151,32 @@ public:
   }
 };
 
+class SCMFinalMarkingTask : public AbstractGangTask {
+private:
+  ShenandoahConcurrentMark* _cm;
+  ParallelTaskTerminator* _terminator;
+  int _seed;
+  bool _update_refs;
+
+public:
+  SCMFinalMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs) :
+    AbstractGangTask("Shenandoah Final Marking"), _cm(cm), _terminator(terminator), _update_refs(update_refs), _seed(17) {
+  }
+
+  void work(uint worker_id) {
+
+    SCMObjToScanQueue* q = _cm->get_queue(worker_id);
+    ShenandoahMarkObjsClosure cl(q, _update_refs);
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    while (true) {
+      if (!_cm->try_queue(q, &cl) &&
+          !_cm->try_to_steal(worker_id, &cl, &_seed)) {
+        if (_terminator->offer_termination()) break;
+      }
+    }
+  }
+};
+
 void ShenandoahConcurrentMark::prepare_unmarked_root_objs() {
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
@@ -316,9 +342,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
   {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::drain_queues);
     ParallelTaskTerminator terminator(_max_conc_worker_id, _task_queues);
-    SCMConcurrentMarkingTask markingTask = SCMConcurrentMarkingTask(this, &terminator, sh->need_update_refs());
-    sh->set_par_threads(_max_conc_worker_id);
-    sh->conc_workers()->set_active_workers(_max_conc_worker_id);
+    SCMFinalMarkingTask markingTask = SCMFinalMarkingTask(this, &terminator, sh->need_update_refs());
     sh->conc_workers()->run_task(&markingTask);
     sh->set_par_threads(0);
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::drain_queues);

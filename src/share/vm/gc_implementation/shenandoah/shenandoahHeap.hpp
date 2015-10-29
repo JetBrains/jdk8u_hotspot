@@ -411,7 +411,7 @@ private:
   void oom_during_evacuation();
   void cancel_concgc();
 public:
-  bool cancelled_concgc();
+  inline bool cancelled_concgc() const;
   void clear_cancelled_concgc();
 
   void shutdown();
