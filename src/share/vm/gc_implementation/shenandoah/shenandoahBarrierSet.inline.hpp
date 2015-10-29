@@ -54,29 +54,28 @@ inline oop ShenandoahBarrierSet::resolve_oop_static_not_null(oop p) {
 
   oop result = get_shenandoah_forwardee_helper(p);
 
-  if (result != NULL) {
+  assert(result != NULL, "expect not NULL");
 #ifdef ASSERT
-    if (result != p) {
-      oop second_forwarding = get_shenandoah_forwardee_helper(result);
+  if (result != p) {
+    oop second_forwarding = get_shenandoah_forwardee_helper(result);
 
-      // We should never be forwarded more than once.
-      if (result != second_forwarding) {
-        ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
-        tty->print("first reference "PTR_FORMAT" is in heap region:\n", p2i((HeapWord*) p));
-        sh->heap_region_containing(p)->print();
-        tty->print("first_forwarding "PTR_FORMAT" is in heap region:\n", p2i((HeapWord*) result));
-        sh->heap_region_containing(result)->print();
-        tty->print("final reference "PTR_FORMAT" is in heap region:\n", p2i((HeapWord*) second_forwarding));
-        sh->heap_region_containing(second_forwarding)->print();
-        assert(get_shenandoah_forwardee_helper(result) == result, "Only one fowarding per customer");
-      }
-    }
-#endif
-    if (! ShenandoahVerifyReadsToFromSpace) {
-      // is_oop() would trigger a SEGFAULT when we're checking from-space-access.
-      assert(ShenandoahHeap::heap()->is_in(result) && result->is_oop(), "resolved oop must be a valid oop in the heap");
+    // We should never be forwarded more than once.
+    if (result != second_forwarding) {
+      ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
+      tty->print("first reference "PTR_FORMAT" is in heap region:\n", p2i((HeapWord*) p));
+      sh->heap_region_containing(p)->print();
+      tty->print("first_forwarding "PTR_FORMAT" is in heap region:\n", p2i((HeapWord*) result));
+      sh->heap_region_containing(result)->print();
+      tty->print("final reference "PTR_FORMAT" is in heap region:\n", p2i((HeapWord*) second_forwarding));
+      sh->heap_region_containing(second_forwarding)->print();
+      assert(get_shenandoah_forwardee_helper(result) == result, "Only one fowarding per customer");
     }
   }
+  if (! ShenandoahVerifyReadsToFromSpace) {
+    // is_oop() would trigger a SEGFAULT when we're checking from-space-access.
+    assert(ShenandoahHeap::heap()->is_in(result) && result->is_oop(), "resolved oop must be a valid oop in the heap");
+  }
+#endif
   return result;
 }
 

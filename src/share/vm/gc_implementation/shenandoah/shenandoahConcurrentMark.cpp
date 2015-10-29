@@ -37,6 +37,35 @@
 #include "oops/oop.inline.hpp"
 #include "utilities/taskqueue.hpp"
 
+class ShenandoahMarkUpdateRootsClosure : public OopClosure {
+  SCMObjToScanQueue* _queue;
+  ShenandoahHeap* _heap;
+
+public:
+  ShenandoahMarkUpdateRootsClosure(SCMObjToScanQueue* q) :
+    _queue(q),
+    _heap((ShenandoahHeap*) Universe::heap())
+  {
+  }
+
+  void do_oop(narrowOop* p) {
+    Unimplemented();
+  }
+
+  inline void do_oop(oop* p) {
+    oop obj = oopDesc::load_heap_oop(p);
+    if (! oopDesc::is_null(obj)) {
+      oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
+      if (forw != obj) {
+        obj = forw;
+        oopDesc::store_heap_oop(p, obj);
+      }
+      ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
+    }
+  }
+
+};
+
 class ShenandoahMarkRootsClosure : public OopClosure {
   SCMObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
@@ -55,11 +84,8 @@ public:
   inline void do_oop(oop* p) {
     oop obj = oopDesc::load_heap_oop(p);
     if (! oopDesc::is_null(obj)) {
-      oop forw = ShenandoahBarrierSet::resolve_oop_static(obj);
-      if (forw != obj) {
-        obj = forw;
-        oopDesc::store_heap_oop(p, obj);
-      }
+      assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj),
+             "expect forwarded oop");
       ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
     }
   }
@@ -128,16 +154,22 @@ public:
     // tty->print_cr("start mark roots worker: "INT32_FORMAT, worker_id);
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     SCMObjToScanQueue* q = heap->concurrentMark()->get_queue(worker_id);
-    ShenandoahMarkRootsClosure cl(q);
-
-    CodeBlobToOopClosure blobsCl(&cl, true);
-    CLDToOopClosure cldCl(&cl);
+    OopClosure* cl;
+    ShenandoahMarkUpdateRootsClosure mark_update_cl(q);
+    ShenandoahMarkRootsClosure mark_cl(q);
+    if (_update_refs) {
+      cl = &mark_update_cl;
+    } else {
+      cl = &mark_cl;
+    }
+    CodeBlobToOopClosure blobsCl(cl, true);
+    CLDToOopClosure cldCl(cl);
 
     ResourceMark m;
     if (ShenandoahProcessReferences && ClassUnloadingWithConcurrentMark) {
-      _rp->process_strong_roots(&cl, &cldCl, &blobsCl);
+      _rp->process_strong_roots(cl, &cldCl, &blobsCl);
     } else {
-      _rp->process_all_roots(&cl, &cldCl, &blobsCl);
+      _rp->process_all_roots(cl, &cldCl, &blobsCl);
     }
     // tty->print_cr("finish mark roots worker: "INT32_FORMAT, worker_id);
   }
@@ -243,12 +275,12 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
     }
 
   } else {
-    ShenandoahMarkRootsClosure cl(get_queue(0));
+    ShenandoahMarkUpdateRootsClosure cl(get_queue(0));
     heap->roots_iterate(&cl);
   }
 
-  if (!ShenandoahProcessReferences) {
-    ShenandoahMarkRootsClosure cl(get_queue(0));
+  if (! ShenandoahProcessReferences) {
+    ShenandoahMarkUpdateRootsClosure cl(get_queue(0));
     heap->weak_roots_iterate(&cl);
   }
   // tty->print_cr("all root marker threads done");
