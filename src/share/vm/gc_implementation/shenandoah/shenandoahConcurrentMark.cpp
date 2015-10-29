@@ -40,8 +40,17 @@
 // Mark the object and add it to the queue to be scanned
 ShenandoahMarkObjsClosure::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs) :
   _heap((ShenandoahHeap*)(Universe::heap())),
-  _mark_refs(ShenandoahMarkRefsClosure(q, update_refs))
+  _mark_refs(ShenandoahMarkRefsClosure(q, update_refs)),
+  _last_region_idx(0),
+  _live_data(0),
+  _live_data_count(0)
 {
+}
+
+ShenandoahMarkObjsClosure::~ShenandoahMarkObjsClosure() {
+  // tty->print_cr("got "SIZE_FORMAT" x region: "UINT32_FORMAT, _live_data_count, _last_region_idx);
+  ShenandoahHeapRegion* r = _heap->heap_regions()[_last_region_idx];
+  r->increase_live_data(_live_data);
 }
 
 ShenandoahMarkRefsClosure::ShenandoahMarkRefsClosure(SCMObjToScanQueue* q, bool update_refs) :

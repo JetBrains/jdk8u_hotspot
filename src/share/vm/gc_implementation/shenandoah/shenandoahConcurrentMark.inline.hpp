@@ -112,11 +112,18 @@ void ShenandoahMarkObjsClosure::do_object(oop obj) {
   assert(_heap->is_marked_current(obj), "only marked objects on task queue");
 
   // Calculate liveness of heap region containing object.
-  ShenandoahHeapRegion* r = _heap->heap_region_containing(obj);
-#ifdef ASSERT
-  assert(r->bottom() < (HeapWord*) obj && r->top() > (HeapWord*) obj, "object must be in region");
-#endif
-  r->increase_live_data((obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize);
+  uint region_idx = _heap->heap_region_index_containing(obj);
+  if (region_idx == _last_region_idx) {
+    _live_data += (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
+    _live_data_count++;
+  } else {
+    ShenandoahHeapRegion* r = _heap->heap_regions()[_last_region_idx];
+    r->increase_live_data(_live_data);
+    // tty->print_cr("got "SIZE_FORMAT" x region: "UINT32_FORMAT, _live_data_count, _last_region_idx);
+    _last_region_idx = region_idx;
+    _live_data = (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
+    _live_data_count = 1;
+  }
   obj->oop_iterate(&_mark_refs);
 
 }
