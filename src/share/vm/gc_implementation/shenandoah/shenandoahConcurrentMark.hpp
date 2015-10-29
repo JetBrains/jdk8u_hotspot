@@ -64,7 +64,6 @@ class ShenandoahMarkObjsClosure {
   SCMObjToScanQueue* _queue;
   uint _last_region_idx;
   size_t _live_data;
-  size_t _live_data_count;
 public:
   ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool update_refs);
   ~ShenandoahMarkObjsClosure();
@@ -87,6 +86,7 @@ public:
   void initialize();
 
   static inline void mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q);
+  static inline void count_liveness(oop obj, ShenandoahHeap* heap);
 
   void mark_from_roots();
 

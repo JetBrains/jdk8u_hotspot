@@ -43,8 +43,7 @@ ShenandoahMarkObjsClosure::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, bool 
   _mark_refs(ShenandoahMarkRefsClosure(q, update_refs)),
   _queue(q),
   _last_region_idx(0),
-  _live_data(0),
-  _live_data_count(0)
+  _live_data(0)
 {
 }
 

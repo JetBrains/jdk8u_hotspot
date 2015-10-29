@@ -102,14 +102,11 @@ void ShenandoahMarkObjsClosure::do_object(oop obj, int index) {
     uint region_idx = _heap->heap_region_index_containing(obj);
     if (region_idx == _last_region_idx) {
       _live_data += (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
-      _live_data_count++;
     } else {
       ShenandoahHeapRegion* r = _heap->heap_regions()[_last_region_idx];
       r->increase_live_data(_live_data);
-      // tty->print_cr("got "SIZE_FORMAT" x region: "UINT32_FORMAT, _live_data_count, _last_region_idx);
       _last_region_idx = region_idx;
       _live_data = (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
-      _live_data_count = 1;
     }
     obj->oop_iterate(&_mark_refs);
   } else { // Chunked obj array processing
@@ -121,13 +118,13 @@ void ShenandoahMarkObjsClosure::do_object(oop obj, int index) {
     const int stride = MIN2(len - beg_index, (int) ObjArrayMarkingStride);
     const int end_index = beg_index + stride;
     // tty->print_cr("strided obj array scan: %p, %d -> %d", array, beg_index, end_index);
-    // Push continuation first, to allow other marking threads to steal it.
+    // Now scan our stride
+    array->oop_iterate_range(&_mark_refs, beg_index, end_index);
+    // Push continuation
     if (end_index < len) {
       bool pushed = _queue->push(ObjArrayTask(obj, end_index));
       assert(pushed, "overflow queue should always succeed pushing");
     }
-    // Now scan our stride
-    array->oop_iterate_range(&_mark_refs, beg_index, end_index);
   }
 }
 
@@ -163,7 +160,17 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
     if (ShenandoahTraceConcurrentMarking) {
       tty->print_cr("marked obj: "PTR_FORMAT, p2i((HeapWord*) obj));
     }
-    if (obj->is_objArray()) {
+    if (obj->is_typeArray()) { // No references. Skip it.
+      count_liveness(obj, heap);
+      return;
+    } else if (obj->is_objArray()) {
+      /*
+      oop cld = obj->klass()->klass_holder();
+      if (cld != NULL) {
+        q->push(ObjArrayTask(cld, -1));
+      }
+      */
+      count_liveness(obj, heap);
       if (objArrayOop(obj)->length() > 0) {
         bool pushed = q->push(ObjArrayTask(obj, 0));
         assert(pushed, "overflow queue should always succeed pushing");
@@ -181,6 +188,13 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
     assert(heap->is_marked_current(obj), "make sure object is marked");
   }
 #endif
+}
+
+inline void ShenandoahConcurrentMark::count_liveness(oop obj, ShenandoahHeap* heap) {
+
+  size_t live = (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
+  ShenandoahHeapRegion* r = heap->heap_region_containing(obj);
+  r->increase_live_data(live);
 }
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTMARK_INLINE_HPP
