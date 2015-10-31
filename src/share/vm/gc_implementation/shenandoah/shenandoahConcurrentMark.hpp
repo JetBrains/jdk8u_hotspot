@@ -27,8 +27,6 @@
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 
-#include "gc_implementation/shenandoah/shenandoahOopClosures.hpp"
-
 typedef OverflowTaskQueue<ObjArrayTask, mtGC> ShenandoahOverflowTaskQueue;
 typedef Padded<ShenandoahOverflowTaskQueue> SCMObjToScanQueue;
 typedef GenericTaskQueueSet<SCMObjToScanQueue, mtGC> SCMObjToScanQueueSet;

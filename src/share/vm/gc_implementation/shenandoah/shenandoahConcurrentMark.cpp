@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoah_specialized_oop_closures.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "memory/referenceProcessor.hpp"

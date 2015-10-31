@@ -31,38 +31,6 @@
 #include "oops/oop.inline.hpp"
 #include "runtime/prefetch.inline.hpp"
 
-inline void ShenandoahMarkUpdateRefsClosure::do_oop_nv(oop* p) {
-  // We piggy-back reference updating to the marking tasks.
-#ifdef ASSERT
-  oop* old = p;
-#endif
-
-  oop obj = _heap->maybe_update_oop_ref(p);
-  assert(obj == ShenandoahBarrierSet::resolve_oop_static(obj), "need to-space object here");
-
-#ifdef ASSERT
-  if (ShenandoahTraceUpdates) {
-    if (p != old)
-      tty->print_cr("Update "PTR_FORMAT" => "PTR_FORMAT"  to "PTR_FORMAT" => "PTR_FORMAT, p2i(p), p2i((HeapWord*) *p), p2i(old), p2i((HeapWord*) *old));
-    else
-      tty->print_cr("Not updating "PTR_FORMAT" => "PTR_FORMAT"  to "PTR_FORMAT" => "PTR_FORMAT, p2i(p), p2i((HeapWord*) *p), p2i(old), p2i((HeapWord*) *old));
-  }
-#endif
-
-  if (! oopDesc::is_null(obj)) {
-    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue->queue());
-  }
-}
-
-inline void ShenandoahMarkRefsClosure::do_oop_nv(oop* p) {
-  oop obj = oopDesc::load_heap_oop(p);
-  assert(obj == ShenandoahBarrierSet::resolve_oop_static(obj), "need to-space object here");
-
-  if (! oopDesc::is_null(obj)) {
-    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue->queue());
-  }
-}
-
 template <class T>
 void ShenandoahMarkObjsClosure<T>::do_object(oop obj, int index) {
 
