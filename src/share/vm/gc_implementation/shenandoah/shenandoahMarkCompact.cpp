@@ -191,7 +191,7 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
 
     // Also update (without marking) weak CLD refs, in case they're reachable.
     UpdateRefsClosure uprefs;
-    CLDToOopClosure cld_uprefs(&uprefs);
+    CLDToOopClosure cld_uprefs(&uprefs, false);
     CodeBlobToOopClosure code_uprefs(&uprefs, CodeBlobToOopClosure::FixRelocations);
     ClassLoaderDataGraph::roots_cld_do(NULL, &cld_uprefs);
 
