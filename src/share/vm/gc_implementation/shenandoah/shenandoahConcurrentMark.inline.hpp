@@ -144,11 +144,11 @@ inline bool ShenandoahConcurrentMark:: try_draining_an_satb_buffer(SCMObjToScanQ
 inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q) {
   assert(!heap->heap_region_containing(obj)->is_in_collection_set(), "no ref in cset");
   if (heap->mark_current(obj)) {
+#ifdef ASSERT
     if (ShenandoahTraceConcurrentMarking) {
       tty->print_cr("marked obj: "PTR_FORMAT, p2i((HeapWord*) obj));
     }
 
-#ifdef ASSERT
     if (heap->heap_region_containing(obj)->is_in_collection_set()) {
       tty->print_cr("trying to mark obj: "PTR_FORMAT" (%s) in dirty region: ", p2i((HeapWord*) obj), BOOL_TO_STR(heap->is_marked_current(obj)));
       //      _heap->heap_region_containing(obj)->print();
@@ -159,18 +159,29 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
            || ! heap->heap_region_containing(obj)->is_in_collection_set(),
            "we don't want to mark objects in from-space");
 
-    if (obj->is_typeArray()) { // No references. Skip it.
+    Klass* klass = obj->klass();
+    if (klass->oop_is_instance()) {
+      if (((InstanceKlass*) klass)->nonstatic_oop_map_count() == 0) {
+        QHolder qh(q);
+        ShenandoahMarkUpdateRefsClosure cl(&qh);
+        cl.do_klass(klass);
+        count_liveness(obj, heap);
+        return;
+      } else {
+        bool pushed = q->push(ObjArrayTask(obj, -1));
+        assert(pushed, "overflow queue should always succeed pushing");
+      }
+    } else if (klass->oop_is_typeArray()) { // No references. Skip it.
       count_liveness(obj, heap);
       return;
-    } else if (obj->is_objArray()) {
+    } else if (klass->oop_is_objArray()) {
       count_liveness(obj, heap);
       if (objArrayOop(obj)->length() > 0) {
         bool pushed = q->push(ObjArrayTask(obj, 0));
         assert(pushed, "overflow queue should always succeed pushing");
       }
     } else {
-      bool pushed = q->push(ObjArrayTask(obj, -1));
-      assert(pushed, "overflow queue should always succeed pushing");
+      ShouldNotReachHere();
     }
   }
 #ifdef ASSERT

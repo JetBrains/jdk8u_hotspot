@@ -74,9 +74,7 @@ private:
   // The per-worker-thread work queues
   SCMObjToScanQueueSet* _task_queues;
 
-  bool                    _aborted;
   uint _max_conc_worker_id;
-  ParallelTaskTerminator* _terminator;
 
 public:
   // We need to do this later when the heap is already created.
@@ -120,8 +118,6 @@ private:
 #endif
 
   void weak_refs_work();
-
-  ParallelTaskTerminator* terminator() { return _terminator;}
 
 #if TASKQUEUE_STATS
   static void print_taskqueue_stats_hdr(outputStream* const st = gclog_or_tty);
