@@ -260,6 +260,7 @@ void ShenandoahHeapRegion::do_reset() {
   clearLiveData();
   _humongous_start = false;
   _humongous_continuation = false;
+  _top_at_mark_start = top();
 }
 
 void ShenandoahHeapRegion::recycle() {

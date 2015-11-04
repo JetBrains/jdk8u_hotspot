@@ -524,6 +524,10 @@ ShenandoahHeap* ShenandoahHeap::heap() {
   return _pgc;
 }
 
+ShenandoahHeap* ShenandoahHeap::heap_no_check() {
+  return _pgc;
+}
+
 class VM_ShenandoahVerifyHeap: public VM_GC_Operation {
 public:
   VM_ShenandoahVerifyHeap(unsigned int gc_count_before,
@@ -1887,26 +1891,6 @@ public:
   }
 };
 
-class ShenandoahIterateUpdateClosure: public ShenandoahHeapRegionClosure {
-  ObjectClosure* _cl;
-public:
-  ShenandoahIterateUpdateClosure(ObjectClosure *cl) : _cl(cl) {}
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    if ((! r->is_in_collection_set()) && !r->is_humongous_continuation()) {
-      r->object_iterate_interruptible(_cl, false);
-    }
-    return false;
-  }
-};
-
-void ShenandoahHeap::cleanup_after_cancelconcgc() {
-  if (need_update_refs()) {
-  ShenandoahUpdateObjectsClosure update_refs_cl;
-  ShenandoahIterateUpdateClosure blk(&update_refs_cl);
-  heap_region_iterate(&blk, false, false);
-  }
-}
-
 class ShenandoahIterateObjectClosureCarefulRegionClosure: public ShenandoahHeapRegionClosure {
   ObjectClosureCareful* _cl;
 public:
@@ -2120,6 +2104,7 @@ void ShenandoahHeap::start_concurrent_marking() {
   // oopDesc::_debug = true;
 
   shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::scan_roots);
+  ClassLoaderDataGraph::clear_claimed_marks();
   concurrentMark()->prepare_unmarked_root_objs();
   shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::scan_roots);
 
@@ -2535,43 +2520,24 @@ int ShenandoahHeap::ensure_new_regions(int new_regions) {
 
 }
 
-bool  ShenandoahIsAliveClosure:: do_object_b(oop obj) {
+ShenandoahIsAliveClosure::ShenandoahIsAliveClosure() :
+  _heap(ShenandoahHeap::heap_no_check()) {
+}
 
-  ShenandoahHeap* sh = ShenandoahHeap::heap();
-  if (sh->need_update_refs()) {
-    obj = ShenandoahBarrierSet::resolve_oop_static(obj);
-  }
+void ShenandoahIsAliveClosure::init(ShenandoahHeap* heap) {
+  _heap = heap;
+}
 
+bool ShenandoahIsAliveClosure::do_object_b(oop obj) {
+
+  assert(_heap != NULL, "sanity");
 #ifdef ASSERT
-  if (obj != ShenandoahBarrierSet::resolve_oop_static(obj)) {
-    ShenandoahHeap* sh = ShenandoahHeap::heap();
+  if (_heap->concurrent_mark_in_progress()) {
+    assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj), "only query from-space");
   }
 #endif
-  assert(obj == ShenandoahBarrierSet::resolve_oop_static(obj), "needs to be in to-space");
-
-    HeapWord* addr = (HeapWord*) obj;
-
-    if (ShenandoahTraceWeakReferences) {
-
-      if (addr != NULL) {
-        if(sh->is_in(addr)) {
-          if (sh->is_obj_ill(obj)) {
-            HandleMark hm;
-            tty->print_cr("ShenandoahIsAliveClosure Found an ill object "PTR_FORMAT, p2i((HeapWord*) obj));
-            obj->print();
-          }
-          else
-            tty->print_cr("found a healthy object "PTR_FORMAT, p2i((HeapWord*) obj));
-
-        } else {
-          tty->print_cr("found an object outside the heap "PTR_FORMAT, p2i((HeapWord*) obj));
-        }
-      } else {
-        tty->print_cr("found a null object "PTR_FORMAT, p2i((HeapWord*) obj));
-      }
-    }
-
-    return addr != NULL && sh->is_marked_current(obj); //(!sh->is_in(addr) || !sh->is_obj_ill(obj));
+  assert(!oopDesc::is_null(obj), "null");
+  return _heap->is_marked_current(obj);
 }
 
 void ShenandoahHeap::ref_processing_init() {
@@ -2593,6 +2559,8 @@ void ShenandoahHeap::ref_processing_init() {
 //                         &isAlive);
 //                                 // is alive closure
 //                                 // (for efficiency/performance)
+
+  isAlive.init(ShenandoahHeap::heap());
   _ref_processor =
     new ReferenceProcessor(mr,    // span
                            ParallelRefProcEnabled && (ConcGCThreads > 1),

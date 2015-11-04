@@ -142,6 +142,7 @@ inline bool ShenandoahConcurrentMark:: try_draining_an_satb_buffer(SCMObjToScanQ
 }
 
 inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q) {
+  assert(!heap->heap_region_containing(obj)->is_in_collection_set(), "no ref in cset");
   if (heap->mark_current(obj)) {
     if (ShenandoahTraceConcurrentMarking) {
       tty->print_cr("marked obj: "PTR_FORMAT, p2i((HeapWord*) obj));

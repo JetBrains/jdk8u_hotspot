@@ -90,8 +90,6 @@ void ShenandoahMarkCompact::do_mark_compact() {
     _heap->ensure_parsability(true);
   }
 
-  _heap->cleanup_after_cancelconcgc();
-
   MemRegion mr = _heap->reserved_region();
   ReferenceProcessor rp(mr, false, 0, false, 0, true, NULL);
 

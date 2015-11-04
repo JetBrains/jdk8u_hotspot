@@ -272,7 +272,6 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
   if (ShenandoahParallelRootScan) {
 
     {
-      ClassLoaderDataGraph::clear_claimed_marks();
       heap->set_par_threads(_max_conc_worker_id);
       heap->conc_workers()->set_active_workers(_max_conc_worker_id);
       ShenandoahRootProcessor root_proc(heap, _max_conc_worker_id);
@@ -287,7 +286,6 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
       SCMUpdateRefsClosure uprefs;
       CodeBlobToOopClosure upcode(&uprefs, true);
       CLDToOopClosure upcld(&uprefs, false);
-      // ClassLoaderDataGraph::clear_claimed_marks();
       ClassLoaderDataGraph::roots_cld_do(NULL, &upcld);
       CodeCache::blobs_do(&upcode);
       ShenandoahAlwaysTrueClosure always_true;
@@ -453,6 +451,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
     // Delete entries from dead interned strings.
     // Clean up unreferenced symbols in symbol table.
     sh->unlink_string_and_symbol_table(&is_alive);
+
     ClassLoaderDataGraph::purge();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::class_unloading);
   }
@@ -501,6 +500,9 @@ void ShenandoahConcurrentMark::verify_roots() {
   ClassLoaderDataGraph::clear_claimed_marks();
   ShenandoahRootProcessor rp(ShenandoahHeap::heap(), 1);
   rp.process_roots(&cl, &cl, &cldCl, &cldCl, &cldCl, &blobsCl, &blobsCl);
+
+  ShenandoahAlwaysTrueClosure always_true;
+  JNIHandles::weak_oops_do(&always_true, &cl);
 }
 #endif
 
@@ -765,6 +767,12 @@ void ShenandoahConcurrentMark::weak_refs_work() {
                                      &complete_gc, &par_task_executor,
                                      NULL,
                                      ShenandoahHeap::heap()->tracer()->gc_id());
+
+#ifdef ASSERT
+   for (int i = 0; i < (int) _max_conc_worker_id; i++) {
+     assert(_task_queues->queue(i)->is_empty(), "Should be empty");
+   }
+#endif
 
    if (ShenandoahTraceWeakReferences) {
      gclog_or_tty->print_cr("finished processing references");

@@ -54,8 +54,11 @@ public:
 
 
 class ShenandoahIsAliveClosure: public BoolObjectClosure {
-
+private:
+  ShenandoahHeap* _heap;
 public:
+  ShenandoahIsAliveClosure();
+  void init(ShenandoahHeap* heap);
   bool do_object_b(oop obj);
 };
 
@@ -161,6 +164,7 @@ public:
   }
 
   static ShenandoahHeap* heap();
+  static ShenandoahHeap* heap_no_check();
 
   ShenandoahCollectorPolicy *shenandoahPolicy() { return _shenandoah_policy;}
 
