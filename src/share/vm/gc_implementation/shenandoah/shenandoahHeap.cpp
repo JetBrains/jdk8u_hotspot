@@ -2533,7 +2533,7 @@ bool ShenandoahIsAliveClosure::do_object_b(oop obj) {
   assert(_heap != NULL, "sanity");
 #ifdef ASSERT
   if (_heap->concurrent_mark_in_progress()) {
-    assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj), "only query from-space");
+    assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj), "only query to-space");
   }
 #endif
   assert(!oopDesc::is_null(obj), "null");

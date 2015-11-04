@@ -184,7 +184,10 @@ public:
 
     ResourceMark m;
     if (ClassUnloadingWithConcurrentMark) {
-      _rp->process_strong_roots(cl, &cldCl, &blobsCl);
+      SCMUpdateRefsClosure uprefs;
+      CodeBlobToOopClosure upcode(&uprefs, true);
+      CLDToOopClosure upcld(&uprefs, false);
+      _rp->process_roots(cl, &uprefs, &cldCl, &upcld, &cldCl, &blobsCl, &upcode);
     } else {
       _rp->process_all_roots(cl, &cldCl, &blobsCl);
     }
@@ -279,18 +282,6 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
       ShenandoahMarkRootsTask mark_roots(&root_proc, update_refs);
       heap->conc_workers()->run_task(&mark_roots);
       heap->set_par_threads(0);
-    }
-
-    if (ClassUnloadingWithConcurrentMark) {
-      // Now update refs in remaining weak roots.
-      SCMUpdateRefsClosure uprefs;
-      CodeBlobToOopClosure upcode(&uprefs, true);
-      CLDToOopClosure upcld(&uprefs, false);
-      ClassLoaderDataGraph::roots_cld_do(NULL, &upcld);
-      CodeCache::blobs_do(&upcode);
-      ShenandoahAlwaysTrueClosure always_true;
-      JNIHandles::weak_oops_do(&always_true, &uprefs);
-      heap->ref_processor()->weak_oops_do(&uprefs);
     }
 
   } else {
