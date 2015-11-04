@@ -95,6 +95,19 @@ public:
 };
 
 
+class SCMUpdateRefsClosure: public ExtendedOopClosure {
+public:
+  virtual void do_oop(oop* p) {
+    oop obj = oopDesc::load_heap_oop(p);
+    if (! oopDesc::is_null(obj)) {
+      ShenandoahBarrierSet::resolve_and_update_oop_static(p, obj);
+    }
+  }
+  virtual void do_oop(narrowOop* p) {
+    Unimplemented();
+  }
+};
+
 // Mark the object and add it to the queue to be scanned
 template <class T>
 ShenandoahMarkObjsClosure<T>::ShenandoahMarkObjsClosure(QHolder* q) :
@@ -170,7 +183,7 @@ public:
     CLDToOopClosure cldCl(cl);
 
     ResourceMark m;
-    if (ShenandoahProcessReferences && ClassUnloadingWithConcurrentMark) {
+    if (ClassUnloadingWithConcurrentMark) {
       _rp->process_strong_roots(cl, &cldCl, &blobsCl);
     } else {
       _rp->process_all_roots(cl, &cldCl, &blobsCl);
@@ -258,21 +271,28 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (ShenandoahParallelRootScan) {
 
-    ClassLoaderDataGraph::clear_claimed_marks();
-    heap->set_par_threads(_max_conc_worker_id);
-    heap->conc_workers()->set_active_workers(_max_conc_worker_id);
-    ShenandoahRootProcessor root_proc(heap, _max_conc_worker_id);
-    TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
-    ShenandoahMarkRootsTask mark_roots(&root_proc, update_refs);
-    heap->conc_workers()->run_task(&mark_roots);
-    heap->set_par_threads(0);
+    {
+      ClassLoaderDataGraph::clear_claimed_marks();
+      heap->set_par_threads(_max_conc_worker_id);
+      heap->conc_workers()->set_active_workers(_max_conc_worker_id);
+      ShenandoahRootProcessor root_proc(heap, _max_conc_worker_id);
+      TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
+      ShenandoahMarkRootsTask mark_roots(&root_proc, update_refs);
+      heap->conc_workers()->run_task(&mark_roots);
+      heap->set_par_threads(0);
+    }
 
-    // Mark through any class loaders that have been found alive.
     if (ClassUnloadingWithConcurrentMark) {
-      ShenandoahMarkUpdateRootsClosure cl(get_queue(0));
-      CLDToOopClosure cldCl(&cl);
-      CLDMarkAliveClosure cld_keep_alive(&cldCl);
-      ClassLoaderDataGraph::roots_cld_do(NULL, &cld_keep_alive);
+      // Now update refs in remaining weak roots.
+      SCMUpdateRefsClosure uprefs;
+      CodeBlobToOopClosure upcode(&uprefs, true);
+      CLDToOopClosure upcld(&uprefs, false);
+      // ClassLoaderDataGraph::clear_claimed_marks();
+      ClassLoaderDataGraph::roots_cld_do(NULL, &upcld);
+      CodeCache::blobs_do(&upcode);
+      ShenandoahAlwaysTrueClosure always_true;
+      JNIHandles::weak_oops_do(&always_true, &uprefs);
+      heap->ref_processor()->weak_oops_do(&uprefs);
     }
 
   } else {
@@ -420,6 +440,23 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::weakrefs);
   }
 
+  // And finally finish class unloading
+  if (ClassUnloadingWithConcurrentMark) {
+    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::class_unloading);
+    ShenandoahIsAliveClosure is_alive;
+    // Unload classes and purge SystemDictionary.
+    bool purged_class = SystemDictionary::do_unloading(&is_alive, true);
+    // Unload nmethods.
+    CodeCache::do_unloading(&is_alive, purged_class);
+    // Prune dead klasses from subklass/sibling/implementor lists.
+    Klass::clean_weak_klass_links(&is_alive);
+    // Delete entries from dead interned strings.
+    // Clean up unreferenced symbols in symbol table.
+    sh->unlink_string_and_symbol_table(&is_alive);
+    ClassLoaderDataGraph::purge();
+    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::class_unloading);
+  }
+
 #ifdef ASSERT
   for (int i = 0; i < (int) _max_conc_worker_id; i++) {
     assert(_task_queues->queue(i)->is_empty(), "Should be empty");
@@ -436,13 +473,6 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
       _task_queues->queue(i)->stats.verify();
     }
 #endif
-  }
-
-  // We still need to update (without marking) alive refs in JNI handles.
-  if (ShenandoahProcessReferences && ClassUnloadingWithConcurrentMark) {
-    ShenandoahUpdateAliveRefs cl;
-    ShenandoahIsAliveClosure is_alive;
-    JNIHandles::weak_oops_do(&is_alive, &cl);
   }
 
 #ifdef ASSERT
@@ -466,11 +496,11 @@ void ShenandoahVerifyRootsClosure1::do_oop(oop* p) {
 
 void ShenandoahConcurrentMark::verify_roots() {
   ShenandoahVerifyRootsClosure1 cl;
-  CodeBlobToOopClosure blobsCl(&cl, true);
+  CodeBlobToOopClosure blobsCl(&cl, false);
   CLDToOopClosure cldCl(&cl);
   ClassLoaderDataGraph::clear_claimed_marks();
   ShenandoahRootProcessor rp(ShenandoahHeap::heap(), 1);
-  rp.process_roots(&cl, &cl, &cldCl, &cldCl, &cldCl, &blobsCl);
+  rp.process_roots(&cl, &cl, &cldCl, &cldCl, &cldCl, &blobsCl, &blobsCl);
 }
 #endif
 
@@ -750,20 +780,6 @@ void ShenandoahConcurrentMark::weak_refs_work() {
    rp->verify_no_references_recorded();
    assert(!rp->discovery_enabled(), "Post condition");
 
-   if (ClassUnloadingWithConcurrentMark) {
-     // Unload classes and purge SystemDictionary.
-     bool purged_class = SystemDictionary::do_unloading(&is_alive);
-     // Unload nmethods.
-     CodeCache::do_unloading(&is_alive, purged_class);
-     // Prune dead klasses from subklass/sibling/implementor lists.
-     Klass::clean_weak_klass_links(&is_alive);
-     // Delete entries from dead interned strings.
-     StringTable::unlink(&is_alive);
-     // Clean up unreferenced symbols in symbol table.
-     SymbolTable::unlink();
-
-     ClassLoaderDataGraph::purge();
-   }
 }
 
 void ShenandoahConcurrentMark::cancel() {

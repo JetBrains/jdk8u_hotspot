@@ -591,6 +591,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() {
   _phase_names[drain_satb] = "DrainSATB";
   _phase_names[drain_queues] = "DrainQueues";
   _phase_names[weakrefs] = "WeakRefs";
+  _phase_names[class_unloading] = "ClassUnloading";
   _phase_names[prepare_evac] = "PrepareEvac";
   _phase_names[init_evac] = "InitEvac";
   _phase_names[final_evac] = "FinalEvacuation";
@@ -736,6 +737,9 @@ void ShenandoahCollectorPolicy::print_tracing_info() {
   print_summary_sd("Drain Queues", 2, &(_timing_data[drain_queues]._ms));
   if (ShenandoahProcessReferences) {
     print_summary_sd("Weak References", 2, &(_timing_data[weakrefs]._ms));
+  }
+  if (ClassUnloadingWithConcurrentMark) {
+    print_summary_sd("Class Unloading", 2, &(_timing_data[class_unloading]._ms));
   }
   print_summary_sd("Prepare Evacuation", 2, &(_timing_data[prepare_evac]._ms));
   print_summary_sd("Initial Evacuation", 2, &(_timing_data[init_evac]._ms));

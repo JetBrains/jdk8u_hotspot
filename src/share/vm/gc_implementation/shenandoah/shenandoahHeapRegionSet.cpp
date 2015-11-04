@@ -112,7 +112,7 @@ void ShenandoahHeapRegionSet::append(ShenandoahHeapRegion* region) {
   *next_free = region;
 
   _capacity += region->free();
-  assert(_used <= _capacity, "must not use more than we have");
+  assert(_used <= _capacity, err_msg("must not use more than we have: used: "SIZE_FORMAT", capacity: "SIZE_FORMAT, _used, _capacity));
 }
 
 void ShenandoahHeapRegionSet::clear() {

@@ -1721,7 +1721,6 @@ void Arguments::set_g1_gc_flags() {
 }
 
 void Arguments::set_shenandoah_gc_flags() {
-  FLAG_SET_DEFAULT(ClassUnloadingWithConcurrentMark, false);
   FLAG_SET_DEFAULT(UseDynamicNumberOfGCThreads, true);
   FLAG_SET_DEFAULT(ParallelGCThreads,
                    Abstract_VM_Version::parallel_worker_threads());

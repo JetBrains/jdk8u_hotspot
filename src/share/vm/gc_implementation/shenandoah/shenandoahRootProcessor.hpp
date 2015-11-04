@@ -78,7 +78,8 @@ public:
                      CLDClosure* strong_clds,
                      CLDClosure* weak_clds,
                      CLDClosure* thread_stack_clds,
-                     CodeBlobClosure* strong_code);
+                     CodeBlobClosure* strong_code,
+                     CodeBlobClosure* weak_code);
 
   // Apply oops, clds and blobs to all strongly reachable roots in the system
   void process_strong_roots(OopClosure* oops,

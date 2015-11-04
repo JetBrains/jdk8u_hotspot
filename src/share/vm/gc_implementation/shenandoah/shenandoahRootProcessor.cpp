@@ -49,12 +49,13 @@ void ShenandoahRootProcessor::process_roots(OopClosure* strong_oops,
                                             CLDClosure* strong_clds,
                                             CLDClosure* weak_clds,
                                             CLDClosure* thread_stack_clds,
-                                            CodeBlobClosure* strong_code) {
+                                            CodeBlobClosure* strong_code,
+                                            CodeBlobClosure* weak_code) {
   process_java_roots(strong_oops, thread_stack_clds, strong_clds, weak_clds, strong_code, 0);
   process_vm_roots(strong_oops, weak_oops, 0);
 
   if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_CodeCache_oops_do)) {
-    CodeCache::blobs_do(strong_code);
+    CodeCache::blobs_do(weak_code);
   }
 
   if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_JNIHandles_weak_oops_do)) {

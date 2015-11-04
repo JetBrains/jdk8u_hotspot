@@ -50,6 +50,7 @@ public:
     drain_satb,
     drain_queues,
     weakrefs,
+    class_unloading,
     prepare_evac,
     init_evac,
 

@@ -65,6 +65,10 @@ void ShenandoahMarkObjsClosure<T>::do_object(oop obj, int index) {
     obj->oop_iterate(&_mark_refs);
   } else { // Chunked obj array processing
     assert(obj->is_objArray(), "expect object array");
+    if (index == 0) {
+      // Process metadata.
+      _mark_refs.do_klass(obj->klass());
+    }
     objArrayOop array = objArrayOop(obj);
     const int len = array->length();
     const int beg_index = index;
@@ -142,16 +146,22 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
     if (ShenandoahTraceConcurrentMarking) {
       tty->print_cr("marked obj: "PTR_FORMAT, p2i((HeapWord*) obj));
     }
+
+#ifdef ASSERT
+    if (heap->heap_region_containing(obj)->is_in_collection_set()) {
+      tty->print_cr("trying to mark obj: "PTR_FORMAT" (%s) in dirty region: ", p2i((HeapWord*) obj), BOOL_TO_STR(heap->is_marked_current(obj)));
+      //      _heap->heap_region_containing(obj)->print();
+      //      _heap->print_heap_regions();
+    }
+#endif
+    assert(heap->cancelled_concgc()
+           || ! heap->heap_region_containing(obj)->is_in_collection_set(),
+           "we don't want to mark objects in from-space");
+
     if (obj->is_typeArray()) { // No references. Skip it.
       count_liveness(obj, heap);
       return;
     } else if (obj->is_objArray()) {
-      /*
-      oop cld = obj->klass()->klass_holder();
-      if (cld != NULL) {
-        q->push(ObjArrayTask(cld, -1));
-      }
-      */
       count_liveness(obj, heap);
       if (objArrayOop(obj)->length() > 0) {
         bool pushed = q->push(ObjArrayTask(obj, 0));
