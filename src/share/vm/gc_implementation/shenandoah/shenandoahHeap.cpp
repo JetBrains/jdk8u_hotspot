@@ -256,7 +256,11 @@ public:
     ShenandoahHeapRegion* region = _regions->claim_next();
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     while (region != NULL) {
-      heap->reset_mark_bitmap_range(region->bottom(), region->end());
+      HeapWord* bottom = region->bottom();
+      HeapWord* top = region->top_at_mark_start();
+      if (top > bottom) {
+        heap->reset_mark_bitmap_range(bottom, top);
+      }
       region = _regions->claim_next();
     }
   }
@@ -440,19 +444,6 @@ bool  ShenandoahHeap::is_scavengable(const void* p) {
   return true;
 }
 
-HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size) {
-  if (UseTLAB) {
-  HeapWord* obj = thread->gclab().allocate(size);
-  if (obj != NULL) {
-    return obj;
-  }
-  // Otherwise...
-  return allocate_from_gclab_slow(thread, size);
-  } else {
-    return NULL;
-  }
-}
-
 HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) {
   // Retain tlab and allocate object in shared space if
   // the amount free in the tlab is too large to discard.
@@ -495,15 +486,15 @@ HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) 
 }
 
 HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size) {
-  return allocate_new_tlab(word_size, true);
-}
-
-HeapWord* ShenandoahHeap::allocate_new_gclab(size_t word_size) {
   return allocate_new_tlab(word_size, false);
 }
 
-HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size, bool mark) {
-  HeapWord* result = allocate_memory(word_size);
+HeapWord* ShenandoahHeap::allocate_new_gclab(size_t word_size) {
+  return allocate_new_tlab(word_size, true);
+}
+
+HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size, bool evacuating) {
+  HeapWord* result = allocate_memory(word_size, evacuating);
 
   if (result != NULL) {
     assert(! heap_region_containing(result)->is_in_collection_set(), "Never allocate in dirty region");
@@ -546,11 +537,11 @@ public:
   }
 };
 
-HeapWord* ShenandoahHeap::allocate_memory(size_t word_size) {
+HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
   HeapWord* result = NULL;
   result = allocate_memory_with_lock(word_size);
 
-  if (result == NULL && ! Thread::current()->is_evacuating()) { // Allocation failed, try full-GC, then retry allocation.
+  if (result == NULL && ! evacuating) { // Allocation failed, try full-GC, then retry allocation.
     // tty->print_cr("failed to allocate "SIZE_FORMAT " bytes, free regions:", word_size * HeapWordSize);
     // _free_regions->print();
     collect(GCCause::_allocation_failure);
@@ -562,12 +553,6 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size) {
 
 HeapWord* ShenandoahHeap::allocate_memory_with_lock(size_t word_size) {
   return allocate_memory_shenandoah_lock(word_size);
-}
-
-HeapWord* ShenandoahHeap::allocate_memory_heap_lock(size_t word_size) {
-  ShouldNotReachHere();
-  MutexLocker ml(Heap_lock);
-  return allocate_memory_work(word_size);
 }
 
 HeapWord* ShenandoahHeap::allocate_memory_shenandoah_lock(size_t word_size) {
@@ -620,7 +605,6 @@ ShenandoahHeapRegion* ShenandoahHeap::get_next_region() {
 HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
 
   if (word_size * HeapWordSize > ShenandoahHeapRegion::RegionSizeBytes) {
-    assert(! Thread::current()->is_evacuating(), "no humongous allocation for evacuating thread");
     return allocate_large_memory(word_size);
   }
 
@@ -782,10 +766,10 @@ HeapWord* ShenandoahHeap::mem_allocate_locked(size_t size,
   // This was used for allocation while holding the Heap_lock.
   // HeapWord* filler = allocate_memory(BrooksPointer::BROOKS_POINTER_OBJ_SIZE + size);
 
-  HeapWord* filler = allocate_memory(BrooksPointer::BROOKS_POINTER_OBJ_SIZE + size);
+  HeapWord* filler = allocate_memory(BrooksPointer::BROOKS_POINTER_OBJ_SIZE + size, false);
   HeapWord* result = filler + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
   if (filler != NULL) {
-    initialize_brooks_ptr(filler, result);
+    initialize_brooks_ptr(oop(result));
     _bytesAllocSinceCM += size * HeapWordSize;
 #ifdef ASSERT
     if (ShenandoahTraceAllocations) {
@@ -868,17 +852,6 @@ private:
     }
   }
 };
-
-//fixme
-void ShenandoahHeap::initialize_brooks_ptr(HeapWord* filler, HeapWord* obj, bool new_obj) {
-  BrooksPointer brooks_ptr = BrooksPointer::get(oop(obj));
-  brooks_ptr.set_forwardee(oop(obj));
-}
-
-void ShenandoahHeap::initialize_brooks_ptr(oop p) {
-  BrooksPointer brooks_ptr = BrooksPointer::get(p);
-  brooks_ptr.set_forwardee(p);
-}
 
 class VerifyEvacuatedObjectClosure : public ObjectClosure {
 
@@ -1398,12 +1371,12 @@ public:
   }
 };
 
-class ShenandoahEvacuateUpdateStrongRootsTask : public AbstractGangTask {
+class ShenandoahEvacuateUpdateRootsTask : public AbstractGangTask {
   ShenandoahRootProcessor* _rp;
 public:
 
-  ShenandoahEvacuateUpdateStrongRootsTask(ShenandoahRootProcessor* rp) :
-    AbstractGangTask("Shenandoah evacuate and update strong roots"),
+  ShenandoahEvacuateUpdateRootsTask(ShenandoahRootProcessor* rp) :
+    AbstractGangTask("Shenandoah evacuate and update roots"),
     _rp(rp)
   {
     // Nothing else to do.
@@ -1414,26 +1387,7 @@ public:
     CodeBlobToOopClosure blobsCl(&cl, false);
     CLDToOopClosure cldCl(&cl);
 
-    _rp->process_all_roots(&cl, &cldCl, &blobsCl);
-  }
-};
-
-class ShenandoahEvacuateUpdateWeakRootsTask : public AbstractGangTask {
-public:
-
-  ShenandoahEvacuateUpdateWeakRootsTask() : AbstractGangTask("Shenandoah evacuate and update weak roots") {
-    // Nothing else to do.
-  }
-
-  void work(uint worker_id) {
-    ShenandoahEvacuateUpdateRootsClosure cl;
-    ShenandoahIsAliveClosure is_alive;
-    JNIHandles::weak_oops_do(&is_alive, &cl);
-
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
-    if (ShenandoahProcessReferences) {
-      heap->ref_processor()->weak_oops_do(&cl);
-    }
+    _rp->process_roots(&cl, &cl, &cldCl, &cldCl, &cldCl, &blobsCl, &blobsCl);
   }
 };
 
@@ -1451,21 +1405,9 @@ void ShenandoahHeap::evacuate_and_update_roots() {
   {
     set_par_threads(_max_parallel_workers);
     ShenandoahRootProcessor rp(this, _max_parallel_workers);
-    ShenandoahEvacuateUpdateStrongRootsTask strong_roots_task(&rp);
+    ShenandoahEvacuateUpdateRootsTask roots_task(&rp);
     workers()->set_active_workers(_max_parallel_workers);
-    workers()->run_task(&strong_roots_task);
-    set_par_threads(0);
-  }
-
-  // We process weak roots using only 1 worker thread, multi-threaded weak roots
-  // processing is not implemented yet. We can't use the VMThread itself, because
-  // we need to grab the Heap_lock.
-  {
-    ShenandoahEvacuateUpdateWeakRootsTask weak_roots_task;
-    set_par_threads(1);
-    workers()->set_active_workers(1);
-    workers()->run_task(&weak_roots_task);
-    workers()->set_active_workers(_max_parallel_workers);
+    workers()->run_task(&roots_task);
     set_par_threads(0);
   }
 
@@ -2368,111 +2310,9 @@ void ShenandoahHeap::oom_during_evacuation() {
 
 }
 
-void ShenandoahHeap::copy_object(oop p, HeapWord* s) {
-  HeapWord* filler = s;
-  assert(s != NULL, "allocation of brooks pointer must not fail");
-  HeapWord* copy = s + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
-
-  guarantee(copy != NULL, "allocation of copy object must not fail");
-  Copy::aligned_disjoint_words((HeapWord*) p, copy, p->size());
-  initialize_brooks_ptr(filler, copy);
-
-#ifdef ASSERT
-  if (ShenandoahTraceEvacuations) {
-    tty->print_cr("copy object from "PTR_FORMAT" to: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy));
-  }
-#endif
-}
-
-oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
-  ShenandoahHeapRegion* hr;
-  size_t required;
-
-#ifdef ASSERT
-  if (ShenandoahVerifyReadsToFromSpace) {
-    hr = heap_region_containing(p);
-    {
-      hr->memProtectionOff();
-      required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
-      hr->memProtectionOn();
-    }
-  } else {
-    required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
-  }
-#else
-    required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
-#endif
-
-  assert(! heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
-
-  // Don't even attempt to evacuate anything if evacuation has been cancelled.
-  if (_cancelled_concgc) {
-    return ShenandoahBarrierSet::resolve_oop_static(p);
-  }
-
-  bool alloc_from_gclab = true;
-  thread->set_evacuating(true);
-  HeapWord* filler = allocate_from_gclab(thread, required);
-  if (filler == NULL) {
-    filler = allocate_memory(required);
-    alloc_from_gclab = false;
-  }
-  thread->set_evacuating(false);
-
-  if (filler == NULL) {
-    oom_during_evacuation();
-    // If this is a Java thread, it should have waited
-    // until all GC threads are done, and then we
-    // return the forwardee.
-    oop resolved = ShenandoahBarrierSet::resolve_oop_static(p);
-    return resolved;
-  }
-
-  HeapWord* copy = filler + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
-
-#ifdef ASSERT
-  if (ShenandoahVerifyReadsToFromSpace) {
-    hr->memProtectionOff();
-    copy_object(p, filler);
-    hr->memProtectionOn();
-  } else {
-    copy_object(p, filler);
-  }
-#else
-    copy_object(p, filler);
-#endif
-
-  HeapWord* result = BrooksPointer::get(p).cas_forwardee((HeapWord*) p, copy);
-
-  oop return_val;
-  if (result == (HeapWord*) p) {
-    return_val = oop(copy);
-
-#ifdef ASSERT
-    if (ShenandoahTraceEvacuations) {
-      tty->print("Copy of "PTR_FORMAT" to "PTR_FORMAT" succeeded \n", p2i((HeapWord*) p), p2i(copy));
-    }
-    assert(return_val->is_oop(), "expect oop");
-    assert(p->klass() == return_val->klass(), err_msg("Should have the same class p: "PTR_FORMAT", copy: "PTR_FORMAT, p2i((HeapWord*) p), p2i((HeapWord*) copy)));
-#endif
-  }  else {
-    if (alloc_from_gclab) {
-      thread->gclab().rollback(required);
-    }
-#ifdef ASSERT
-    if (ShenandoahTraceEvacuations) {
-      tty->print_cr("Copy of "PTR_FORMAT" to "PTR_FORMAT" failed, use other: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy), p2i((HeapWord*) result));
-    }
-#endif
-    return_val = (oopDesc*) result;
-  }
-
-  return return_val;
-}
-
 HeapWord* ShenandoahHeap::tlab_post_allocation_setup(HeapWord* obj) {
   HeapWord* result = obj + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
-  initialize_brooks_ptr(obj, result);
+  initialize_brooks_ptr(oop(result));
   return result;
 }
 

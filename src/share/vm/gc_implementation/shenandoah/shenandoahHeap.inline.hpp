@@ -24,11 +24,15 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP
 
+#include "memory/threadLocalAllocBuffer.inline.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.inline.hpp"
 #include "gc_implementation/g1/concurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.inline.hpp"
+#include "oops/oop.inline.hpp"
 #include "runtime/atomic.inline.hpp"
+#include "utilities/copy.hpp"
 
 /*
  * Marks the object. Returns true if the object has not been marked before and has
@@ -145,4 +149,121 @@ inline bool ShenandoahHeap::cancelled_concgc() const {
   return cancelled;
 }
 
+inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size) {
+  if (UseTLAB) {
+    HeapWord* obj = thread->gclab().allocate(size);
+    if (obj != NULL) {
+      return obj;
+    }
+    // Otherwise...
+    return allocate_from_gclab_slow(thread, size);
+  } else {
+    return NULL;
+  }
+}
+
+inline void ShenandoahHeap::initialize_brooks_ptr(oop p) {
+  BrooksPointer brooks_ptr = BrooksPointer::get(p);
+  brooks_ptr.set_forwardee(p);
+}
+
+inline void ShenandoahHeap::copy_object(oop p, HeapWord* s) {
+  HeapWord* filler = s;
+  assert(s != NULL, "allocation of brooks pointer must not fail");
+  HeapWord* copy = s + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+
+  guarantee(copy != NULL, "allocation of copy object must not fail");
+  Copy::aligned_disjoint_words((HeapWord*) p, copy, p->size());
+  initialize_brooks_ptr(oop(copy));
+
+#ifdef ASSERT
+  if (ShenandoahTraceEvacuations) {
+    tty->print_cr("copy object from "PTR_FORMAT" to: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy));
+  }
+#endif
+}
+
+inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
+  size_t required;
+
+#ifdef ASSERT
+  ShenandoahHeapRegion* hr;
+  if (ShenandoahVerifyReadsToFromSpace) {
+    hr = heap_region_containing(p);
+    {
+      hr->memProtectionOff();
+      required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
+      hr->memProtectionOn();
+    }
+  } else {
+    required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
+  }
+#else
+    required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
+#endif
+
+  assert(! heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
+
+  // Don't even attempt to evacuate anything if evacuation has been cancelled.
+  if (_cancelled_concgc) {
+    return ShenandoahBarrierSet::resolve_oop_static(p);
+  }
+
+  bool alloc_from_gclab = true;
+  HeapWord* filler = allocate_from_gclab(thread, required);
+  if (filler == NULL) {
+    filler = allocate_memory(required, true);
+    alloc_from_gclab = false;
+  }
+
+  if (filler == NULL) {
+    oom_during_evacuation();
+    // If this is a Java thread, it should have waited
+    // until all GC threads are done, and then we
+    // return the forwardee.
+    oop resolved = ShenandoahBarrierSet::resolve_oop_static(p);
+    return resolved;
+  }
+
+  HeapWord* copy = filler + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+
+#ifdef ASSERT
+  if (ShenandoahVerifyReadsToFromSpace) {
+    hr->memProtectionOff();
+    copy_object(p, filler);
+    hr->memProtectionOn();
+  } else {
+    copy_object(p, filler);
+  }
+#else
+    copy_object(p, filler);
+#endif
+
+  HeapWord* result = BrooksPointer::get(p).cas_forwardee((HeapWord*) p, copy);
+
+  oop return_val;
+  if (result == (HeapWord*) p) {
+    return_val = oop(copy);
+
+#ifdef ASSERT
+    if (ShenandoahTraceEvacuations) {
+      tty->print("Copy of "PTR_FORMAT" to "PTR_FORMAT" succeeded \n", p2i((HeapWord*) p), p2i(copy));
+    }
+    assert(return_val->is_oop(), "expect oop");
+    assert(p->klass() == return_val->klass(), err_msg("Should have the same class p: "PTR_FORMAT", copy: "PTR_FORMAT, p2i((HeapWord*) p), p2i((HeapWord*) copy)));
+#endif
+  }  else {
+    if (alloc_from_gclab) {
+      thread->gclab().rollback(required);
+    }
+#ifdef ASSERT
+    if (ShenandoahTraceEvacuations) {
+      tty->print_cr("Copy of "PTR_FORMAT" to "PTR_FORMAT" failed, use other: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy), p2i((HeapWord*) result));
+    }
+#endif
+    return_val = (oopDesc*) result;
+  }
+
+  return return_val;
+}
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

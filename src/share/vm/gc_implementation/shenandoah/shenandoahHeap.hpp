@@ -143,14 +143,14 @@ public:
 
 public:
   ShenandoahHeap(ShenandoahCollectorPolicy* policy);
-  HeapWord* allocate_from_gclab(Thread* thread, size_t size);
+  inline HeapWord* allocate_from_gclab(Thread* thread, size_t size);
   HeapWord* allocate_from_gclab_slow(Thread* thread, size_t size);
   HeapWord* allocate_new_tlab(size_t word_size);
   HeapWord* allocate_new_gclab(size_t word_size);
 private:
   HeapWord* allocate_new_tlab(size_t word_size, bool mark);
 public:
-  HeapWord* allocate_memory(size_t word_size);
+  HeapWord* allocate_memory(size_t word_size, bool evacuating);
 
   bool find_contiguous_free_regions(uint num_free_regions, ShenandoahHeapRegion** free_regions);
   bool allocate_contiguous_free_regions(uint num_free_regions, ShenandoahHeapRegion** free_regions);
@@ -292,8 +292,7 @@ public:
   void do_evacuation();
   void parallel_evacuate();
 
-  void initialize_brooks_ptr(HeapWord* brooks_ptr, HeapWord* object, bool new_obj = true);
-  void initialize_brooks_ptr(oop p);
+  inline void initialize_brooks_ptr(oop p);
 
   inline oop maybe_update_oop_ref(oop* p);
   void evacuate_region(ShenandoahHeapRegion* from_region, ShenandoahHeapRegion* to_region);
@@ -308,10 +307,10 @@ public:
   void print_heap_locations(HeapWord* start, HeapWord* end);
   void print_heap_object(oop p);
 
-  oop  evacuate_object(oop src, Thread* thread);
+  inline oop evacuate_object(oop src, Thread* thread);
   bool is_in_collection_set(const void* p);
 
-  void copy_object(oop p, HeapWord* s);
+  inline void copy_object(oop p, HeapWord* s);
   void verify_copy(oop p, oop c);
   void verify_heap_size_consistency();
   void verify_heap_after_marking();
@@ -429,7 +428,6 @@ private:
   void verify_liveness_after_concurrent_mark();
 
   HeapWord* allocate_memory_with_lock(size_t word_size);
-  HeapWord* allocate_memory_heap_lock(size_t word_size);
   HeapWord* allocate_memory_shenandoah_lock(size_t word_size);
   HeapWord* allocate_memory_work(size_t word_size);
   HeapWord* allocate_large_memory(size_t word_size);

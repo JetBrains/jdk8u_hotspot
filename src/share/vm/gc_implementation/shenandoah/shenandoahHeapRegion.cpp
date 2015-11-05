@@ -29,6 +29,7 @@
 #include "gc_implementation/g1/heapRegionBounds.inline.hpp"
 #include "memory/space.inline.hpp"
 #include "memory/universe.hpp"
+#include "oops/oop.inline.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "runtime/os.hpp"
 
@@ -231,7 +232,7 @@ void ShenandoahHeapRegion::fill_region() {
     HeapWord* filler = allocate(BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
     HeapWord* obj = allocate(end() - top());
     sh->fill_with_object(obj, end() - obj);
-    sh->initialize_brooks_ptr(filler, obj);
+    sh->initialize_brooks_ptr(oop(obj));
   }
 }
 

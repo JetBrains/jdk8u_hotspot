@@ -279,8 +279,6 @@ class Thread: public ThreadShadow {
   // ObjectMonitor on which this thread called Object.wait()
   ObjectMonitor* _current_waiting_monitor;
 
-  bool _evacuating;
-
   // Private thread-local objectmonitor list - a simple cache organized as a SLL.
  public:
   ObjectMonitor* omFreeList;
@@ -486,14 +484,6 @@ class Thread: public ThreadShadow {
   }
   void set_current_waiting_monitor(ObjectMonitor* monitor) {
     _current_waiting_monitor = monitor;
-  }
-
-  bool is_evacuating() {
-    return _evacuating;
-  }
-
-  void set_evacuating(bool evacuating) {
-    _evacuating = evacuating;
   }
 
   // GC support

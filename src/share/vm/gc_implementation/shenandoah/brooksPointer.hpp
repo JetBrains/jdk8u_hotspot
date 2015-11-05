@@ -44,10 +44,10 @@ public:
 
   bool check_forwardee_is_in_heap(oop forwardee);
 
-  void set_forwardee(oop forwardee);
-  HeapWord* cas_forwardee(HeapWord* old, HeapWord* forwardee);
+  inline void set_forwardee(oop forwardee);
+  inline HeapWord* cas_forwardee(HeapWord* old, HeapWord* forwardee);
 
-  static BrooksPointer get(oop obj);
+  static inline BrooksPointer get(oop obj);
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_BROOKSPOINTER_HPP

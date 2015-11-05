@@ -23,7 +23,6 @@
 
 #include "precompiled.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
-#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
 #include "memory/universe.hpp"

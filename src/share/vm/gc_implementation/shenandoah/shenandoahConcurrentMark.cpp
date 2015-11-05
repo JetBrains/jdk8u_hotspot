@@ -375,6 +375,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::drain_queues);
     ParallelTaskTerminator terminator(_max_conc_worker_id, _task_queues);
     SCMFinalMarkingTask markingTask = SCMFinalMarkingTask(this, &terminator, sh->need_update_refs());
+    sh->set_par_threads(_max_conc_worker_id);
     sh->conc_workers()->run_task(&markingTask);
     sh->set_par_threads(0);
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::drain_queues);
@@ -707,15 +708,22 @@ public:
 
   // Executes a task using worker threads.
   void execute(ProcessTask& task) {
-    ShenandoahConcurrentMark* cm = ShenandoahHeap::heap()->concurrentMark();
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    ShenandoahConcurrentMark* cm = heap->concurrentMark();
     ParallelTaskTerminator terminator(cm->max_conc_worker_id(), cm->task_queues());
     ShenandoahRefProcTaskProxy proc_task_proxy(task, &terminator);
+    heap->set_par_threads(cm->max_conc_worker_id());
     _workers->run_task(&proc_task_proxy);
+    heap->set_par_threads(0);
   }
 
   void execute(EnqueueTask& task) {
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    ShenandoahConcurrentMark* cm = heap->concurrentMark();
     ShenandoahRefEnqueueTaskProxy enqueue_task_proxy(task);
+    heap->set_par_threads(cm->max_conc_worker_id());
     _workers->run_task(&enqueue_task_proxy);
+    heap->set_par_threads(0);
   }
 };
 
