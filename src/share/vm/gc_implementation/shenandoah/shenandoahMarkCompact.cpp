@@ -180,25 +180,17 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
 
   {
     MarkingCodeBlobClosure follow_code_closure(&MarkSweep::follow_root_closure, CodeBlobToOopClosure::FixRelocations);
-    // Need cleared claim bits for the roots processing
-    ClassLoaderDataGraph::clear_claimed_marks();
-    ShenandoahRootProcessor rp(_heap, 1);
-    rp.process_strong_roots(&MarkSweep::follow_root_closure,
-                            &MarkSweep::follow_cld_closure,
-                            &follow_code_closure);
 
-    // Also update (without marking) weak CLD refs, in case they're reachable.
     UpdateRefsClosure uprefs;
     CLDToOopClosure cld_uprefs(&uprefs, false);
     CodeBlobToOopClosure code_uprefs(&uprefs, CodeBlobToOopClosure::FixRelocations);
-    ClassLoaderDataGraph::roots_cld_do(NULL, &cld_uprefs);
 
-    // Same for weak JNI handles.
-    ShenandoahAlwaysTrueClosure always_true;
-    JNIHandles::weak_oops_do(&always_true, &uprefs);
-    ref_proc->weak_oops_do(&uprefs);
-
-    CodeCache::blobs_do(&code_uprefs);
+    // Need cleared claim bits for the roots processing
+    ClassLoaderDataGraph::clear_claimed_marks();
+    ShenandoahRootProcessor rp(_heap, 1);
+    rp.process_roots(&MarkSweep::follow_root_closure, &uprefs,
+                     &MarkSweep::follow_cld_closure, &cld_uprefs, &MarkSweep::follow_cld_closure,
+                     &follow_code_closure, &code_uprefs);
 
   }
 
