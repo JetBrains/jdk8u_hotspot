@@ -202,7 +202,6 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _shenandoah_policy(policy),
   _concurrent_mark_in_progress(false),
   _evacuation_in_progress(false),
-  _update_references_in_progress(false),
   _free_regions(NULL),
   _collection_set(NULL),
   _bytesAllocSinceCM(0),
@@ -298,9 +297,6 @@ void ShenandoahHeap::print_on(outputStream* st) const {
   }
   if (_evacuation_in_progress) {
     st->print("evacuating ");
-  }
-  if (_update_references_in_progress) {
-    st->print("updating-refs ");
   }
   if (_cancelled_concgc) {
     st->print("cancelled ");
@@ -1175,85 +1171,6 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
 }
 
 
-class ShenandoahUpdateRootsClosure: public ExtendedOopClosure {
-
-  void do_oop(oop* p)       {
-    ShenandoahHeap::heap()->maybe_update_oop_ref(p);
-  }
-
-  void do_oop(narrowOop* p) {
-    Unimplemented();
-  }
-};
-
-void ShenandoahHeap::update_roots() {
-
-  COMPILER2_PRESENT(DerivedPointerTable::clear());
-
-  assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
-
-  ShenandoahUpdateRootsClosure cl;
-  CodeBlobToOopClosure blobsCl(&cl, false);
-  CLDToOopClosure cldCl(&cl);
-
-  ClassLoaderDataGraph::clear_claimed_marks();
-
-  {
-    ShenandoahRootProcessor rp(this, 1);
-    rp.process_all_roots(&cl, &cldCl, &blobsCl);
-    ShenandoahIsAliveClosure is_alive;
-    JNIHandles::weak_oops_do(&is_alive, &cl);
-  }
-
-  COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
-}
-
-class ShenandoahUpdateObjectsClosure : public ObjectClosure {
-  ShenandoahHeap* _heap;
-
-public:
-  ShenandoahUpdateObjectsClosure() :
-    _heap(ShenandoahHeap::heap()) {
-  }
-
-  void do_object(oop p) {
-    ShenandoahUpdateRootsClosure refs_cl;
-    assert(ShenandoahHeap::heap()->is_in(p), "only update objects in heap (where else?)");
-
-    if (_heap->is_marked_current(p)) {
-      p->oop_iterate(&refs_cl);
-    }
-  }
-
-};
-
-class ParallelUpdateRefsTask : public AbstractGangTask {
-private:
-  ShenandoahHeapRegionSet* _regions;
-
-public:
-  ParallelUpdateRefsTask(ShenandoahHeapRegionSet* regions) :
-    AbstractGangTask("Parallel Update References Task"),
-  _regions(regions) {
-  }
-
-  void work(uint worker_id) {
-    ShenandoahUpdateObjectsClosure update_refs_cl;
-    ShenandoahHeapRegion* region = _regions->claim_next();
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
-    while (region != NULL && ! heap->cancelled_concgc()) {
-      if ((! region->is_in_collection_set()) && ! region->is_humongous_continuation()) {
-        heap->marked_object_iterate_careful(region, &update_refs_cl);
-      }
-      heap->reset_mark_bitmap_range(region->bottom(), region->end());
-      region = _regions->claim_next();
-    }
-    if (ShenandoahTracePhases && heap->cancelled_concgc()) {
-      tty->print_cr("Cancelled concurrent update references");
-    }
-  }
-};
-
 class RetireTLABClosure : public ThreadClosure {
 private:
   bool _retire;
@@ -1278,65 +1195,6 @@ void ShenandoahHeap::ensure_parsability(bool retire_tlabs) {
   gc_threads_do(&cl);
   }
 }
-
-void ShenandoahHeap::prepare_for_update_references() {
-  ensure_parsability(true);
-
-  ShenandoahHeapRegionSet regions = ShenandoahHeapRegionSet(_num_regions, _ordered_regions, _num_regions);
-  regions.set_concurrent_iteration_safe_limits();
-
-  if (ShenandoahVerifyReadsToFromSpace) {
-    set_from_region_protection(false);
-
-    // We need to update the roots so that they are ok for C2 when returning from the safepoint.
-    update_roots();
-
-    set_from_region_protection(true);
-
-  } else {
-    // We need to update the roots so that they are ok for C2 when returning from the safepoint.
-    update_roots();
-  }
-
-  set_update_references_in_progress(true);
-}
-
-void ShenandoahHeap::update_references() {
-
-  ShenandoahHeapRegionSet regions = ShenandoahHeapRegionSet(_num_regions, _ordered_regions, _num_regions);
-  ParallelUpdateRefsTask task = ParallelUpdateRefsTask(&regions);
-  set_par_threads(_max_conc_workers);
-  conc_workers()->set_active_workers(_max_conc_workers);
-  _shenandoah_policy->record_phase_start(ShenandoahCollectorPolicy::conc_uprefs);
-  conc_workers()->run_task(&task);
-  _shenandoah_policy->record_phase_end(ShenandoahCollectorPolicy::conc_uprefs);
-  conc_workers()->set_active_workers(_max_conc_workers);
-  set_par_threads(0);
-
-  if (! cancelled_concgc()) {
-    VM_ShenandoahUpdateRootRefs update_roots;
-    if (ShenandoahConcurrentUpdateRefs) {
-      VMThread::execute(&update_roots);
-    } else {
-      update_roots.doit();
-    }
-
-    _allocated_last_gc = used() - _used_start_gc;
-    size_t max_allocated_gc = MAX2(_max_allocated_gc, _allocated_last_gc);
-    /*
-      tty->print_cr("prev max_allocated_gc: "SIZE_FORMAT", new max_allocated_gc: "SIZE_FORMAT", allocated_last_gc: "SIZE_FORMAT" diff %f", _max_allocated_gc, max_allocated_gc, _allocated_last_gc, ((double) max_allocated_gc/ (double) _allocated_last_gc));
-    */
-    _max_allocated_gc = max_allocated_gc;
-
-    // Update-references completed, no need to update-refs during marking.
-    set_need_update_refs(false);
-  }
-
-  Universe::update_heap_info_at_gc();
-
-  set_update_references_in_progress(false);
-}
-
 
 class ShenandoahEvacuateUpdateRootsClosure: public ExtendedOopClosure {
 private:
@@ -1421,27 +1279,8 @@ void ShenandoahHeap::evacuate_and_update_roots() {
 
 
 void ShenandoahHeap::do_evacuation() {
-  assert(Thread::current()->is_VM_thread() || ShenandoahConcurrentEvacuation, "Only evacuate from VMThread unless we do concurrent evacuation");
 
   parallel_evacuate();
-
-  if (! ShenandoahConcurrentEvacuation) {
-    // We need to make sure that after leaving the safepoint, all
-    // GC roots are up-to-date. This is an assumption built into
-    // the hotspot compilers, especially C2, that allows it to
-    // do optimizations like lifting barriers outside of a loop.
-
-    if (ShenandoahVerifyReadsToFromSpace) {
-      set_from_region_protection(false);
-
-      update_roots();
-
-      set_from_region_protection(true);
-
-    } else {
-      update_roots();
-    }
-  }
 
   if (ShenandoahVerify && ! cancelled_concgc()) {
     VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
@@ -1457,7 +1296,6 @@ void ShenandoahHeap::do_evacuation() {
 void ShenandoahHeap::parallel_evacuate() {
 
   if (! cancelled_concgc()) {
-    assert(Thread::current()->is_VM_thread() || ShenandoahConcurrentEvacuation, "Only evacuate from VMThread unless we do concurrent evacuation");
 
     if (ShenandoahGCVerbose) {
       tty->print_cr("starting parallel_evacuate");
@@ -2176,25 +2014,6 @@ public:
   }
 };
 
-void ShenandoahHeap::verify_regions_after_update_refs() {
-  VerifyRegionsAfterUpdateRefsClosure verify_regions;
-  heap_region_iterate(&verify_regions);
-}
-
-void ShenandoahHeap::verify_heap_after_update_refs() {
-
-  verify_heap_size_consistency();
-
-  ensure_parsability(false);
-
-  VerifyAfterUpdateRefsClosure cl;
-
-  roots_iterate(&cl);
-  weak_roots_iterate(&cl);
-  oop_iterate(&cl, true, true);
-
-}
-
 void ShenandoahHeap::stop_concurrent_marking() {
   assert(concurrent_mark_in_progress(), "How else could we get here?");
   if (! cancelled_concgc()) {
@@ -2235,18 +2054,10 @@ void ShenandoahHeap::set_concurrent_mark_in_progress(bool in_progress) {
 
 void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
   if (ShenandoahTracePhases) {
-    if (ShenandoahConcurrentEvacuation) {
-      if (in_progress) {
-        gclog_or_tty->print_cr("Shenandoah starting concurrent evacuation, heap used: "SIZE_FORMAT" MB", used() / M);
-      } else {
-        gclog_or_tty->print_cr("Shenandoah finishing concurrent evacuation, heap used: "SIZE_FORMAT" MB", used() / M);
-      }
+    if (in_progress) {
+      gclog_or_tty->print_cr("Shenandoah starting concurrent evacuation, heap used: "SIZE_FORMAT" MB", used() / M);
     } else {
-      if (in_progress) {
-        gclog_or_tty->print_cr("Shenandoah starting non-concurrent evacuation");
-      } else {
-        gclog_or_tty->print_cr("Shenandoah finishing non-concurrent evacuation");
-      }
+      gclog_or_tty->print_cr("Shenandoah finishing concurrent evacuation, heap used: "SIZE_FORMAT" MB", used() / M);
     }
   }
   JavaThread::set_evacuation_in_progress_all_threads(in_progress);
@@ -2256,29 +2067,6 @@ void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
 
 bool ShenandoahHeap::is_evacuation_in_progress() {
   return _evacuation_in_progress;
-}
-
-bool ShenandoahHeap::is_update_references_in_progress() {
-  return _update_references_in_progress;
-}
-
-void ShenandoahHeap::set_update_references_in_progress(bool update_refs_in_progress) {
-  if (ShenandoahTracePhases) {
-    if (ShenandoahConcurrentUpdateRefs) {
-      if (update_refs_in_progress) {
-        gclog_or_tty->print_cr("Shenandoah starting concurrent reference-updating");
-      } else {
-        gclog_or_tty->print_cr("Shenandoah finishing concurrent reference-updating");
-      }
-    } else {
-      if (update_refs_in_progress) {
-        gclog_or_tty->print_cr("Shenandoah starting non-concurrent reference-updating");
-      } else {
-        gclog_or_tty->print_cr("Shenandoah finishing non-concurrent reference-updating");
-      }
-    }
-  }
-  _update_references_in_progress = update_refs_in_progress;
 }
 
 void ShenandoahHeap::verify_copy(oop p,oop c){

@@ -254,19 +254,13 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
   assert(Thread::current()->is_VM_thread(), "can only do this in VMThread");
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  if (ShenandoahParallelRootScan) {
-    heap->set_par_threads(_max_conc_worker_id);
-    heap->conc_workers()->set_active_workers(_max_conc_worker_id);
-    ShenandoahRootProcessor root_proc(heap, _max_conc_worker_id);
-    TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
-    ShenandoahMarkRootsTask mark_roots(&root_proc, update_refs);
-    heap->conc_workers()->run_task(&mark_roots);
-    heap->set_par_threads(0);
-
-  } else {
-    ShenandoahMarkUpdateRootsClosure cl(get_queue(0));
-    heap->roots_iterate(&cl);
-  }
+  heap->set_par_threads(_max_conc_worker_id);
+  heap->conc_workers()->set_active_workers(_max_conc_worker_id);
+  ShenandoahRootProcessor root_proc(heap, _max_conc_worker_id);
+  TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
+  ShenandoahMarkRootsTask mark_roots(&root_proc, update_refs);
+  heap->conc_workers()->run_task(&mark_roots);
+  heap->set_par_threads(0);
 
   if (! ShenandoahProcessReferences) {
     ShenandoahMarkUpdateRootsClosure cl(get_queue(0));

@@ -50,11 +50,6 @@ void VM_ShenandoahInitMark::doit() {
 
   sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark);
 
-  if (! ShenandoahConcurrentMarking) {
-    sh->concurrentMark()->mark_from_roots();
-    VM_ShenandoahStartEvacuation finishMark;
-    finishMark.doit();
-  }
 }
 
 VM_Operation::VMOp_Type VM_ShenandoahFullGC::type() const {
@@ -95,7 +90,7 @@ void VM_ShenandoahStartEvacuation::doit() {
   // evacuate roots right after finishing marking, so that we don't
   // get unmarked objects in the roots.
   ShenandoahHeap *sh = ShenandoahHeap::heap();
-  if (!sh->cancelled_concgc()) {
+  if (! sh->cancelled_concgc()) {
     if (ShenandoahGCVerbose)
       tty->print("vm_ShenandoahFinalMark\n");
 
@@ -108,27 +103,15 @@ void VM_ShenandoahStartEvacuation::doit() {
     sh->prepare_for_concurrent_evacuation();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::prepare_evac);
 
-    if (!sh->cancelled_concgc()){
-      sh->set_evacuation_in_progress(true);
+    sh->set_evacuation_in_progress(true);
 
-      // From here on, we need to update references.
-      sh->set_need_update_refs(true);
+    // From here on, we need to update references.
+    sh->set_need_update_refs(true);
 
-      if (! ShenandoahConcurrentEvacuation) {
-        VM_ShenandoahEvacuation evacuation;
-        evacuation.doit();
-      } else {
-        if (!sh->cancelled_concgc()) {
-          sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_evac);
-          sh->evacuate_and_update_roots();
-          sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_evac);
-        }
-      }
-    } else {
-      sh->free_regions()->set_concurrent_iteration_safe_limits();
-      //      sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::prepare_evac);
-      //      sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark);
-    }
+    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_evac);
+    sh->evacuate_and_update_roots();
+    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_evac);
+
   } else {
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
@@ -156,107 +139,4 @@ void VM_ShenandoahVerifyHeapAfterEvacuation::doit() {
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   sh->verify_heap_after_evacuation();
 
-}
-
-VM_Operation::VMOp_Type VM_ShenandoahEvacuation::type() const {
-  return VMOp_ShenandoahEvacuation;
-}
-
-const char* VM_ShenandoahEvacuation::name() const {
-  return "Shenandoah evacuation";
-}
-
-void VM_ShenandoahEvacuation::doit() {
-  if (ShenandoahGCVerbose)
-    tty->print("vm_ShenandoahEvacuation\n");
-
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  sh->do_evacuation();
-
-  if (! ShenandoahConcurrentUpdateRefs) {
-    assert(! ShenandoahConcurrentEvacuation, "turn off concurrent evacuation");
-    sh->prepare_for_update_references();
-    sh->update_references();
-  }
-}
-/*
-  VM_Operation::VMOp_Type VM_ShenandoahVerifyHeapAfterUpdateRefs::type() const {
-  return VMOp_ShenandoahVerifyHeapAfterUpdateRefs;
-  }
-
-  const char* VM_ShenandoahVerifyHeapAfterUpdateRefs::name() const {
-  return "Shenandoah verify heap after updating references";
-  }
-
-  void VM_ShenandoahVerifyHeapAfterUpdateRefs::doit() {
-
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  sh->verify_heap_after_update_refs();
-
-  }
-*/
-VM_Operation::VMOp_Type VM_ShenandoahUpdateRootRefs::type() const {
-  return VMOp_ShenandoahUpdateRootRefs;
-}
-
-const char* VM_ShenandoahUpdateRootRefs::name() const {
-  return "Shenandoah update root references";
-}
-
-void VM_ShenandoahUpdateRootRefs::doit() {
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  if (! sh->cancelled_concgc()) {
-
-    if (ShenandoahGCVerbose)
-      tty->print("vm_ShenandoahUpdateRootRefs\n");
-
-
-    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_uprefs);
-
-    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::update_roots);
-
-    sh->update_roots();
-
-    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::update_roots);
-
-    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_uprefs);
-  }
-
-  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::recycle_regions);
-  sh->recycle_dirty_regions();
-  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::recycle_regions);
-
-  if (ShenandoahVerify && ! sh->cancelled_concgc()) {
-    sh->verify_heap_after_update_refs();
-    sh->verify_regions_after_update_refs();
-  }
-#ifdef ASSERT
-  if (! ShenandoahVerify) {
-    assert(sh->is_bitmap_clear(), "need cleared bitmap here");
-  }
-#endif
-
-}
-
-VM_Operation::VMOp_Type VM_ShenandoahUpdateRefs::type() const {
-  return VMOp_ShenandoahUpdateRefs;
-}
-
-const char* VM_ShenandoahUpdateRefs::name() const {
-  return "Shenandoah update references";
-}
-
-void VM_ShenandoahUpdateRefs::doit() {
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  if (!sh->cancelled_concgc()) {
-
-    if (ShenandoahGCVerbose)
-      tty->print("vm_ShenandoahUpdateRefs\n");
-
-    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_evac);
-    sh->set_evacuation_in_progress(false);
-    sh->prepare_for_update_references();
-    assert(ShenandoahConcurrentUpdateRefs, "only do this when concurrent update references is turned on");
-    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_evac);
-  }
 }

@@ -99,7 +99,6 @@ void ShenandoahHeapRegion::memProtectionOn() {
       os::protect_memory((char*) bottom(), end() - bottom(), os::MEM_PROT_READ);
     } else {
       assert(ShenandoahVerifyReadsToFromSpace, "need to be verifying reads here");
-      assert(! ShenandoahConcurrentEvacuation, "concurrent evacuation needs to be turned off for verifying from-space-reads");
       os::protect_memory((char*) bottom(), end() - bottom(), os::MEM_PROT_NONE);
     }
   }

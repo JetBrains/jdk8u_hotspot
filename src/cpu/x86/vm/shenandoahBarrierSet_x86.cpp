@@ -189,7 +189,6 @@ void ShenandoahBarrierSet::interpreter_read_barrier_not_null(MacroAssembler* mas
 void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Register dst) {
 
   if (! ShenandoahWriteBarrier) {
-    assert(! ShenandoahConcurrentEvacuation, "Can only do this without concurrent evacuation");
     return interpreter_read_barrier(masm, dst);
   }
 

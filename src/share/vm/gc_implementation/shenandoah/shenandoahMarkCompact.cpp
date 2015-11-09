@@ -59,7 +59,6 @@ void ShenandoahMarkCompact::do_mark_compact() {
   assert(_heap->is_bitmap_clear(), "require cleared bitmap");
   assert(!_heap->concurrent_mark_in_progress(), "can't do full-GC while marking is in progress");
   assert(!_heap->is_evacuation_in_progress(), "can't do full-GC while evacuation is in progress");
-  assert(!_heap->is_update_references_in_progress(), "can't do full-GC while updating of references is in progress");
 
   _heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::full_gc);
 
@@ -145,7 +144,6 @@ void ShenandoahMarkCompact::do_mark_compact() {
 
   if (ShenandoahVerify) {
     _heap->verify_heap_after_evacuation();
-    _heap->verify_heap_after_update_refs();
   }
 
   if (ShenandoahTraceFullGC) {

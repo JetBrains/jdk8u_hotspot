@@ -33,11 +33,7 @@ SurrogateLockerThread* ShenandoahConcurrentThread::_slt = NULL;
 
 ShenandoahConcurrentThread::ShenandoahConcurrentThread() :
   ConcurrentGCThread(),
-  _epoch(0),
-  _concurrent_mark_started(false),
-  _concurrent_mark_in_progress(false),
-  _do_full_gc(false),
-  _concurrent_mark_aborted(false)
+  _do_full_gc(false)
 {
   create_and_start();
 }
@@ -88,42 +84,21 @@ void ShenandoahConcurrentThread::run() {
         VM_ShenandoahInitMark initMark;
         VMThread::execute(&initMark);
 
-        if (ShenandoahConcurrentMarking) {
-          ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
+        ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
 
-          VM_ShenandoahStartEvacuation finishMark;
-          heap->jni_critical()->execute_in_vm_thread(&finishMark);
-        }
+        VM_ShenandoahStartEvacuation finishMark;
+        heap->jni_critical()->execute_in_vm_thread(&finishMark);
 
-        if (cm_has_aborted()) {
-          clear_cm_aborted();
-          assert(heap->is_bitmap_clear(), "need to continue with clear mark bitmap");
-          assert(! heap->concurrent_mark_in_progress(), "concurrent mark must have terminated");
-          continue;
-        }
         if (! _should_terminate) {
-          // If we're not concurrently evacuating, evacuation is done
-          // from VM_ShenandoahFinishMark within the VMThread above.
-          if (ShenandoahConcurrentEvacuation) {
-            VM_ShenandoahEvacuation evacuation;
-            evacuation.doit();
-          }
+          heap->do_evacuation();
         }
 
-        if (heap->shenandoahPolicy()->update_refs_early() && ! _should_terminate && ! heap->cancelled_concgc()) {
-          if (ShenandoahConcurrentUpdateRefs) {
-            VM_ShenandoahUpdateRefs update_refs;
-            VMThread::execute(&update_refs);
-            heap->update_references();
-          }
-        } else {
-          if (heap->is_evacuation_in_progress()) {
-            heap->set_evacuation_in_progress(false);
-          }
-          heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
-          heap->reset_mark_bitmap();
-          heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
+        if (heap->is_evacuation_in_progress()) {
+          heap->set_evacuation_in_progress(false);
         }
+        heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
+        heap->reset_mark_bitmap();
+        heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
 
       } else {
       Thread::current()->_ParkEvent->park(10) ;
@@ -165,34 +140,6 @@ void ShenandoahConcurrentThread::print_on(outputStream* st) const {
 
 void ShenandoahConcurrentThread::sleepBeforeNextCycle() {
   assert(false, "Wake up in the GC thread that never sleeps :-)");
-}
-
-void ShenandoahConcurrentThread::set_cm_started() {
-    assert(!_concurrent_mark_in_progress, "cycle in progress");
-    _concurrent_mark_started = true;
-}
-
-void ShenandoahConcurrentThread::clear_cm_started() {
-    assert(_concurrent_mark_in_progress, "must be starting a cycle");
-    _concurrent_mark_started = false;
-}
-
-bool ShenandoahConcurrentThread::cm_started() {
-  return _concurrent_mark_started;
-}
-
-void ShenandoahConcurrentThread::set_cm_in_progress() {
-  assert(_concurrent_mark_started, "must be starting a cycle");
-  _concurrent_mark_in_progress = true;
-}
-
-void ShenandoahConcurrentThread::clear_cm_in_progress() {
-  assert(!_concurrent_mark_started, "must not be starting a new cycle");
-  _concurrent_mark_in_progress = false;
-}
-
-bool ShenandoahConcurrentThread::cm_in_progress() {
-  return _concurrent_mark_in_progress;
 }
 
 void ShenandoahConcurrentThread::start() {

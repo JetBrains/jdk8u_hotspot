@@ -46,7 +46,6 @@ public:
   void record_bytes_end_CM(size_t bytes);
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const=0;
-  virtual bool update_refs_early();
   virtual void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
                                                ShenandoahHeapRegionSet* collection_set,
                                                ShenandoahHeapRegionSet* free_set) =0;
@@ -116,14 +115,11 @@ void ShenandoahCollectorPolicy::record_phase_end(TimingPhase phase) {
       _tracer->report_gc_end(_conc_timer->gc_end(), _conc_timer->time_partitions());
     } else if (phase == full_gc) {
       _tracer->report_gc_end(_stw_timer->gc_end(), _stw_timer->time_partitions());
-    } else if (phase == conc_mark || phase == conc_evac || phase == conc_uprefs || phase == prepare_evac) {
+    } else if (phase == conc_mark || phase == conc_evac || phase == prepare_evac) {
       if (_conc_gc_aborted) {
         _tracer->report_gc_end(_conc_timer->gc_end(), _conc_timer->time_partitions());
         clear_conc_gc_aborted();
       }
-    } else if (phase == final_evac) {
-      ShenandoahHeap* heap = ShenandoahHeap::heap();
-      this->record_bytes_end_CM(heap->_bytesAllocSinceCM);
     }
   }
 }
@@ -134,10 +130,6 @@ void ShenandoahCollectorPolicy::report_concgc_cancelled() {
     set_conc_gc_aborted();
     //    _tracer->report_gc_end(_conc_timer->gc_end(), _conc_timer->time_partitions());
   }
-}
-
-bool ShenandoahHeuristics::update_refs_early() {
-  return ShenandoahUpdateRefsEarly;
 }
 
 void ShenandoahHeuristics::record_bytes_allocated(size_t bytes) {
@@ -594,10 +586,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() {
   _phase_names[class_unloading] = "ClassUnloading";
   _phase_names[prepare_evac] = "PrepareEvac";
   _phase_names[init_evac] = "InitEvac";
-  _phase_names[final_evac] = "FinalEvacuation";
-  _phase_names[final_uprefs] = "FinalUpdateRefs";
 
-  _phase_names[update_roots] = "UpdateRoots";
   _phase_names[recycle_regions] = "RecycleRegions";
   _phase_names[reset_bitmaps] = "ResetBitmaps";
   _phase_names[resize_tlabs] = "ResizeTLABs";
@@ -605,7 +594,6 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() {
   _phase_names[full_gc] = "FullGC";
   _phase_names[conc_mark] = "ConcurrentMark";
   _phase_names[conc_evac] = "ConcurrentEvacuation";
-  _phase_names[conc_uprefs] = "ConcurrentUpdateReferences";
 
   if (ShenandoahGCHeuristics != NULL) {
     if (strcmp(ShenandoahGCHeuristics, "aggressive") == 0) {
@@ -713,10 +701,6 @@ bool ShenandoahCollectorPolicy::should_start_concurrent_mark(size_t used,
   return _heuristics->should_start_concurrent_mark(used, capacity);
 }
 
-bool ShenandoahCollectorPolicy::update_refs_early() {
-  return _heuristics->update_refs_early();
-}
-
 void ShenandoahCollectorPolicy::choose_collection_and_free_sets(
                              ShenandoahHeapRegionSet* region_set,
                              ShenandoahHeapRegionSet* collection_set,
@@ -730,6 +714,7 @@ void ShenandoahCollectorPolicy::print_tracing_info() {
   print_summary_sd("Make Parsable", 2, &(_timing_data[make_parsable]._ms));
   print_summary_sd("Clear Liveness", 2, &(_timing_data[clear_liveness]._ms));
   print_summary_sd("Scan Roots", 2, &(_timing_data[scan_roots]._ms));
+  print_summary_sd("Resize TLABs", 2, &(_timing_data[resize_tlabs]._ms));
   print_summary_sd("Final Mark Pauses", 0, &(_timing_data[final_mark]._ms));
 
   print_summary_sd("Rescan Roots", 2, &(_timing_data[rescan_roots]._ms));
@@ -742,18 +727,13 @@ void ShenandoahCollectorPolicy::print_tracing_info() {
     print_summary_sd("Class Unloading", 2, &(_timing_data[class_unloading]._ms));
   }
   print_summary_sd("Prepare Evacuation", 2, &(_timing_data[prepare_evac]._ms));
+  print_summary_sd("Recycle regions", 2, &(_timing_data[recycle_regions]._ms));
   print_summary_sd("Initial Evacuation", 2, &(_timing_data[init_evac]._ms));
 
-  print_summary_sd("Final Evacuation Pauses", 0, &(_timing_data[final_evac]._ms));
-  print_summary_sd("Final Update Refs Pauses", 0, &(_timing_data[final_uprefs]._ms));
-  print_summary_sd("Update roots", 2, &(_timing_data[update_roots]._ms));
-  print_summary_sd("Recycle regions", 2, &(_timing_data[recycle_regions]._ms));
-  print_summary_sd("Reset bitmaps", 2, &(_timing_data[reset_bitmaps]._ms));
-  print_summary_sd("Resize TLABs", 2, &(_timing_data[resize_tlabs]._ms));
   gclog_or_tty->print_cr(" ");
   print_summary_sd("Concurrent Marking Times", 0, &(_timing_data[conc_mark]._ms));
   print_summary_sd("Concurrent Evacuation Times", 0, &(_timing_data[conc_evac]._ms));
-  print_summary_sd("Concurrent Update References Times", 0, &(_timing_data[conc_uprefs]._ms));
+  print_summary_sd("Concurrent Reset bitmaps", 0, &(_timing_data[reset_bitmaps]._ms));
   print_summary_sd("Full GC Times", 0, &(_timing_data[full_gc]._ms));
 
   gclog_or_tty->print_cr("User requested GCs: "SIZE_FORMAT, _user_requested_gcs);
@@ -761,19 +741,11 @@ void ShenandoahCollectorPolicy::print_tracing_info() {
 
   gclog_or_tty->print_cr(" ");
   double total_sum = _timing_data[init_mark]._ms.sum() +
-    _timing_data[final_mark]._ms.sum() +
-    _timing_data[final_evac]._ms.sum() +
-    _timing_data[final_uprefs]._ms.sum();
+                     _timing_data[final_mark]._ms.sum();
   double total_avg = (_timing_data[init_mark]._ms.avg() +
-                      _timing_data[final_mark]._ms.avg() +
-                      _timing_data[final_evac]._ms.avg() +
-                      _timing_data[final_uprefs]._ms.avg()) / 4.0;
-  double total_max = MAX2(
-                          MAX2(
-                               MAX2(_timing_data[init_mark]._ms.maximum(),
-                                    _timing_data[final_mark]._ms.maximum()),
-                               _timing_data[final_evac]._ms.maximum()),
-                          _timing_data[final_uprefs]._ms.maximum());
+                      _timing_data[final_mark]._ms.avg()) / 2.0;
+  double total_max = MAX2(_timing_data[init_mark]._ms.maximum(),
+                          _timing_data[final_mark]._ms.maximum());
 
   gclog_or_tty->print_cr("%-27s = %8.2lf s, avg = %8.2lf ms, max = %8.2lf ms",
                          "Total", total_sum / 1000.0, total_avg, total_max);

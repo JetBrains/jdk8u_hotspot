@@ -1461,21 +1461,6 @@ class CommandLineFlags {
   develop(bool, ShenandoahVerify, false,                                    \
           "Verify the  Shenandoah garbage collector")                       \
                                                                             \
-  product(bool, ShenandoahParallelRootScan, true,                           \
-          "Turn on/off parallel root scanning in Shenandoah")               \
-                                                                            \
-  product(bool, ShenandoahConcurrentEvacuation, true,                       \
-          "Turn on/off concurrent evacuation in Shenandoah")                \
-                                                                            \
-  product(bool, ShenandoahConcurrentMarking, true,                          \
-          "Turn on/off concurrent marking in Shenandoah")                   \
-                                                                            \
-  product(bool, ShenandoahUpdateRefsEarly,false,                            \
-          "Turn on/off early updating of references in Shenandoah")         \
-                                                                            \
-  product(bool, ShenandoahConcurrentUpdateRefs, true,                       \
-          "Turn on/off concurrent reference updating in Shenandoah")        \
-                                                                            \
   product(bool, ShenandoahWriteBarrier, true,                               \
           "Turn on/off write barriers in Shenandoah")                       \
                                                                             \

@@ -97,9 +97,6 @@
   template(ShenandoahInitMark)                    \
   template(ShenandoahStartEvacuation)             \
   template(ShenandoahVerifyHeapAfterEvacuation)   \
-  template(ShenandoahEvacuation)                  \
-  template(ShenandoahUpdateRootRefs)              \
-  template(ShenandoahUpdateRefs)                  \
   template(Exit)                                  \
   template(LinuxDllLoad)                          \
   template(RotateGCLog)                           \

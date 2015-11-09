@@ -54,16 +54,12 @@ public:
     prepare_evac,
     init_evac,
 
-    final_evac,
-    final_uprefs,
-    update_roots,
     recycle_regions,
     reset_bitmaps,
     resize_tlabs,
     full_gc,
     conc_mark,
     conc_evac,
-    conc_uprefs,
 
     _num_phases
   };
@@ -122,8 +118,6 @@ public:
   void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
                                        ShenandoahHeapRegionSet* collection_set,
                                        ShenandoahHeapRegionSet* free_set);
-
-  bool update_refs_early();
 
   void print_tracing_info();
 

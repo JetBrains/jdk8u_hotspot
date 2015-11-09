@@ -258,7 +258,6 @@ public:
   volatile unsigned int _concurrent_mark_in_progress;
 
   volatile unsigned int _evacuation_in_progress;
-  volatile bool _update_references_in_progress;
   bool _need_update_refs;
   bool _need_reset_bitmaps;
 
@@ -331,9 +330,6 @@ public:
   void set_evacuation_in_progress(bool in_progress);
   bool is_evacuation_in_progress();
 
-  bool is_update_references_in_progress();
-  void set_update_references_in_progress(bool update_refs_in_progress);
-
   inline bool need_update_refs() const;
   void set_need_update_refs(bool update_refs);
 
@@ -341,13 +337,8 @@ public:
   virtual void ref_processing_init();
   ShenandoahIsAliveClosure isAlive;
   void evacuate_and_update_roots();
-  void prepare_for_update_references();
-
-  void update_references();
 
   ShenandoahHeapRegionSet* free_regions();
-
-  void update_roots();
 
   void acquire_pending_refs_lock();
   void release_pending_refs_lock();
