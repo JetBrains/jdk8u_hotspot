@@ -52,37 +52,53 @@ void ShenandoahMarkObjsClosure<T>::do_object(oop obj, int index) {
   assert(_heap->is_marked_current(obj), "only marked objects on task queue");
 
   // Calculate liveness of heap region containing object.
-  if (index == -1) { // Normal oop
-    uint region_idx = _heap->heap_region_index_containing(obj);
-    if (region_idx == _last_region_idx) {
-      _live_data += (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
-    } else {
-      ShenandoahHeapRegion* r = _heap->heap_regions()[_last_region_idx];
-      r->increase_live_data(_live_data);
-      _last_region_idx = region_idx;
-      _live_data = (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
-    }
-    obj->oop_iterate(&_mark_refs);
-  } else { // Chunked obj array processing
-    assert(obj->is_objArray(), "expect object array");
-    if (index == 0) {
+  if (index == -1) { // Normal oop or obj-array-head
+    count_liveness(obj);
+    if (obj->is_objArray()) {
       // Process metadata.
       _mark_refs.do_klass(obj->klass());
+      objArrayOop array = objArrayOop(obj);
+      if (array->length() > 0) {
+        do_objarray(array, 0);
+      }
+    } else {
+      obj->oop_iterate(&_mark_refs);
     }
+  } else { // Chunked obj array processing
+    assert(obj->is_objArray(), "expect object array");
     objArrayOop array = objArrayOop(obj);
-    const int len = array->length();
-    const int beg_index = index;
-    assert(beg_index < len, "index too large");
-    const int stride = MIN2(len - beg_index, (int) ObjArrayMarkingStride);
-    const int end_index = beg_index + stride;
-    // tty->print_cr("strided obj array scan: %p, %d -> %d", array, beg_index, end_index);
-    // Now scan our stride
-    array->oop_iterate_range(&_mark_refs, beg_index, end_index);
-    // Push continuation
-    if (end_index < len) {
-      bool pushed = _queue->queue()->push(ObjArrayTask(obj, end_index));
-      assert(pushed, "overflow queue should always succeed pushing");
-    }
+    do_objarray(array, index);
+  }
+}
+
+template <class T>
+inline void ShenandoahMarkObjsClosure<T>::count_liveness(oop obj) {
+  uint region_idx = _heap->heap_region_index_containing(obj);
+  if (region_idx == _last_region_idx) {
+    _live_data += (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
+  } else {
+    ShenandoahHeapRegion* r = _heap->heap_regions()[_last_region_idx];
+    r->increase_live_data(_live_data);
+    _last_region_idx = region_idx;
+    _live_data = (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
+  }
+}
+
+template <class T>
+inline void ShenandoahMarkObjsClosure<T>::do_objarray(objArrayOop array, int index) {
+
+  const int len = array->length();
+  const int beg_index = index;
+  assert(beg_index < len, "index too large");
+  const int stride = MIN2(len - beg_index, (int) ObjArrayMarkingStride);
+  const int end_index = beg_index + stride;
+  // tty->print_cr("strided obj array scan: %p, %d -> %d", array, beg_index, end_index);
+  // Now scan our stride
+  array->oop_iterate_range(&_mark_refs, beg_index, end_index);
+  // Push continuation
+  if (end_index < len) {
+    bool pushed = _queue->queue()->push(ObjArrayTask(array, end_index));
+    assert(pushed, "overflow queue should always succeed pushing");
   }
 }
 
@@ -159,30 +175,9 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
            || ! heap->heap_region_containing(obj)->is_in_collection_set(),
            "we don't want to mark objects in from-space");
 
-    Klass* klass = obj->klass();
-    if (klass->oop_is_instance()) {
-      if (((InstanceKlass*) klass)->nonstatic_oop_map_count() == 0) {
-        QHolder qh(q);
-        ShenandoahMarkUpdateRefsClosure cl(&qh);
-        cl.do_klass(klass);
-        count_liveness(obj, heap);
-        return;
-      } else {
-        bool pushed = q->push(ObjArrayTask(obj, -1));
-        assert(pushed, "overflow queue should always succeed pushing");
-      }
-    } else if (klass->oop_is_typeArray()) { // No references. Skip it.
-      count_liveness(obj, heap);
-      return;
-    } else if (klass->oop_is_objArray()) {
-      count_liveness(obj, heap);
-      if (objArrayOop(obj)->length() > 0) {
-        bool pushed = q->push(ObjArrayTask(obj, 0));
-        assert(pushed, "overflow queue should always succeed pushing");
-      }
-    } else {
-      ShouldNotReachHere();
-    }
+    bool pushed = q->push(ObjArrayTask(obj, -1));
+    assert(pushed, "overflow queue should always succeed pushing");
+
   }
 #ifdef ASSERT
   else {
@@ -192,13 +187,6 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
     assert(heap->is_marked_current(obj), "make sure object is marked");
   }
 #endif
-}
-
-inline void ShenandoahConcurrentMark::count_liveness(oop obj, ShenandoahHeap* heap) {
-
-  size_t live = (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
-  ShenandoahHeapRegion* r = heap->heap_region_containing(obj);
-  r->increase_live_data(live);
 }
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTMARK_INLINE_HPP

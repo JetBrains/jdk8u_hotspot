@@ -66,6 +66,8 @@ public:
   ~ShenandoahMarkObjsClosure();
 
   inline void do_object(oop obj, int index);
+  inline void do_objarray(objArrayOop array, int index);
+  inline void count_liveness(oop obj);
 };
 
 class ShenandoahConcurrentMark: public CHeapObj<mtGC> {
@@ -81,7 +83,6 @@ public:
   void initialize();
 
   static inline void mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q);
-  static inline void count_liveness(oop obj, ShenandoahHeap* heap);
 
   void mark_from_roots();
 
