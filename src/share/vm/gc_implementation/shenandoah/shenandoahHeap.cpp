@@ -36,6 +36,7 @@
 
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahHumongous.hpp"
+#include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahJNICritical.hpp"
@@ -192,6 +193,8 @@ jint ShenandoahHeap::initialize() {
   _in_cset_fast_test = _in_cset_fast_test_base -
                ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::RegionSizeShift);
   clear_cset_fast_test();
+
+  _monitoring_support = new ShenandoahMonitoringSupport(this);
 
   _concurrent_gc_thread = new ShenandoahConcurrentThread();
   return JNI_OK;
@@ -395,6 +398,14 @@ bool ShenandoahHeap::is_maximal_no_gc() const {
 
 size_t ShenandoahHeap::max_capacity() const {
   return _max_regions * ShenandoahHeapRegion::RegionSizeBytes;
+}
+
+size_t ShenandoahHeap::min_capacity() const {
+  return _initialSize;
+}
+
+VirtualSpace* ShenandoahHeap::storage() const {
+  return (VirtualSpace*) &_storage;
 }
 
 class IsInRegionClosure : public ShenandoahHeapRegionClosure {
@@ -640,6 +651,7 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
     increase_used(word_size * HeapWordSize);
     _free_regions->decrease_available(word_size * HeapWordSize);
   }
+  monitoring_support()->update_counters();
   return result;
 }
 
@@ -2402,4 +2414,8 @@ ShenandoahHeapRegion* ShenandoahHeap::next_compaction_region(const ShenandoahHea
 
 bool ShenandoahHeap::is_in_collection_set(const void* p) {
   return heap_region_containing(p)->is_in_collection_set();
+}
+
+ShenandoahMonitoringSupport* ShenandoahHeap::monitoring_support() {
+  return _monitoring_support;
 }

@@ -25,6 +25,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahJNICritical.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
+#include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "memory/iterator.hpp"
 #include "memory/universe.hpp"
 #include "runtime/vmThread.hpp"
@@ -66,6 +67,8 @@ void ShenandoahConcurrentThread::run() {
           heap->shenandoahPolicy()->record_user_requested_gc();
         }
 
+        TraceCollectorStats tcs(heap->monitoring_support()->full_collection_counters());
+        TraceMemoryManagerStats tmms(true, _full_gc_cause);
         VM_ShenandoahFullGC full_gc;
         heap->jni_critical()->execute_in_vm_thread(&full_gc);
       }
@@ -76,6 +79,8 @@ void ShenandoahConcurrentThread::run() {
                                                                heap->capacity()))
       {
 
+        TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
+        TraceMemoryManagerStats tmms(false, GCCause::_no_cause_specified);
         if (ShenandoahGCVerbose)
           tty->print("Capacity = "SIZE_FORMAT" Used = "SIZE_FORMAT"  doing initMark\n", heap->capacity(), heap->used());
 

@@ -44,8 +44,7 @@ class SpaceClosure;
 class GCTracer;
 
 class ShenandoahJNICritical;
-
-class ShenandoahJNICritical;
+class ShenandoahMonitoringSupport;
 
 class ShenandoahAlwaysTrueClosure : public BoolObjectClosure {
 public:
@@ -105,6 +104,8 @@ private:
 
 
   ShenandoahConcurrentThread* _concurrent_gc_thread;
+
+  ShenandoahMonitoringSupport* _monitoring_support;
 
   size_t _num_regions;
   size_t _max_regions;
@@ -178,6 +179,8 @@ public:
   size_t used() const;
   bool is_maximal_no_gc() const;
   size_t max_capacity() const;
+  size_t min_capacity() const;
+  VirtualSpace* storage() const;
   virtual bool is_in(const void* p) const;
   bool is_in_partial_collection(const void* p);
   bool is_scavengable(const void* addr);
@@ -265,6 +268,8 @@ public:
   void stop_concurrent_marking();
   ShenandoahConcurrentMark* concurrentMark() { return _scm;}
   ShenandoahConcurrentThread* concurrent_thread() { return _concurrent_gc_thread; }
+
+  ShenandoahMonitoringSupport* monitoring_support();
 
   ShenandoahJNICritical* jni_critical();
 
