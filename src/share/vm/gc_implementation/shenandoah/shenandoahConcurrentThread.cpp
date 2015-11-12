@@ -86,15 +86,24 @@ void ShenandoahConcurrentThread::run() {
 
         if (ShenandoahGCVerbose) tty->print("Starting a mark");
 
-        VM_ShenandoahInitMark initMark;
-        VMThread::execute(&initMark);
+        {
+          TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
+          VM_ShenandoahInitMark initMark;
+          VMThread::execute(&initMark);
+        }
+        {
+          TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
+          ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
+        }
 
-        ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
-
-        VM_ShenandoahStartEvacuation finishMark;
-        heap->jni_critical()->execute_in_vm_thread(&finishMark);
+        {
+          TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
+          VM_ShenandoahStartEvacuation finishMark;
+          heap->jni_critical()->execute_in_vm_thread(&finishMark);
+        }
 
         if (! _should_terminate) {
+          TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
           heap->do_evacuation();
         }
 

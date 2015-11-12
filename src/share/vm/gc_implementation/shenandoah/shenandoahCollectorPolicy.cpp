@@ -21,6 +21,7 @@
  *
  */
 
+#include "gc_implementation/shared/gcPolicyCounters.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 
@@ -638,6 +639,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() {
     ShouldNotReachHere();
   }
 
+  _gc_policy_counters = new GCPolicyCounters("Shenandoah", 3, 1);
 }
 
 ShenandoahCollectorPolicy* ShenandoahCollectorPolicy::as_pgc_policy() {

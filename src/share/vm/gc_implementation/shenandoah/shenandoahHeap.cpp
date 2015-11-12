@@ -559,7 +559,9 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
 }
 
 HeapWord* ShenandoahHeap::allocate_memory_with_lock(size_t word_size) {
-  return allocate_memory_shenandoah_lock(word_size);
+  HeapWord* result = allocate_memory_shenandoah_lock(word_size);
+  monitoring_support()->update_counters();
+  return result;
 }
 
 HeapWord* ShenandoahHeap::allocate_memory_shenandoah_lock(size_t word_size) {
@@ -651,7 +653,6 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
     increase_used(word_size * HeapWordSize);
     _free_regions->decrease_available(word_size * HeapWordSize);
   }
-  monitoring_support()->update_counters();
   return result;
 }
 

@@ -31,6 +31,7 @@ class DummyGenerationCounters : public GenerationCounters {
 public:
   DummyGenerationCounters():
     GenerationCounters("dummy", 0, 3, MinObjAlignmentInBytes * 3, MinObjAlignmentInBytes * 3, (size_t) 0) {
+    _current_size->set_value(0);
     // Nothing to do.
   }
 };
@@ -38,31 +39,28 @@ public:
 
 ShenandoahMonitoringSupport::ShenandoahMonitoringSupport(ShenandoahHeap* heap) :
 _concurrent_collection_counters(NULL),
+_stw_collection_counters(NULL),
 _full_collection_counters(NULL)
 {
-  _concurrent_collection_counters = new CollectorCounters("Shenandoah concurrent collections", 0);
-  _full_collection_counters = new CollectorCounters("Shenandoah full collections", 1);
-  // We report young gen as unused.
-  _young_gen_counters = new DummyGenerationCounters();
-  _eden_space_counters = new HSpaceCounters("eden", 0, MinObjAlignmentInBytes, MinObjAlignmentInBytes, _young_gen_counters);
-  _s0_space_counters = new HSpaceCounters("s0", 1, MinObjAlignmentInBytes, MinObjAlignmentInBytes, _young_gen_counters);
-  _s1_space_counters = new HSpaceCounters("s1", 2, MinObjAlignmentInBytes, MinObjAlignmentInBytes, _young_gen_counters);
+  _concurrent_collection_counters = new CollectorCounters("Shenandoah concurrent phases", 0);
+  _stw_collection_counters = new CollectorCounters("Shenandoah pauses", 1);
+  _full_collection_counters = new CollectorCounters("Shenandoah full GC pauses", 2);
 
-  _old_gen_counters = new GenerationCounters("old", 1, 1, heap->storage());
-  _old_space_counters = new HSpaceCounters("old", 0, heap->max_capacity(), heap->min_capacity(), _old_gen_counters);
-  if (UsePerfData) {
-    _eden_space_counters->update_used(0);
-    _s0_space_counters->update_used(0);
-    _s1_space_counters->update_used(0);
-  }
+  // We report young gen as unused.
+  _heap_counters = new GenerationCounters("heap", 0, 1, heap->storage());
+  _space_counters = new HSpaceCounters("heap", 0, heap->max_capacity(), heap->min_capacity(), _heap_counters);
 }
 
-CollectorCounters* ShenandoahMonitoringSupport::full_collection_counters() {
-  return _full_collection_counters;
+CollectorCounters* ShenandoahMonitoringSupport::stw_collection_counters() {
+  return _stw_collection_counters;
 }
 
 CollectorCounters* ShenandoahMonitoringSupport::concurrent_collection_counters() {
   return _concurrent_collection_counters;
+}
+
+CollectorCounters* ShenandoahMonitoringSupport::full_collection_counters() {
+  return _full_collection_counters;
 }
 
 void ShenandoahMonitoringSupport::update_counters() {
@@ -73,7 +71,7 @@ void ShenandoahMonitoringSupport::update_counters() {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     size_t used = heap->used();
     size_t capacity = heap->capacity();
-    _old_gen_counters->update_all();
-    _old_space_counters->update_all(capacity, used);
+    _heap_counters->update_all();
+    _space_counters->update_all(capacity, used);
   }
 }

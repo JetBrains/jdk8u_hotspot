@@ -34,18 +34,16 @@ class CollectorCounters;
 class ShenandoahMonitoringSupport : public CHeapObj<mtGC> {
 private:
   CollectorCounters*   _concurrent_collection_counters;
+  CollectorCounters*   _stw_collection_counters;
   CollectorCounters*   _full_collection_counters;
 
-  GenerationCounters* _young_gen_counters;
-  GenerationCounters* _old_gen_counters;
+  GenerationCounters* _heap_counters;
 
-  HSpaceCounters* _eden_space_counters;
-  HSpaceCounters* _s0_space_counters;
-  HSpaceCounters* _s1_space_counters;
-  HSpaceCounters* _old_space_counters;
+  HSpaceCounters* _space_counters;
 
 public:
  ShenandoahMonitoringSupport(ShenandoahHeap* heap);
+ CollectorCounters* stw_collection_counters();
  CollectorCounters* full_collection_counters();
  CollectorCounters* concurrent_collection_counters();
  void update_counters();
