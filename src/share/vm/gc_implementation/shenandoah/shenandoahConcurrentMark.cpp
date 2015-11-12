@@ -173,6 +173,9 @@ public:
       _rp->process_roots(cl, &uprefs, &cldCl, &upcld, &cldCl, &blobsCl, &upcode);
     } else {
       _rp->process_all_roots(cl, &cldCl, &blobsCl);
+      SCMUpdateRefsClosure uprefs;
+      ShenandoahAlwaysTrueClosure always_true;
+      JNIHandles::weak_oops_do(&always_true, &uprefs);
     }
     // tty->print_cr("finish mark roots worker: "INT32_FORMAT, worker_id);
   }
