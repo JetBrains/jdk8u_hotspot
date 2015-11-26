@@ -225,8 +225,8 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
 
 {
   if (ShenandoahLogConfig) {
-    tty->print_cr("Parallel GC threads: "UINT32_FORMAT, ParallelGCThreads);
-    tty->print_cr("Concurrent GC threads: "UINT32_FORMAT, ConcGCThreads);
+    tty->print_cr("Parallel GC threads: "UINTX_FORMAT, ParallelGCThreads);
+    tty->print_cr("Concurrent GC threads: "UINTX_FORMAT, ConcGCThreads);
     tty->print_cr("Parallel reference processing enabled: %s", BOOL_TO_STR(ParallelRefProcEnabled));
   }
   _pgc = this;
