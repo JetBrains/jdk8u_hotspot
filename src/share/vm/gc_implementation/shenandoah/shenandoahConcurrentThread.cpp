@@ -164,20 +164,6 @@ void ShenandoahConcurrentThread::start() {
   create_and_start();
 }
 
-void ShenandoahConcurrentThread::yield() {
-  _sts.yield();
-}
-
-void ShenandoahConcurrentThread::safepoint_synchronize() {
-  assert(UseShenandoahGC, "just checking");
-  _sts.synchronize();
-}
-
-void ShenandoahConcurrentThread::safepoint_desynchronize() {
-  assert(UseShenandoahGC, "just checking");
-  _sts.desynchronize();
-}
-
 void ShenandoahConcurrentThread::makeSurrogateLockerThread(TRAPS) {
   assert(UseShenandoahGC, "SLT thread needed only for concurrent GC");
   assert(THREAD->is_Java_thread(), "must be a Java thread");

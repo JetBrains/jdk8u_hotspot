@@ -114,8 +114,6 @@ void SafepointSynchronize::begin() {
     ConcurrentMarkSweepThread::synchronize(false);
   } else if (UseG1GC) {
     SuspendibleThreadSet::synchronize();
-  } else if (UseShenandoahGC) {
-    ShenandoahConcurrentThread::safepoint_synchronize();
   }
 #endif // INCLUDE_ALL_GCS
 
@@ -492,8 +490,6 @@ void SafepointSynchronize::end() {
     ConcurrentMarkSweepThread::desynchronize(false);
   } else if (UseG1GC) {
     SuspendibleThreadSet::desynchronize();
-  } else if (UseShenandoahGC) {
-    ShenandoahConcurrentThread::safepoint_desynchronize();
   }
 #endif // INCLUDE_ALL_GCS
   // record this time so VMThread can keep track how much time has elasped

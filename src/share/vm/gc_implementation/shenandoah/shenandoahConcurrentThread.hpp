@@ -25,7 +25,6 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTTHREAD_HPP
 
 #include "gc_implementation/shared/concurrentGCThread.hpp"
-#include "gc_implementation/shared/suspendibleThreadSet.hpp"
 #include "gc_interface/gcCause.hpp"
 #include "memory/resourceArea.hpp"
 
@@ -37,7 +36,6 @@ class ShenandoahConcurrentThread: public ConcurrentGCThread {
 
  private:
   static SurrogateLockerThread* _slt;
-  static SuspendibleThreadSet _sts;
 
   bool _do_full_gc;
   GCCause::Cause _full_gc_cause;
