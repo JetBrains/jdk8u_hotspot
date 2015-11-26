@@ -99,49 +99,64 @@ inline ShenandoahHeapRegion* ShenandoahHeap::heap_region_containing(const void* 
   return result;
 }
 
+inline oop ShenandoahHeap::update_oop_ref_not_null(oop* p, oop obj) {
+  if (in_cset_fast_test((HeapWord*) obj)) {
+    oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
+    assert(forw != obj, "expect forwarded object");
+    obj = forw;
+    oopDesc::store_heap_oop(p, obj);
+  }
+#ifdef ASSERT
+  else {
+    assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj), "expect not forwarded");
+  }
+#endif
+  return obj;
+}
 
-oop ShenandoahHeap::maybe_update_oop_ref(oop* p) {
+inline oop ShenandoahHeap::maybe_update_oop_ref(oop* p) {
+  oop obj = oopDesc::load_heap_oop(p);
+  if (! oopDesc::is_null(obj)) {
+    return maybe_update_oop_ref_not_null(p, obj);
+  } else {
+    return obj;
+  }
+}
+
+inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
 
   assert((! is_in(p)) || (! heap_region_containing(p)->is_in_collection_set()),
          "never update refs in from-space, unless evacuation has been cancelled");
 
-  oop heap_oop = oopDesc::load_heap_oop(p); // read p
-  if (! oopDesc::is_null(heap_oop)) {
-
 #ifdef ASSERT
-    if (! is_in(heap_oop)) {
-      print_heap_regions();
-      tty->print_cr("object not in heap: "PTR_FORMAT", referenced by: "PTR_FORMAT, p2i((HeapWord*) heap_oop), p2i(p));
-      assert(is_in(heap_oop), "object must be in heap");
-    }
-#endif
-    assert(is_in(heap_oop), "only ever call this on objects in the heap");
-    assert((! (is_in(p) && heap_region_containing(p)->is_in_collection_set())), "we don't want to update references in from-space");
-    oop forwarded_oop = ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop); // read brooks ptr
-    if (forwarded_oop != heap_oop) {
-      // tty->print_cr("updating old ref: "PTR_FORMAT" pointing to "PTR_FORMAT" to new ref: "PTR_FORMAT, p2i(p), p2i(heap_oop), p2i(forwarded_oop));
-      assert(forwarded_oop->is_oop(), "oop required");
-      assert(is_in(forwarded_oop), "forwardee must be in heap");
-      assert(! heap_region_containing(forwarded_oop)->is_in_collection_set(), "forwardee must not be in collection set");
-      // If this fails, another thread wrote to p before us, it will be logged in SATB and the
-      // reference be updated later.
-      oop result = (oop) Atomic::cmpxchg_ptr(forwarded_oop, p, heap_oop);
-
-      if (result == heap_oop) { // CAS successful.
-          return forwarded_oop;
-      } else {
-        return result;
-      }
-    } else {
-      return forwarded_oop;
-    }
-    /*
-      else {
-      tty->print_cr("not updating ref: "PTR_FORMAT, p2i(heap_oop));
-      }
-    */
+  if (! is_in(heap_oop)) {
+    print_heap_regions();
+    tty->print_cr("object not in heap: "PTR_FORMAT", referenced by: "PTR_FORMAT, p2i((HeapWord*) heap_oop), p2i(p));
+    assert(is_in(heap_oop), "object must be in heap");
   }
-  return NULL;
+#endif
+  assert(is_in(heap_oop), "only ever call this on objects in the heap");
+  assert((! (is_in(p) && heap_region_containing(p)->is_in_collection_set())), "we don't want to update references in from-space");
+  if (in_cset_fast_test((HeapWord*) heap_oop)) {
+    oop forwarded_oop = ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop); // read brooks ptr
+    assert(forwarded_oop != heap_oop, "expect forwarded object");
+    // tty->print_cr("updating old ref: "PTR_FORMAT" pointing to "PTR_FORMAT" to new ref: "PTR_FORMAT, p2i(p), p2i(heap_oop), p2i(forwarded_oop));
+    assert(forwarded_oop->is_oop(), "oop required");
+    assert(is_in(forwarded_oop), "forwardee must be in heap");
+    assert(! heap_region_containing(forwarded_oop)->is_in_collection_set(), "forwardee must not be in collection set");
+    // If this fails, another thread wrote to p before us, it will be logged in SATB and the
+    // reference be updated later.
+    oop result = (oop) Atomic::cmpxchg_ptr(forwarded_oop, p, heap_oop);
+
+    if (result == heap_oop) { // CAS successful.
+      return forwarded_oop;
+    } else {
+      return result;
+    }
+  } else {
+    assert(heap_oop == ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop), "expect not forwarded");
+    return heap_oop;
+  }
 }
 
 inline bool ShenandoahHeap::cancelled_concgc() const {

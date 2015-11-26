@@ -299,6 +299,9 @@ public:
   inline void initialize_brooks_ptr(oop p);
 
   inline oop maybe_update_oop_ref(oop* p);
+  inline oop maybe_update_oop_ref_not_null(oop* p, oop obj);
+  inline oop update_oop_ref_not_null(oop* p, oop obj);
+
   void evacuate_region(ShenandoahHeapRegion* from_region, ShenandoahHeapRegion* to_region);
   void parallel_evacuate_region(ShenandoahHeapRegion* from_region);
   void verify_evacuated_region(ShenandoahHeapRegion* from_region);

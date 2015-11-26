@@ -57,11 +57,7 @@ public:
   inline void do_oop(oop* p) {
     oop obj = oopDesc::load_heap_oop(p);
     if (! oopDesc::is_null(obj)) {
-      oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-      if (forw != obj) {
-        obj = forw;
-        oopDesc::store_heap_oop(p, obj);
-      }
+      obj = _heap->update_oop_ref_not_null(p, obj);
       ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
     }
   }
@@ -96,13 +92,20 @@ public:
 
 
 class SCMUpdateRefsClosure: public OopClosure {
+private:
+  ShenandoahHeap* _heap;
 public:
+
+  SCMUpdateRefsClosure() : _heap(ShenandoahHeap::heap()) {
+  }
+
   inline void do_oop(oop* p) {
     oop obj = oopDesc::load_heap_oop(p);
     if (! oopDesc::is_null(obj)) {
-      ShenandoahBarrierSet::resolve_and_update_oop_static(p, obj);
+      _heap->update_oop_ref_not_null(p, obj);
     }
   }
+
   void do_oop(narrowOop* p) {
     Unimplemented();
   }
@@ -629,11 +632,7 @@ public:
 
     oop obj = oopDesc::load_heap_oop(p);
     if (! oopDesc::is_null(obj)) {
-      oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-      if (forw != obj) {
-        obj = forw;
-        oopDesc::store_heap_oop(p, obj);
-      }
+      obj = _sh->update_oop_ref_not_null(p, obj);
       assert(obj == oopDesc::bs()->read_barrier(obj), "only get updated oops in weak ref processing");
       if (Verbose && ShenandoahTraceWeakReferences) {
         gclog_or_tty->print_cr("\twe're looking at location "
