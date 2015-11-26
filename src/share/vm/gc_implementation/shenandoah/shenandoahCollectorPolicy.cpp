@@ -575,7 +575,9 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() {
   _conc_gc_aborted = false;
 
   _phase_names[init_mark] = "InitMark";
+  _phase_names[init_mark_gross] = "InitMarkGross";
   _phase_names[final_mark] = "FinalMark";
+  _phase_names[final_mark_gross] = "FinalMarkGross";
   _phase_names[accumulate_stats] = "AccumulateStats";
   _phase_names[make_parsable] = "MakeParsable";
   _phase_names[clear_liveness] = "ClearLiveness";
@@ -711,13 +713,16 @@ void ShenandoahCollectorPolicy::choose_collection_and_free_sets(
 }
 
 void ShenandoahCollectorPolicy::print_tracing_info() {
-  print_summary_sd("Initial Mark Pauses", 0, &(_timing_data[init_mark]._ms));
+  print_summary_sd("Initial Mark Pauses (gross)", 0, &(_timing_data[init_mark_gross]._ms));
+  print_summary_sd("Initial Mark Pauses (net)", 0, &(_timing_data[init_mark]._ms));
   print_summary_sd("Accumulate Stats", 2, &(_timing_data[accumulate_stats]._ms));
   print_summary_sd("Make Parsable", 2, &(_timing_data[make_parsable]._ms));
   print_summary_sd("Clear Liveness", 2, &(_timing_data[clear_liveness]._ms));
   print_summary_sd("Scan Roots", 2, &(_timing_data[scan_roots]._ms));
   print_summary_sd("Resize TLABs", 2, &(_timing_data[resize_tlabs]._ms));
-  print_summary_sd("Final Mark Pauses", 0, &(_timing_data[final_mark]._ms));
+
+  print_summary_sd("Final Mark Pauses (gross)", 0, &(_timing_data[final_mark_gross]._ms));
+  print_summary_sd("Final Mark Pauses (net)", 0, &(_timing_data[final_mark]._ms));
 
   print_summary_sd("Rescan Roots", 2, &(_timing_data[rescan_roots]._ms));
   print_summary_sd("Drain SATB", 2, &(_timing_data[drain_satb]._ms));
@@ -742,12 +747,12 @@ void ShenandoahCollectorPolicy::print_tracing_info() {
   gclog_or_tty->print_cr("Allocation failure GCs: "SIZE_FORMAT, _allocation_failure_gcs);
 
   gclog_or_tty->print_cr(" ");
-  double total_sum = _timing_data[init_mark]._ms.sum() +
-                     _timing_data[final_mark]._ms.sum();
-  double total_avg = (_timing_data[init_mark]._ms.avg() +
-                      _timing_data[final_mark]._ms.avg()) / 2.0;
-  double total_max = MAX2(_timing_data[init_mark]._ms.maximum(),
-                          _timing_data[final_mark]._ms.maximum());
+  double total_sum = _timing_data[init_mark_gross]._ms.sum() +
+                     _timing_data[final_mark_gross]._ms.sum();
+  double total_avg = (_timing_data[init_mark_gross]._ms.avg() +
+                      _timing_data[final_mark_gross]._ms.avg()) / 2.0;
+  double total_max = MAX2(_timing_data[init_mark_gross]._ms.maximum(),
+                          _timing_data[final_mark_gross]._ms.maximum());
 
   gclog_or_tty->print_cr("%-27s = %8.2lf s, avg = %8.2lf ms, max = %8.2lf ms",
                          "Total", total_sum / 1000.0, total_avg, total_max);

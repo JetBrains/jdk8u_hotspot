@@ -42,6 +42,8 @@ public:
   enum TimingPhase {
     init_mark,
     final_mark,
+    init_mark_gross,
+    final_mark_gross,
     accumulate_stats,
     make_parsable,
     clear_liveness,
