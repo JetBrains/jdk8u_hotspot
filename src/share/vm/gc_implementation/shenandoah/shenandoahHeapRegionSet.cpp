@@ -280,7 +280,7 @@ void ShenandoahHeapRegionSet::reclaim_humongous_regions() {
     ShenandoahHeapRegion* region = *r;
     if (region->is_humongous_start()) {
       oop humongous_obj = oop(region->bottom() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
-      if (! heap->is_marked_current(humongous_obj)) {
+      if (! heap->is_marked_prev(humongous_obj)) {
         reclaim_humongous_region_at(r);
       }
     }

@@ -123,7 +123,9 @@ private:
 
   volatile size_t _used;
 
-  CMBitMap _mark_bit_map;
+  CMBitMap _mark_bit_map0;
+  CMBitMap _mark_bit_map1;
+  CMBitMap* _prev_mark_bit_map;
   CMBitMap* _next_mark_bit_map;
 
   bool* _in_cset_fast_test;
@@ -275,15 +277,21 @@ public:
 
   size_t bump_object_age(HeapWord* start, HeapWord* end);
 
+  void swap_mark_bitmaps();
+  CMBitMap* prev_mark_bit_map();
+
   inline bool mark_current(oop obj) const;
   inline bool mark_current_no_checks(oop obj) const;
   inline bool is_marked_current(oop obj) const;
   inline bool is_marked_current(oop obj, ShenandoahHeapRegion* r) const;
 
+  inline bool is_marked_prev(oop obj) const;
+  inline bool is_marked_prev(oop obj, const ShenandoahHeapRegion* r) const;
+
   ReferenceProcessor* _ref_processor;
-  bool is_marked_prev(oop obj) const;
 
   bool is_obj_ill(const oop obj) const;
+  bool is_obj_dead(const oop obj, const ShenandoahHeapRegion* r) const;
 
   void reset_mark_bitmap();
   void reset_mark_bitmap_range(HeapWord* from, HeapWord* to);

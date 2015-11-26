@@ -41,10 +41,11 @@ private:
     return true; // Always true, since scan_limit is top
   }
 
+  bool block_is_obj(const HeapWord* addr) const;
+  size_t block_size(const HeapWord* addr) const;
+
   inline size_t scanned_block_size(const HeapWord* addr) const {
-    oop obj = oop(addr+1);
-    size_t size = obj->size() + 1;
-    return size;
+    return ShenandoahHeapRegion::block_size(addr);
   }
 
     // Auxiliary functions for scan_and_{forward,adjust_pointers,compact} support.
@@ -53,7 +54,7 @@ private:
   }
 
   inline size_t obj_size(const HeapWord* addr) const {
-    return oop(addr+1)->size() + 1;
+    return ShenandoahHeapRegion::block_size(addr);
   }
 
 public:
@@ -79,6 +80,8 @@ private:
   bool _humongous_continuation;
 
   HeapWord* _top_at_mark_start;
+  HeapWord* _top_at_prev_mark_start;
+  HeapWord* _top_prev_mark_bitmap;
 
 #ifdef ASSERT
   int _mem_protection_level;
@@ -151,7 +154,15 @@ public:
 
   void init_top_at_mark_start();
   HeapWord* top_at_mark_start();
+  void reset_top_at_prev_mark_start();
+  HeapWord* top_at_prev_mark_start();
+  HeapWord* top_prev_mark_bitmap();
+
+  void set_top_prev_mark_bitmap(HeapWord* top);
+  void swap_top_at_mark_start();
+
   inline bool allocated_after_mark_start(HeapWord* addr);
+  bool allocated_after_prev_mark_start(HeapWord* addr) const;
 
 private:
   void do_reset();

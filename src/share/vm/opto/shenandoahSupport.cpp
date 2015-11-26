@@ -104,6 +104,9 @@ bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Node* orig
   if (n->Opcode() == Op_LoadP) {
     return true;
   }
+  if (n->Opcode() == Op_GetAndSetP) {
+    return true;
+  }
 #ifdef ASSERT
   tty->print("need barrier on?: "); n->dump();
 #endif

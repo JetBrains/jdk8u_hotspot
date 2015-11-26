@@ -47,6 +47,9 @@ jint ShenandoahHeapRegion::initialize_heap_region(HeapWord* start,
 #ifdef ASSERT
   _mem_protection_level = 1; // Off, level 1.
 #endif
+  _top_at_mark_start = bottom();
+  _top_at_prev_mark_start = bottom();
+  _top_prev_mark_bitmap = bottom();
   return JNI_OK;
 }
 
@@ -260,7 +263,8 @@ void ShenandoahHeapRegion::do_reset() {
   clearLiveData();
   _humongous_start = false;
   _humongous_continuation = false;
-  _top_at_mark_start = top();
+  // _top_at_mark_start = bottom();
+  _top_at_prev_mark_start = bottom();
 }
 
 void ShenandoahHeapRegion::recycle() {
@@ -357,6 +361,54 @@ void ShenandoahHeapRegion::init_top_at_mark_start() {
   _top_at_mark_start = top();
 }
 
+void ShenandoahHeapRegion::reset_top_at_prev_mark_start() {
+  _top_at_prev_mark_start = bottom();
+}
+
 HeapWord* ShenandoahHeapRegion::top_at_mark_start() {
   return _top_at_mark_start;
+}
+
+HeapWord* ShenandoahHeapRegion::top_at_prev_mark_start() {
+  return _top_at_prev_mark_start;
+}
+
+HeapWord* ShenandoahHeapRegion::top_prev_mark_bitmap() {
+  return _top_prev_mark_bitmap;
+}
+
+bool ShenandoahHeapRegion::block_is_obj(const HeapWord* addr) const {
+
+  if (ClassUnloadingWithConcurrentMark) {
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    return ! heap->is_obj_dead(oop(addr+1), this);
+  }
+  return true; // Always true, since scan_limit is top
+}
+
+size_t ShenandoahHeapRegion::block_size(const HeapWord* addr) const {
+  if (block_is_obj(addr)) {
+    oop obj = oop(addr+1);
+   size_t size = obj->size() + 1;
+    return size;
+  }
+  assert(ClassUnloadingWithConcurrentMark, "must only happen with concurrent class unloading");
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  HeapWord* next = heap->prev_mark_bit_map()->getNextMarkedWordAddress(addr+1, _top_at_prev_mark_start + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+  assert(next > addr + 1, "must get next live object");
+  return pointer_delta(next, addr + 1);
+}
+
+bool ShenandoahHeapRegion::allocated_after_prev_mark_start(HeapWord* addr) const {
+  return addr >= _top_at_prev_mark_start;
+}
+
+void ShenandoahHeapRegion::swap_top_at_mark_start() {
+  HeapWord* tmp = _top_at_prev_mark_start;
+  _top_at_prev_mark_start = _top_at_mark_start;
+  _top_at_mark_start = tmp;
+}
+
+void ShenandoahHeapRegion::set_top_prev_mark_bitmap(HeapWord* top) {
+  _top_prev_mark_bitmap = top;
 }

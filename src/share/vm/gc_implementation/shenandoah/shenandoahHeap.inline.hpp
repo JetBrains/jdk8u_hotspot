@@ -71,6 +71,16 @@ inline bool ShenandoahHeap::is_marked_current(oop obj, ShenandoahHeapRegion* r) 
   return _next_mark_bit_map->isMarked(addr) || r->allocated_after_mark_start(addr);
 }
 
+inline bool ShenandoahHeap::is_marked_prev(oop obj) const {
+  ShenandoahHeapRegion* r = heap_region_containing((void*) obj);
+  return is_marked_prev(obj, r);
+}
+
+inline bool ShenandoahHeap::is_marked_prev(oop obj, const ShenandoahHeapRegion* r) const {
+  HeapWord* addr = (HeapWord*) obj;
+  return _prev_mark_bit_map->isMarked(addr) || r->allocated_after_prev_mark_start(addr);
+}
+
 inline bool ShenandoahHeap::need_update_refs() const {
   return _need_update_refs;
 }

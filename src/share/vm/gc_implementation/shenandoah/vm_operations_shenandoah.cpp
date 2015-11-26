@@ -115,6 +115,7 @@ void VM_ShenandoahStartEvacuation::doit() {
   } else {
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
+    sh->recycle_dirty_regions();
   }
 }
 

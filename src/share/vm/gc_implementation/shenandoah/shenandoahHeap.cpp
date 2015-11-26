@@ -178,13 +178,17 @@ jint ShenandoahHeap::initialize() {
   size_t bitmap_size = CMBitMap::compute_size(heap_rs.size());
   MemRegion heap_region = MemRegion((HeapWord*) heap_rs.base(), heap_rs.size() / HeapWordSize);
 
-  ReservedSpace bitmap(ReservedSpace::allocation_align_size_up(bitmap_size));
-  os::commit_memory_or_exit(bitmap.base(), bitmap.size(), false, err_msg("couldn't allocate mark bitmap"));
-  MemRegion bitmap_region = MemRegion((HeapWord*) bitmap.base(), bitmap.size() / HeapWordSize);
-  _mark_bit_map.initialize(heap_region, bitmap_region);
+  ReservedSpace bitmap0(ReservedSpace::allocation_align_size_up(bitmap_size));
+  os::commit_memory_or_exit(bitmap0.base(), bitmap0.size(), false, "couldn't allocate mark bitmap");
+  MemRegion bitmap_region0 = MemRegion((HeapWord*) bitmap0.base(), bitmap0.size() / HeapWordSize);
+  _mark_bit_map0.initialize(heap_region, bitmap_region0);
+  _prev_mark_bit_map = &_mark_bit_map0;
 
-  _next_mark_bit_map = &_mark_bit_map;
-  reset_mark_bitmap();
+  ReservedSpace bitmap1(ReservedSpace::allocation_align_size_up(bitmap_size));
+  os::commit_memory_or_exit(bitmap1.base(), bitmap1.size(), false, "couldn't allocate mark bitmap");
+  MemRegion bitmap_region1 = MemRegion((HeapWord*) bitmap1.base(), bitmap1.size() / HeapWordSize);
+  _mark_bit_map1.initialize(heap_region, bitmap_region1);
+  _next_mark_bit_map = &_mark_bit_map1;
 
   // Initialize fast collection set test structure.
   _in_cset_fast_test_length = _max_regions;
@@ -217,7 +221,8 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _ref_processor(NULL),
   _in_cset_fast_test(NULL),
   _in_cset_fast_test_base(NULL),
-  _mark_bit_map(),
+  _mark_bit_map0(),
+  _mark_bit_map1(),
   _cancelled_concgc(false),
   _need_update_refs(false),
   _need_reset_bitmaps(false),
@@ -259,7 +264,8 @@ public:
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     while (region != NULL) {
       HeapWord* bottom = region->bottom();
-      HeapWord* top = region->top_at_mark_start();
+      HeapWord* top = region->top_prev_mark_bitmap();
+      region->set_top_prev_mark_bitmap(region->top_at_prev_mark_start());
       if (top > bottom) {
         heap->reset_mark_bitmap_range(bottom, top);
       }
@@ -855,7 +861,7 @@ private:
     }
 #endif
 
-    assert(_heap->is_marked_current(p), "expect only marked objects");
+    assert(_heap->is_marked_prev(p), "expect only marked objects");
     if (p == ShenandoahBarrierSet::resolve_oop_static_not_null(p)) {
       _heap->evacuate_object(p, _thread);
     }
@@ -967,12 +973,18 @@ public:
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
 
-    // If evacuation has been cancelled, we can't recycle regions, we only
+    // If marking has been cancelled, we can't recycle regions, we only
     // clear their collection-set status.
     if (_heap->cancelled_concgc()) {
       r->set_is_in_collection_set(false);
+      // The aborted marking bitmap needs to be cleared at the end of cycle.
+      // Setup the top-marker for this.
+      r->set_top_prev_mark_bitmap(r->top_at_mark_start());
+
       return false;
     }
+
+    r->swap_top_at_mark_start();
 
     if (r->is_in_collection_set()) {
       //      tty->print_cr("recycling region "INT32_FORMAT":", r->region_number());
@@ -1223,7 +1235,7 @@ public:
 
     oop obj = oopDesc::load_heap_oop(p);
     if (obj != NULL && _heap->in_cset_fast_test((HeapWord*) obj)) {
-      assert(_heap->is_marked_current(obj), err_msg("only evacuate marked objects %d %d", _heap->is_marked_current(obj), _heap->is_marked_current(ShenandoahBarrierSet::resolve_oop_static_not_null(obj))));
+      assert(_heap->is_marked_prev(obj), err_msg("only evacuate marked objects %d %d", _heap->is_marked_prev(obj), _heap->is_marked_prev(ShenandoahBarrierSet::resolve_oop_static_not_null(obj))));
       oop resolved = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
       if (resolved == obj) {
         resolved = _heap->evacuate_object(obj, _thread);
@@ -1721,14 +1733,14 @@ void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, ObjectC
   addr += BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
   HeapWord* last_addr = NULL;
   size_t last_size = 0;
-  HeapWord* top_at_mark_start = region->top_at_mark_start();
+  HeapWord* top_at_mark_start = region->top_at_prev_mark_start();
   while (addr < limit) {
     if (addr < top_at_mark_start) {
-      addr = _next_mark_bit_map->getNextMarkedWordAddress(addr, top_at_mark_start + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+      addr = _prev_mark_bit_map->getNextMarkedWordAddress(addr, top_at_mark_start + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
     }
     if (addr < limit) {
       oop obj = oop(addr);
-      assert(is_marked_current(obj), "object expected to be marked");
+      assert(is_marked_prev(obj), "object expected to be marked");
       cl->do_object(obj);
       last_addr = addr;
       last_size = obj->size();
@@ -2027,15 +2039,21 @@ public:
   }
 };
 
+void ShenandoahHeap::swap_mark_bitmaps() {
+  CMBitMap* tmp = _prev_mark_bit_map;
+  _prev_mark_bit_map = _next_mark_bit_map;
+  _next_mark_bit_map = tmp;
+}
+
 void ShenandoahHeap::stop_concurrent_marking() {
   assert(concurrent_mark_in_progress(), "How else could we get here?");
   if (! cancelled_concgc()) {
     // If we needed to update refs, and concurrent marking has been cancelled,
     // we need to finish updating references.
     set_need_update_refs(false);
+    swap_mark_bitmaps();
   }
   set_concurrent_mark_in_progress(false);
-
   if (ShenandoahGCVerbose) {
     print_heap_regions();
   }
@@ -2419,4 +2437,12 @@ bool ShenandoahHeap::is_in_collection_set(const void* p) {
 
 ShenandoahMonitoringSupport* ShenandoahHeap::monitoring_support() {
   return _monitoring_support;
+}
+
+bool ShenandoahHeap::is_obj_dead(const oop obj, const ShenandoahHeapRegion* r) const {
+  return ! r->allocated_after_prev_mark_start((HeapWord*) obj) &&
+         ! is_marked_prev(obj, r);
+}
+CMBitMap* ShenandoahHeap::prev_mark_bit_map() {
+  return _prev_mark_bit_map;
 }

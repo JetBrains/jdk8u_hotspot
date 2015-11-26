@@ -129,7 +129,6 @@ void ShenandoahMarkCompact::do_mark_compact() {
 
   phase4_compact_objects();
 
-
   MarkSweep::restore_marks();
   BiasedLocking::restore_marks();
   GenMarkSweep::deallocate_stacks();
@@ -390,6 +389,7 @@ public:
   }
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
+    r->reset_top_at_prev_mark_start();
     if (r->is_humongous()) {
       _live += ShenandoahHeapRegion::RegionSizeBytes;
 
@@ -402,7 +402,6 @@ public:
       r->setLiveData(live);
       _live += live;
     }
-
     return false;
   }
 
@@ -420,6 +419,11 @@ void ShenandoahMarkCompact::phase4_compact_objects() {
 
   ShenandoahPostCompactClosure post_compact;
   heap->heap_region_iterate(&post_compact);
+
+  // We just reset the top-at-prev-mark-start pointer. Thus
+  // we also need to clear the bitmap, otherwise it would make
+  // a mess later when clearing the prev bitmap.
+  heap->prev_mark_bit_map()->clearAll();
 
   heap->set_used(post_compact.getLive());
 }

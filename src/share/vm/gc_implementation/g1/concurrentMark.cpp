@@ -178,10 +178,7 @@ class ClearBitmapHRClosure : public HeapRegionClosure {
 };
 
 void CMBitMap::clearAll() {
-  ClearBitmapHRClosure cl(NULL, this, false /* may_yield */);
-  G1CollectedHeap::heap()->heap_region_iterate(&cl);
-  guarantee(cl.complete(), "Must have completed iteration.");
-  return;
+  _bm.clear();
 }
 
 void CMBitMap::markRange(MemRegion mr) {
