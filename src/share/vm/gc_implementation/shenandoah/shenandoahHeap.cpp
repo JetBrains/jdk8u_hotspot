@@ -1267,7 +1267,7 @@ public:
 
   void work(uint worker_id) {
     ShenandoahEvacuateUpdateRootsClosure cl;
-    CodeBlobToOopClosure blobsCl(&cl, false);
+    CodeBlobToOopClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
     CLDToOopClosure cldCl(&cl);
 
     _rp->process_roots(&cl, &cl, &cldCl, &cldCl, &cldCl, &blobsCl, &blobsCl);

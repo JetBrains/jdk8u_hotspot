@@ -165,13 +165,13 @@ public:
     } else {
       cl = &mark_cl;
     }
-    CodeBlobToOopClosure blobsCl(cl, true);
+    CodeBlobToOopClosure blobsCl(cl, CodeBlobToOopClosure::FixRelocations);
     CLDToOopClosure cldCl(cl);
 
     ResourceMark m;
     if (ClassUnloadingWithConcurrentMark) {
       SCMUpdateRefsClosure uprefs;
-      CodeBlobToOopClosure upcode(&uprefs, true);
+      CodeBlobToOopClosure upcode(&uprefs, CodeBlobToOopClosure::FixRelocations);
       CLDToOopClosure upcld(&uprefs, false);
       _rp->process_roots(cl, &uprefs, &cldCl, &upcld, &cldCl, &blobsCl, &upcode);
     } else {
