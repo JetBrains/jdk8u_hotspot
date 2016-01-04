@@ -1426,7 +1426,7 @@ void LIRGenerator::volatile_field_load(LIR_Address* address, LIR_Opr result,
 
 void LIRGenerator::get_Object_unsafe(LIR_Opr dst, LIR_Opr src, LIR_Opr offset,
                                      BasicType type, bool is_volatile) {
-  src = shenandoah_read_barrier(src, NULL, false);
+  src = shenandoah_read_barrier(src, NULL, true);
   if (is_volatile && type == T_LONG) {
     LIR_Address* addr = new LIR_Address(src, offset, T_DOUBLE);
     LIR_Opr tmp = new_register(T_DOUBLE);
@@ -1444,7 +1444,7 @@ void LIRGenerator::get_Object_unsafe(LIR_Opr dst, LIR_Opr src, LIR_Opr offset,
 
 void LIRGenerator::put_Object_unsafe(LIR_Opr src, LIR_Opr offset, LIR_Opr data,
                                      BasicType type, bool is_volatile) {
-  src = shenandoah_write_barrier(src, NULL, false);
+  src = shenandoah_write_barrier(src, NULL, true);
   if (is_volatile && type == T_LONG) {
     LIR_Address* addr = new LIR_Address(src, offset, T_DOUBLE);
     LIR_Opr tmp = new_register(T_DOUBLE);
