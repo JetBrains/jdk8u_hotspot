@@ -165,12 +165,14 @@ public:
     } else {
       cl = &mark_cl;
     }
-    CodeBlobToOopClosure blobsCl(cl, CodeBlobToOopClosure::FixRelocations);
+    MarkingCodeBlobClosure blobsCl(cl, CodeBlobToOopClosure::FixRelocations);
     CLDToOopClosure cldCl(cl);
 
     ResourceMark m;
     if (ClassUnloadingWithConcurrentMark) {
       SCMUpdateRefsClosure uprefs;
+      // Can't use the MarkingCodeBlobClosure here: if we do this, the update-refs
+      // pass could claim nmethods from marking passes.
       CodeBlobToOopClosure upcode(&uprefs, CodeBlobToOopClosure::FixRelocations);
       CLDToOopClosure upcld(&uprefs, false);
       _rp->process_roots(cl, &uprefs, &cldCl, &upcld, &cldCl, &blobsCl, &upcode);
@@ -260,6 +262,9 @@ void ShenandoahConcurrentMark::prepare_unmarked_root_objs_no_derived_ptrs(bool u
   assert(Thread::current()->is_VM_thread(), "can only do this in VMThread");
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  ClassLoaderDataGraph::clear_claimed_marks();
+
   heap->set_par_threads(_max_conc_worker_id);
   heap->conc_workers()->set_active_workers(_max_conc_worker_id);
   ShenandoahRootProcessor root_proc(heap, _max_conc_worker_id);

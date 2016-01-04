@@ -1909,7 +1909,6 @@ void ShenandoahHeap::start_concurrent_marking() {
   // oopDesc::_debug = true;
 
   shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::scan_roots);
-  ClassLoaderDataGraph::clear_claimed_marks();
   concurrentMark()->prepare_unmarked_root_objs();
   shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::scan_roots);
 
