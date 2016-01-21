@@ -3378,7 +3378,9 @@ void VM_RedefineClasses::AdjustCpoolCacheAndVtable::do_klass(Klass* k) {
     // not yet in the vtable, because the vtable setup is in progress.
     // This must be done after we adjust the default_methods and
     // default_vtable_indices for methods already in the vtable.
+    // If redefining Unsafe, walk all the vtables looking for entries.
     if (ik->vtable_length() > 0 && (_the_class_oop->is_interface()
+        || _the_class_oop == SystemDictionary::misc_Unsafe_klass()
         || ik->is_subtype_of(_the_class_oop))) {
       // ik->vtable() creates a wrapper object; rm cleans it up
       ResourceMark rm(_thread);
@@ -3393,7 +3395,9 @@ void VM_RedefineClasses::AdjustCpoolCacheAndVtable::do_klass(Klass* k) {
     // interface, then we have to call adjust_method_entries() for
     // every InstanceKlass that has an itable since there isn't a
     // subclass relationship between an interface and an InstanceKlass.
+    // If redefining Unsafe, walk all the itables looking for entries.
     if (ik->itable_length() > 0 && (_the_class_oop->is_interface()
+        || _the_class_oop == SystemDictionary::misc_Unsafe_klass()
         || ik->is_subclass_of(_the_class_oop))) {
       // ik->itable() creates a wrapper object; rm cleans it up
       ResourceMark rm(_thread);
@@ -3751,7 +3755,7 @@ void VM_RedefineClasses::flush_dependent_code(instanceKlassHandle k_h, TRAPS) {
     // Deoptimize all activations depending on marked nmethods
     Deoptimization::deoptimize_dependents();
 
-    // Make the dependent methods not entrant (in VM_Deoptimize they are made zombies)
+    // Make the dependent methods not entrant
     CodeCache::make_marked_nmethods_not_entrant();
 
     // From now on we know that the dependency information is complete
@@ -4070,9 +4074,6 @@ void VM_RedefineClasses::redefine_single_class(jclass the_jclass,
     bool trace_name_printed = false;
     mnt->adjust_method_entries(the_class(), &trace_name_printed);
   }
-
-  // Fix Resolution Error table also to remove old constant pools
-  SystemDictionary::delete_resolution_error(old_constants);
 
   if (the_class->oop_map_cache() != NULL) {
     // Flush references to any obsolete methods from the oop map cache
