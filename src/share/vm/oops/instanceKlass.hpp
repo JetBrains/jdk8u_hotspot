@@ -785,7 +785,7 @@ class InstanceKlass: public Klass {
   // maintenance of deoptimization dependencies
   int mark_dependent_nmethods(DepChange& changes);
   void add_dependent_nmethod(nmethod* nm);
-  void remove_dependent_nmethod(nmethod* nm);
+  void remove_dependent_nmethod(nmethod* nm, bool delete_immediately);
 
   // On-stack replacement support
   nmethod* osr_nmethods_head() const         { return _osr_nmethods_head; };
@@ -807,6 +807,11 @@ class InstanceKlass: public Klass {
   // subclass/subinterface checks
   bool implements_interface(Klass* k) const;
   bool is_same_or_direct_interface(Klass* k) const;
+
+#ifdef ASSERT
+  // check whether this class or one of its superclasses was redefined
+  bool has_redefined_this_or_super() const;
+#endif
 
   // Access to the implementor of an interface.
   Klass* implementor() const
@@ -865,8 +870,8 @@ class InstanceKlass: public Klass {
 
   // Casting from Klass*
   static InstanceKlass* cast(Klass* k) {
-    assert(k->is_klass(), "must be");
-    assert(k->oop_is_instance(), "cast to InstanceKlass");
+    assert(k == NULL || k->is_klass(), "must be");
+    assert(k == NULL || k->oop_is_instance(), "cast to InstanceKlass");
     return (InstanceKlass*) k;
   }
 
@@ -969,6 +974,7 @@ class InstanceKlass: public Klass {
   void oop_follow_contents(oop obj);
   int  oop_adjust_pointers(oop obj);
 
+  void clean_weak_instanceklass_links(BoolObjectClosure* is_alive);
   void clean_implementors_list(BoolObjectClosure* is_alive);
   void clean_method_data(BoolObjectClosure* is_alive);
   void clean_dependent_nmethods();

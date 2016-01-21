@@ -141,8 +141,8 @@ HS_DTRACE_PROBE_DECL5(hotspot, thread__stop, char*, intptr_t,
 
 #else /* USDT2 */
 
-#define HOTSPOT_THREAD_PROBE_start HOTSPOT_THREAD_PROBE_START
-#define HOTSPOT_THREAD_PROBE_stop HOTSPOT_THREAD_PROBE_STOP
+#define HOTSPOT_THREAD_PROBE_start HOTSPOT_THREAD_START
+#define HOTSPOT_THREAD_PROBE_stop HOTSPOT_THREAD_STOP
 
 #define DTRACE_THREAD_PROBE(probe, javathread)                             \
   {                                                                        \
@@ -3306,6 +3306,9 @@ void Threads::threads_do(ThreadClosure* tc) {
 jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
 
   extern void JDK_Version_init();
+
+  // Preinitialize version info.
+  VM_Version::early_initialize();
 
   // Check version
   if (!is_supported_jni_version(args->version)) return JNI_EVERSION;
