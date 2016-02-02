@@ -39,7 +39,7 @@ ShenandoahFreeSet::~ShenandoahFreeSet() {
 
 void ShenandoahFreeSet::increase_used(size_t num_bytes) {
   assert(_used <= _capacity, "must not use more than we have");
-  Atomic::add((jlong) num_bytes, (jlong*) &_used);
+  Atomic::add((intptr_t) num_bytes, (intptr_t*) &_used);
 }
 
 size_t ShenandoahFreeSet::used() {
@@ -105,7 +105,7 @@ void ShenandoahFreeSet::push_back_regions(size_t start, size_t end) {
   for (size_t i = start; i != end; i = (i + 1) % _reserved_end) {
     ShenandoahHeapRegion* r = get(i);
     // We subtract the capacity here, and add it back in par_add_region.
-    Atomic::add(- ((jlong)r->free()), (jlong*) &_capacity);
+    Atomic::add(- ((intptr_t)r->free()), (intptr_t*) &_capacity);
   }
   par_add_regions(_regions, start, diff_to_end(start, end), _reserved_end);
 }
@@ -171,7 +171,7 @@ void ShenandoahFreeSet::clear() {
 
 void ShenandoahFreeSet::par_add_regions(ShenandoahHeapRegion** regions, size_t start, size_t num, size_t max) {
 
-  size_t next = (size_t) Atomic::add((jlong) num, (jlong*) &_write_index);
+  size_t next = (size_t) Atomic::add((intptr_t) num, (intptr_t*) &_write_index);
   assert(next >= num, "don't get negative");
   size_t bottom = (next - num) % _reserved_end;
   next = next % _reserved_end;
@@ -190,7 +190,7 @@ void ShenandoahFreeSet::par_add_regions(ShenandoahHeapRegion** regions, size_t s
   while (true) {
     size_t test = (size_t) Atomic::cmpxchg((jlong) next, (jlong*) &_active_end, (jlong) bottom);
     if (test == bottom) {
-      Atomic::add((jlong) capacity, (jlong*) &_capacity);
+      Atomic::add((intptr_t) capacity, (intptr_t*) &_capacity);
       return;
     } else {
       // Don't starve competing threads.
