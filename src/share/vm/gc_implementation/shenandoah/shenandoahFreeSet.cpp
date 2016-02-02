@@ -58,10 +58,16 @@ bool ShenandoahFreeSet::is_contiguous(size_t start, size_t num) {
   if (! r1->is_empty()) {
     return false;
   }
+  start = (start + 1) % _reserved_end;
+  size_t end = (start + num) % _reserved_end;
+  for (size_t i = start; i != end; i = (i + 1) % _reserved_end) {
 
-  for (size_t i = start + 1; i < start + num; i++) {
-    // The modulo will take care of wrapping around.
-    ShenandoahHeapRegion* r2 = get(i % _reserved_end);
+    if (i == _active_end) {
+      // We reached the end of our free list.
+      return false;
+    }
+
+    ShenandoahHeapRegion* r2 = get(i);
     if (r2->region_number() != r1->region_number() + 1)
       return false;
     if (! r2->is_empty())
@@ -121,7 +127,7 @@ ShenandoahHeapRegion* ShenandoahFreeSet::claim_contiguous(size_t num) {
     size_t result = (size_t) Atomic::cmpxchg((jlong) next_current, (jlong*) &_current_index, (jlong) current_idx);
     if (result == current_idx) {
 
-      push_back_regions((current_idx + 1) % _reserved_end, first);
+      push_back_regions(next, first);
 
       initialize_humongous_regions(first, num);
       assert(current_index() != first, "current overlaps with contiguous regions");
