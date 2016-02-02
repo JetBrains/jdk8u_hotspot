@@ -45,7 +45,7 @@ public:
   ShenandoahFreeSet(size_t max_regions);
   ~ShenandoahFreeSet();
   void add_region(ShenandoahHeapRegion* r);
-  void par_add_region(ShenandoahHeapRegion* r);
+  void par_add_regions(ShenandoahHeapRegion** regions, size_t start, size_t num, size_t max);
 
   size_t claim_next(size_t current);
 

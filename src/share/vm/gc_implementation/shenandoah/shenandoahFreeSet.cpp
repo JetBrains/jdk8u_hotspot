@@ -101,12 +101,13 @@ size_t ShenandoahFreeSet::find_contiguous(size_t start, size_t num) {
 }
 
 void ShenandoahFreeSet::push_back_regions(size_t start, size_t end) {
+  if (start == end) return; // Nothing to do.
   for (size_t i = start; i != end; i = (i + 1) % _reserved_end) {
     ShenandoahHeapRegion* r = get(i);
     // We subtract the capacity here, and add it back in par_add_region.
     Atomic::add(- ((jlong)r->free()), (jlong*) &_capacity);
-    par_add_region(get(i));
   }
+  par_add_regions(_regions, start, diff_to_end(start, end), _reserved_end);
 }
 
 void ShenandoahFreeSet::initialize_humongous_regions(size_t first, size_t num) {
@@ -168,12 +169,20 @@ void ShenandoahFreeSet::clear() {
   _used = 0;
 }
 
-void ShenandoahFreeSet::par_add_region(ShenandoahHeapRegion* r) {
+void ShenandoahFreeSet::par_add_regions(ShenandoahHeapRegion** regions, size_t start, size_t num, size_t max) {
 
-  size_t next = Atomic::add(1, (jlong*) &_write_index) % _reserved_end;
-  size_t bottom = (next == 0 ? _reserved_end : next) - 1;
+  size_t next = (size_t) Atomic::add((jlong) num, (jlong*) &_write_index);
+  assert(next >= num, "don't get negative");
+  size_t bottom = (next - num) % _reserved_end;
+  next = next % _reserved_end;
+  assert(bottom != next, "must be");
 
-  _regions[bottom] = r;
+  size_t capacity = 0;
+  for (size_t i = 0; i < num; i++) {
+    ShenandoahHeapRegion* r = regions[(start + i) % max];
+    capacity += r->free();
+    _regions[(bottom + i) % _reserved_end] = r;
+  }
 
   // loop until we succeed in bringing the active_end up to our
   // write index
@@ -181,7 +190,7 @@ void ShenandoahFreeSet::par_add_region(ShenandoahHeapRegion* r) {
   while (true) {
     size_t test = (size_t) Atomic::cmpxchg((jlong) next, (jlong*) &_active_end, (jlong) bottom);
     if (test == bottom) {
-      Atomic::add((jlong) r->free(), (jlong*) &_capacity);
+      Atomic::add((jlong) capacity, (jlong*) &_capacity);
       return;
     } else {
       // Don't starve competing threads.

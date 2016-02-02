@@ -2128,6 +2128,7 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
   size_t base = _num_regions;
   ensure_new_regions(num_regions);
 
+  ShenandoahHeapRegion* regions[num_regions];
   for (size_t i = 0; i < num_regions; i++) {
     ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion();
     size_t new_region_index = i + base;
@@ -2141,8 +2142,9 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
     assert(_ordered_regions->active_regions() == new_region->region_number(), "must match");
     _ordered_regions->add_region(new_region);
     _sorted_regions->add_region(new_region);
-    _free_regions->par_add_region(new_region);
+    regions[i] = new_region;
   }
+  _free_regions->par_add_regions(regions, 0, num_regions, num_regions);
 }
 
 void ShenandoahHeap::ensure_new_regions(size_t new_regions) {
