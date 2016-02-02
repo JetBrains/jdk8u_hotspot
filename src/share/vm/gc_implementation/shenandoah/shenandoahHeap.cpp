@@ -719,12 +719,14 @@ HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
     assert(! heap_region_containing(result)->is_in_collection_set(), "never allocate in targetted region");
     return result;
   } else {
+    /*
     tty->print_cr("Out of memory. Requested number of words: "SIZE_FORMAT" used heap: "INT64_FORMAT", bytes allocated since last CM: "INT64_FORMAT, size, used(), _bytesAllocSinceCM);
     {
       print_heap_regions();
       tty->print("Printing "SIZE_FORMAT" free regions:\n", _free_regions->count());
       _free_regions->print();
     }
+    */
     return NULL;
   }
 }
