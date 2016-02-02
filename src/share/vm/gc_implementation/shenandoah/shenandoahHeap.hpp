@@ -28,7 +28,6 @@
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 
 #include "gc_implementation/g1/concurrentMark.hpp"
 #include "gc_implementation/g1/heapRegionBounds.inline.hpp"
@@ -43,6 +42,8 @@
 class SpaceClosure;
 class GCTracer;
 
+class ShenandoahHeapRegionClosure;
+class ShenandoahHeapRegionSet;
 class ShenandoahJNICritical;
 class ShenandoahMonitoringSupport;
 
@@ -187,8 +188,8 @@ public:
 
   void ensure_parsability(bool retire_tlabs);
 
-  void add_free_region(ShenandoahHeapRegion* r) {_free_regions->add_region(r);}
-  void clear_free_regions() {_free_regions->clear();}
+  void add_free_region(ShenandoahHeapRegion* r);
+  void clear_free_regions();
 
   void oop_iterate(ExtendedOopClosure* cl, bool skip_dirty_regions,
                    bool skip_unreachable_objects);
@@ -392,7 +393,7 @@ public:
   }
 
   GCTracer* tracer();
-  ShenandoahHeapRegionSet* collection_set() { return _collection_set; }
+  ShenandoahCollectionSet* collection_set() { return _collection_set; }
   size_t tlab_used(Thread* ignored) const;
 
 private:

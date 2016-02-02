@@ -35,6 +35,8 @@
 #include "gc_implementation/shared/isGCActiveMark.hpp"
 
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHumongous.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
@@ -139,7 +141,8 @@ jint ShenandoahHeap::initialize() {
   _initialSize = _num_regions * ShenandoahHeapRegion::RegionSizeBytes;
   size_t regionSizeWords = ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize;
   assert(init_byte_size == _initialSize, "tautology");
-  _ordered_regions = new ShenandoahHeapRegionSet(_max_regions, _num_regions);
+  _ordered_regions = new ShenandoahHeapRegionSet(_max_regions);
+  _sorted_regions = new ShenandoahHeapRegionSet(_max_regions);
   _collection_set = new ShenandoahCollectionSet(_max_regions);
   _free_regions = new ShenandoahFreeSet(_max_regions);
 
@@ -151,6 +154,7 @@ jint ShenandoahHeap::initialize() {
                                     regionSizeWords * i, regionSizeWords, i);
     _free_regions->add_region(current);
     _ordered_regions->add_region(current);
+    _sorted_regions->add_region(current);
   }
   assert(((size_t) _ordered_regions->active_regions()) == _num_regions, "");
   _first_region = _ordered_regions->get(0);
@@ -167,8 +171,6 @@ jint ShenandoahHeap::initialize() {
     tty->print("Free Regions\n");
     _free_regions->print();
   }
-
-  _sorted_regions = new ShenandoahHeapRegionSet(_max_regions, _num_regions, _ordered_regions);
 
   // The call below uses stuff (the SATB* things) that are in G1, but probably
   // belong into a shared location.
@@ -2135,8 +2137,8 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
     }
 
     assert(_ordered_regions->active_regions() == new_region->region_number(), "must match");
-    _ordered_regions->par_add_region(new_region);
-    _sorted_regions->par_add_region(new_region);
+    _ordered_regions->add_region(new_region);
+    _sorted_regions->add_region(new_region);
     _free_regions->par_add_region(new_region);
   }
 }
@@ -2416,4 +2418,12 @@ bool ShenandoahHeap::is_obj_dead(const oop obj, const ShenandoahHeapRegion* r) c
 }
 CMBitMap* ShenandoahHeap::prev_mark_bit_map() {
   return _prev_mark_bit_map;
+}
+
+void ShenandoahHeap::add_free_region(ShenandoahHeapRegion* r) {
+  _free_regions->add_region(r);
+}
+
+void ShenandoahHeap::clear_free_regions() {
+  _free_regions->clear();
 }

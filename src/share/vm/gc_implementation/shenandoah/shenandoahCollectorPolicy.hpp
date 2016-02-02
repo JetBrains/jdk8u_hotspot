@@ -24,15 +24,14 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAH_COLLECTOR_POLICY_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAH_COLLECTOR_POLICY_HPP
 
-#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shared/gcTrace.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "memory/collectorPolicy.hpp"
 #include "runtime/arguments.hpp"
 #include "utilities/numberSeq.hpp"
 
-
+class ShenandoahCollectionSet;
+class ShenandoahFreeSet;
 class ShenandoahHeap;
 class ShenandoahHeuristics;
 

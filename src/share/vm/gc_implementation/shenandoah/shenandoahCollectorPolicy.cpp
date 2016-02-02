@@ -22,10 +22,10 @@
  */
 
 #include "gc_implementation/shared/gcPolicyCounters.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
-
-#include "utilities/quickSort.hpp"
 
 int compareHeapRegionsByGarbage(ShenandoahHeapRegion* a, ShenandoahHeapRegion* b) {
   if (a == NULL) {
@@ -104,10 +104,7 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
 
 void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collection_set) {
   ShenandoahHeapRegionSet* sorted_regions = ShenandoahHeap::heap()->sorted_regions();
-  QuickSort::sort<ShenandoahHeapRegion*>(sorted_regions->getArray(),
-                                         sorted_regions->active_regions(),
-                                         compareHeapRegionsByGarbage,
-                                         false);
+  sorted_regions->sort(compareHeapRegionsByGarbage);
 
   jlong i = 0;
   jlong end = sorted_regions->active_regions();
@@ -138,10 +135,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 
 void ShenandoahHeuristics::choose_collection_set_min_garbage(ShenandoahCollectionSet* collection_set, size_t min_garbage) {
   ShenandoahHeapRegionSet* sorted_regions = ShenandoahHeap::heap()->sorted_regions();
-  QuickSort::sort<ShenandoahHeapRegion*>(sorted_regions->getArray(),
-                                         sorted_regions->active_regions(),
-                                         compareHeapRegionsByGarbage,
-                                         false);
+  sorted_regions->sort(compareHeapRegionsByGarbage);
   jlong i = 0;
   jlong end = sorted_regions->active_regions();
 

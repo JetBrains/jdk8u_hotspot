@@ -24,7 +24,11 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGIONSET_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGIONSET_HPP
 
-#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
+#include "memory/allocation.hpp"
+
+#include "utilities/quickSort.hpp"
+
+class ShenandoahHeapRegion;
 
 class ShenandoahHeapRegionClosure : public StackObj {
   bool _complete;
@@ -43,54 +47,38 @@ public:
 // The basic set.
 // Implements iteration.
 class ShenandoahHeapRegionSet: public CHeapObj<mtGC> {
-private:
-  size_t _reserved_end;
-  size_t _active_end;
-
-  ShenandoahHeapRegion** _regions;
-
-  size_t _write_index;
-
 protected:
+  ShenandoahHeapRegion** _regions;
+  size_t _active_end;
+  size_t _reserved_end;
   size_t _current_index;
 
 public:
 
-  ShenandoahHeapRegionSet(size_t max_regions, size_t current_region);
-  ShenandoahHeapRegionSet(size_t max_regions, size_t current_region, ShenandoahHeapRegionSet* shrs);
+  ShenandoahHeapRegionSet(size_t max_regions);
 
-  ~ShenandoahHeapRegionSet();
+  virtual ~ShenandoahHeapRegionSet();
 
   size_t   max_regions()     { return _reserved_end;}
   size_t   active_regions()  { return _active_end;}
 
-  HeapWord* bottom()   { return get(0)->bottom();}
-  HeapWord* end()      { return get(last_index())->end(); }
+  HeapWord* bottom() const;
+  HeapWord* end() const;
 
-  void clear() {
-    _active_end = 0;
-    _write_index = 0;
-    _current_index = 0;
+  void clear();
+
+  size_t count() const;
+
+  ShenandoahHeapRegion* get(size_t i) const;
+
+  virtual void add_region(ShenandoahHeapRegion* r);
+
+  ShenandoahHeapRegion* claim_next();
+
+  template<class C>
+  void sort(C comparator) {
+    QuickSort::sort<ShenandoahHeapRegion*>(_regions, _active_end, comparator, false);
   }
-
-  size_t count() { return _active_end - _current_index;}
-
-  ShenandoahHeapRegion* get(size_t i) {
-    if (i < active_end()) {
-      return _regions[i];
-    } else {
-      return NULL;
-    }
-  }
-
-  void add_region(ShenandoahHeapRegion* r);
-  void par_add_region(ShenandoahHeapRegion* r);
-  void push_bottom(ShenandoahHeapRegion* r);
-
-  void write_region(ShenandoahHeapRegion* r, size_t index);
-
-  ShenandoahHeapRegion** getArray() {return _regions;}
-  ShenandoahHeapRegion*  claim_next();
 
   void print();
 public:
@@ -103,11 +91,6 @@ public:
   void clear_current_index() {_current_index = 0; }
 
 protected:
-  size_t reserved_end()      { return _reserved_end;}
-  size_t active_end()        { return _active_end;}
-
-  size_t  last_index()      { return active_end() - 1;}
-
   bool contains(ShenandoahHeapRegion* r);
 
   void active_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
@@ -118,45 +101,6 @@ protected:
                            bool skip_dirty_regions = false,
                            bool skip_humongous_continuation = false) const;
 
-};
-
-class ShenandoahCollectionSet: public ShenandoahHeapRegionSet {
-private:
-  size_t _garbage;
-  size_t _live_data;
-public:
-  ShenandoahCollectionSet(size_t max_regions);
-  ~ShenandoahCollectionSet();
-  void add_region(ShenandoahHeapRegion* r);
-  size_t live_data();
-  size_t garbage();
-  void clear();
-};
-
-class ShenandoahFreeSet : public ShenandoahHeapRegionSet {
-
-private:
-  size_t _capacity;
-  size_t _used;
-
-  bool is_contiguous(size_t start, size_t num);
-  size_t find_contiguous(size_t num, size_t start);
-public:
-  ShenandoahFreeSet(size_t max_regions);
-  void add_region(ShenandoahHeapRegion* r);
-  void par_add_region(ShenandoahHeapRegion* r);
-  void write_region(ShenandoahHeapRegion* r, size_t index);
-
-  size_t claim_next(size_t current);
-
-  // push n bottom used for growing the heap.
-  size_t capacity();
-  ShenandoahHeapRegion* claim_contiguous(size_t num);
-  void clear();
-
-  size_t used();
-
-  void increase_used(size_t amount);
 };
 
 #endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGIONSET_HPP
