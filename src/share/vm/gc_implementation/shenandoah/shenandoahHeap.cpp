@@ -96,7 +96,7 @@ public:
 class PrintHeapObjectsClosure : public ShenandoahHeapRegionClosure {
 public:
   bool doHeapRegion(ShenandoahHeapRegion* r) {
-    tty->print_cr("Region "INT32_FORMAT" top = "PTR_FORMAT" used = "SIZE_FORMAT_HEX" free = "SIZE_FORMAT_HEX,
+    tty->print_cr("Region "SIZE_FORMAT" top = "PTR_FORMAT" used = "SIZE_FORMAT_HEX" free = "SIZE_FORMAT_HEX,
                r->region_number(), p2i(r->top()), r->used(), r->free());
 
     ShenandoahHeap::heap()->print_heap_objects(r->bottom(), r->top());
@@ -136,27 +136,28 @@ jint ShenandoahHeap::initialize() {
 
   _num_regions = init_byte_size / ShenandoahHeapRegion::RegionSizeBytes;
   _max_regions = max_byte_size / ShenandoahHeapRegion::RegionSizeBytes;
-  _ordered_regions = NEW_C_HEAP_ARRAY(ShenandoahHeapRegion*, _max_regions, mtGC);
-  for (size_t i = 0; i < _max_regions; i++) {
-    _ordered_regions[i] = NULL;
-  }
-
   _initialSize = _num_regions * ShenandoahHeapRegion::RegionSizeBytes;
   size_t regionSizeWords = ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize;
   assert(init_byte_size == _initialSize, "tautology");
-  _free_regions = new ShenandoahHeapRegionSet(_max_regions);
-  _collection_set = new ShenandoahHeapRegionSet(_max_regions);
+  _ordered_regions = new ShenandoahHeapRegionSet(_max_regions, _num_regions);
+  _collection_set = new ShenandoahCollectionSet(_max_regions);
+  _free_regions = new ShenandoahFreeSet(_max_regions);
 
-  for (size_t i = 0; i < _num_regions; i++) {
+  size_t i = 0;
+  for (i = 0; i < _num_regions; i++) {
+
     ShenandoahHeapRegion* current = new ShenandoahHeapRegion();
     current->initialize_heap_region((HeapWord*) pgc_rs.base() +
                                     regionSizeWords * i, regionSizeWords, i);
-    _free_regions->append(current);
-    _ordered_regions[i] = current;
+    _free_regions->add_region(current);
+    _ordered_regions->add_region(current);
   }
-  _first_region = _ordered_regions[0];
+  assert(((size_t) _ordered_regions->active_regions()) == _num_regions, "");
+  _first_region = _ordered_regions->get(0);
   _first_region_bottom = _first_region->bottom();
-  assert((((size_t) _first_region_bottom) & (ShenandoahHeapRegion::RegionSizeBytes - 1)) == 0, err_msg("misaligned heap: "PTR_FORMAT, p2i(_first_region_bottom)));
+  assert((((size_t) _first_region_bottom) &
+          (ShenandoahHeapRegion::RegionSizeBytes - 1)) == 0,
+         err_msg("misaligned heap: "PTR_FORMAT, p2i(_first_region_bottom)));
 
   _numAllocs = 0;
 
@@ -166,6 +167,8 @@ jint ShenandoahHeap::initialize() {
     tty->print("Free Regions\n");
     _free_regions->print();
   }
+
+  _sorted_regions = new ShenandoahHeapRegionSet(_max_regions, _num_regions, _ordered_regions);
 
   // The call below uses stuff (the SATB* things) that are in G1, but probably
   // belong into a shared location.
@@ -226,6 +229,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _cancelled_concgc(false),
   _need_update_refs(false),
   _need_reset_bitmaps(false),
+  _growing_heap(0),
   _jni_critical(new ShenandoahJNICritical())
 
 {
@@ -257,6 +261,7 @@ public:
   ResetBitmapTask(ShenandoahHeapRegionSet* regions) :
     AbstractGangTask("Parallel Reset Bitmap Task"),
     _regions(regions) {
+    _regions->clear_current_index();
   }
 
   void work(uint worker_id) {
@@ -278,8 +283,8 @@ void ShenandoahHeap::reset_mark_bitmap() {
   if (ShenandoahTracePhases) {
     tty->print_cr("Shenandoah starting concurrent reset bitmaps");
   }
-  ShenandoahHeapRegionSet regions = ShenandoahHeapRegionSet(_num_regions, _ordered_regions, _num_regions);
-  ResetBitmapTask task = ResetBitmapTask(&regions);
+
+  ResetBitmapTask task = ResetBitmapTask(_ordered_regions);
   conc_workers()->set_active_workers(_max_conc_workers);
   conc_workers()->run_task(&task);
   if (ShenandoahTracePhases) {
@@ -292,8 +297,8 @@ void ShenandoahHeap::reset_mark_bitmap_range(HeapWord* from, HeapWord* to) {
 }
 
 bool ShenandoahHeap::is_bitmap_clear() {
-  HeapWord* start = _ordered_regions[0]->bottom();
-  HeapWord* end = _ordered_regions[_num_regions-1]->end();
+  HeapWord* start = _ordered_regions->bottom();
+  HeapWord* end = _ordered_regions->end();
   return _next_mark_bit_map->getNextMarkedWordAddress(start, end) == end;
 }
 
@@ -552,70 +557,61 @@ public:
 
 HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
   HeapWord* result = NULL;
-  result = allocate_memory_with_lock(word_size);
+  result = allocate_memory_work(word_size);
 
   if (result == NULL && ! evacuating) { // Allocation failed, try full-GC, then retry allocation.
     // tty->print_cr("failed to allocate "SIZE_FORMAT " bytes, free regions:", word_size * HeapWordSize);
     // _free_regions->print();
     collect(GCCause::_allocation_failure);
-    result = allocate_memory_with_lock(word_size);
+    result = allocate_memory_work(word_size);
+  }
+
+  check_grow_heap(evacuating);
+
+  // Only update monitoring counters when not calling from a write-barrier.
+  // Otherwise we might attempt to grab the Service_lock, which we must
+  // not do when coming from a write-barrier (because the thread might
+  // already hold the Compile_lock).
+  if (! evacuating) {
+    monitoring_support()->update_counters();
   }
 
   return result;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_with_lock(size_t word_size) {
-  HeapWord* result = allocate_memory_shenandoah_lock(word_size);
-  monitoring_support()->update_counters();
-  return result;
+bool ShenandoahHeap::call_from_write_barrier(bool evacuating) {
+  return evacuating && Thread::current()->is_Java_thread();
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_shenandoah_lock(size_t word_size) {
-  MutexLockerEx ml(ShenandoahHeap_lock, true);
-  return allocate_memory_work(word_size);
-}
-
-ShenandoahHeapRegion* ShenandoahHeap::check_skip_humongous(ShenandoahHeapRegion* region) const {
-  while (region != NULL && region->is_humongous()) {
-    region = _free_regions->get_next();
+void ShenandoahHeap::check_grow_heap(bool evacuating) {
+  size_t num_free = (size_t) _free_regions->count();
+  if (num_free > ShenandoahAllocReserveRegions) {
+    return;
   }
-  return region;
-}
 
-ShenandoahHeapRegion* ShenandoahHeap::get_next_region_skip_humongous() const {
-  ShenandoahHeapRegion* next = _free_regions->get_next();
-  return check_skip_humongous(next);
-}
-
-ShenandoahHeapRegion* ShenandoahHeap::get_current_region_skip_humongous() const {
-  ShenandoahHeapRegion* current = _free_regions->current();
-  return check_skip_humongous(current);
-}
-
-
-ShenandoahHeapRegion* ShenandoahHeap::check_grow_heap(ShenandoahHeapRegion* current) {
-  if (current == NULL) {
-    if (grow_heap_by()) {
-      current = _free_regions->get_next();
-      assert(current != NULL, "After successfully growing the heap we should have a region");
-      assert(! current->is_humongous(), "new region must not be humongous");
-    } else {
-      current = NULL; // No more room to make a new region. OOM.
-    }
+  assert(_free_regions->max_regions() >= _free_regions->active_regions(), "don't get negative");
+  size_t available = _max_regions - _num_regions;
+  if (available == 0) {
+    return;
   }
-  return current;
-}
 
-ShenandoahHeapRegion* ShenandoahHeap::get_current_region() {
-  ShenandoahHeapRegion* current = get_current_region_skip_humongous();
-  return check_grow_heap(current);
-}
+  // We don't have enough reserve regions left, try to grow the heap.
+  // Unless we're coming from a write barrier.
+  if (call_from_write_barrier(evacuating)) {
+    return;
+  }
 
-ShenandoahHeapRegion* ShenandoahHeap::get_next_region() {
-  ShenandoahHeapRegion* current = get_next_region_skip_humongous();
-  return check_grow_heap(current);
-}
+  jbyte growing = Atomic::cmpxchg(1, &_growing_heap, 0);
+  if (growing == 0) {
+    // Only one thread succeeds this, and this one gets
+    // to grow the heap. All other threads can continue
+    // to allocate from the reserve.
+    grow_heap_by(MIN2(available, ShenandoahAllocReserveRegions));
 
+    // Reset it back to 0, so that other threads can take it again.
+    Atomic::store(0, &_growing_heap);
+  }
+}
 
 HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
 
@@ -623,7 +619,10 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
     return allocate_large_memory(word_size);
   }
 
-  ShenandoahHeapRegion* my_current_region = get_current_region();
+  jlong current_idx = _free_regions->current_index();
+  assert(current_idx >= 0, "expect >= 0");
+  ShenandoahHeapRegion* my_current_region = _free_regions->get(current_idx);
+
   if (my_current_region == NULL) {
     return NULL; // No more room to make a new region. OOM.
   }
@@ -637,17 +636,20 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
   assert(! my_current_region->is_in_collection_set(), "never get targetted regions in free-lists");
   assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
 
-  HeapWord* result;
+  HeapWord* result = my_current_region->par_allocate(word_size);
 
-  result = my_current_region->par_allocate(word_size);
   while (result == NULL && my_current_region != NULL) {
+
     // 2nd attempt. Try next region.
     size_t remaining = my_current_region->free();
-    my_current_region = get_next_region();
+    current_idx = _free_regions->claim_next(current_idx);
+    my_current_region = _free_regions->get(current_idx);
+
     if (my_current_region == NULL) {
+      // tty->print("WTF: OOM error trying to allocate %ld words\n", word_size);
       return NULL; // No more room to make a new region. OOM.
     }
-    // _free_regions->decrease_available(remaining);
+    // _free_regions->increase_used(remaining);
     assert(my_current_region != NULL, "should have a region at this point");
     assert(! my_current_region->is_in_collection_set(), "never get targetted regions in free-lists");
     assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
@@ -657,130 +659,47 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
   if (result != NULL) {
     my_current_region->increase_live_data(word_size * HeapWordSize);
     increase_used(word_size * HeapWordSize);
-    _free_regions->decrease_available(word_size * HeapWordSize);
+    _free_regions->increase_used(word_size * HeapWordSize);
   }
   return result;
 }
 
 HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
-  if (ShenandoahTraceHumongous) {
-    gclog_or_tty->print_cr("allocating humongous object of size: "SIZE_FORMAT" KB", (words * HeapWordSize) / K);
-  }
 
   uint required_regions = ShenandoahHumongous::required_regions(words * HeapWordSize);
-
   assert(required_regions <= _max_regions, "sanity check");
+  ShenandoahHeapRegion* r = _free_regions->claim_contiguous(required_regions);
 
-  HeapWord* result;
-  ShenandoahHeapRegion* free_regions[required_regions];
+  HeapWord* result = NULL;
 
-  bool success = find_contiguous_free_regions(required_regions, free_regions);
-  if (! success) {
-    success = allocate_contiguous_free_regions(required_regions, free_regions);
-  }
-  if (! success) {
-    result = NULL; // Throw OOM, we cannot allocate the huge object.
+  if (r != NULL)  {
+    result = r->bottom();
+
+    if (ShenandoahTraceHumongous) {
+      gclog_or_tty->print_cr("allocating humongous object of size: "SIZE_FORMAT" KB at location "PTR_FORMAT" in start region "SIZE_FORMAT,
+                             (words * HeapWordSize) / K, p2i(result), r->region_number());
+    }
   } else {
-    // Initialize huge object flags in the regions.
-    size_t live = words * HeapWordSize;
-    free_regions[0]->set_humongous_start(true);
-    free_regions[0]->increase_live_data(live);
-
-    for (uint i = 0; i < required_regions; i++) {
-      if (i == 0) {
-        free_regions[0]->set_humongous_start(true);
-      } else {
-        free_regions[i]->set_humongous_continuation(true);
-      }
-      free_regions[i]->set_top(free_regions[i]->end());
-      increase_used(ShenandoahHeapRegion::RegionSizeBytes);
+    if (ShenandoahTraceHumongous) {
+      gclog_or_tty->print_cr("allocating humongous object of size: "SIZE_FORMAT" KB at location "PTR_FORMAT" failed",
+                             (words * HeapWordSize) / K, p2i(result));
     }
-    _free_regions->decrease_available(ShenandoahHeapRegion::RegionSizeBytes * required_regions);
-    result = free_regions[0]->bottom();
   }
+
+
   return result;
+
 }
 
-bool ShenandoahHeap::find_contiguous_free_regions(uint num_free_regions, ShenandoahHeapRegion** free_regions) {
-  if (ShenandoahTraceHumongous) {
-    gclog_or_tty->print_cr("trying to find "UINT32_FORMAT" contiguous free regions", num_free_regions);
+HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
+                                        bool*  gc_overhead_limit_was_exceeded) {
+
+#ifdef ASSERT
+  if (ShenandoahVerify && _numAllocs > 1000000) {
+    _numAllocs = 0;
   }
-  uint free_regions_index = 0;
-  for (uint regions_index = 0; regions_index < _num_regions; regions_index++) {
-    // Claim a free region.
-    ShenandoahHeapRegion* region = _ordered_regions[regions_index];
-    bool free = false;
-    if (region != NULL) {
-      if (region->free() == ShenandoahHeapRegion::RegionSizeBytes) {
-        assert(! region->is_humongous(), "don't reuse occupied humongous regions");
-        free = true;
-      }
-    }
-    if (! free) {
-      // Not contiguous, reset search
-      free_regions_index = 0;
-      continue;
-    }
-    assert(free_regions_index < num_free_regions, "array bounds");
-    free_regions[free_regions_index] = region;
-    free_regions_index++;
-
-    if (free_regions_index == num_free_regions) {
-      if (ShenandoahTraceHumongous) {
-        gclog_or_tty->print_cr("found "UINT32_FORMAT" contiguous free regions:", num_free_regions);
-        for (uint i = 0; i < num_free_regions; i++) {
-          gclog_or_tty->print(UINT32_FORMAT": " , i);
-          free_regions[i]->print_on(gclog_or_tty);
-        }
-      }
-      return true;
-    }
-
-  }
-  if (ShenandoahTraceHumongous) {
-    gclog_or_tty->print_cr("failed to find "UINT32_FORMAT" free regions", num_free_regions);
-  }
-  return false;
-}
-
-bool ShenandoahHeap::allocate_contiguous_free_regions(uint num_free_regions, ShenandoahHeapRegion** free_regions) {
-  // We need to be smart here to avoid interleaved allocation of regions when concurrently
-  // allocating for large objects. We get the new index into regions array using CAS, where can
-  // subsequently safely allocate new regions.
-  int new_regions_index = ensure_new_regions(num_free_regions);
-  if (new_regions_index == -1) {
-    return false;
-  }
-
-  int last_new_region = new_regions_index + num_free_regions;
-
-  // Now we can allocate new regions at the found index without being scared that
-  // other threads allocate in the same contiguous region.
-  if (ShenandoahGCVerbose) {
-    tty->print_cr("allocate contiguous regions:");
-  }
-  for (int i = new_regions_index; i < last_new_region; i++) {
-    ShenandoahHeapRegion* region = new ShenandoahHeapRegion();
-    HeapWord* start = _first_region_bottom + (ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize) * i;
-    region->initialize_heap_region(start, ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize, i);
-    _ordered_regions[i] = region;
-    uint index = i - new_regions_index;
-    assert(index < num_free_regions, "array bounds");
-    free_regions[index] = region;
-
-    if (ShenandoahGCVerbose) {
-      region->print();
-    }
-  }
-  return true;
-}
-
-HeapWord* ShenandoahHeap::mem_allocate_locked(size_t size,
-                                              bool* gc_overhead_limit_was_exceeded) {
-
-  // This was used for allocation while holding the Heap_lock.
-  // HeapWord* filler = allocate_memory(BrooksPointer::BROOKS_POINTER_OBJ_SIZE + size);
-
+  _numAllocs++;
+#endif
   HeapWord* filler = allocate_memory(BrooksPointer::BROOKS_POINTER_OBJ_SIZE + size, false);
   HeapWord* result = filler + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
   if (filler != NULL) {
@@ -790,7 +709,8 @@ HeapWord* ShenandoahHeap::mem_allocate_locked(size_t size,
     if (ShenandoahTraceAllocations) {
       if (*gc_overhead_limit_was_exceeded)
         tty->print("gc_overhead_limit_was_exceeded");
-      tty->print_cr("mem_allocate_locked object of size "SIZE_FORMAT" uat addr "PTR_FORMAT, size, p2i(result));
+      tty->print_cr("mem_allocate object of size "SIZE_FORMAT" at addr "PTR_FORMAT " by thread %d ",
+                    size, p2i(result), Thread::current()->osthread()->thread_id());
     }
 #endif
 
@@ -799,49 +719,12 @@ HeapWord* ShenandoahHeap::mem_allocate_locked(size_t size,
   } else {
     tty->print_cr("Out of memory. Requested number of words: "SIZE_FORMAT" used heap: "INT64_FORMAT", bytes allocated since last CM: "INT64_FORMAT, size, used(), _bytesAllocSinceCM);
     {
-      MutexLockerEx ml(ShenandoahHeap_lock, true);
       print_heap_regions();
-      tty->print("Printing "SIZE_FORMAT" free regions:\n", _free_regions->length());
+      tty->print("Printing "SIZE_FORMAT" free regions:\n", _free_regions->count());
       _free_regions->print();
     }
-    assert(false, "Out of memory");
     return NULL;
   }
-}
-
-class PrintOopContents: public OopClosure {
-public:
-  void do_oop(oop* o) {
-    oop obj = *o;
-    tty->print_cr("References oop "PTR_FORMAT, p2i((HeapWord*) obj));
-    obj->print();
-  }
-
-  void do_oop(narrowOop* o) {
-    assert(false, "narrowOops aren't implemented");
-  }
-};
-
-HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
-                                        bool*  gc_overhead_limit_was_exceeded) {
-
-#ifdef ASSERT
-  if (ShenandoahVerify && _numAllocs > 1000000) {
-    _numAllocs = 0;
-  //   VM_ShenandoahVerifyHeap op(0, 0, GCCause::_allocation_failure);
-  //   if (Thread::current()->is_VM_thread()) {
-  //     op.doit();
-  //   } else {
-  //     // ...and get the VM thread to execute it.
-  //     VMThread::execute(&op);
-  //   }
-  }
-  _numAllocs++;
-#endif
-
-  // MutexLockerEx ml(ShenandoahHeap_lock, true);
-  HeapWord* result = mem_allocate_locked(size, gc_overhead_limit_was_exceeded);
-  return result;
 }
 
 class ParallelEvacuateRegionObjectClosure : public ObjectClosure {
@@ -857,7 +740,7 @@ private:
 
 #ifdef ASSERT
     if (ShenandoahTraceEvacuations) {
-      tty->print_cr("Calling ParallelEvacuateRegionObjectClosure on "PTR_FORMAT, p2i((HeapWord*) p));
+      tty->print_cr("Calling ParallelEvacuateRegionObjectClosure on "PTR_FORMAT" of size %d\n", p2i((HeapWord*) p), p->size());
     }
 #endif
 
@@ -908,7 +791,8 @@ void ShenandoahHeap::parallel_evacuate_region(ShenandoahHeapRegion* from_region)
 
 #ifdef ASSERT
   if (ShenandoahGCVerbose) {
-    tty->print_cr("parallel_evacuate_region starting from_region "INT32_FORMAT": free_regions = "SIZE_FORMAT,  from_region->region_number(), _free_regions->available_regions());
+    tty->print_cr("parallel_evacuate_region starting from_region "SIZE_FORMAT": free_regions = "SIZE_FORMAT,
+                  from_region->region_number(), _free_regions->count());
   }
 #endif
 
@@ -919,7 +803,8 @@ void ShenandoahHeap::parallel_evacuate_region(ShenandoahHeapRegion* from_region)
     verify_evacuated_region(from_region);
   }
   if (ShenandoahGCVerbose) {
-    tty->print_cr("parallel_evacuate_region after from_region = "INT32_FORMAT": free_regions = "SIZE_FORMAT, from_region->region_number(), _free_regions->available_regions());
+    tty->print_cr("parallel_evacuate_region after from_region = "SIZE_FORMAT": free_regions = "SIZE_FORMAT,
+                  from_region->region_number(), _free_regions->count());
   }
 #endif
 }
@@ -927,11 +812,11 @@ void ShenandoahHeap::parallel_evacuate_region(ShenandoahHeapRegion* from_region)
 class ParallelEvacuationTask : public AbstractGangTask {
 private:
   ShenandoahHeap* _sh;
-  ShenandoahHeapRegionSet* _cs;
+  ShenandoahCollectionSet* _cs;
 
 public:
   ParallelEvacuationTask(ShenandoahHeap* sh,
-                         ShenandoahHeapRegionSet* cs) :
+                         ShenandoahCollectionSet* cs) :
     AbstractGangTask("Parallel Evacuation Task"),
     _cs(cs),
     _sh(sh) {}
@@ -942,7 +827,7 @@ public:
 
     while (from_hr != NULL) {
       if (ShenandoahGCVerbose) {
-        tty->print_cr("Thread "INT32_FORMAT" claimed Heap Region "INT32_FORMAT,
+        tty->print_cr("Thread "INT32_FORMAT" claimed Heap Region "SIZE_FORMAT,
                    worker_id,
                    from_hr->region_number());
         from_hr->print();
@@ -952,6 +837,8 @@ public:
       _sh->parallel_evacuate_region(from_hr);
 
       if (_sh->cancelled_concgc()) {
+        // tty->print("We cancelled concgc while working on region %d\n", from_hr->region_number());
+        // from_hr->print();
         if (ShenandoahTracePhases) {
           tty->print_cr("Cancelled concurrent evacuation");
         }
@@ -993,7 +880,7 @@ public:
       _heap->decrease_used(r->used());
       _bytes_reclaimed += r->used();
       r->recycle();
-      _heap->free_regions()->append(r);
+      _heap->free_regions()->add_region(r);
     }
 
     return false;
@@ -1012,7 +899,7 @@ void ShenandoahHeap::recycle_dirty_regions() {
   clear_cset_fast_test();
 }
 
-ShenandoahHeapRegionSet* ShenandoahHeap::free_regions() {
+ShenandoahFreeSet* ShenandoahHeap::free_regions() {
   return _free_regions;
 }
 
@@ -1160,39 +1047,116 @@ void ShenandoahHeap::verify_heap_after_marking() {
   object_iterate(&marked_oops);
 }
 
+
+void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
+  assert(r->is_humongous_start(), "reclaim regions starting with the first one");
+
+  oop humongous_obj = oop(r->bottom() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+  size_t size = humongous_obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+  uint required_regions = (size * HeapWordSize) / ShenandoahHeapRegion::RegionSizeBytes  + 1;
+  uint index = r->region_number();
+
+
+  assert(r->getLiveData() == 0, "liveness must be zero");
+
+  for(size_t i = 0; i < required_regions; i++) {
+
+    ShenandoahHeapRegion* region = _ordered_regions->get(index++);
+
+    assert((region->is_humongous_start() || region->is_humongous_continuation()),
+           "expect correct humongous start or continuation");
+
+    if (ShenandoahTraceHumongous) {
+      tty->print_cr("reclaiming "UINT32_FORMAT" humongous regions for object of size: "SIZE_FORMAT" words", required_regions, size);
+
+      region->print();
+    }
+
+    region->reset();
+    ShenandoahHeap::heap()->decrease_used(ShenandoahHeapRegion::RegionSizeBytes);
+  }
+}
+
+class ShenandoahReclaimHumongousRegionsClosure : public ShenandoahHeapRegionClosure {
+
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+    if (r->is_humongous_start()) {
+      oop humongous_obj = oop(r->bottom() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+      if (! heap->is_marked_current(humongous_obj)) {
+
+        heap->reclaim_humongous_region_at(r);
+      }
+    }
+    return false;
+  }
+};
+
+#ifdef ASSERT
+class CheckCollectionSetClosure: public ShenandoahHeapRegionClosure {
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    assert(!r->is_in_collection_set(), "Should have been cleared by now");
+    return false;
+  }
+};
+#endif
+
 void ShenandoahHeap::prepare_for_concurrent_evacuation() {
+  assert(_ordered_regions->get(0)->region_number() == 0, "FIXME CHF");
+  /*
+  tty->print("Thread %d started prepare_for_concurrent_evacuation\n",
+             Thread::current()->osthread()->thread_id());
+  */
   if (!cancelled_concgc()) {
 
     recycle_dirty_regions();
 
-      ensure_parsability(true);
+    ensure_parsability(true);
 
-      // NOTE: This needs to be done during a stop the world pause, because
-      // putting regions into the collection set concurrently with Java threads
-      // will create a race. In particular, acmp could fail because when we
-      // resolve the first operand, the containing region might not yet be in
-      // the collection set, and thus return the original oop. When the 2nd
-      // operand gets resolved, the region could be in the collection set
-      // and the oop gets evacuated. If both operands have originally been
-      // the same, we get false negatives.
-      ShenandoahHeapRegionSet regions = ShenandoahHeapRegionSet(_num_regions, _ordered_regions, _num_regions);
-      regions.reclaim_humongous_regions();
-      _collection_set->clear();
-      _free_regions->clear();
-      _shenandoah_policy->choose_collection_and_free_sets(&regions, _collection_set, _free_regions);
+    // NOTE: This needs to be done during a stop the world pause, because
+    // putting regions into the collection set concurrently with Java threads
+    // will create a race. In particular, acmp could fail because when we
+    // resolve the first operand, the containing region might not yet be in
+    // the collection set, and thus return the original oop. When the 2nd
+    // operand gets resolved, the region could be in the collection set
+    // and the oop gets evacuated. If both operands have originally been
+    // the same, we get false negatives.
 
-      if (PrintGCTimeStamps) {
-        gclog_or_tty->print("Collection set used = " SIZE_FORMAT " K live = " SIZE_FORMAT " K reclaimable = " SIZE_FORMAT " K\n",
-                            _collection_set->used() / K, _collection_set->live_data() / K, _collection_set->garbage() / K);
-      }
 
-      if (_collection_set->length() == 0)
-        cancel_concgc();
+    _collection_set->clear();
+    _free_regions->clear();
 
-      _bytesAllocSinceCM = 0;
+    ShenandoahReclaimHumongousRegionsClosure reclaim;
+    heap_region_iterate(&reclaim);
 
-      Universe::update_heap_info_at_gc();
+    // _ordered_regions->print();
+#ifdef ASSERT
+    CheckCollectionSetClosure ccsc;
+    _ordered_regions->heap_region_iterate(&ccsc);
+#endif
+
+    _shenandoah_policy->choose_collection_set(_collection_set);
+
+    _shenandoah_policy->choose_free_set(_free_regions);
+
+    /*
+    tty->print("Sorted free regions\n");
+    _free_regions->print();
+    */
+
+    if (PrintGCTimeStamps) {
+      gclog_or_tty->print("Collection set live = " SIZE_FORMAT " K reclaimable = " SIZE_FORMAT " K\n",
+                          _collection_set->live_data() / K, _collection_set->garbage() / K);
     }
+
+    if (_collection_set->count() == 0)
+      cancel_concgc();
+
+    _bytesAllocSinceCM = 0;
+
+    Universe::update_heap_info_at_gc();
+  }
 }
 
 
@@ -1336,10 +1300,10 @@ void ShenandoahHeap::parallel_evacuate() {
     }
 
     if (ShenandoahPrintCollectionSet) {
-      tty->print("Printing collection set which contains "SIZE_FORMAT" regions:\n", _collection_set->length());
+      tty->print("Printing collection set which contains "SIZE_FORMAT" regions:\n", _collection_set->count());
       _collection_set->print();
 
-      tty->print("Printing free set which contains "SIZE_FORMAT" regions:\n", _free_regions->length());
+      tty->print("Printing free set which contains "SIZE_FORMAT" regions:\n", _free_regions->count());
       _free_regions->print();
 
       //    if (_collection_set->length() == 0)
@@ -1354,10 +1318,13 @@ void ShenandoahHeap::parallel_evacuate() {
 
     if (ShenandoahGCVerbose) {
 
-      tty->print("Printing postgc collection set which contains "SIZE_FORMAT" regions:\n", _collection_set->available_regions());
+      tty->print("Printing postgc collection set which contains "SIZE_FORMAT" regions:\n",
+                 _collection_set->count());
+
       _collection_set->print();
 
-      tty->print("Printing postgc free regions which contain "SIZE_FORMAT" free regions:\n", _free_regions->available_regions());
+      tty->print("Printing postgc free regions which contain "SIZE_FORMAT" free regions:\n",
+                 _free_regions->count());
       _free_regions->print();
 
       tty->print_cr("finished parallel_evacuate");
@@ -1368,6 +1335,13 @@ void ShenandoahHeap::parallel_evacuate() {
     }
 
     _shenandoah_policy->record_phase_end(ShenandoahCollectorPolicy::conc_evac);
+
+    if (cancelled_concgc()) {
+      // tty->print("GOTCHA: by thread %d", Thread::current()->osthread()->thread_id());
+      concurrent_thread()->schedule_full_gc();
+      // tty->print("PostGotcha: by thread %d FullGC should be scheduled\n",
+      //            Thread::current()->osthread()->thread_id());
+    }
   }
 }
 
@@ -1427,7 +1401,8 @@ bool ShenandoahHeap::supports_tlab_allocation() const {
 
 
 size_t  ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
-  ShenandoahHeapRegion* current = get_current_region_skip_humongous();
+  jlong idx = _free_regions->current_index();
+  ShenandoahHeapRegion* current = _free_regions->get(idx);
   if (current == NULL)
     return 0;
   else if (current->free() > MinTLABSize) {
@@ -1734,9 +1709,12 @@ void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, ObjectC
   HeapWord* last_addr = NULL;
   size_t last_size = 0;
   HeapWord* top_at_mark_start = region->top_at_prev_mark_start();
+  HeapWord* heap_end = _ordered_regions->end();
   while (addr < limit) {
     if (addr < top_at_mark_start) {
-      addr = _prev_mark_bit_map->getNextMarkedWordAddress(addr, top_at_mark_start + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+      HeapWord* end = top_at_mark_start + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+      end = MIN2(end, heap_end);
+      addr = _prev_mark_bit_map->getNextMarkedWordAddress(addr, end);
     }
     if (addr < limit) {
       oop obj = oop(addr);
@@ -1813,7 +1791,7 @@ void  ShenandoahHeap::gc_epilogue(bool b) {
 // terminating the iteration early if doHeapRegion() returns true.
 void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_dirty_regions, bool skip_humongous_continuation) const {
   for (size_t i = 0; i < _num_regions; i++) {
-    ShenandoahHeapRegion* current  = _ordered_regions[i];
+    ShenandoahHeapRegion* current  = _ordered_regions->get(i);
     if (skip_humongous_continuation && current->is_humongous_continuation()) {
       continue;
     }
@@ -2113,14 +2091,18 @@ void ShenandoahHeap::verify_copy(oop p,oop c){
   }
 
 void ShenandoahHeap::oom_during_evacuation() {
-  // tty->print_cr("Out of memory during evacuation, cancel evacuation, schedule full GC");
+  // tty->print_cr("Out of memory during evacuation, cancel evacuation, schedule full GC by thread %d",
+  //               Thread::current()->osthread()->thread_id());
+
   // We ran out of memory during evacuation. Cancel evacuation, and schedule a full-GC.
   collector_policy()->set_should_clear_all_soft_refs(true);
   concurrent_thread()->schedule_full_gc();
   cancel_concgc();
 
   if ((! Thread::current()->is_GC_task_thread()) && (! Thread::current()->is_ConcurrentGC_thread())) {
-    tty->print_cr("OOM during evacuation. Let Java thread wait until evacuation settlded..");
+    if (ShenandoahWarnings) {
+      tty->print_cr("OOM during evacuation. Let Java thread wait until evacuation settlded..");
+    }
     while (_evacuation_in_progress) { // wait.
       Thread::current()->_ParkEvent->park(1) ;
     }
@@ -2138,43 +2120,41 @@ uint ShenandoahHeap::oop_extra_words() {
   return BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
 }
 
-bool ShenandoahHeap::grow_heap_by() {
-  int new_region_index = ensure_new_regions(1);
-  if (new_region_index != -1) {
+void ShenandoahHeap::grow_heap_by(size_t num_regions) {
+  size_t base = _num_regions;
+  ensure_new_regions(num_regions);
+
+  for (size_t i = 0; i < num_regions; i++) {
     ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion();
+    size_t new_region_index = i + base;
     HeapWord* start = _first_region_bottom + (ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize) * new_region_index;
     new_region->initialize_heap_region(start, ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize, new_region_index);
     if (ShenandoahGCVerbose) {
-      tty->print_cr("allocating new region at index: "INT32_FORMAT, new_region_index);
+      tty->print_cr("allocating new region at index: "SIZE_FORMAT, new_region_index);
       new_region->print();
     }
-    _ordered_regions[new_region_index] = new_region;
-    _free_regions->append(new_region);
-    return true;
-  } else {
-    return false;
+
+    assert(_ordered_regions->active_regions() == new_region->region_number(), "must match");
+    _ordered_regions->par_add_region(new_region);
+    _sorted_regions->par_add_region(new_region);
+    _free_regions->par_add_region(new_region);
   }
 }
 
-int ShenandoahHeap::ensure_new_regions(int new_regions) {
+void ShenandoahHeap::ensure_new_regions(size_t new_regions) {
 
   size_t num_regions = _num_regions;
   size_t new_num_regions = num_regions + new_regions;
-  if (new_num_regions >= _max_regions) {
-    // Not enough regions left.
-    return -1;
-  }
+  assert(new_num_regions <= _max_regions, "we checked this earlier");
 
   size_t expand_size = new_regions * ShenandoahHeapRegion::RegionSizeBytes;
   if (ShenandoahGCVerbose) {
-    tty->print_cr("expanding storage by "SIZE_FORMAT_HEX" bytes, for "INT32_FORMAT" new regions", expand_size, new_regions);
+    tty->print_cr("expanding storage by "SIZE_FORMAT_HEX" bytes, for "SIZE_FORMAT" new regions", expand_size, new_regions);
   }
   bool success = _storage.expand_by(expand_size);
   assert(success, "should always be able to expand by requested size");
 
   _num_regions = new_num_regions;
-
-  return num_regions;
 
 }
 
@@ -2242,7 +2222,7 @@ void ShenandoahHeap::ref_processing_init() {
 #ifdef ASSERT
 void ShenandoahHeap::set_from_region_protection(bool protect) {
   for (uint i = 0; i < _num_regions; i++) {
-    ShenandoahHeapRegion* region = _ordered_regions[i];
+    ShenandoahHeapRegion* region = _ordered_regions->get(i);
     if (region != NULL && region->is_in_collection_set()) {
       if (protect) {
         region->memProtectionOn();
@@ -2260,10 +2240,6 @@ void ShenandoahHeap::acquire_pending_refs_lock() {
 
 void ShenandoahHeap::release_pending_refs_lock() {
   _concurrent_gc_thread->slt()->manipulatePLL(SurrogateLockerThread::releaseAndNotifyPLL);
-}
-
-ShenandoahHeapRegion** ShenandoahHeap::heap_regions() {
-  return _ordered_regions;
 }
 
 size_t ShenandoahHeap::num_regions() {
@@ -2293,11 +2269,6 @@ void ShenandoahHeap::cancel_concgc() {
     _shenandoah_policy->report_concgc_cancelled();
   }
 
-  if ((! Thread::current()->is_GC_task_thread()) && (! Thread::current()->is_ConcurrentGC_thread())) {
-    while (_evacuation_in_progress) { // wait.
-      Thread::current()->_ParkEvent->park(1) ;
-    }
-  }
 }
 
 void ShenandoahHeap::clear_cancelled_concgc() {
@@ -2418,13 +2389,14 @@ ShenandoahJNICritical* ShenandoahHeap::jni_critical() {
   return _jni_critical;
 }
 
+//fixme this should be in heapregionset
 ShenandoahHeapRegion* ShenandoahHeap::next_compaction_region(const ShenandoahHeapRegion* r) {
-  int region_idx = r->region_number() + 1;
-  ShenandoahHeapRegion* next = _ordered_regions[region_idx];
+  size_t region_idx = r->region_number() + 1;
+  ShenandoahHeapRegion* next = _ordered_regions->get(region_idx);
   guarantee(next->region_number() == region_idx, "region number must match");
   while (next->is_humongous()) {
     region_idx = next->region_number() + 1;
-    next = _ordered_regions[region_idx];
+    next = _ordered_regions->get(region_idx);
     guarantee(next->region_number() == region_idx, "region number must match");
   }
   return next;

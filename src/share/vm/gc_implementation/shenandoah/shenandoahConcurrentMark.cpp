@@ -125,7 +125,7 @@ ShenandoahMarkObjsClosure<T>::ShenandoahMarkObjsClosure(QHolder* q) :
 template <class T>
 ShenandoahMarkObjsClosure<T>::~ShenandoahMarkObjsClosure() {
   // tty->print_cr("got "SIZE_FORMAT" x region: "UINT32_FORMAT, _live_data_count, _last_region_idx);
-  ShenandoahHeapRegion* r = _heap->heap_regions()[_last_region_idx];
+  ShenandoahHeapRegion* r = _heap->regions()->get(_last_region_idx);
   r->increase_live_data(_live_data);
 }
 
@@ -323,7 +323,9 @@ void ShenandoahConcurrentMark::mark_from_roots() {
     tty->print("total workers = %u active workers = %u\n",
                sh->conc_workers()->total_workers(),
                sh->conc_workers()->active_workers());
-    TASKQUEUE_STATS_ONLY(print_taskqueue_stats());
+    if (! sh->cancelled_concgc()) {
+      TASKQUEUE_STATS_ONLY(print_taskqueue_stats());
+    }
     TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
   }
 

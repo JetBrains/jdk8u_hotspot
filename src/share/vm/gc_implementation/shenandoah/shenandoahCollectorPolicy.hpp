@@ -117,9 +117,9 @@ public:
   void record_bytes_start_CM(size_t bytes);
   void record_bytes_end_CM(size_t bytes);
   bool should_start_concurrent_mark(size_t used, size_t capacity);
-  void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                       ShenandoahHeapRegionSet* collection_set,
-                                       ShenandoahHeapRegionSet* free_set);
+
+  void choose_collection_set(ShenandoahCollectionSet* collection_set);
+  void choose_free_set(ShenandoahFreeSet* free_set);
 
   void print_tracing_info();
 

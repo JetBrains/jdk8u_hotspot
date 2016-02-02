@@ -53,7 +53,7 @@ jint ShenandoahHeapRegion::initialize_heap_region(HeapWord* start,
   return JNI_OK;
 }
 
-int ShenandoahHeapRegion::region_number() const {
+size_t ShenandoahHeapRegion::region_number() const {
   return _region_number;
 }
 
@@ -150,7 +150,7 @@ ByteSize ShenandoahHeapRegion::is_in_collection_set_offset() {
 }
 
 void ShenandoahHeapRegion::print_on(outputStream* st) const {
-  st->print_cr("ShenandoahHeapRegion: "PTR_FORMAT"/"INT32_FORMAT, p2i(this), _region_number);
+  st->print_cr("ShenandoahHeapRegion: "PTR_FORMAT"/"SIZE_FORMAT, p2i(this), _region_number);
 
   if (is_in_collection_set())
     st->print("C");
@@ -354,6 +354,7 @@ void ShenandoahHeapRegion::adjust_pointers() {
 }
 
 void ShenandoahHeapRegion::compact() {
+  assert(!is_humongous(), "Shouldn't be compacting humongous regions");
   SCAN_AND_COMPACT(obj_size);
 }
 

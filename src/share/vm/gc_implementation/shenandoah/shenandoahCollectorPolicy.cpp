@@ -25,6 +25,29 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 
+#include "utilities/quickSort.hpp"
+
+int compareHeapRegionsByGarbage(ShenandoahHeapRegion* a, ShenandoahHeapRegion* b) {
+  if (a == NULL) {
+    if (b == NULL) {
+      return 0;
+    } else {
+      return 1;
+    }
+  } else if (b == NULL) {
+    return -1;
+  }
+
+  size_t garbage_a = a->garbage();
+  size_t garbage_b = b->garbage();
+
+  if (garbage_a > garbage_b)
+    return -1;
+  else if (garbage_a < garbage_b)
+    return 1;
+  else return 0;
+}
+
 class ShenandoahHeuristics : public CHeapObj<mtGC> {
 
   NumberSeq _allocation_rate_bytes;
@@ -37,6 +60,9 @@ protected:
   size_t _bytes_allocated_start_CM;
   size_t _bytes_allocated_during_CM;
 
+private:
+  size_t _garbage_threshold;
+
 public:
 
   ShenandoahHeuristics();
@@ -47,20 +73,102 @@ public:
   void record_bytes_end_CM(size_t bytes);
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const=0;
-  virtual void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                               ShenandoahHeapRegionSet* collection_set,
-                                               ShenandoahHeapRegionSet* free_set) =0;
+
+  virtual void choose_collection_set(ShenandoahCollectionSet* collection_set);
+  virtual void choose_collection_set_min_garbage(ShenandoahCollectionSet* collection_set, size_t min_garbage);
+  virtual void choose_free_set(ShenandoahFreeSet* free_set);
+
   void print_tracing_info();
+
+protected:
+
+  void set_garbage_threshold(size_t threshold) {
+    _garbage_threshold = threshold;
+  }
+
+  size_t garbage_threshold() {
+    return _garbage_threshold;
+  }
 };
 
 ShenandoahHeuristics::ShenandoahHeuristics() :
   _bytes_allocated_since_CM(0),
   _bytes_reclaimed_this_cycle(0),
   _bytes_allocated_start_CM(0),
-  _bytes_allocated_during_CM(0)
+  _bytes_allocated_during_CM(0),
+  _garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes / 2)
 {
   if (PrintGCDetails)
     tty->print_cr("initializing heuristics");
+}
+
+void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collection_set) {
+  ShenandoahHeapRegionSet* sorted_regions = ShenandoahHeap::heap()->sorted_regions();
+  QuickSort::sort<ShenandoahHeapRegion*>(sorted_regions->getArray(),
+                                         sorted_regions->active_regions(),
+                                         compareHeapRegionsByGarbage,
+                                         false);
+
+  jlong i = 0;
+  jlong end = sorted_regions->active_regions();
+
+  while (i < end) {
+    ShenandoahHeapRegion* region = sorted_regions->get(i++);
+    if (region->garbage() > _garbage_threshold && ! region->is_humongous()) {
+      //      tty->print("choose region %d with garbage = " SIZE_FORMAT " and live = " SIZE_FORMAT " and _garbage_threshold = " SIZE_FORMAT "\n",
+      //                 region->region_number(), region->garbage(), region->getLiveData(), _garbage_threshold);
+
+      assert(! region->is_humongous(), "no humongous regions in collection set");
+
+      if (region->getLiveData() == 0) {
+        // We can recycle it right away and put it in the free set.
+        ShenandoahHeap::heap()->decrease_used(region->used());
+        region->recycle();
+      } else {
+        collection_set->add_region(region);
+        region->set_is_in_collection_set(true);
+      }
+      //    } else {
+      //      tty->print("rejected region %d with garbage = " SIZE_FORMAT " and live = " SIZE_FORMAT " and _garbage_threshold = " SIZE_FORMAT "\n",
+      //                 region->region_number(), region->garbage(), region->getLiveData(), _garbage_threshold);
+    }
+  }
+
+}
+
+void ShenandoahHeuristics::choose_collection_set_min_garbage(ShenandoahCollectionSet* collection_set, size_t min_garbage) {
+  ShenandoahHeapRegionSet* sorted_regions = ShenandoahHeap::heap()->sorted_regions();
+  QuickSort::sort<ShenandoahHeapRegion*>(sorted_regions->getArray(),
+                                         sorted_regions->active_regions(),
+                                         compareHeapRegionsByGarbage,
+                                         false);
+  jlong i = 0;
+  jlong end = sorted_regions->active_regions();
+
+  size_t garbage = 0;
+  while (i < end && garbage < min_garbage) {
+    ShenandoahHeapRegion* region = sorted_regions->get(i++);
+    if (region->garbage() > _garbage_threshold && ! region->is_humongous()) {
+      collection_set->add_region(region);
+      garbage += region->garbage();
+      region->set_is_in_collection_set(true);
+    }
+  }
+}
+
+void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
+
+  ShenandoahHeapRegionSet* ordered_regions = ShenandoahHeap::heap()->regions();
+  jlong i = 0;
+  jlong end = ordered_regions->active_regions();
+
+  while (i < end) {
+    ShenandoahHeapRegion* region = ordered_regions->get(i++);
+    if ((! region->is_in_collection_set())
+        && (! region->is_humongous())) {
+      free_set->add_region(region);
+    }
+  }
 }
 
 void ShenandoahCollectorPolicy::record_phase_start(TimingPhase phase) {
@@ -158,16 +266,12 @@ public:
   AggressiveHeuristics() : ShenandoahHeuristics(){
   if (PrintGCDetails)
     tty->print_cr("Initializing aggressive heuristics");
+
+    set_garbage_threshold(8);
   }
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
     return true;
-  }
-  virtual void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                               ShenandoahHeapRegionSet* collection_set,
-                                               ShenandoahHeapRegionSet* free_set) {
-    region_set->set_garbage_threshold(8);
-    region_set->choose_collection_and_free_sets(collection_set, free_set);
   }
 };
 
@@ -176,6 +280,8 @@ public:
   HalfwayHeuristics() : ShenandoahHeuristics() {
   if (PrintGCDetails)
     tty->print_cr("Initializing halfway heuristics");
+
+    set_garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes / 2);
   }
 
   bool should_start_concurrent_mark(size_t used, size_t capacity) const {
@@ -185,12 +291,6 @@ public:
       return true;
     else
       return false;
-  }
-  void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                       ShenandoahHeapRegionSet* collection_set,
-                                       ShenandoahHeapRegionSet* free_set) {
-    region_set->set_garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes / 2);
-    region_set->choose_collection_and_free_sets(collection_set, free_set);
   }
 };
 
@@ -212,11 +312,6 @@ public:
     }
   }
 
-  virtual void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                               ShenandoahHeapRegionSet* collection_set,
-                                               ShenandoahHeapRegionSet* free_set) {
-    region_set->choose_collection_and_free_sets(collection_set, free_set);
-  }
 };
 
 // These are the heuristics in place when we made this class
@@ -241,12 +336,6 @@ public:
     } else {
       return false;
     }
-  }
-
-  virtual void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                               ShenandoahHeapRegionSet* collection_set,
-                                               ShenandoahHeapRegionSet* free_set) {
-    region_set->choose_collection_and_free_sets(collection_set, free_set);
   }
 };
 
@@ -315,22 +404,15 @@ public:
     return shouldStartConcurrentMark;
   }
 
-  virtual void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                               ShenandoahHeapRegionSet* collection_set,
-                                               ShenandoahHeapRegionSet* free_set)
-  {
-    region_set->set_garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes * _garbage_threshold_factor);
-    region_set->choose_collection_and_free_sets(collection_set, free_set);
-  }
-
   void set_free_threshold(uintx free_threshold) {
     this->_free_threshold_factor = get_percent(free_threshold);
     this->_free_threshold = free_threshold;
   }
 
-  void set_garbage_threshold(uintx garbage_threshold) {
+  void set_garbage_threshold_x(uintx garbage_threshold) {
     this->_garbage_threshold_factor = get_percent(garbage_threshold);
     this->_garbage_threshold = garbage_threshold;
+    set_garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes * _garbage_threshold_factor);
   }
 
   void set_allocation_threshold(uintx allocationThreshold) {
@@ -342,7 +424,7 @@ public:
     return this->_allocation_threshold;
   }
 
-  uintx get_garbage_threshold() {
+  uintx get_garbage_threshold_x() {
     return this->_garbage_threshold;
   }
 
@@ -408,14 +490,11 @@ public:
     return shouldStartConcurrentMark;
   }
 
-  virtual void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                               ShenandoahHeapRegionSet* collection_set,
-                                               ShenandoahHeapRegionSet* free_set)
-  {
+  virtual void choose_collection_set(ShenandoahCollectionSet* collection_set) {
     size_t bytes_alloc = ShenandoahHeap::heap()->_bytesAllocSinceCM;
     size_t min_garbage =  bytes_alloc/* * 1.1*/;
-    region_set->set_garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes * _garbage_threshold_factor);
-    region_set->choose_collection_and_free_sets_min_garbage(collection_set, free_set, min_garbage);
+    set_garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes * _garbage_threshold_factor);
+    ShenandoahHeuristics::choose_collection_set_min_garbage(collection_set, min_garbage);
     /*
     tty->print_cr("garbage to be collected: "SIZE_FORMAT, collection_set->garbage());
     tty->print_cr("objects to be evacuated: "SIZE_FORMAT, collection_set->live_data());
@@ -428,7 +507,7 @@ public:
     this->_used_threshold = used_threshold;
   }
 
-  void set_garbage_threshold(uintx garbage_threshold) {
+  void set_garbage_threshold_x(uintx garbage_threshold) {
     this->_garbage_threshold_factor = get_percent(garbage_threshold);
     this->_garbage_threshold = garbage_threshold;
   }
@@ -442,7 +521,7 @@ public:
     return this->_allocation_threshold;
   }
 
-  uintx get_garbage_threshold() {
+  uintx get_garbage_threshold_x() {
     return this->_garbage_threshold;
   }
 
@@ -497,21 +576,18 @@ public:
       }
   }
 
-  virtual void choose_collection_and_free_sets(ShenandoahHeapRegionSet* region_set,
-                                               ShenandoahHeapRegionSet* collection_set,
-                                               ShenandoahHeapRegionSet* free_set)
-  {
-    ShenandoahHeap *_heap = ShenandoahHeap::heap();
-    this->_last_bytesAllocSinceCM = ShenandoahHeap::heap()->_bytesAllocSinceCM;
-    if (this->_last_bytesAllocSinceCM > 0) {
-      size_t min_garbage = this->_last_bytesAllocSinceCM;
-      region_set->choose_collection_and_free_sets_min_garbage(collection_set, free_set, min_garbage);
-    } else {
-      region_set->set_garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes / 2);
-      region_set->choose_collection_and_free_sets(collection_set, free_set);
-    }
-    this->_max_live_data = MAX2(this->_max_live_data, collection_set->live_data());
-  }
+  virtual void choose_collection_set(ShenandoahCollectionSet* collection_set) {
+     ShenandoahHeap *_heap = ShenandoahHeap::heap();
+     this->_last_bytesAllocSinceCM = ShenandoahHeap::heap()->_bytesAllocSinceCM;
+     if (this->_last_bytesAllocSinceCM > 0) {
+       size_t min_garbage = this->_last_bytesAllocSinceCM;
+       ShenandoahHeuristics::choose_collection_set_min_garbage(collection_set, min_garbage);
+     } else {
+       set_garbage_threshold(ShenandoahHeapRegion::RegionSizeBytes / 2);
+       ShenandoahHeuristics::choose_collection_set(collection_set);
+     }
+     this->_max_live_data = MAX2(this->_max_live_data, collection_set->live_data());
+   }
 
   void set_target_heap_occupancy(uintx target_heap_occupancy) {
     this->_target_heap_occupancy_factor = get_percent(target_heap_occupancy);
@@ -536,14 +612,14 @@ public:
 static DynamicHeuristics *configureDynamicHeuristics() {
   DynamicHeuristics *heuristics = new DynamicHeuristics();
 
-  heuristics->set_garbage_threshold(ShenandoahGarbageThreshold);
+  heuristics->set_garbage_threshold_x(ShenandoahGarbageThreshold);
   heuristics->set_allocation_threshold(ShenandoahAllocationThreshold);
   heuristics->set_free_threshold(ShenandoahFreeThreshold);
   if (ShenandoahLogConfig) {
     tty->print_cr("Shenandoah dynamic heuristics thresholds: allocation "SIZE_FORMAT", free "SIZE_FORMAT", garbage "SIZE_FORMAT,
                   heuristics->get_allocation_threshold(),
                   heuristics->get_free_threshold(),
-                  heuristics->get_garbage_threshold());
+                  heuristics->get_garbage_threshold_x());
   }
   return heuristics;
 }
@@ -705,11 +781,12 @@ bool ShenandoahCollectorPolicy::should_start_concurrent_mark(size_t used,
   return _heuristics->should_start_concurrent_mark(used, capacity);
 }
 
-void ShenandoahCollectorPolicy::choose_collection_and_free_sets(
-                             ShenandoahHeapRegionSet* region_set,
-                             ShenandoahHeapRegionSet* collection_set,
-                             ShenandoahHeapRegionSet* free_set) {
-  _heuristics->choose_collection_and_free_sets(region_set, collection_set, free_set);
+void ShenandoahCollectorPolicy::choose_collection_set(ShenandoahCollectionSet* collection_set) {
+  _heuristics->choose_collection_set(collection_set);
+}
+
+void ShenandoahCollectorPolicy::choose_free_set(ShenandoahFreeSet* free_set) {
+   _heuristics->choose_free_set(free_set);
 }
 
 void ShenandoahCollectorPolicy::print_tracing_info() {

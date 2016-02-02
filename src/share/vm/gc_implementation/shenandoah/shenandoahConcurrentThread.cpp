@@ -122,7 +122,11 @@ void ShenandoahConcurrentThread::run() {
       Thread::current()->_ParkEvent->park(10) ;
       // yield();
     }
-    heap->clear_cancelled_concgc();
+
+    if (heap->cancelled_concgc()) {
+      // tty->print("Concurrent thread is about to clear cancelled concgc");
+      heap->clear_cancelled_concgc();
+    }
     // Make sure the _do_full_gc flag changes are seen.
     OrderAccess::storeload();
   }

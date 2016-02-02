@@ -62,26 +62,14 @@ public:
 };
 
 
-class ShenandoahHeapRegionClosure : public StackObj {
-  bool _complete;
-  void incomplete() {_complete = false;}
+// // A "ShenandoahHeap" is an implementation of a java heap for HotSpot.
+// // It uses a new pauseless GC algorithm based on Brooks pointers.
+// // Derived from G1
 
-public:
-  ShenandoahHeapRegionClosure(): _complete(true) {}
-
-  // typically called on each region until it returns true;
-  virtual bool doHeapRegion(ShenandoahHeapRegion* r) = 0;
-
-  bool complete() { return _complete;}
-};
-
-// A "ShenandoahHeap" is an implementation of a java heap for HotSpot.
-// It uses a new pauseless GC algorithm based on Brooks pointers.
-
-//
-// CollectedHeap
-//    SharedHeap
-//      ShenandoahHeap
+// //
+// // CollectedHeap
+// //    SharedHeap
+// //      ShenandoahHeap
 
 class ShenandoahHeap : public SharedHeap {
 
@@ -92,12 +80,12 @@ private:
   VirtualSpace _storage;
   ShenandoahHeapRegion* _first_region;
   HeapWord* _first_region_bottom;
-  // Ordered array of regions  (name confusing with _regions)
-  ShenandoahHeapRegion** _ordered_regions;
 
   // Sortable array of regions
-  ShenandoahHeapRegionSet* _free_regions;
-  ShenandoahHeapRegionSet* _collection_set;
+  ShenandoahHeapRegionSet* _ordered_regions;
+  ShenandoahHeapRegionSet* _sorted_regions;
+  ShenandoahFreeSet* _free_regions;
+  ShenandoahCollectionSet* _collection_set;
   ShenandoahHeapRegion* _currentAllocationRegion;
   ShenandoahConcurrentMark* _scm;
 
@@ -136,6 +124,8 @@ private:
 
   ShenandoahJNICritical* _jni_critical;
 
+  jbyte _growing_heap;
+
 public:
   size_t _bytesAllocSinceCM;
   size_t _bytes_allocated_during_cm;
@@ -154,9 +144,6 @@ private:
   HeapWord* allocate_new_tlab(size_t word_size, bool mark);
 public:
   HeapWord* allocate_memory(size_t word_size, bool evacuating);
-
-  bool find_contiguous_free_regions(uint num_free_regions, ShenandoahHeapRegion** free_regions);
-  bool allocate_contiguous_free_regions(uint num_free_regions, ShenandoahHeapRegion** free_regions);
 
   // For now we are ignoring eden.
   inline bool should_alloc_in_eden(size_t size) { return false;}
@@ -187,7 +174,6 @@ public:
   bool is_in_partial_collection(const void* p);
   bool is_scavengable(const void* addr);
   virtual HeapWord* mem_allocate(size_t size, bool* what);
-  HeapWord* mem_allocate_locked(size_t size, bool* what);
   virtual size_t unsafe_max_alloc();
   bool can_elide_tlab_store_barriers() const;
   virtual oop new_store_pre_barrier(JavaThread* thread, oop new_obj);
@@ -201,7 +187,7 @@ public:
 
   void ensure_parsability(bool retire_tlabs);
 
-  void add_free_region(ShenandoahHeapRegion* r) {_free_regions->append(r);}
+  void add_free_region(ShenandoahHeapRegion* r) {_free_regions->add_region(r);}
   void clear_free_regions() {_free_regions->clear();}
 
   void oop_iterate(ExtendedOopClosure* cl, bool skip_dirty_regions,
@@ -333,15 +319,12 @@ public:
   void verify_heap_after_update_refs();
   void verify_regions_after_update_refs();
 
-  static ByteSize ordered_regions_offset() { return byte_offset_of(ShenandoahHeap, _ordered_regions); }
-  static ByteSize first_region_bottom_offset() { return byte_offset_of(ShenandoahHeap, _first_region_bottom); }
+  HeapWord* start_of_heap() { return _first_region_bottom + 1;}
 
   void cleanup_after_cancelconcgc();
   void increase_used(size_t bytes);
   void decrease_used(size_t bytes);
   void set_used(size_t bytes);
-
-  int ensure_new_regions(int num_new_regions);
 
   void set_evacuation_in_progress(bool in_progress);
   bool is_evacuation_in_progress();
@@ -354,7 +337,7 @@ public:
   ShenandoahIsAliveClosure isAlive;
   void evacuate_and_update_roots();
 
-  ShenandoahHeapRegionSet* free_regions();
+  ShenandoahFreeSet* free_regions();
 
   void acquire_pending_refs_lock();
   void release_pending_refs_lock();
@@ -364,7 +347,8 @@ public:
   int max_parallel_workers();
   FlexibleWorkGang* conc_workers() const{ return _conc_workers;}
 
-  ShenandoahHeapRegion** heap_regions();
+  ShenandoahHeapRegionSet* regions() { return _ordered_regions;}
+  ShenandoahHeapRegionSet* sorted_regions() { return _sorted_regions;}
   size_t num_regions();
   size_t max_regions();
 
@@ -413,7 +397,10 @@ public:
 
 private:
 
-  bool grow_heap_by();
+  bool call_from_write_barrier(bool evacuating);
+  void check_grow_heap(bool evacuating);
+  void grow_heap_by(size_t num_regions);
+  void ensure_new_regions(size_t num_new_regions);
 
   void verify_evacuation(ShenandoahHeapRegion* from_region);
   void set_concurrent_mark_in_progress(bool in_progress);
@@ -434,16 +421,8 @@ private:
   void verify_live();
   void verify_liveness_after_concurrent_mark();
 
-  HeapWord* allocate_memory_with_lock(size_t word_size);
-  HeapWord* allocate_memory_shenandoah_lock(size_t word_size);
   HeapWord* allocate_memory_work(size_t word_size);
   HeapWord* allocate_large_memory(size_t word_size);
-  ShenandoahHeapRegion* check_skip_humongous(ShenandoahHeapRegion* region) const;
-  ShenandoahHeapRegion* get_next_region_skip_humongous() const;
-  ShenandoahHeapRegion* get_current_region_skip_humongous() const;
-  ShenandoahHeapRegion* check_grow_heap(ShenandoahHeapRegion* current);
-  ShenandoahHeapRegion* get_next_region();
-  ShenandoahHeapRegion* get_current_region();
 
   void set_from_region_protection(bool protect);
 
@@ -451,6 +430,8 @@ public:
   // Delete entries for dead interned string and clean up unreferenced symbols
   // in symbol table, possibly in parallel.
   void unlink_string_and_symbol_table(BoolObjectClosure* is_alive, bool unlink_strings = true, bool unlink_symbols = true);
+
+  void reclaim_humongous_region_at(ShenandoahHeapRegion* r);
 
 };
 

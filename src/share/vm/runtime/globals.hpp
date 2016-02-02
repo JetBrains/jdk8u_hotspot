@@ -1499,6 +1499,13 @@ class CommandLineFlags {
           "would like to maintain."                                         \
           "Shenandoah GC newadaptive Heuristic mode only.")                 \
                                                                             \
+  product(uintx, ShenandoahAllocReserveRegions, 10,                         \
+          "How many regions should be kept as allocation reserve, before "  \
+          "Shenandoah attempts to grow the heap")                      \
+                                                                            \
+  product(bool, ShenandoahWarnings, false,                                  \
+          "Print Shenandoah related warnings. Useful for Shenandoah devs.") \
+                                                                            \
   product(bool, ShenandoahPrintCollectionSet, false,                        \
           "Print the collection set before each GC phase")                  \
                                                                             \

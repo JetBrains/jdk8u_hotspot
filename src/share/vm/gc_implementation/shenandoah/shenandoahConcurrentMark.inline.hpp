@@ -77,7 +77,7 @@ inline void ShenandoahMarkObjsClosure<T>::count_liveness(oop obj) {
   if (region_idx == _last_region_idx) {
     _live_data += (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;
   } else {
-    ShenandoahHeapRegion* r = _heap->heap_regions()[_last_region_idx];
+    ShenandoahHeapRegion* r = _heap->regions()->get(_last_region_idx);
     r->increase_live_data(_live_data);
     _last_region_idx = region_idx;
     _live_data = (obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE) * HeapWordSize;

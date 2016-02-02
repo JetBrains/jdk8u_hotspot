@@ -71,7 +71,7 @@ public:
   static size_t RegionSizeShift;
 
 private:
-  int _region_number;
+  size_t _region_number;
   volatile size_t liveData;
   MemRegion reserved;
   bool _is_in_collection_set;
@@ -93,7 +93,7 @@ public:
   jint initialize_heap_region(HeapWord* start, size_t regionSize, int index);
 
 
-  int region_number() const;
+  size_t region_number() const;
 
   // Roll back the previous allocation of an object with specified size.
   // Returns TRUE when successful, FALSE if not successful or not supported.

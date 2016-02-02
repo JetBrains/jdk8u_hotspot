@@ -38,6 +38,12 @@
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 
+class ClearInCollectionSetHeapRegionClosure: public ShenandoahHeapRegionClosure {
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    r->set_is_in_collection_set(false);
+    return false;
+  }
+};
 
 
 void ShenandoahMarkCompact::allocate_stacks() {
@@ -62,12 +68,8 @@ void ShenandoahMarkCompact::do_mark_compact() {
 
   _heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::full_gc);
 
-  // We need to clear the is_in_collection_set flag in all regions.
-  ShenandoahHeapRegion** regions = _heap->heap_regions();
-  size_t num_regions = _heap->num_regions();
-  for (size_t i = 0; i < num_regions; i++) {
-    regions[i]->set_is_in_collection_set(false);
-  }
+  ClearInCollectionSetHeapRegionClosure cl;
+  _heap->heap_region_iterate(&cl, false, false);
   _heap->clear_cset_fast_test();
 
   /*
