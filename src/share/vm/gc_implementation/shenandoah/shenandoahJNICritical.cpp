@@ -51,13 +51,9 @@ void ShenandoahJNICritical::notify_jni_critical() {
   assert(Thread::current()->is_Java_thread(), "call only from Java thread");
   assert(_op_waiting_for_jni_critical != NULL, "must be waiting for jni critical notification");
 
-  MonitorLockerEx ml(ShenandoahJNICritical_lock, true);
-
   VMThread::execute(_op_waiting_for_jni_critical);
   _op_waiting_for_jni_critical = NULL;
-
-  ml.notify_all();
-
+  OrderAccess::fence();
 }
 
 /*
@@ -75,12 +71,13 @@ void ShenandoahJNICritical::set_waiting_for_jni_before_gc(VM_Operation* op) {
  * a JNI critical region check.
  */
 void ShenandoahJNICritical::execute_in_vm_thread(VM_Operation* op) {
-  MonitorLockerEx ml(ShenandoahJNICritical_lock, true);
+  assert(_op_waiting_for_jni_critical == NULL, "start out with no waiting op");
   VM_ShenandoahJNICriticalOperation jni_op(op);
   VMThread::execute(&jni_op);
   while (_op_waiting_for_jni_critical != NULL) {
-    ml.wait(true);
+    os::yield();
   }
+  assert(_op_waiting_for_jni_critical == NULL, "finish with no waiting op");
 }
 
 
