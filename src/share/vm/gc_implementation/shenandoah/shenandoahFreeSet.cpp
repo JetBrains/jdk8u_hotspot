@@ -50,32 +50,37 @@ size_t ShenandoahFreeSet::capacity() {
   return _capacity;
 }
 
-bool ShenandoahFreeSet::is_contiguous(size_t start, size_t num) {
-  assert(_active_end <= _reserved_end, "sanity");
+/**
+ * Return 0 if the range starting at start is a contiguous range with
+ * num regions. Returns a number > 0 otherwise. That number tells
+ * the caller, how many regions to skip (because we know, there
+ * can't start a contiguous range there).
+ */
+size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t num) {
 
   ShenandoahHeapRegion* r1 = get(start);
 
   if (! r1->is_empty()) {
-    return false;
+    return 1;
   }
-  start = (start + 1) % _reserved_end;
-  size_t end = (start + num) % _reserved_end;
-  for (size_t i = start; i != end; i = (i + 1) % _reserved_end) {
+  for (size_t i = 1; i < num; i++) {
 
-    if (i == _active_end) {
+    size_t index = (start + i) % _reserved_end;
+    if (index == _active_end) {
       // We reached the end of our free list.
-      return false;
+      ShouldNotReachHere(); // We limit search in find_contiguous()
+      return i;
     }
 
-    ShenandoahHeapRegion* r2 = get(i);
+    ShenandoahHeapRegion* r2 = get(index);
     if (r2->region_number() != r1->region_number() + 1)
-      return false;
+      return i;
     if (! r2->is_empty())
-      return false;
+      return i+1;
 
     r1 = r2;
   }
-  return true;
+  return 0;
 }
 
 size_t ShenandoahFreeSet::find_contiguous(size_t start, size_t num) {
@@ -83,11 +88,14 @@ size_t ShenandoahFreeSet::find_contiguous(size_t start, size_t num) {
   assert(start < _reserved_end, "sanity");
 
   // The modulo will take care of wrapping around.
-  for (size_t index = start; index != _active_end; index = (index + 1) % _reserved_end) {
+  size_t index = start;
+  while (index != _active_end && diff_to_end(index, _active_end) >= num) {
     assert(index < _reserved_end, "sanity");
-    if (is_contiguous(index, num)) {
+    size_t j = is_contiguous(index, num);
+    if (j == 0) {
       return index;
     }
+    index = (index + j) % _reserved_end;
   }
   return SIZE_MAX;
 }
@@ -116,26 +124,39 @@ void ShenandoahFreeSet::initialize_humongous_regions(size_t first, size_t num) {
   ShenandoahHeap::heap()->increase_used(ShenandoahHeapRegion::RegionSizeBytes * num);
 }
 
+size_t ShenandoahFreeSet::diff_to_end(size_t i, size_t end) const {
+  if (end <= i) {
+    end += _reserved_end;
+  }
+  assert(end > i, "sanity");
+  return end - i;
+}
+
 ShenandoahHeapRegion* ShenandoahFreeSet::claim_contiguous(size_t num) {
   size_t current_idx = _current_index;
   size_t next = (current_idx + 1) % _reserved_end;
-  while (next != _active_end) {
+  size_t end = _active_end;
+  while (next != _active_end && diff_to_end(next, _active_end) >= num) {
     size_t first = find_contiguous(next, num);
     if (first == SIZE_MAX) return NULL;
     size_t next_current = (first + num) % _reserved_end;
+    assert(next_current != _active_end, "never set current==end");
+    do {
+      size_t result = (size_t) Atomic::cmpxchg((jlong) next_current, (jlong*) &_current_index, (jlong) current_idx);
+      if (result == current_idx) {
 
-    size_t result = (size_t) Atomic::cmpxchg((jlong) next_current, (jlong*) &_current_index, (jlong) current_idx);
-    if (result == current_idx) {
+        push_back_regions(next, first);
 
-      push_back_regions(next, first);
+        initialize_humongous_regions(first, num);
+        assert(current_index() != first, "current overlaps with contiguous regions");
+        return get(first);
+      }
 
-      initialize_humongous_regions(first, num);
-      assert(current_index() != first, "current overlaps with contiguous regions");
-      return get(first);
-    }
-
-    current_idx = result;
-    next = (current_idx + 1) % _reserved_end;
+      current_idx = result;
+      assert(current_idx != _active_end, "must not cross active-end");
+      next = (current_idx + 1) % _reserved_end;
+      end = _active_end;
+    } while (diff_to_end(current_idx, end) > diff_to_end(first, end));
   }
   return NULL;
 }
