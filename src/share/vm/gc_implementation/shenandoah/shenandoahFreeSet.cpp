@@ -112,8 +112,9 @@ void ShenandoahFreeSet::initialize_humongous_regions(size_t first, size_t num) {
 
 ShenandoahHeapRegion* ShenandoahFreeSet::claim_contiguous(size_t num) {
   size_t current_idx = _current_index;
-  while (true) {
-    size_t first = find_contiguous((current_idx + 1) % _reserved_end, num);
+  size_t next = (current_idx + 1) % _reserved_end;
+  while (next != _active_end) {
+    size_t first = find_contiguous(next, num);
     if (first == SIZE_MAX) return NULL;
     size_t next_current = (first + num) % _reserved_end;
 
@@ -128,7 +129,7 @@ ShenandoahHeapRegion* ShenandoahFreeSet::claim_contiguous(size_t num) {
     }
 
     current_idx = result;
-
+    next = (current_idx + 1) % _reserved_end;
   }
   return NULL;
 }
