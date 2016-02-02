@@ -4278,7 +4278,7 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
       Node* not_null_obj = null_check_oop(obj, &null_ctrl);
 
       region->init_req(_null_path, null_ctrl);
-      phi   ->init_req(_null_path, null());
+      phi   ->init_req(_null_path, obj);
       memphi->init_req(_null_path, prev_mem);
 
       ShenandoahWriteBarrierNode* wb = new (C) ShenandoahWriteBarrierNode(NULL, memory(adr_type), not_null_obj);
