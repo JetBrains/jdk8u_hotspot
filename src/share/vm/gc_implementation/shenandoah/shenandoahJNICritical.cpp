@@ -52,22 +52,40 @@ ShenandoahJNICritical::ShenandoahJNICritical() :
  */
 void ShenandoahJNICritical::notify_jni_critical() {
   assert(Thread::current()->is_Java_thread(), "call only from Java thread");
-  assert(_op_waiting_for_jni_critical != NULL, "must be waiting for jni critical notification");
-  assert(_op_ready_for_execution == NULL, "must not have a ready task queued up");
 
-  MonitorLockerEx ml(ShenandoahJNICritical_lock, Mutex::_no_safepoint_check_flag);
+  assert(_op_waiting_for_jni_critical != NULL, "must be waiting for jni critical notification");
+
   if (ShenandoahTraceJNICritical) {
-    tty->print_cr("Shenandoah JNI critical: notify Java thread after jni critical");
+    tty->print_cr("Shenandoah JNI critical: waiting until task is ready for re-execution");
   }
-  _op_ready_for_execution = _op_waiting_for_jni_critical;
-  _op_waiting_for_jni_critical = NULL;
-  while (_op_ready_for_execution != NULL) {
+
+  {
+    MonitorLockerEx ml(ShenandoahJNICritical_lock, Mutex::_no_safepoint_check_flag);
+    while (_op_ready_for_execution == NULL) {
+      ml.wait(Mutex::_no_safepoint_check_flag);
+    }
+  }
+
+  assert(_op_waiting_for_jni_critical != NULL, "must be waiting for jni critical notification");
+  assert(_op_ready_for_execution != NULL, "must be ready for re-execution");
+
+  if (ShenandoahTraceJNICritical) {
+    tty->print_cr("Shenandoah JNI critical: re-executing VM task after JNI critical notification");
+  }
+
+  VMThread::execute(_op_ready_for_execution);
+
+  {
+    MonitorLockerEx ml(ShenandoahJNICritical_lock, Mutex::_no_safepoint_check_flag);
+    _op_waiting_for_jni_critical = NULL;
+    _op_ready_for_execution = NULL;
     ml.notify();
-    ml.wait(Mutex::_no_safepoint_check_flag);
   }
+
   if (ShenandoahTraceJNICritical) {
-    tty->print_cr("Shenandoah JNI critical: resuming Java thread after jni critical");
+    tty->print_cr("Shenandoah JNI critical: resuming Java thread after VM task re-execution");
   }
+
 }
 
 /*
@@ -86,28 +104,33 @@ void ShenandoahJNICritical::set_waiting_for_jni_before_gc(VM_Operation* op) {
  */
 void ShenandoahJNICritical::execute_in_vm_thread(VM_Operation* op) {
   assert(_op_waiting_for_jni_critical == NULL, "start out with no waiting op");
+  assert(_op_ready_for_execution == NULL, "start out with no ready op");
   VM_ShenandoahJNICriticalOperation jni_op(op);
   VMThread::execute(&jni_op);
 
   {
     MonitorLockerEx ml(ShenandoahJNICritical_lock, Mutex::_no_safepoint_check_flag);
-    while (_op_waiting_for_jni_critical != NULL) {
-      if (ShenandoahTraceJNICritical) {
-        tty->print_cr("Shenandoah JNI critical: waiting for jni critical");
-      }
-      ml.wait(Mutex::_no_safepoint_check_flag);
-    }
-  }
 
-  assert(_op_waiting_for_jni_critical == NULL, "must be");
-  if (_op_ready_for_execution != NULL) {
-    if (ShenandoahTraceJNICritical) {
-      tty->print_cr("Shenandoah JNI critical: re-executing VM task after jni critical");
+    if (_op_waiting_for_jni_critical != NULL) {
+      if (ShenandoahTraceJNICritical) {
+        tty->print_cr("Shenandoah JNI critical: make task ready for re-execution");
+      }
+
+      _op_ready_for_execution = _op_waiting_for_jni_critical;
+      ml.notify();
+
+      if (ShenandoahTraceJNICritical) {
+        tty->print_cr("Shenandoah JNI critical: waiting for task to get re-executed");
+      }
+
+      while (_op_ready_for_execution != NULL) {
+        ml.wait(Mutex::_no_safepoint_check_flag);
+      }
+
+      if (ShenandoahTraceJNICritical) {
+        tty->print_cr("Shenandoah JNI critical: resuming concurrent GC thread after task has been re-executed");
+      }
     }
-    VMThread::execute(_op_ready_for_execution);
-    MonitorLockerEx ml(ShenandoahJNICritical_lock, Mutex::_no_safepoint_check_flag);
-    _op_ready_for_execution = NULL;
-    ml.notify();
   }
 
   assert(_op_waiting_for_jni_critical == NULL, "finish with no waiting op");
