@@ -30,7 +30,7 @@
 class ShenandoahJNICritical : public CHeapObj<mtGC> {
 private:
   VM_Operation* _op_waiting_for_jni_critical;
-
+  VM_Operation* _op_ready_for_execution;
 public:
   ShenandoahJNICritical();
   void notify_jni_critical();
