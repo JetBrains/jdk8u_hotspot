@@ -63,7 +63,7 @@ void ShenandoahJNICritical::notify_jni_critical() {
   _op_waiting_for_jni_critical = NULL;
   while (_op_ready_for_execution != NULL) {
     ml.notify();
-    ml.wait();
+    ml.wait(Mutex::_no_safepoint_check_flag);
   }
   if (ShenandoahTraceJNICritical) {
     tty->print_cr("Shenandoah JNI critical: resuming Java thread after jni critical");
@@ -95,7 +95,7 @@ void ShenandoahJNICritical::execute_in_vm_thread(VM_Operation* op) {
       if (ShenandoahTraceJNICritical) {
         tty->print_cr("Shenandoah JNI critical: waiting for jni critical");
       }
-      ml.wait();
+      ml.wait(Mutex::_no_safepoint_check_flag);
     }
   }
 
