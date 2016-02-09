@@ -25,6 +25,7 @@
 #include "precompiled.hpp"
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/satbQueue.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "memory/allocation.inline.hpp"
 #include "memory/sharedHeap.hpp"
 #include "oops/oop.inline.hpp"
@@ -76,21 +77,19 @@ void ObjPtrQueue::flush() {
 // processing must be somewhat circumspect and not assume entries
 // in an unfiltered buffer refer to valid objects.
 
-inline bool requires_marking(const void* entry, G1CollectedHeap* heap) {
-  // Includes rejection of NULL pointers.
-  assert(heap->is_in_reserved(entry),
-         err_msg("Non-heap pointer in SATB buffer: " PTR_FORMAT, p2i(entry)));
+template <class HeapType>
+inline bool requires_marking(const void* entry, HeapType* heap) {
+  return heap->requires_marking(entry);
+}
 
-  HeapRegion* region = heap->heap_region_containing_raw(entry);
-  assert(region != NULL, err_msg("No region for " PTR_FORMAT, p2i(entry)));
-  if (entry >= region->next_top_at_mark_start()) {
-    return false;
+void ObjPtrQueue::filter() {
+  if (UseG1GC) {
+    filter_impl<G1CollectedHeap>();
+  } else if (UseShenandoahGC) {
+    filter_impl<ShenandoahHeap>();
+  } else {
+    ShouldNotReachHere();
   }
-
-  assert(((oop)entry)->is_oop(true /* ignore mark word */),
-         err_msg("Invalid oop in SATB buffer: " PTR_FORMAT, p2i(entry)));
-
-  return true;
 }
 
 // This method removes entries from a SATB buffer that will not be
@@ -98,8 +97,9 @@ inline bool requires_marking(const void* entry, G1CollectedHeap* heap) {
 // they require marking and are not already marked. Retained entries
 // are compacted toward the top of the buffer.
 
-void ObjPtrQueue::filter() {
-  CollectedHeap* heap = Universe::heap();
+template <class HeapType>
+void ObjPtrQueue::filter_impl() {
+  HeapType* heap = (HeapType*) Universe::heap();
   void** buf = _buf;
   size_t sz = _sz;
 
@@ -126,8 +126,7 @@ void ObjPtrQueue::filter() {
     // far, we'll just end up copying it to the same place.
     *p = NULL;
 
-    bool retain = heap->is_obj_ill(oop(entry));
-    if (retain) {
+    if (requires_marking(entry, heap)) {
       assert(new_index > 0, "we should not have already filled up the buffer");
       new_index -= oopSize;
       assert(new_index >= i,

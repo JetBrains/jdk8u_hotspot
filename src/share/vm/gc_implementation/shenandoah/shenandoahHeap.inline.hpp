@@ -292,4 +292,9 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
 
   return return_val;
 }
+
+inline bool ShenandoahHeap::requires_marking(const void* entry) const {
+  return ! is_marked_current(oop(entry));
+}
+
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

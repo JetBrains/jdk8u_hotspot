@@ -665,10 +665,6 @@ class CollectedHeap : public CHeapObj<mtInternal> {
     return false;
   }
 
-  virtual bool is_obj_ill(const oop obj) const {
-    return true;
-  }
-
   /////////////// Unit tests ///////////////
 
   NOT_PRODUCT(static void test_is_in();)

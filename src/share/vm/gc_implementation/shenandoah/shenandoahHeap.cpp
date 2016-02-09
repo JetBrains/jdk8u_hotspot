@@ -2383,10 +2383,6 @@ void ShenandoahHeap::unlink_string_and_symbol_table(BoolObjectClosure* is_alive,
   //  }
 }
 
-bool ShenandoahHeap::is_obj_ill(const oop obj) const {
-  return ! is_marked_current(obj);
-}
-
 void ShenandoahHeap::set_need_update_refs(bool need_update_refs) {
   _need_update_refs = need_update_refs;
 }

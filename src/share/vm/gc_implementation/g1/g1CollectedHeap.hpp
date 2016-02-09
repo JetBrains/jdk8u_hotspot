@@ -1532,6 +1532,8 @@ public:
 
   inline bool is_obj_ill(const oop obj) const;
 
+  inline bool requires_marking(const void* entry) const;
+
   bool allocated_since_marking(oop obj, HeapRegion* hr, VerifyOption vo);
   HeapWord* top_at_mark_start(HeapRegion* hr, VerifyOption vo);
   bool is_marked(oop obj, VerifyOption vo);

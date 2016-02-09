@@ -277,7 +277,7 @@ public:
 
   ReferenceProcessor* _ref_processor;
 
-  bool is_obj_ill(const oop obj) const;
+  inline bool requires_marking(const void* entry) const;
   bool is_obj_dead(const oop obj, const ShenandoahHeapRegion* r) const;
 
   void reset_mark_bitmap();
