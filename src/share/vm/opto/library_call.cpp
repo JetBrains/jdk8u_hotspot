@@ -1332,8 +1332,10 @@ bool LibraryCallKit::inline_array_equals() {
   Node* arg1 = argument(0);
   Node* arg2 = argument(1);
 
-  arg1 = shenandoah_read_barrier(arg1);
-  arg2 = shenandoah_read_barrier(arg2);
+  if (! ShenandoahOptimizeFinals) {
+    arg1 = shenandoah_read_barrier(arg1);
+    arg2 = shenandoah_read_barrier(arg2);
+  }
 
   set_result(_gvn.transform(new (C) AryEqNode(control(), memory(TypeAryPtr::CHARS), arg1, arg2)));
   return true;

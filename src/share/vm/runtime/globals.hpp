@@ -1408,6 +1408,9 @@ class CommandLineFlags {
   product(bool, UseShenandoahGC, false,                                     \
           "Use the Shenandoah garbage collector")                           \
                                                                             \
+  product(bool, ShenandoahOptimizeFinals, true,                             \
+          "Optimize barriers on final and stable fields/arrays")            \
+                                                                            \
   product(uintx, ShenandoahHeapRegionSize, 0,                               \
           "Size of the Shenandoah regions.")                                \
                                                                             \

@@ -62,6 +62,13 @@ bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Node* orig
     return false;
   }
 
+  if (ShenandoahOptimizeFinals) {
+    const TypeAryPtr* ary = type->isa_aryptr();
+    if (ary && ary->is_stable()) {
+      return false;
+    }
+  }
+
   if (n->is_CheckCastPP() || n->is_ConstraintCast()) {
     return needs_barrier_impl(phase, orig, n->in(1), rb_mem, visited);
   }
