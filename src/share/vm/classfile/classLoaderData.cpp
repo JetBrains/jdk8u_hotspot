@@ -179,7 +179,7 @@ void ClassLoaderData::record_dependency(Klass* k, TRAPS) {
 
       oop curr = from;
       while (curr != NULL) {
-        if (curr == to) {
+        if (oopDesc::equals(curr, to)) {
           return; // this class loader is in the parent list, no need to add it.
         }
         curr = java_lang_ClassLoader::parent(curr);
@@ -201,7 +201,7 @@ void ClassLoaderData::Dependencies::add(Handle dependency, TRAPS) {
   objArrayOop last = NULL;
   while (ok != NULL) {
     last = ok;
-    if (ok->obj_at(0) == dependency()) {
+    if (oopDesc::equals(ok->obj_at(0), dependency())) {
       // Don't need to add it
       return;
     }
@@ -240,7 +240,7 @@ void ClassLoaderData::Dependencies::locked_add(objArrayHandle last_handle,
   while (end != NULL) {
     last = end;
     // check again if another thread added it to the end.
-    if (end->obj_at(0) == loader_or_mirror) {
+    if (oopDesc::equals(end->obj_at(0), loader_or_mirror)) {
       // Don't need to add it
       return;
     }

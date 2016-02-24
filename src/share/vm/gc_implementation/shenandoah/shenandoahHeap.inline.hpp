@@ -42,7 +42,7 @@
  */
 inline bool ShenandoahHeap::mark_current(oop obj) const {
 #ifdef ASSERT
-  if (obj != oopDesc::bs()->read_barrier(obj)) {
+  if (! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj))) {
     tty->print_cr("heap region containing obj:");
     ShenandoahHeapRegion* obj_region = heap_region_containing(obj);
     obj_region->print();
@@ -52,7 +52,7 @@ inline bool ShenandoahHeap::mark_current(oop obj) const {
   }
 #endif
 
-  assert(obj == oopDesc::bs()->read_barrier(obj), "only mark forwarded copy of objects");
+  assert(oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj)), "only mark forwarded copy of objects");
   return mark_current_no_checks(obj);
 }
 
@@ -113,13 +113,13 @@ inline ShenandoahHeapRegion* ShenandoahHeap::heap_region_containing(const void* 
 inline oop ShenandoahHeap::update_oop_ref_not_null(oop* p, oop obj) {
   if (in_cset_fast_test((HeapWord*) obj)) {
     oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-    assert(forw != obj, "expect forwarded object");
+    assert(! oopDesc::unsafe_equals(forw, obj), "expect forwarded object");
     obj = forw;
     oopDesc::store_heap_oop(p, obj);
   }
 #ifdef ASSERT
   else {
-    assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj), "expect not forwarded");
+    assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "expect not forwarded");
   }
 #endif
   return obj;
@@ -150,7 +150,7 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
   assert((! (is_in(p) && heap_region_containing(p)->is_in_collection_set())), "we don't want to update references in from-space");
   if (in_cset_fast_test((HeapWord*) heap_oop)) {
     oop forwarded_oop = ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop); // read brooks ptr
-    assert(forwarded_oop != heap_oop, "expect forwarded object");
+    assert(! oopDesc::unsafe_equals(forwarded_oop, heap_oop), "expect forwarded object");
     // tty->print_cr("updating old ref: "PTR_FORMAT" pointing to "PTR_FORMAT" to new ref: "PTR_FORMAT, p2i(p), p2i(heap_oop), p2i(forwarded_oop));
     assert(forwarded_oop->is_oop(), "oop required");
     assert(is_in(forwarded_oop), "forwardee must be in heap");
@@ -159,13 +159,13 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
     // reference be updated later.
     oop result = (oop) Atomic::cmpxchg_ptr(forwarded_oop, p, heap_oop);
 
-    if (result == heap_oop) { // CAS successful.
+    if (oopDesc::unsafe_equals(result, heap_oop)) { // CAS successful.
       return forwarded_oop;
     } else {
       return result;
     }
   } else {
-    assert(heap_oop == ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop), "expect not forwarded");
+    assert(oopDesc::unsafe_equals(heap_oop, ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop)), "expect not forwarded");
     return heap_oop;
   }
 }

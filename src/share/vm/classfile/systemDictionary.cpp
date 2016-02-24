@@ -494,7 +494,7 @@ void SystemDictionary::double_lock_wait(Handle lockObject, TRAPS) {
   bool calledholdinglock
       = ObjectSynchronizer::current_thread_holds_lock((JavaThread*)THREAD, lockObject);
   assert(calledholdinglock,"must hold lock for notify");
-  assert((!(oopDesc::bs()->write_barrier(lockObject()) == oopDesc::bs()->write_barrier(_system_loader_lock_obj)) && !is_parallelCapable(lockObject)), "unexpected double_lock_wait");
+  assert((! oopDesc::equals(lockObject(), _system_loader_lock_obj) && !is_parallelCapable(lockObject)), "unexpected double_lock_wait");
   ObjectSynchronizer::notifyall(lockObject, THREAD);
   intptr_t recursions =  ObjectSynchronizer::complete_exit(lockObject, THREAD);
   SystemDictionary_lock->wait();
@@ -811,7 +811,7 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
       // If everything was OK (no exceptions, no null return value), and
       // class_loader is NOT the defining loader, do a little more bookkeeping.
       if (!HAS_PENDING_EXCEPTION && !k.is_null() &&
-        k->class_loader() != class_loader()) {
+          ! oopDesc::equals(k->class_loader(), class_loader())) {
 
         check_constraints(d_index, d_hash, k, class_loader, false, THREAD);
 
@@ -980,7 +980,7 @@ Klass* SystemDictionary::parse_stream(Symbol* class_name,
     // Create a new CLD for anonymous class, that uses the same class loader
     // as the host_klass
     assert(EnableInvokeDynamic, "");
-    guarantee(host_klass->class_loader() == class_loader(), "should be the same");
+    guarantee(oopDesc::equals(host_klass->class_loader(), class_loader()), "should be the same");
     guarantee(!DumpSharedSpaces, "must not create anonymous classes when dumping");
     loader_data = ClassLoaderData::anonymous_class_loader_data(class_loader(), CHECK_NULL);
     loader_data->record_dependency(host_klass(), CHECK_NULL);
@@ -1554,7 +1554,7 @@ void SystemDictionary::check_loader_lock_contention(Handle loader_lock, TRAPS) {
       == ObjectSynchronizer::owner_other) {
     // contention will likely happen, so increment the corresponding
     // contention counter.
-    if (oopDesc::bs()->write_barrier(loader_lock()) == oopDesc::bs()->write_barrier(_system_loader_lock_obj)) {
+    if (oopDesc::equals(loader_lock(), _system_loader_lock_obj)) {
       ClassLoader::sync_systemLoaderLockContentionRate()->inc();
     } else {
       ClassLoader::sync_nonSystemLoaderLockContentionRate()->inc();
@@ -2054,7 +2054,7 @@ void SystemDictionary::update_dictionary(int d_index, unsigned int d_hash,
     // cleared if revocation occurs too often for this type
     // NOTE that we must only do this when the class is initally
     // defined, not each time it is referenced from a new class loader
-    if (k->class_loader() == class_loader()) {
+    if (oopDesc::equals(k->class_loader(), class_loader())) {
       k->set_prototype_header(markOopDesc::biased_locking_prototype());
     }
   }
@@ -2240,7 +2240,7 @@ Symbol* SystemDictionary::check_signature_loaders(Symbol* signature,
                                                Handle loader1, Handle loader2,
                                                bool is_method, TRAPS)  {
   // Nothing to do if loaders are the same.
-  if (loader1() == loader2()) {
+  if (oopDesc::equals(loader1(), loader2())) {
     return NULL;
   }
 

@@ -109,6 +109,14 @@ public:
   oop resolve_and_maybe_copy_oop_work2(oop src);
   virtual oop write_barrier(oop src);
 
+  bool obj_equals(oop obj1, oop obj2);
+  bool obj_equals(narrowOop obj1, narrowOop obj2);
+
+#ifdef ASSERT
+  bool is_safe(oop o);
+  bool is_safe(narrowOop o);
+#endif
+
   static oopDesc* write_barrier_c2(oopDesc* src);
   static oopDesc* write_barrier_interp(oopDesc* src);
   static oopDesc* write_barrier_c1(JavaThread* thread, oopDesc* src);

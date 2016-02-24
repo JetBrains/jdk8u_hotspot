@@ -1240,10 +1240,10 @@ UNSAFE_ENTRY(jboolean, Unsafe_CompareAndSwapObject(JNIEnv *env, jobject unsafe, 
     do {
       expected = old;
       old = oopDesc::atomic_compare_exchange_oop(x, addr, expected, true);
-      success  = (old == expected);
-    } while ((! success) && oopDesc::bs()->read_barrier(old) == oopDesc::bs()->read_barrier(expected));
+      success  = oopDesc::unsafe_equals(old, expected);
+    } while ((! success) && oopDesc::unsafe_equals(oopDesc::bs()->read_barrier(old), oopDesc::bs()->read_barrier(expected)));
   } else {
-    success = (old == oopDesc::atomic_compare_exchange_oop(x, addr, old, true));
+    success = oopDesc::unsafe_equals(old, oopDesc::atomic_compare_exchange_oop(x, addr, old, true));
   }
   if (success)
     update_barrier_set((void*)addr, x);

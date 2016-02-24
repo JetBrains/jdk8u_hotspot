@@ -1519,6 +1519,9 @@ class CommandLineFlags {
   product(bool, ShenandoahPrintCollectionSet, false,                        \
           "Print the collection set before each GC phase")                  \
                                                                             \
+  develop(bool, VerifyStrictOopOperations, false,                           \
+          "Verify that == and != are not used on oops. Only in fastdebug")  \
+                                                                            \
   experimental(bool, ShenandoahTraceStringSymbolTableScrubbing, false,      \
           "Trace information string and symbol table scrubbing.")           \
                                                                             \

@@ -36,7 +36,7 @@ void ShenandoahMarkObjsClosure<T>::do_object(oop obj, int index) {
 
   assert(obj != NULL, "expect non-null object");
 
-  assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj), "expect forwarded obj in queue");
+  assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "need to-space object here");
 
 #ifdef ASSERT
   if (_heap->heap_region_containing(obj)->is_in_collection_set()) {

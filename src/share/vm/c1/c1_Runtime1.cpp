@@ -558,7 +558,7 @@ JRT_ENTRY_NO_ASYNC(static address, exception_handler_for_pc_helper(JavaThread* t
     // Update the exception cache only when there didn't happen
     // another exception during the computation of the compiled
     // exception handler.
-    if (continuation != NULL && original_exception() == exception()) {
+    if (continuation != NULL && oopDesc::equals(original_exception(), exception())) {
       nm->add_handler_for_exception_and_pc(exception, pc, continuation);
     }
   }

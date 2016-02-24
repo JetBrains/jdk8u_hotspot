@@ -1846,7 +1846,7 @@ void nmethod::do_unloading(BoolObjectClosure* is_alive, bool unloading_occurred)
 
   // Scopes
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     if (can_unload(is_alive, p, unloading_occurred)) {
       return;
     }
@@ -1924,7 +1924,7 @@ void nmethod::mark_metadata_on_stack_at(RelocIterator* iter_at_metadata) {
 void nmethod::mark_metadata_on_stack_non_relocs() {
     // Visit the metadata section
     for (Metadata** p = metadata_begin(); p < metadata_end(); p++) {
-      if (*p == Universe::non_oop_word() || *p == NULL)  continue;  // skip non-oops
+    if (*p == Universe::non_oop_word() || *p == NULL)  continue;  // skip non-oops
       Metadata* md = *p;
       Metadata::mark_on_stack(md);
     }
@@ -2019,7 +2019,7 @@ bool nmethod::do_unloading_parallel(BoolObjectClosure* is_alive, bool unloading_
 
   // Scopes
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     if (can_unload(is_alive, p, unloading_occurred)) {
       is_unloaded = true;
       break;
@@ -2233,7 +2233,7 @@ void nmethod::oops_do(OopClosure* f, bool allow_zombie) {
   // Scopes
   // This includes oop constants not inlined in the code stream.
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     f->do_oop(p);
   }
 }

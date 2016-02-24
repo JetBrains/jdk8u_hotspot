@@ -2650,7 +2650,7 @@ bool InstanceKlass::is_same_class_package(oop classloader2, Symbol* classname2) 
 // and classname information is enough to determine a class's package
 bool InstanceKlass::is_same_class_package(oop class_loader1, Symbol* class_name1,
                                           oop class_loader2, Symbol* class_name2) {
-  if (class_loader1 != class_loader2) {
+  if (! oopDesc::equals(class_loader1, class_loader2)) {
     return false;
   } else if (class_name1 == class_name2) {
     return true;                // skip painful bytewise comparison

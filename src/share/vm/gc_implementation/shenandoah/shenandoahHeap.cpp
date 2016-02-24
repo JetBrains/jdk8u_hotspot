@@ -749,7 +749,7 @@ private:
 #endif
 
     assert(_heap->is_marked_prev(p), "expect only marked objects");
-    if (p == ShenandoahBarrierSet::resolve_oop_static_not_null(p)) {
+    if (oopDesc::unsafe_equals(p, ShenandoahBarrierSet::resolve_oop_static_not_null(p))) {
       _heap->evacuate_object(p, _thread);
     }
   }
@@ -762,7 +762,7 @@ public:
   void do_object(oop p) {
     if (ShenandoahHeap::heap()->is_marked_current(p)) {
       oop p_prime = oopDesc::bs()->read_barrier(p);
-      assert(p != p_prime, "Should point to evacuated copy");
+      assert(! oopDesc::unsafe_equals(p, p_prime), "Should point to evacuated copy");
 #ifdef ASSERT
       if (p->klass() != p_prime->klass()) {
         tty->print_cr("copy has different class than original:");
@@ -772,7 +772,7 @@ public:
 #endif
       assert(p->klass() == p_prime->klass(), err_msg("Should have the same class p: "PTR_FORMAT", p_prime: "PTR_FORMAT, p2i((HeapWord*) p), p2i((HeapWord*) p_prime)));
       assert(p->size() == p_prime->size(), "Should be the same size");
-      assert(p_prime == oopDesc::bs()->read_barrier(p_prime), "One forward once");
+      assert(oopDesc::unsafe_equals(p_prime, oopDesc::bs()->read_barrier(p_prime)), "One forward once");
     }
   }
 };
@@ -1004,11 +1004,11 @@ public:
       }
       assert(o->is_oop(), "oop must be an oop");
       assert(Metaspace::contains(o->klass()), "klass pointer must go to metaspace");
-      if (! (o == oopDesc::bs()->read_barrier(o))) {
+      if (! oopDesc::unsafe_equals(o, oopDesc::bs()->read_barrier(o))) {
         tty->print_cr("oops has forwardee: p: "PTR_FORMAT" (%s), o = "PTR_FORMAT" (%s), new-o: "PTR_FORMAT" (%s)", p2i(p), BOOL_TO_STR(_heap->heap_region_containing(p)->is_in_collection_set()), p2i((HeapWord*) o),  BOOL_TO_STR(_heap->heap_region_containing(o)->is_in_collection_set()), p2i((HeapWord*) oopDesc::bs()->read_barrier(o)), BOOL_TO_STR(_heap->heap_region_containing(oopDesc::bs()->read_barrier(o))->is_in_collection_set()));
         tty->print_cr("oop class: %s", o->klass()->internal_name());
       }
-      assert(o == oopDesc::bs()->read_barrier(o), "oops must not be forwarded");
+      assert(oopDesc::unsafe_equals(o, oopDesc::bs()->read_barrier(o)), "oops must not be forwarded");
       assert(! _heap->heap_region_containing(o)->is_in_collection_set(), "references must not point to dirty heap regions");
       assert(_heap->is_marked_current(o), "live oops must be marked current");
     }
@@ -1205,7 +1205,7 @@ public:
     if (obj != NULL && _heap->in_cset_fast_test((HeapWord*) obj)) {
       assert(_heap->is_marked_prev(obj), err_msg("only evacuate marked objects %d %d", _heap->is_marked_prev(obj), _heap->is_marked_prev(ShenandoahBarrierSet::resolve_oop_static_not_null(obj))));
       oop resolved = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-      if (resolved == obj) {
+      if (oopDesc::unsafe_equals(resolved, obj)) {
         resolved = _heap->evacuate_object(obj, _thread);
       }
       oopDesc::store_heap_oop(p, resolved);
@@ -1909,10 +1909,10 @@ public:
     T heap_oop = oopDesc::load_heap_oop(p);
     if (!oopDesc::is_null(heap_oop)) {
       oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
-      guarantee(_sh->heap_region_containing(obj)->is_in_collection_set() == (obj != oopDesc::bs()->read_barrier(obj)),
+      guarantee(_sh->heap_region_containing(obj)->is_in_collection_set() == (! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj))),
                 err_msg("forwarded objects can only exist in dirty (from-space) regions is_dirty: %s, is_forwarded: %s",
                         BOOL_TO_STR(_sh->heap_region_containing(obj)->is_in_collection_set()),
-                        BOOL_TO_STR(obj != oopDesc::bs()->read_barrier(obj)))
+                        BOOL_TO_STR(! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj))))
                 );
       obj = oopDesc::bs()->read_barrier(obj);
       guarantee(! _sh->heap_region_containing(obj)->is_in_collection_set(), "forwarded oops must not point to dirty regions");
@@ -1952,10 +1952,10 @@ public:
     T heap_oop = oopDesc::load_heap_oop(p);
     if (!oopDesc::is_null(heap_oop)) {
       oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
-      guarantee(_sh->heap_region_containing(obj)->is_in_collection_set() == (obj != oopDesc::bs()->read_barrier(obj)),
+      guarantee(_sh->heap_region_containing(obj)->is_in_collection_set() == (! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj))),
                 err_msg("forwarded objects can only exist in dirty (from-space) regions is_dirty: %s, is_forwarded: %s obj-klass: %s, marked: %s",
                         BOOL_TO_STR(_sh->heap_region_containing(obj)->is_in_collection_set()),
-                        BOOL_TO_STR(obj != oopDesc::bs()->read_barrier(obj)), obj->klass()->external_name(), BOOL_TO_STR(_sh->is_marked_current(obj)))
+                        BOOL_TO_STR(! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj))), obj->klass()->external_name(), BOOL_TO_STR(_sh->is_marked_current(obj)))
                 );
       obj = oopDesc::bs()->read_barrier(obj);
       guarantee(! _sh->heap_region_containing(obj)->is_in_collection_set(), "forwarded oops must not point to dirty regions");
@@ -1983,10 +1983,10 @@ public:
       guarantee((! _sh->heap_region_containing(obj)->is_in_collection_set()),
                 err_msg("no live reference must point to from-space, is_marked: %s",
                         BOOL_TO_STR(_sh->is_marked_current(obj))));
-      if (obj != oopDesc::bs()->read_barrier(obj) && _sh->is_in(p)) {
+      if (! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj)) && _sh->is_in(p)) {
         tty->print_cr("top-limit: "PTR_FORMAT", p: "PTR_FORMAT, p2i(_sh->heap_region_containing(p)->concurrent_iteration_safe_limit()), p2i(p));
       }
-      guarantee(obj == oopDesc::bs()->read_barrier(obj), "no live reference must point to forwarded object");
+      guarantee(oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj)), "no live reference must point to forwarded object");
       guarantee(obj->is_oop(), "is_oop");
       guarantee(Metaspace::contains(obj->klass()), "klass pointer must go to metaspace");
     }
@@ -2082,8 +2082,8 @@ bool ShenandoahHeap::is_evacuation_in_progress() {
 }
 
 void ShenandoahHeap::verify_copy(oop p,oop c){
-    assert(p != oopDesc::bs()->read_barrier(p), "forwarded correctly");
-    assert(oopDesc::bs()->read_barrier(p) == c, "verify pointer is correct");
+    assert(! oopDesc::unsafe_equals(p, oopDesc::bs()->read_barrier(p)), "forwarded correctly");
+    assert(oopDesc::unsafe_equals(oopDesc::bs()->read_barrier(p), c), "verify pointer is correct");
     if (p->klass() != c->klass()) {
       print_heap_regions();
     }
@@ -2091,7 +2091,7 @@ void ShenandoahHeap::verify_copy(oop p,oop c){
     assert(p->size() == c->size(), "verify size");
     // Object may have been locked between copy and verification
     //    assert(p->mark() == c->mark(), "verify mark");
-    assert(c == oopDesc::bs()->read_barrier(c), "verify only forwarded once");
+    assert(oopDesc::unsafe_equals(c, oopDesc::bs()->read_barrier(c)), "verify only forwarded once");
   }
 
 void ShenandoahHeap::oom_during_evacuation() {
@@ -2177,7 +2177,7 @@ bool ShenandoahIsAliveClosure::do_object_b(oop obj) {
   assert(_heap != NULL, "sanity");
 #ifdef ASSERT
   if (_heap->concurrent_mark_in_progress()) {
-    assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj), "only query to-space");
+    assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "only query to-space");
   }
 #endif
   assert(!oopDesc::is_null(obj), "null");

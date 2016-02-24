@@ -244,7 +244,7 @@ template <class T> void ObjArrayKlass::do_copy(arrayOop s, T* src,
   assert(bs->has_write_ref_array_opt(), "Barrier set must have ref array opt");
   assert(bs->has_write_ref_array_pre_opt(), "For pre-barrier as well.");
 
-  if (s == d) {
+  if (oopDesc::equals(s, d)) {
     // since source and destination are equal we do not need conversion checks.
     assert(length > 0, "sanity check");
     bs->write_ref_array_pre(dst, length);

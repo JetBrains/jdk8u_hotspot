@@ -56,11 +56,11 @@ inline oop ShenandoahBarrierSet::resolve_oop_static_not_null(oop p) {
 
   assert(result != NULL, "expect not NULL");
 #ifdef ASSERT
-  if (result != p) {
+  if (! oopDesc::unsafe_equals(result, p)) {
     oop second_forwarding = get_shenandoah_forwardee_helper(result);
 
     // We should never be forwarded more than once.
-    if (result != second_forwarding) {
+    if (! oopDesc::unsafe_equals(result, second_forwarding)) {
       ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
       tty->print("first reference "PTR_FORMAT" is in heap region:\n", p2i((HeapWord*) p));
       sh->heap_region_containing(p)->print();
@@ -98,7 +98,7 @@ inline oop ShenandoahBarrierSet::resolve_oop_static_no_check(oop p) {
 template <class T>
 inline oop ShenandoahBarrierSet::resolve_and_update_oop_static(T p, oop obj) {
   oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-  if (forw != obj) {
+  if (! oopDesc::unsafe_equals(forw, obj)) {
     obj = forw;
     oopDesc::encode_store_heap_oop_not_null(p, obj);
   }

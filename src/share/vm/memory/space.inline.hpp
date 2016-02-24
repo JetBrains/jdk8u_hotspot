@@ -89,7 +89,7 @@ inline HeapWord* Space::block_start(const void* p) {
            make_oop(q)->mark()->is_marked() ||                               \
            make_oop(q)->mark()->is_unlocked() ||                             \
            make_oop(q)->mark()->has_bias_pattern() ||                        \
-           oopDesc::bs()->read_barrier(make_oop(q)) != make_oop(q),          \
+           ! oopDesc::unsafe_equals(oopDesc::bs()->read_barrier(make_oop(q)), make_oop(q)), \
            "these are the only valid states during a mark sweep");           \
     if (block_is_obj(q) && make_oop(q)->is_gc_marked()) {                    \
       /* prefetch beyond q */                                                \

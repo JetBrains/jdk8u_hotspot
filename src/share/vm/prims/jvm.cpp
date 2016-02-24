@@ -1451,7 +1451,7 @@ JVM_ENTRY(jobject, JVM_GetStackAccessControlContext(JNIEnv *env, jclass cls))
       protection_domain = method->method_holder()->protection_domain();
     }
 
-    if ((previous_protection_domain != protection_domain) && (protection_domain != NULL)) {
+    if ((! oopDesc::equals(previous_protection_domain, protection_domain)) && protection_domain != NULL) {
       local_array->push(protection_domain);
       previous_protection_domain = protection_domain;
     }
@@ -3248,7 +3248,7 @@ JVM_ENTRY(jint, JVM_CountStackFrames(JNIEnv* env, jobject jthread))
   int count = 0;
 
   {
-    MutexLockerEx ml(thread->threadObj() == java_thread ? NULL : Threads_lock);
+    MutexLockerEx ml(oopDesc::equals(thread->threadObj(), java_thread) ? NULL : Threads_lock);
     // We need to re-resolve the java_thread, since a GC might have happened during the
     // acquire of the lock
     JavaThread* thr = java_lang_Thread::thread(JNIHandles::resolve_non_null(jthread));
@@ -3297,7 +3297,7 @@ JVM_ENTRY(void, JVM_Interrupt(JNIEnv* env, jobject jthread))
 
   // Ensure that the C++ Thread and OSThread structures aren't freed before we operate
   oop java_thread = JNIHandles::resolve_non_null(jthread);
-  MutexLockerEx ml(thread->threadObj() == java_thread ? NULL : Threads_lock);
+  MutexLockerEx ml(oopDesc::equals(thread->threadObj(), java_thread) ? NULL : Threads_lock);
   // We need to re-resolve the java_thread, since a GC might have happened during the
   // acquire of the lock
   JavaThread* thr = java_lang_Thread::thread(JNIHandles::resolve_non_null(jthread));
@@ -3312,7 +3312,7 @@ JVM_QUICK_ENTRY(jboolean, JVM_IsInterrupted(JNIEnv* env, jobject jthread, jboole
 
   // Ensure that the C++ Thread and OSThread structures aren't freed before we operate
   oop java_thread = JNIHandles::resolve_non_null(jthread);
-  MutexLockerEx ml(thread->threadObj() == java_thread ? NULL : Threads_lock);
+  MutexLockerEx ml(oopDesc::equals(thread->threadObj(), java_thread) ? NULL : Threads_lock);
   // We need to re-resolve the java_thread, since a GC might have happened during the
   // acquire of the lock
   JavaThread* thr = java_lang_Thread::thread(JNIHandles::resolve_non_null(jthread));

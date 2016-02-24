@@ -82,7 +82,7 @@ public:
   inline void do_oop(oop* p) {
     oop obj = oopDesc::load_heap_oop(p);
     if (! oopDesc::is_null(obj)) {
-      assert(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj),
+      assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)),
              "expect forwarded oop");
       ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
     }
@@ -452,7 +452,7 @@ void ShenandoahVerifyRootsClosure1::do_oop(oop* p) {
   oop obj = oopDesc::load_heap_oop(p);
   if (! oopDesc::is_null(obj)) {
     guarantee(ShenandoahHeap::heap()->is_marked_current(obj), "oop must be marked");
-    guarantee(obj == ShenandoahBarrierSet::resolve_oop_static_not_null(obj), "oop must not be forwarded");
+    guarantee(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "oop must not be forwarded");
   }
 }
 
@@ -605,7 +605,7 @@ public:
   void do_oop(oop* p) {
 
     oop obj = oopDesc::load_heap_oop(p);
-    assert(obj == oopDesc::bs()->read_barrier(obj), "only get updated oops in weak ref processing");
+    assert(oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj)), "only get updated oops in weak ref processing");
 
     if (! oopDesc::is_null(obj)) {
       if (Verbose && ShenandoahTraceWeakReferences) {
@@ -640,7 +640,7 @@ public:
     oop obj = oopDesc::load_heap_oop(p);
     if (! oopDesc::is_null(obj)) {
       obj = _sh->update_oop_ref_not_null(p, obj);
-      assert(obj == oopDesc::bs()->read_barrier(obj), "only get updated oops in weak ref processing");
+      assert(oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj)), "only get updated oops in weak ref processing");
       if (Verbose && ShenandoahTraceWeakReferences) {
         gclog_or_tty->print_cr("\twe're looking at location "
                                "*"PTR_FORMAT" = "PTR_FORMAT,

@@ -480,7 +480,7 @@ void JNIHandleBlock::rebuild_free_list() {
   for (JNIHandleBlock* current = this; current != NULL; current = current->_next) {
     for (int index = 0; index < current->_top; index++) {
       oop* handle = &(current->_handles)[index];
-      if (*handle ==  JNIHandles::deleted_handle()) {
+      if (oopDesc::equals(*handle, JNIHandles::deleted_handle())) {
         // this handle was cleared out by a delete call, reuse it
         *handle = (oop) _free_list;
         _free_list = handle;

@@ -274,6 +274,39 @@ oop ShenandoahBarrierSet::read_barrier(oop src) {
   return ShenandoahBarrierSet::resolve_oop_static(src);
 }
 
+bool ShenandoahBarrierSet::obj_equals(oop obj1, oop obj2) {
+  bool eq = oopDesc::unsafe_equals(obj1, obj2);
+  if (! eq) {
+    obj1 = read_barrier(obj1);
+    obj2 = read_barrier(obj2);
+    eq = oopDesc::unsafe_equals(obj1, obj2);
+  }
+  return eq;
+}
+
+bool ShenandoahBarrierSet::obj_equals(narrowOop obj1, narrowOop obj2) {
+  Unimplemented();
+  return false;
+}
+
+#ifdef ASSERT
+bool ShenandoahBarrierSet::is_safe(oop o) {
+  if (o == NULL) return true;
+  if (ShenandoahHeap::heap()->heap_region_containing(o)->is_in_collection_set()) {
+    return false;
+  }
+  if (! oopDesc::unsafe_equals(o, read_barrier(o))) {
+    return false;
+  }
+  return true;
+}
+
+bool ShenandoahBarrierSet::is_safe(narrowOop o) {
+  Unimplemented();
+  return true;
+}
+#endif
+
 oop ShenandoahBarrierSet::resolve_and_maybe_copy_oop_work(oop src) {
   ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
   assert(src != NULL, "only evacuated non NULL oops");

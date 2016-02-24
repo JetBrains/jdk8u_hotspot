@@ -30,7 +30,7 @@
 inline void ShenandoahMarkUpdateRefsClosure::do_oop_nv(oop* p) {
   // We piggy-back reference updating to the marking tasks.
   oop obj = _heap->maybe_update_oop_ref(p);
-  assert(obj == ShenandoahBarrierSet::resolve_oop_static(obj), "need to-space object here");
+  assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "need to-space object here");
   if (! oopDesc::is_null(obj)) {
     ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue->queue());
   }
@@ -38,7 +38,7 @@ inline void ShenandoahMarkUpdateRefsClosure::do_oop_nv(oop* p) {
 
 inline void ShenandoahMarkRefsClosure::do_oop_nv(oop* p) {
   oop obj = oopDesc::load_heap_oop(p);
-  assert(obj == ShenandoahBarrierSet::resolve_oop_static(obj), "need to-space object here");
+  assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "expect forwarded obj in queue");
 
   if (! oopDesc::is_null(obj)) {
     ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue->queue());

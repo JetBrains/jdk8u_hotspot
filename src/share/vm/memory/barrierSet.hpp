@@ -193,6 +193,16 @@ public:
   virtual oop write_barrier(oop src) {
     return src;
   }
+
+  virtual bool obj_equals(oop obj1, oop obj2);
+
+  virtual bool obj_equals(narrowOop obj1, narrowOop obj2);
+
+#ifdef ASSERT
+  virtual bool is_safe(oop o);
+  virtual bool is_safe(narrowOop o);
+#endif
+
   virtual oop resolve_and_update_oop(oop* p, oop src) {
     return src;
   }

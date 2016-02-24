@@ -99,10 +99,30 @@ public:
 
   // General access
   oopDesc*  operator->() const        { return obj(); }
-  bool operator==(const oop o) const  { return obj() == o.obj(); }
-  bool operator==(void *p) const      { return obj() == p; }
-  bool operator!=(const volatile oop o) const  { return obj() != o.obj(); }
-  bool operator!=(void *p) const      { return obj() != p; }
+  bool operator==(const oop o) const  {
+    if (VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+    return obj() == o.obj();
+  }
+  bool operator==(void *p) const      {
+    if (p != NULL && VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+    return obj() == p;
+  }
+  bool operator!=(const volatile oop o) const  {
+    if (VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+    return obj() != o.obj();
+  }
+  bool operator!=(void *p) const      {
+    if (p != NULL && VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+    return obj() != p;
+  }
 
   bool operator<(oop o) const         { return obj() < o.obj(); }
   bool operator>(oop o) const         { return obj() > o.obj(); }

@@ -78,7 +78,7 @@ public:
 
   void add_pool(MemoryPool* pool);
 
-  bool is_manager(instanceHandle mh)     { return oopDesc::bs()->write_barrier(mh()) == oopDesc::bs()->write_barrier(_memory_mgr_obj); }
+  bool is_manager(instanceHandle mh)     { return oopDesc::equals(mh(), _memory_mgr_obj); }
 
   virtual instanceOop get_memory_manager_instance(TRAPS);
   virtual MemoryManager::Name kind()     { return MemoryManager::Abstract; }
