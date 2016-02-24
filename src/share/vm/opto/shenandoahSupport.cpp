@@ -34,12 +34,12 @@ Node* ShenandoahBarrierNode::skip_through_barrier(Node* n) {
   }
 }
 
-bool ShenandoahBarrierNode::needs_barrier(PhaseTransform* phase, Node* orig, Node* n, Node* rb_mem) {
+bool ShenandoahBarrierNode::needs_barrier(PhaseTransform* phase, ShenandoahBarrierNode* orig, Node* n, Node* rb_mem, bool allow_fromspace) {
   Unique_Node_List visited;
-  return needs_barrier_impl(phase, orig, n, rb_mem, visited);
+  return needs_barrier_impl(phase, orig, n, rb_mem, allow_fromspace, visited);
 }
 
-bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Node* orig, Node* n, Node* rb_mem, Unique_Node_List &visited) {
+bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, ShenandoahBarrierNode* orig, Node* n, Node* rb_mem, bool allow_fromspace, Unique_Node_List &visited) {
 
   if (visited.member(n)) {
     return false; // Been there.
@@ -64,19 +64,19 @@ bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Node* orig
 
   if (ShenandoahOptimizeFinals) {
     const TypeAryPtr* ary = type->isa_aryptr();
-    if (ary && ary->is_stable()) {
+    if (ary && ary->is_stable() && allow_fromspace) {
       return false;
     }
   }
 
   if (n->is_CheckCastPP() || n->is_ConstraintCast()) {
-    return needs_barrier_impl(phase, orig, n->in(1), rb_mem, visited);
+    return needs_barrier_impl(phase, orig, n->in(1), rb_mem, allow_fromspace, visited);
   }
   if (n->is_Parm()) {
     return true;
   }
   if (n->is_Proj()) {
-    return needs_barrier_impl(phase, orig, n->in(0), rb_mem, visited);
+    return needs_barrier_impl(phase, orig, n->in(0), rb_mem, allow_fromspace, visited);
   }
   if (n->is_Phi()) {
     bool need_barrier = false;
@@ -84,15 +84,15 @@ bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Node* orig
       Node* input = n->in(i);
       if (input == NULL) {
         need_barrier = true; // Phi not complete yet?
-      } else if (needs_barrier_impl(phase, orig, input, rb_mem, visited)) {
+      } else if (needs_barrier_impl(phase, orig, input, rb_mem, allow_fromspace, visited)) {
         need_barrier = true;
       }
     }
     return need_barrier;
   }
   if (n->is_CMove()) {
-    return needs_barrier_impl(phase, orig, n->in(CMoveNode::IfFalse), rb_mem, visited) ||
-           needs_barrier_impl(phase, orig, n->in(CMoveNode::IfTrue ), rb_mem, visited);
+    return needs_barrier_impl(phase, orig, n->in(CMoveNode::IfFalse), rb_mem, allow_fromspace, visited) ||
+           needs_barrier_impl(phase, orig, n->in(CMoveNode::IfTrue ), rb_mem, allow_fromspace, visited);
   }
   if (n->Opcode() == Op_CreateEx) {
     return true;
@@ -370,7 +370,7 @@ Node* ShenandoahBarrierNode::Identity_impl(PhaseTransform* phase) {
   Node* n = in(ValueIn);
 
   Node* rb_mem = Opcode() == Op_ShenandoahReadBarrier ? in(Memory) : NULL;
-  if (! needs_barrier(phase, this, n, rb_mem)) {
+  if (! needs_barrier(phase, this, n, rb_mem, _allow_fromspace)) {
     return n;
   }
 
@@ -461,6 +461,19 @@ uint ShenandoahBarrierNode::num_mem_projs() {
 void ShenandoahBarrierNode::check_invariants() {
 }
 #endif
+
+uint ShenandoahBarrierNode::hash() const {
+  return TypeNode::hash() + _allow_fromspace;
+}
+
+uint ShenandoahBarrierNode::cmp(const Node& n) const {
+  return _allow_fromspace == ((ShenandoahBarrierNode&) n)._allow_fromspace
+    && TypeNode::cmp(n);
+}
+
+uint ShenandoahBarrierNode::size_of() const {
+  return sizeof(*this);
+}
 
 Node* ShenandoahWBMemProjNode::Identity(PhaseTransform* phase) {
 

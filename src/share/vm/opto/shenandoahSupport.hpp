@@ -35,6 +35,8 @@ class PhaseTransform;
 
 
 class ShenandoahBarrierNode : public TypeNode {
+private:
+  bool _allow_fromspace;
 public:
 
 public:
@@ -43,8 +45,9 @@ public:
          ValueIn
   };
 
-  ShenandoahBarrierNode(Node* ctrl, Node* mem, Node* obj)
-    : TypeNode(obj->bottom_type(), 3) {
+  ShenandoahBarrierNode(Node* ctrl, Node* mem, Node* obj, bool allow_fromspace)
+    : TypeNode(obj->bottom_type(), 3),
+      _allow_fromspace(allow_fromspace) {
 
     init_req(Control, ctrl);
     init_req(Memory, mem);
@@ -66,7 +69,6 @@ public:
   virtual uint match_edge(uint idx) const {
     return idx >= ValueIn;
   }
-  virtual uint size_of() const { return sizeof(*this); }
 
   virtual Node* Identity(PhaseTransform* phase);
   Node* Identity_impl(PhaseTransform* phase);
@@ -82,12 +84,16 @@ public:
   uint num_mem_projs();
 #endif
 
-  static bool needs_barrier(PhaseTransform* phase, Node* orig, Node* n, Node* rb_mem);
+  static bool needs_barrier(PhaseTransform* phase, ShenandoahBarrierNode* orig, Node* n, Node* rb_mem, bool allow_fromspace);
 
   static bool has_barrier_users(Node* n, Unique_Node_List &visited);
 
+  uint hash() const;
+  uint cmp(const Node& n) const;
+  uint size_of() const;
+
 private:
-  static bool needs_barrier_impl(PhaseTransform* phase, Node* orig, Node* n, Node* rb_mem, Unique_Node_List &visited);
+  static bool needs_barrier_impl(PhaseTransform* phase, ShenandoahBarrierNode* orig, Node* n, Node* rb_mem, bool allow_fromspace, Unique_Node_List &visited);
 
 
   bool dominates_control(PhaseTransform* phase, Node* c1, Node* c2);
@@ -98,7 +104,10 @@ private:
 class ShenandoahReadBarrierNode : public ShenandoahBarrierNode {
 public:
   ShenandoahReadBarrierNode(Node* ctrl, Node* mem, Node* obj)
-    : ShenandoahBarrierNode(ctrl, mem, obj) {
+    : ShenandoahBarrierNode(ctrl, mem, obj, true) {
+  }
+  ShenandoahReadBarrierNode(Node* ctrl, Node* mem, Node* obj, bool allow_fromspace)
+    : ShenandoahBarrierNode(ctrl, mem, obj, allow_fromspace) {
   }
 
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape);
@@ -114,7 +123,7 @@ private:
 class ShenandoahWriteBarrierNode : public ShenandoahBarrierNode {
 public:
   ShenandoahWriteBarrierNode(Node* ctrl, Node* mem, Node* obj)
-    : ShenandoahBarrierNode(ctrl, mem, obj) {
+    : ShenandoahBarrierNode(ctrl, mem, obj, true) {
   }
 
   virtual int Opcode() const;

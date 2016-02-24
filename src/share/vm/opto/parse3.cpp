@@ -245,9 +245,9 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
   if (UseShenandoahGC && ShenandoahOptimizeFinals && UseImplicitStableValues) {
     if (field->holder()->name() == ciSymbol::java_lang_String() &&
         field->offset() == java_lang_String::value_offset_in_bytes()) {
-      const TypeAryPtr* value_type = TypeAryPtr::make(TypePtr::NotNull,
-                                                      TypeAry::make(TypeInt::BYTE, TypeInt::POS),
-                                                      ciTypeArrayKlass::make(T_BYTE), true, 0);
+      const TypeAryPtr*  value_type = TypeAryPtr::make(TypePtr::NotNull,
+                                                       TypeAry::make(TypeInt::CHAR,TypeInt::POS),
+                                                       ciTypeArrayKlass::make(T_CHAR), true, 0);
         ld = cast_array_to_stable(ld, value_type);
     }
   }

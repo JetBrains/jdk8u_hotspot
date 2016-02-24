@@ -4164,9 +4164,7 @@ void GraphKit::store_String_offset(Node* ctrl, Node* str, Node* value) {
   const TypePtr* offset_field_type = string_type->add_offset(offset_offset);
   int offset_field_idx = C->get_alias_index(offset_field_type);
 
-  if (! ShenandoahOptimizeFinals) {
-    str = shenandoah_write_barrier(str);
-  }
+  str = shenandoah_write_barrier(str);
 
   store_to_memory(control(), basic_plus_adr(str, offset_offset),
                   value, T_INT, offset_field_idx, MemNode::unordered);
@@ -4179,9 +4177,7 @@ void GraphKit::store_String_value(Node* ctrl, Node* str, Node* value) {
   const TypePtr* value_field_type = string_type->add_offset(value_offset);
 
   str = shenandoah_write_barrier(str);
-  if (! ShenandoahOptimizeFinals) {
-    value = shenandoah_read_barrier_nomem(value);
-  }
+  value = shenandoah_read_barrier_nomem(value);
 
   store_oop_to_object(control(), str,  basic_plus_adr(str, value_offset), value_field_type,
       value, TypeAryPtr::CHARS, T_OBJECT, MemNode::unordered);
@@ -4194,9 +4190,7 @@ void GraphKit::store_String_length(Node* ctrl, Node* str, Node* value) {
   const TypePtr* count_field_type = string_type->add_offset(count_offset);
   int count_field_idx = C->get_alias_index(count_field_type);
 
-  if (! ShenandoahOptimizeFinals) {
-    str = shenandoah_write_barrier(str);
-  }
+  str = shenandoah_write_barrier(str);
 
   store_to_memory(control(), basic_plus_adr(str, count_offset),
                   value, T_INT, count_field_idx, MemNode::unordered);
@@ -4226,7 +4220,7 @@ Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_
     const TypePtr* adr_type = obj_type->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
     Node* mem = use_mem ? memory(adr_type) : immutable_memory();
 
-    if (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, obj, mem)) {
+    if (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, obj, mem, use_mem)) {
       // We know it is null, no barrier needed.
       return obj;
     }
@@ -4245,7 +4239,7 @@ Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_
       phi   ->init_req(_null_path, obj);
 
       Node* ctrl = use_ctrl ? control() : NULL;
-      ShenandoahReadBarrierNode* rb = new (C) ShenandoahReadBarrierNode(ctrl, mem, not_null_obj);
+      ShenandoahReadBarrierNode* rb = new (C) ShenandoahReadBarrierNode(ctrl, mem, not_null_obj, use_mem);
       Node* n = _gvn.transform(rb);
 
       region->init_req(_not_null_path, control());
@@ -4258,7 +4252,7 @@ Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_
     } else {
       // We know it is not null. Simple barrier is sufficient.
       Node* ctrl = use_ctrl ? control() : NULL;
-      ShenandoahReadBarrierNode* rb = new (C) ShenandoahReadBarrierNode(ctrl, mem, obj);
+      ShenandoahReadBarrierNode* rb = new (C) ShenandoahReadBarrierNode(ctrl, mem, obj, use_mem);
       Node* n = _gvn.transform(rb);
       record_for_igvn(n);
       return n;
@@ -4273,7 +4267,7 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
 
   if (UseShenandoahGC && ShenandoahWriteBarrier) {
 
-    if (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, obj, NULL)) {
+    if (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, obj, NULL, true)) {
       return obj;
     }
     const Type* obj_type = obj->bottom_type();
