@@ -572,21 +572,6 @@ const TypeFunc *OptoRuntime::shenandoah_clone_barrier_Type() {
   return TypeFunc::make(domain, range);
 }
 
-const TypeFunc *OptoRuntime::shenandoah_cas_obj_Type() {
-  const Type **fields = TypeTuple::fields(3);
-  fields[TypeFunc::Parms+0] = TypeRawPtr::NOTNULL; // Address
-  fields[TypeFunc::Parms+1] = TypeInstPtr::BOTTOM;  // New value
-  fields[TypeFunc::Parms+2] = TypeInstPtr::BOTTOM;  // Expected value
-  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+3, fields);
-
-  // create result type (range)
-  fields = TypeTuple::fields(1);
-  fields[TypeFunc::Parms+0] = TypeInt::BOOL;
-  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1, fields);
-
-  return TypeFunc::make(domain, range);
-}
-
 const TypeFunc *OptoRuntime::uncommon_trap_Type() {
   // create input type (domain)
   const Type **fields = TypeTuple::fields(1);

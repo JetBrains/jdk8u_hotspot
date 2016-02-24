@@ -277,7 +277,6 @@ private:
   static const TypeFunc* g1_wb_pre_Type();
   static const TypeFunc* g1_wb_post_Type();
   static const TypeFunc* shenandoah_clone_barrier_Type();
-  static const TypeFunc* shenandoah_cas_obj_Type();
   static const TypeFunc* complete_monitor_enter_Type();
   static const TypeFunc* complete_monitor_exit_Type();
   static const TypeFunc* uncommon_trap_Type();
