@@ -382,22 +382,25 @@ bool ShenandoahHeapRegion::block_is_obj(const HeapWord* addr) const {
 
   if (ClassUnloadingWithConcurrentMark) {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    return ! heap->is_obj_dead(oop(addr+1), this);
+    return ! heap->is_obj_dead(oop(addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE), this);
   }
   return true; // Always true, since scan_limit is top
 }
 
 size_t ShenandoahHeapRegion::block_size(const HeapWord* addr) const {
   if (block_is_obj(addr)) {
-    oop obj = oop(addr+1);
-   size_t size = obj->size() + 1;
+    oop obj = oop(addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+    size_t size = obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
     return size;
   }
   assert(ClassUnloadingWithConcurrentMark, "must only happen with concurrent class unloading");
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  HeapWord* next = heap->prev_mark_bit_map()->getNextMarkedWordAddress(addr+1, _top_at_prev_mark_start + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
-  assert(next > addr + 1, "must get next live object");
-  return pointer_delta(next, addr + 1);
+  HeapWord* obj_end = _top_at_prev_mark_start + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+  HeapWord* region_end = MIN2(obj_end, end() /*heap->regions()->end()*/);
+  HeapWord* next = heap->prev_mark_bit_map()->getNextMarkedWordAddress(addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE, region_end);
+  assert(next > addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE, "must get next live object");
+  size_t size = pointer_delta(next == region_end ? obj_end : next, addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+  return size;
 }
 
 bool ShenandoahHeapRegion::allocated_after_prev_mark_start(HeapWord* addr) const {
