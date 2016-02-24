@@ -468,7 +468,7 @@ void Klass::klass_update_barrier_set(oop v) {
 // the beginning. This function is only used when we write oops into Klasses.
 void Klass::klass_update_barrier_set_pre(oop* p, oop v) {
 #if INCLUDE_ALL_GCS
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     oop obj = *p;
     if (obj != NULL) {
       G1SATBCardTableModRefBS::enqueue(obj);
