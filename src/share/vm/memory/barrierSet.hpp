@@ -211,6 +211,9 @@ public:
   virtual void interpreter_write_barrier(MacroAssembler* masm, Register dst) {
     // Default implementation does nothing.
   }
+  virtual void asm_acmp_barrier(MacroAssembler* masm, Register op1, Register op2) {
+    // Default implementation does nothing.
+  }
 #endif
 };
 

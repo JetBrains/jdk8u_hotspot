@@ -121,6 +121,7 @@ public:
   virtual void interpreter_read_barrier(MacroAssembler* masm, Register dst);
   virtual void interpreter_read_barrier_not_null(MacroAssembler* masm, Register dst);
   void interpreter_write_barrier(MacroAssembler* masm, Register dst);
+  void asm_acmp_barrier(MacroAssembler* masm, Register op1, Register op2);
 
 private:
   void compile_resolve_oop_runtime(MacroAssembler* masm, Register dst);

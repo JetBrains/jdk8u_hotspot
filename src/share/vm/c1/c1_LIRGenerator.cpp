@@ -3109,14 +3109,7 @@ void LIRGenerator::do_IfOp(IfOp* x) {
   f_val.dont_load_item();
   LIR_Opr reg = rlock_result(x);
 
-  LIR_Opr left_opr = left.result();
-  LIR_Opr right_opr = right.result();
-  if (xtag == objectTag && UseShenandoahGC && x->y()->type() != objectNull) { // Don't need to resolve for ifnull.
-    left_opr = shenandoah_write_barrier(left_opr, NULL, true);
-    right_opr = shenandoah_read_barrier(right_opr, NULL, true);
-  }
-
-  __ cmp(lir_cond(x->cond()), left_opr, right_opr);
+  __ cmp(lir_cond(x->cond()), left.result(), right.result());
   __ cmove(lir_cond(x->cond()), t_val.result(), f_val.result(), reg, as_BasicType(x->x()->type()));
 }
 

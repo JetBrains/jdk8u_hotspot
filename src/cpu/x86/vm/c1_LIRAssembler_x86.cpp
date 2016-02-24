@@ -2785,6 +2785,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
       // cpu register - cpu register
       if (opr1->type() == T_OBJECT || opr1->type() == T_ARRAY) {
         __ cmpptr(reg1, opr2->as_register());
+        oopDesc::bs()->asm_acmp_barrier(masm(), reg1, opr2->as_register());
       } else {
         assert(opr2->type() != T_OBJECT && opr2->type() != T_ARRAY, "cmp int, oop?");
         __ cmpl(reg1, opr2->as_register());
@@ -2792,7 +2793,13 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
     } else if (opr2->is_stack()) {
       // cpu register - stack
       if (opr1->type() == T_OBJECT || opr1->type() == T_ARRAY) {
-        __ cmpptr(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
+        if (UseShenandoahGC) {
+          __ movptr(rscratch1, frame_map()->address_for_slot(opr2->single_stack_ix()));
+          __ cmpptr(reg1, rscratch1);
+          oopDesc::bs()->asm_acmp_barrier(masm(), reg1, rscratch1);
+        } else {
+          __ cmpptr(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
+        }
       } else {
         __ cmpl(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
       }
@@ -2810,6 +2817,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
 #ifdef _LP64
           __ movoop(rscratch1, o);
           __ cmpptr(reg1, rscratch1);
+          oopDesc::bs()->asm_acmp_barrier(masm(), reg1, rscratch1);
 #else
           __ cmpoop(reg1, c->as_jobject());
 #endif // _LP64
@@ -2922,7 +2930,13 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
 #ifdef _LP64
       // %%% Make this explode if addr isn't reachable until we figure out a
       // better strategy by giving noreg as the temp for as_Address
-      __ cmpptr(rscratch1, as_Address(addr, noreg));
+      if (UseShenandoahGC) {
+        __ movptr(rscratch2, as_Address(addr, noreg));
+        __ cmpptr(rscratch1, rscratch2);
+        oopDesc::bs()->asm_acmp_barrier(masm(), rscratch1, rscratch2);
+      } else {
+        __ cmpptr(rscratch1, as_Address(addr, noreg));
+      }
 #else
       __ cmpoop(as_Address(addr), c->as_jobject());
 #endif // _LP64

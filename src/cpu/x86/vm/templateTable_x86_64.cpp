@@ -1861,18 +1861,8 @@ void TemplateTable::if_acmp(Condition cc) {
   // assume branch is more often taken than not (loops use backward branches)
   Label not_taken;
   __ pop_ptr(rdx);
-  if (UseShenandoahGC) {
-    // For Shenandoah, if the objects are not equal, we try again after
-    // resolving both objects through a read barrier, to make sure we're
-    // not comparing from-space and to-space copies of the same object.
-    Label eq;
-    __ cmpptr(rdx, rax);
-    __ jcc(Assembler::equal, eq);
-    oopDesc::bs()->interpreter_read_barrier(_masm, rax);
-    oopDesc::bs()->interpreter_read_barrier(_masm, rdx);
-    __ bind(eq);
-  }
   __ cmpptr(rdx, rax);
+  oopDesc::bs()->asm_acmp_barrier(_masm, rdx, rax);
   __ jcc(j_not(cc), not_taken);
   branch(false, false);
   __ bind(not_taken);

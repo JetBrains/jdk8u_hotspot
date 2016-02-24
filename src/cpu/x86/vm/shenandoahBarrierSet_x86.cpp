@@ -273,6 +273,15 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
   __ bind(done);
 }
 
+void ShenandoahBarrierSet::asm_acmp_barrier(MacroAssembler* masm, Register op1, Register op2) {
+  Label done;
+  __ jccb(Assembler::equal, done);
+  interpreter_read_barrier(masm, op1);
+  interpreter_read_barrier(masm, op2);
+  __ cmpptr(op1, op2);
+  __ bind(done);
+}
+
 void ShenandoahHeap::compile_prepare_oop(MacroAssembler* masm, Register obj) {
   __ incrementq(obj, BrooksPointer::BROOKS_POINTER_OBJ_SIZE * HeapWordSize);
   __ movptr(Address(obj, -1 * HeapWordSize), obj);

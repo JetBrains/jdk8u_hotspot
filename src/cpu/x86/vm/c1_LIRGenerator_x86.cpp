@@ -1343,10 +1343,6 @@ void LIRGenerator::do_If(If* x) {
 
   LIR_Opr left = xin->result();
   LIR_Opr right = yin->result();
-  if (tag == objectTag && UseShenandoahGC && x->y()->type() != objectNull) { // Don't need to resolve for ifnull.
-    left = shenandoah_write_barrier(left, NULL, true);
-    right = shenandoah_read_barrier(right, NULL, true);
-  }
   __ cmp(lir_cond(cond), left, right);
   // Generate branch profiling. Profiling code doesn't kill flags.
   profile_branch(x, cond);
