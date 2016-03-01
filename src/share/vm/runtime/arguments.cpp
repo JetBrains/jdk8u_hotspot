@@ -1137,8 +1137,9 @@ void Arguments::set_tiered_flags() {
   }
   // Increase the code cache size - tiered compiles a lot more.
   if (FLAG_IS_DEFAULT(ReservedCodeCacheSize)) {
-    FLAG_SET_DEFAULT(ReservedCodeCacheSize,
-                     MIN2(CODE_CACHE_DEFAULT_LIMIT, ReservedCodeCacheSize * 5));
+    NOT_AARCH64(FLAG_SET_DEFAULT(ReservedCodeCacheSize, ReservedCodeCacheSize * 5));
+    AARCH64_ONLY(FLAG_SET_DEFAULT(ReservedCodeCacheSize,
+                                  MIN2(CODE_CACHE_DEFAULT_LIMIT, ReservedCodeCacheSize * 5)));
   }
   if (!UseInterpreter) { // -Xcomp
     Tier3InvokeNotifyFreqLog = 0;
