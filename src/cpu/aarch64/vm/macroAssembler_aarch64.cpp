@@ -55,6 +55,11 @@
 #include "gc_implementation/g1/heapRegion.hpp"
 #endif
 
+#ifdef COMPILER2
+#include "opto/node.hpp"
+#include "opto/compile.hpp"
+#endif
+
 #ifdef PRODUCT
 #define BLOCK_COMMENT(str) /* nothing */
 #define STOP(error) stop(error)
