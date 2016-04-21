@@ -312,7 +312,7 @@ public:
   inline oop evacuate_object(oop src, Thread* thread);
   bool is_in_collection_set(const void* p);
 
-  inline void copy_object(oop p, HeapWord* s);
+  inline void copy_object(oop p, HeapWord* s, size_t words);
   void verify_copy(oop p, oop c);
   void verify_heap_size_consistency();
   void verify_heap_after_marking();
