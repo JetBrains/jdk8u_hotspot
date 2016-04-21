@@ -422,14 +422,6 @@ public:
   virtual HeapWord* forward(oop q, size_t size, CompactPoint* cp,
                     HeapWord* compact_top);
 
-  virtual oop compact_oop(HeapWord* addr) const {
-    return oop(addr);
-  }
-
-  virtual oop make_oop(HeapWord* addr) const {
-    return oop(addr);
-  }
-
   // Return a size with adjusments as required of the space.
   virtual size_t adjust_object_size_v(size_t size) const { return size; }
 

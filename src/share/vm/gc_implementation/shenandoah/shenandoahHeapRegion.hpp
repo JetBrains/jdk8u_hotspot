@@ -30,42 +30,6 @@
 
 class ShenandoahHeapRegion : public ContiguousSpace {
 
-private:
-  // Auxiliary functions for scan_and_forward support.
-  // See comments for CompactibleSpace for more information.
-  inline HeapWord* scan_limit() const {
-    return top();
-  }
-
-  inline bool scanned_block_is_obj(const HeapWord* addr) const {
-    return true; // Always true, since scan_limit is top
-  }
-
-  bool block_is_obj(const HeapWord* addr) const;
-  size_t block_size(const HeapWord* addr) const;
-
-  inline size_t scanned_block_size(const HeapWord* addr) const {
-    return ShenandoahHeapRegion::block_size(addr);
-  }
-
-    // Auxiliary functions for scan_and_{forward,adjust_pointers,compact} support.
-  inline size_t adjust_obj_size(size_t size) const {
-    return size + 1;
-  }
-
-  inline size_t obj_size(const HeapWord* addr) const {
-    return ShenandoahHeapRegion::block_size(addr);
-  }
-
-public:
-  virtual oop make_oop(HeapWord* addr) const {
-    return oop(addr+1);
-  }
-
-  virtual oop compact_oop(HeapWord* addr) const {
-    return oop(addr + 1);
-  }
-
 public:
   static size_t RegionSizeBytes;
   static size_t RegionSizeShift;
@@ -149,12 +113,6 @@ public:
   void save_mark_word(oop obj) {saved_mark_word = obj->mark();}
   markOop mark_word() {return saved_mark_word;}
 
-  virtual CompactibleSpace* next_compaction_space() const;
-
-  // Override for scan_and_forward support.
-  void prepare_for_compaction(CompactPoint* cp);
-  void adjust_pointers();
-  void compact();
 
   void init_top_at_mark_start();
   void set_top_at_mark_start(HeapWord* top);

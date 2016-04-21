@@ -86,16 +86,14 @@ inline HeapWord* Space::block_start(const void* p) {
                                                                              \
   while (q < t) {                                                            \
     assert(!block_is_obj(q) ||                                               \
-           make_oop(q)->mark()->is_marked() ||                               \
-           make_oop(q)->mark()->is_unlocked() ||                             \
-           make_oop(q)->mark()->has_bias_pattern() ||                        \
-           ! oopDesc::unsafe_equals(oopDesc::bs()->read_barrier(make_oop(q)), make_oop(q)), \
+           oop(q)->mark()->is_marked() || oop(q)->mark()->is_unlocked() ||   \
+           oop(q)->mark()->has_bias_pattern(),                               \
            "these are the only valid states during a mark sweep");           \
-    if (block_is_obj(q) && make_oop(q)->is_gc_marked()) {                    \
+    if (block_is_obj(q) && oop(q)->is_gc_marked()) {                         \
       /* prefetch beyond q */                                                \
       Prefetch::write(q, interval);                                          \
       size_t size = block_size(q);                                           \
-      compact_top = cp->space->forward(make_oop(q), size, cp, compact_top);  \
+      compact_top = cp->space->forward(oop(q), size, cp, compact_top);       \
       q += size;                                                             \
       end_of_live = q;                                                       \
     } else {                                                                 \
@@ -105,7 +103,7 @@ inline HeapWord* Space::block_start(const void* p) {
         /* prefetch beyond end */                                            \
         Prefetch::write(end, interval);                                      \
         end += block_size(end);                                              \
-      } while (end < t && (!block_is_obj(end) || !make_oop(end)->is_gc_marked())); \
+      } while (end < t && (!block_is_obj(end) || !oop(end)->is_gc_marked())); \
                                                                              \
       /* see if we might want to pretend this object is alive so that        \
        * we don't have to compact quite as often.                            \
@@ -113,7 +111,7 @@ inline HeapWord* Space::block_start(const void* p) {
       if (allowed_deadspace > 0 && q == compact_top) {                       \
         size_t sz = pointer_delta(end, q);                                   \
         if (insert_deadspace(allowed_deadspace, q, sz)) {                    \
-          compact_top = cp->space->forward(make_oop(q), sz, cp, compact_top); \
+          compact_top = cp->space->forward(oop(q), sz, cp, compact_top);     \
           q = end;                                                           \
           end_of_live = end;                                                 \
           continue;                                                          \
@@ -130,7 +128,7 @@ inline HeapWord* Space::block_start(const void* p) {
       /* record the current LiveRange object.                                \
        * liveRange->start() is overlaid on the mark word.                    \
        */                                                                    \
-      liveRange = (LiveRange*) (HeapWord*) make_oop(q);                      \
+      liveRange = (LiveRange*)q;                                             \
       liveRange->set_start(end);                                             \
       liveRange->set_end(end);                                               \
                                                                              \
@@ -168,7 +166,7 @@ inline HeapWord* Space::block_start(const void* p) {
   assert(_first_dead <= _end_of_live, "Stands to reason, no?");                 \
                                                                                 \
   if (q < t && _first_dead > q &&                                               \
-      !make_oop(q)->is_gc_marked()) {                                           \
+      !oop(q)->is_gc_marked()) {                                                \
     /* we have a chunk of the space which hasn't moved and we've                \
      * reinitialized the mark word during the previous pass, so we can't        \
      * use is_gc_marked for the traversal. */                                   \
@@ -184,7 +182,7 @@ inline HeapWord* Space::block_start(const void* p) {
              "should be at block boundaries, and should be looking at objs");   \
                                                                                 \
       /* point all the oops to the new location */                              \
-      size_t size = make_oop(q)->adjust_pointers();                             \
+      size_t size = oop(q)->adjust_pointers();                                  \
       size = adjust_obj_size(size);                                             \
                                                                                 \
       q += size;                                                                \
@@ -205,10 +203,10 @@ inline HeapWord* Space::block_start(const void* p) {
   while (q < t) {                                                               \
     /* prefetch beyond q */                                                     \
     Prefetch::write(q, interval);                                               \
-    if (make_oop(q)->is_gc_marked()) {                                          \
+    if (oop(q)->is_gc_marked()) {                                               \
       /* q is alive */                                                          \
       /* point all the oops to the new location */                              \
-      size_t size = make_oop(q)->adjust_pointers();                             \
+      size_t size = oop(q)->adjust_pointers();                                  \
       size = adjust_obj_size(size);                                             \
       debug_only(prev_q = q);                                                   \
       q += size;                                                                \
@@ -216,7 +214,7 @@ inline HeapWord* Space::block_start(const void* p) {
       /* q is not a live object, so its mark should point at the next           \
        * live object */                                                         \
       debug_only(prev_q = q);                                                   \
-      q = (HeapWord*) make_oop(q)->mark()->decode_pointer();                    \
+      q = (HeapWord*) oop(q)->mark()->decode_pointer();                         \
       assert(q > prev_q, "we should be moving forward through memory");         \
     }                                                                           \
   }                                                                             \
@@ -233,7 +231,7 @@ inline HeapWord* Space::block_start(const void* p) {
   debug_only(HeapWord* prev_q = NULL);                                          \
                                                                                 \
   if (q < t && _first_dead > q &&                                               \
-      !make_oop(q)->is_gc_marked()) {                                           \
+      !oop(q)->is_gc_marked()) {                                                \
     debug_only(                                                                 \
     /* we have a chunk of the space which hasn't moved and we've reinitialized  \
      * the mark word during the previous pass, so we can't use is_gc_marked for \
@@ -242,7 +240,7 @@ inline HeapWord* Space::block_start(const void* p) {
                                                                                 \
     while (q < end) {                                                           \
       size_t size = obj_size(q);                                                \
-      assert(!make_oop(q)->is_gc_marked(),                                      \
+      assert(!oop(q)->is_gc_marked(),                                           \
              "should be unmarked (special dense prefix handling)");             \
       debug_only(prev_q = q);                                                   \
       q += size;                                                                \
@@ -260,10 +258,10 @@ inline HeapWord* Space::block_start(const void* p) {
   const intx scan_interval = PrefetchScanIntervalInBytes;                       \
   const intx copy_interval = PrefetchCopyIntervalInBytes;                       \
   while (q < t) {                                                               \
-    if (!make_oop(q)->is_gc_marked()) {                                         \
+    if (!oop(q)->is_gc_marked()) {                                              \
       /* mark is pointer to next marked oop */                                  \
       debug_only(prev_q = q);                                                   \
-      q = (HeapWord*) make_oop(q)->mark()->decode_pointer();                    \
+      q = (HeapWord*) oop(q)->mark()->decode_pointer();                         \
       assert(q > prev_q, "we should be moving forward through memory");         \
     } else {                                                                    \
       /* prefetch beyond q */                                                   \
@@ -271,14 +269,14 @@ inline HeapWord* Space::block_start(const void* p) {
                                                                                 \
       /* size and destination */                                                \
       size_t size = obj_size(q);                                                \
-      HeapWord* compaction_top = (HeapWord*)make_oop(q)->forwardee();           \
+      HeapWord* compaction_top = (HeapWord*)oop(q)->forwardee();                \
                                                                                 \
       /* prefetch beyond compaction_top */                                      \
       Prefetch::write(compaction_top, copy_interval);                           \
                                                                                 \
       /* copy object and reinit its mark */                                     \
       assert(q != compaction_top, "everything in this pass should be moving");  \
-      Copy::aligned_conjoint_words((HeapWord*) make_oop(q), compaction_top, size); \
+      Copy::aligned_conjoint_words(q, compaction_top, size);                    \
       oop(compaction_top)->init_mark();                                         \
       assert(oop(compaction_top)->klass() != NULL, "should have a class");      \
                                                                                 \

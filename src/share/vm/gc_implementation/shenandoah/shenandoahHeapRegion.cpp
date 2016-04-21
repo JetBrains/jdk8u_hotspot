@@ -357,28 +357,6 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   }
 }
 
-CompactibleSpace* ShenandoahHeapRegion::next_compaction_space() const {
-  return ShenandoahHeap::heap()->next_compaction_region(this);
-}
-
-void ShenandoahHeapRegion::prepare_for_compaction(CompactPoint* cp) {
-  SCAN_AND_FORWARD(cp, scan_limit, scanned_block_is_obj, scanned_block_size);
-}
-
-void ShenandoahHeapRegion::adjust_pointers() {
-  // Check first is there is any work to do.
-  if (used() == 0) {
-    return;   // Nothing to do.
-  }
-
-  SCAN_AND_ADJUST_POINTERS(adjust_obj_size);
-}
-
-void ShenandoahHeapRegion::compact() {
-  assert(!is_humongous(), "Shouldn't be compacting humongous regions");
-  SCAN_AND_COMPACT(obj_size);
-}
-
 void ShenandoahHeapRegion::init_top_at_mark_start() {
   _top_at_mark_start = top();
   ShenandoahHeap::heap()->set_top_at_mark_start(bottom(), top());
@@ -403,31 +381,6 @@ HeapWord* ShenandoahHeapRegion::top_at_prev_mark_start() {
 
 HeapWord* ShenandoahHeapRegion::top_prev_mark_bitmap() {
   return _top_prev_mark_bitmap;
-}
-
-bool ShenandoahHeapRegion::block_is_obj(const HeapWord* addr) const {
-
-  if (ClassUnloadingWithConcurrentMark) {
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
-    return ! heap->is_obj_dead(oop(addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE), this);
-  }
-  return true; // Always true, since scan_limit is top
-}
-
-size_t ShenandoahHeapRegion::block_size(const HeapWord* addr) const {
-  if (block_is_obj(addr)) {
-    oop obj = oop(addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
-    size_t size = obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
-    return size;
-  }
-  assert(ClassUnloadingWithConcurrentMark, "must only happen with concurrent class unloading");
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  HeapWord* obj_end = _top_at_prev_mark_start + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
-  HeapWord* region_end = MIN2(obj_end, end() /*heap->regions()->end()*/);
-  HeapWord* next = heap->prev_mark_bit_map()->getNextMarkedWordAddress(addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE, region_end);
-  assert(next > addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE, "must get next live object");
-  size_t size = pointer_delta(next == region_end ? obj_end : next, addr + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
-  return size;
 }
 
 bool ShenandoahHeapRegion::allocated_after_prev_mark_start(HeapWord* addr) const {
