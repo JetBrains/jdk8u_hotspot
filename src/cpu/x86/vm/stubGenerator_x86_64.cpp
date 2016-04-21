@@ -25,6 +25,7 @@
 #include "precompiled.hpp"
 #include "asm/macroAssembler.hpp"
 #include "asm/macroAssembler.inline.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
@@ -759,19 +760,115 @@ class StubGenerator: public StubCodeGenerator {
     StubCodeMark mark(this, "StubRoutines", "shenandoah_wb");
     address start = __ pc();
 
-    Label done;
+    Label not_done, done, slow_case, not_an_instance, is_array;
 
+    // We use RDI, which also serves as argument register for slow call.
+    // RAX always holds the src object ptr, except after the slow call and
+    // the cmpxchg, then it holds the result.
+    // RBX and RCX are used as temporary registers.
+    __ push(rdi);
     __ push(rbx);
+
     // Check for object beeing in the collection set.
     // TODO: Can we use only 1 register here?
+    // The source object arrives here in rax.
+    // live: rax
+    // live: rdi
     __ movptr(rdi, rax);
     __ shrptr(rdi, ShenandoahHeapRegion::RegionSizeShift);
+    // live: rbx
     __ movptr(rbx, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
     __ movbool(rbx, Address(rbx, rdi, Address::times_1));
+    // unlive: rdi
     __ testbool(rbx);
-    __ jcc(Assembler::zero, done);
+    // unlive: rbx
+    __ jccb(Assembler::notZero, not_done);
+
+    __ pop(rbx);
+    __ pop(rdi);
+    __ ret(0);
+
+    __ bind(not_done);
 
     __ push(rcx);
+    Register new_obj = rbx;
+    __ movptr(new_obj, Address(r15_thread, JavaThread::gclab_top_offset()));
+    __ testptr(new_obj, new_obj);
+    __ jcc(Assembler::zero, slow_case); // No TLAB.
+
+    // Figure out object size.
+    __ load_klass(rcx, rax);
+    __ movl(rcx, Address(rcx, Klass::layout_helper_offset()));
+    __ testl(rcx, Klass::_lh_instance_slow_path_bit);
+    // test to see if it has a finalizer or is malformed in some way
+    __ jcc(Assembler::notZero, slow_case);
+    __ cmpl(rcx, Klass::_lh_neutral_value); // Make sure it's an instance (LH > 0)
+    __ jcc(Assembler::lessEqual, not_an_instance); // Thrashes rcx, returns size in rcx. Uses rax.
+    __ bind(is_array);
+
+    // Size in rdi, new_obj in rbx, src obj in rax
+
+    Register new_obj_end = rdi;
+    int oop_extra_words = Universe::heap()->oop_extra_words();
+    __ addq(rcx, oop_extra_words * HeapWordSize);
+    __ lea(new_obj_end, Address(new_obj, rcx, Address::times_1));
+    __ cmpptr(new_obj_end, Address(r15_thread, JavaThread::gclab_end_offset()));
+    __ jcc(Assembler::above, slow_case);
+    __ subq(rcx, oop_extra_words * HeapWordSize);
+
+    // Store Brooks pointer and adjust start of newobj.
+    Universe::heap()->compile_prepare_oop(_masm, new_obj);
+
+    // Size in rcx, new_obj in rbx, src obj in rax
+
+    // Copy object.
+    Label loop;
+    __ push(rdi); // Save new_obj_end
+    __ push(rsi);
+    __ shrl(rcx, 3);   // Make it num-64-bit-words
+    __ mov(rdi, rbx); // Mov dst into rdi
+    __ mov(rsi, rax); // Src into rsi.
+    __ rep_mov();
+    __ pop(rsi); // Restore rsi.
+    __ pop(rdi); // Restore new_obj_end
+
+    // Src obj still in rax.
+    if (os::is_MP()) {
+      __ lock();
+    }
+    __ cmpxchgptr(new_obj, Address(rax, BrooksPointer::BYTE_OFFSET, Address::times_1));
+    __ jccb(Assembler::notEqual, done); // Failed. Updated object in rax.
+    // Otherwise, we succeeded.
+    __ mov(rax, new_obj);
+    __ movptr(Address(r15_thread, JavaThread::gclab_top_offset()), new_obj_end);
+    __ bind(done);
+
+    __ pop(rcx);
+    __ pop(rbx);
+    __ pop(rdi);
+
+    __ ret(0);
+
+    __ bind(not_an_instance);
+    __ push(rdx);
+    // Layout_helper bits are in rcx
+    __ movl(rdx, rcx); // Move layout_helper bits to rdx
+    __ movl(rdi, Address(rax, arrayOopDesc::length_offset_in_bytes()));
+    __ shrl(rcx, Klass::_lh_log2_element_size_shift);
+    __ andl(rcx, Klass::_lh_log2_element_size_mask);
+    __ shll(rdi); // Shifts left by number of bits in rcx (CL)
+    __ shrl(rdx, Klass::_lh_header_size_shift);
+    __ andl(rdx, Klass::_lh_header_size_mask);
+    __ addl(rdi, rdx);
+    // Round up.
+    __ addl(rdi, HeapWordSize-1);
+    __ andl(rdi, -HeapWordSize);
+    __ pop(rdx);
+    // Move size (rdi) into rcx
+    __ movl(rcx, rdi);
+    __ jmp(is_array);
+
+    __ bind(slow_case);
     __ push(rdx);
     __ push(rdi);
     __ push(rsi);
@@ -830,11 +927,10 @@ class StubGenerator: public StubCodeGenerator {
     __ pop(rsi);
     __ pop(rdi);
     __ pop(rdx);
+
     __ pop(rcx);
-
-    __ bind(done);
-
     __ pop(rbx);
+    __ pop(rdi);
 
     __ ret(0);
 
