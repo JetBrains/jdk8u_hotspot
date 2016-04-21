@@ -48,7 +48,7 @@ public:
 };
 
 ShenandoahBarrierSet::ShenandoahBarrierSet(ShenandoahHeap* heap) :
-  BarrierSet(BarrierSet::FakeRtti(BarrierSet::ShenandoahBarrierSet)),
+  BarrierSet(),
   _heap(heap)
 {
   _kind = BarrierSet::ShenandoahBarrierSet;

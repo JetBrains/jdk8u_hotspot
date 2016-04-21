@@ -385,7 +385,7 @@ size_t ShenandoahHeap::used() const {
 }
 
 void ShenandoahHeap::increase_used(size_t bytes) {
-  _used += bytes;
+  Atomic::add_ptr(bytes, &_used);
 }
 
 void ShenandoahHeap::set_used(size_t bytes) {
@@ -394,9 +394,7 @@ void ShenandoahHeap::set_used(size_t bytes) {
 
 void ShenandoahHeap::decrease_used(size_t bytes) {
   assert(_used >= bytes, "never decrease heap size by more than we've left");
-  _used -= bytes;
-
-  // Atomic::add_ptr(-bytes, &_used);
+  Atomic::add_ptr(-bytes, &_used);
 }
 
 size_t ShenandoahHeap::capacity() const {
