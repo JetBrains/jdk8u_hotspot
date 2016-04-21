@@ -334,12 +334,13 @@ public:
 void ShenandoahHeap::post_initialize() {
 
   {
-    MutexLockerEx ml(Threads_lock);
-    InitGCLABClosure init_gclabs;
-    for (JavaThread *thread = Threads::first(); thread != NULL; thread = thread->next()) {
-      init_gclabs.do_thread(thread);
+    if (UseTLAB) {
+      InitGCLABClosure init_gclabs;
+      for (JavaThread *thread = Threads::first(); thread != NULL; thread = thread->next()) {
+        init_gclabs.do_thread(thread);
+      }
+      gc_threads_do(&init_gclabs);
     }
-    gc_threads_do(&init_gclabs);
   }
   _scm->initialize();
 
@@ -848,8 +849,6 @@ public:
       }
       from_hr = _cs->claim_next();
     }
-
-    Thread::current()->gclab().make_parsable(true);
   }
 };
 
