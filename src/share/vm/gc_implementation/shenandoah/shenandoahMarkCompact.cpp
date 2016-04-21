@@ -46,13 +46,6 @@ public:
   oop read_barrier(oop src) {
     return src;
   }
-  oop resolve_and_update_oop(oop* p, oop obj) {
-    return obj;
-  }
-  oop resolve_and_update_oop(narrowOop* p, oop obj) {
-    return obj;
-  }
-
 #ifdef ASSERT
   bool is_safe(oop o) {
     if (o == NULL) return true;

@@ -678,7 +678,7 @@ public:
 
   void work(uint worker_id) {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    ShenandoahIsAliveClosure is_alive;
+    ShenandoahForwardedIsAliveClosure is_alive;
     ShenandoahCMDrainMarkingStackClosure complete_gc(worker_id, _terminator);
     if (heap->need_update_refs()) {
       ShenandoahCMKeepAliveUpdateClosure keep_alive(heap->concurrentMark()->get_queue(worker_id));
@@ -751,7 +751,7 @@ void ShenandoahConcurrentMark::weak_refs_work() {
    rp->setup_policy(clear_soft_refs);
 
    uint serial_worker_id = 0;
-   ShenandoahIsAliveClosure is_alive;
+   ShenandoahForwardedIsAliveClosure is_alive;
    ParallelTaskTerminator terminator(1, task_queues());
    ShenandoahCMDrainMarkingStackClosure complete_gc(serial_worker_id, &terminator);
    ShenandoahRefProcTaskExecutor executor;

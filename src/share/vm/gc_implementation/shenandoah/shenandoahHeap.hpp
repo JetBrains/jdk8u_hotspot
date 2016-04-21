@@ -62,6 +62,15 @@ public:
   bool do_object_b(oop obj);
 };
 
+class ShenandoahForwardedIsAliveClosure: public BoolObjectClosure {
+private:
+  ShenandoahHeap* _heap;
+public:
+  ShenandoahForwardedIsAliveClosure();
+  void init(ShenandoahHeap* heap);
+  bool do_object_b(oop obj);
+};
+
 
 // // A "ShenandoahHeap" is an implementation of a java heap for HotSpot.
 // // It uses a new pauseless GC algorithm based on Brooks pointers.
@@ -344,7 +353,7 @@ public:
 
   ReferenceProcessor* ref_processor() { return _ref_processor;}
   virtual void ref_processing_init();
-  ShenandoahIsAliveClosure isAlive;
+  ShenandoahForwardedIsAliveClosure isAlive;
   void evacuate_and_update_roots();
 
   ShenandoahFreeSet* free_regions();

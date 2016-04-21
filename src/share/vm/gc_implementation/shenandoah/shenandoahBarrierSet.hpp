@@ -92,12 +92,6 @@ public:
 
   virtual oop read_barrier(oop src);
 
-  oop resolve_and_update_oop(oop* p, oop obj);
-  oop resolve_and_update_oop(narrowOop* p, oop obj);
-
-  template <class T>
-  static inline oop resolve_and_update_oop_static(T p, oop obj);
-
   static inline oop resolve_oop_static_not_null(oop p);
 
   static inline oop resolve_oop_static(oop p);

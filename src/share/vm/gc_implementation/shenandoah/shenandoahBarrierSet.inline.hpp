@@ -95,14 +95,4 @@ inline oop ShenandoahBarrierSet::resolve_oop_static_no_check(oop p) {
   }
 }
 
-template <class T>
-inline oop ShenandoahBarrierSet::resolve_and_update_oop_static(T p, oop obj) {
-  oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-  if (! oopDesc::unsafe_equals(forw, obj)) {
-    obj = forw;
-    oopDesc::encode_store_heap_oop_not_null(p, obj);
-  }
-  return obj;
-}
-
 #endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHBARRIERSET_INLINE_HPP

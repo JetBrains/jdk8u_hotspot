@@ -203,12 +203,6 @@ public:
   virtual bool is_safe(narrowOop o);
 #endif
 
-  virtual oop resolve_and_update_oop(oop* p, oop src) {
-    return src;
-  }
-  virtual oop resolve_and_update_oop(narrowOop* p, oop src) {
-    return src;
-  }
 #ifndef CC_INTERP
   virtual void interpreter_read_barrier(MacroAssembler* masm, Register dst) {
     // Default implementation does nothing.

@@ -369,12 +369,3 @@ oop ShenandoahBarrierSet::write_barrier(oop src) {
     return NULL;
   }
 }
-
-oop ShenandoahBarrierSet::resolve_and_update_oop(oop* p, oop obj) {
-  return resolve_and_update_oop_static(p, obj);
-}
-
-oop ShenandoahBarrierSet::resolve_and_update_oop(narrowOop* p, oop obj) {
-  Unimplemented();
-  return NULL;
-}

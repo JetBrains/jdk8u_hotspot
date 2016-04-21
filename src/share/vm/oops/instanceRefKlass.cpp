@@ -59,7 +59,6 @@ void specialized_oop_follow_contents(InstanceRefKlass* ref, oop obj) {
   )
   if (!oopDesc::is_null(heap_oop)) {
     oop referent = oopDesc::decode_heap_oop_not_null(heap_oop);
-    referent = oopDesc::bs()->resolve_and_update_oop(referent_addr, referent);
     if (!referent->is_gc_marked() &&
         MarkSweep::ref_processor()->discover_reference(obj, ref->reference_type())) {
       // reference was discovered, referent will be traversed later
@@ -257,7 +256,6 @@ int InstanceRefKlass::oop_adjust_pointers(oop obj) {
   ReferenceProcessor* rp = closure->_ref_processor;                             \
   if (!oopDesc::is_null(heap_oop)) {                                            \
     oop referent = oopDesc::decode_heap_oop_not_null(heap_oop);                 \
-    referent = oopDesc::bs()->resolve_and_update_oop(referent_addr, referent);  \
     if (!referent->is_gc_marked() && (rp != NULL) &&                            \
         rp->discover_reference(obj, reference_type())) {                        \
       return size;                                                              \

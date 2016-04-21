@@ -2184,6 +2184,27 @@ bool ShenandoahIsAliveClosure::do_object_b(oop obj) {
   return _heap->is_marked_current(obj);
 }
 
+ShenandoahForwardedIsAliveClosure::ShenandoahForwardedIsAliveClosure() :
+  _heap(ShenandoahHeap::heap_no_check()) {
+}
+
+void ShenandoahForwardedIsAliveClosure::init(ShenandoahHeap* heap) {
+  _heap = heap;
+}
+
+bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
+
+  assert(_heap != NULL, "sanity");
+  obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
+#ifdef ASSERT
+  if (_heap->concurrent_mark_in_progress()) {
+    assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "only query to-space");
+  }
+#endif
+  assert(!oopDesc::is_null(obj), "null");
+  return _heap->is_marked_current(obj);
+}
+
 void ShenandoahHeap::ref_processing_init() {
   MemRegion mr = reserved_region();
 
