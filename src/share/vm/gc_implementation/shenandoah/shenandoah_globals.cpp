@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
- * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+ * Copyright (c) 2016, Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -22,29 +21,11 @@
  *
  */
 
-#ifndef SHARE_VM_UTILITIES_TOP_HPP
-#define SHARE_VM_UTILITIES_TOP_HPP
-
-#include "oops/oopsHierarchy.hpp"
-#include "runtime/globals.hpp"
-#include "utilities/debug.hpp"
-#include "utilities/exceptions.hpp"
-#include "utilities/globalDefinitions.hpp"
-#include "utilities/macros.hpp"
-#include "utilities/ostream.hpp"
-#include "utilities/sizes.hpp"
-#if INCLUDE_ALL_GCS
-#include "gc_implementation/g1/g1_globals.hpp"
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/shenandoah_globals.hpp"
-#endif // INCLUDE_ALL_GCS
-#ifdef COMPILER1
-#include "c1/c1_globals.hpp"
-#endif
-#ifdef COMPILER2
-#include "opto/c2_globals.hpp"
-#endif
 
-// THIS FILE IS INTESIONALLY LEFT EMPTY
-// IT IS USED TO MINIMIZE THE NUMBER OF DEPENDENCIES IN includeDB
-
-#endif // SHARE_VM_UTILITIES_TOP_HPP
+SHENANDOAH_FLAGS(MATERIALIZE_DEVELOPER_FLAG, MATERIALIZE_PD_DEVELOPER_FLAG, \
+                 MATERIALIZE_PRODUCT_FLAG, MATERIALIZE_PD_PRODUCT_FLAG,     \
+                 MATERIALIZE_DIAGNOSTIC_FLAG, MATERIALIZE_EXPERIMENTAL_FLAG, \
+                 MATERIALIZE_NOTPRODUCT_FLAG,  \
+                 MATERIALIZE_MANAGEABLE_FLAG, MATERIALIZE_PRODUCT_RW_FLAG)
