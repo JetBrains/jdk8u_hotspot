@@ -918,7 +918,7 @@ int MethodHandles::find_MemberNames(KlassHandle k,
           return -99;  // caller bug!
         CallInfo info(m);
         oop saved = MethodHandles::init_method_MemberName(result, info);
-        if (saved != result())
+        if (! oopDesc::equals(saved, result()))
           results->obj_at_put(rfill-1, saved);  // show saved instance to user
       } else if (++overflow >= overflow_limit) {
         match_flags = 0; break; // got tired of looking at overflow
