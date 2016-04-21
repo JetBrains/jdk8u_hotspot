@@ -47,7 +47,7 @@ public:
   void add_region(ShenandoahHeapRegion* r);
   void par_add_regions(ShenandoahHeapRegion** regions, size_t start, size_t num, size_t max);
 
-  size_t claim_next(size_t current);
+  size_t par_claim_next(size_t current);
 
   size_t capacity();
   ShenandoahHeapRegion* claim_contiguous(size_t num);

@@ -39,14 +39,14 @@ void ShenandoahMarkObjsClosure<T>::do_object(oop obj, int index) {
   assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "need to-space object here");
 
 #ifdef ASSERT
-  if (_heap->heap_region_containing(obj)->is_in_collection_set()) {
+  if (! oopDesc::bs()->is_safe(obj)) {
     tty->print_cr("trying to mark obj: "PTR_FORMAT" (%s) in dirty region: ", p2i((HeapWord*) obj), BOOL_TO_STR(_heap->is_marked_current(obj)));
     //      _heap->heap_region_containing(obj)->print();
     //      _heap->print_heap_regions();
   }
 #endif
   assert(_heap->cancelled_concgc()
-         || ! _heap->heap_region_containing(obj)->is_in_collection_set(),
+         || oopDesc::bs()->is_safe(obj),
          "we don't want to mark objects in from-space");
   assert(_heap->is_in(obj), "referenced objects must be in the heap. No?");
   assert(_heap->is_marked_current(obj), "only marked objects on task queue");
@@ -158,7 +158,7 @@ inline bool ShenandoahConcurrentMark:: try_draining_an_satb_buffer(SCMObjToScanQ
 }
 
 inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q) {
-  assert(!heap->heap_region_containing(obj)->is_in_collection_set(), "no ref in cset");
+  assert(oopDesc::bs()->is_safe(obj), "no ref in cset");
   if (heap->mark_current(obj)) {
 #ifdef ASSERT
     if (ShenandoahTraceConcurrentMarking) {
@@ -172,7 +172,7 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
     }
 #endif
     assert(heap->cancelled_concgc()
-           || ! heap->heap_region_containing(obj)->is_in_collection_set(),
+           || oopDesc::bs()->is_safe(obj),
            "we don't want to mark objects in from-space");
 
     bool pushed = q->push(ObjArrayTask(obj, -1));

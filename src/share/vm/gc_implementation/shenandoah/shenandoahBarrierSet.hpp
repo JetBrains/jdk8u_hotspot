@@ -114,8 +114,8 @@ public:
   bool obj_equals(narrowOop obj1, narrowOop obj2);
 
 #ifdef ASSERT
-  bool is_safe(oop o);
-  bool is_safe(narrowOop o);
+  virtual bool is_safe(oop o);
+  virtual bool is_safe(narrowOop o);
 #endif
 
   static oopDesc* write_barrier_c2(oopDesc* src);

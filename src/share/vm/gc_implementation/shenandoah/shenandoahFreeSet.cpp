@@ -214,7 +214,7 @@ void ShenandoahFreeSet::add_region(ShenandoahHeapRegion* r) {
   assert(_used <= _capacity, "must not use more than we have");
 }
 
-size_t ShenandoahFreeSet::claim_next(size_t idx) {
+size_t ShenandoahFreeSet::par_claim_next(size_t idx) {
   size_t next = (idx + 1) % _reserved_end;
   if (next == _active_end) {
     // Don't increase _current_index up to _active_end.

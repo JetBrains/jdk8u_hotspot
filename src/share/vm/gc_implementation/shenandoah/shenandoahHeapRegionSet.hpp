@@ -73,6 +73,7 @@ public:
 
   virtual void add_region(ShenandoahHeapRegion* r);
 
+  ShenandoahHeapRegion* next();
   ShenandoahHeapRegion* claim_next();
 
   template<class C>

@@ -45,6 +45,7 @@ public:
   bool check_forwardee_is_in_heap(oop forwardee);
 
   inline void set_forwardee(oop forwardee);
+  inline HeapWord* get_forwardee();
   inline HeapWord* cas_forwardee(HeapWord* old, HeapWord* forwardee);
 
   static inline BrooksPointer get(oop obj);

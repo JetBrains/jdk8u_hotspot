@@ -24,13 +24,14 @@
 #include "code/codeCache.hpp"
 #include "gc_implementation/shared/isGCActiveMark.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
-#include "gc_implementation/shared/markSweep.inline.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/biasedLocking.hpp"
 #include "runtime/thread.hpp"
@@ -38,25 +39,53 @@
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 
+class ShenandoahMarkCompactBarrierSet : public ShenandoahBarrierSet {
+public:
+  ShenandoahMarkCompactBarrierSet(ShenandoahHeap* heap) : ShenandoahBarrierSet(heap) {
+  }
+  oop read_barrier(oop src) {
+    return src;
+  }
+  oop resolve_and_update_oop(oop* p, oop obj) {
+    return obj;
+  }
+  oop resolve_and_update_oop(narrowOop* p, oop obj) {
+    return obj;
+  }
+
+#ifdef ASSERT
+  bool is_safe(oop o) {
+    if (o == NULL) return true;
+    if (! oopDesc::unsafe_equals(o, read_barrier(o))) {
+      return false;
+    }
+    return true;
+  }
+  bool is_safe(narrowOop o) {
+    Unimplemented();
+    return true;
+  }
+#endif
+};
+
 class ClearInCollectionSetHeapRegionClosure: public ShenandoahHeapRegionClosure {
   bool doHeapRegion(ShenandoahHeapRegion* r) {
-    r->set_is_in_collection_set(false);
+    r->set_top_at_mark_start(r->end());
+    r->clearLiveData();
+    r->set_concurrent_iteration_safe_limit(r->top());
+    r->set_top_prev_mark_bitmap(r->top_at_mark_start());
     return false;
   }
 };
 
 
-void ShenandoahMarkCompact::allocate_stacks() {
-  GenMarkSweep::_preserved_count_max = 0;
-  GenMarkSweep::_preserved_marks = NULL;
-  GenMarkSweep::_preserved_count = 0;
-}
-
 void ShenandoahMarkCompact::do_mark_compact() {
+
+  ShenandoahHeap* _heap = ShenandoahHeap::heap();
 
   COMPILER2_PRESENT(DerivedPointerTable::clear());
 
-  ShenandoahHeap* _heap = ShenandoahHeap::heap();
+  _heap->set_full_gc_in_progress(true);
 
   assert(SafepointSynchronize::is_at_safepoint(), "must be at a safepoint");
   IsGCActiveMark is_active;
@@ -70,7 +99,10 @@ void ShenandoahMarkCompact::do_mark_compact() {
 
   ClearInCollectionSetHeapRegionClosure cl;
   _heap->heap_region_iterate(&cl, false, false);
-  _heap->clear_cset_fast_test();
+
+  _heap->clear_cancelled_concgc();
+
+  assert(_heap->is_bitmap_clear(), "require cleared bitmap");
 
   /*
   if (ShenandoahVerify) {
@@ -82,8 +114,8 @@ void ShenandoahMarkCompact::do_mark_compact() {
   */
 
   if (ShenandoahTraceFullGC) {
-    gclog_or_tty->print_cr("Shenandoah-full-gc: start with heap used: "SIZE_FORMAT" MB", _heap->used() / M);
-    gclog_or_tty->print_cr("Shenandoah-full-gc: phase 1: marking the heap");
+    tty->print_cr("Shenandoah-full-gc: start with heap used: "SIZE_FORMAT" MB", _heap->used() / M);
+    tty->print_cr("Shenandoah-full-gc: phase 1: marking the heap");
     // _heap->print_heap_regions();
   }
 
@@ -91,33 +123,32 @@ void ShenandoahMarkCompact::do_mark_compact() {
     _heap->ensure_parsability(true);
   }
 
-  MemRegion mr = _heap->reserved_region();
-  ReferenceProcessor rp(mr, false, 0, false, 0, true, NULL);
-
-  // hook up weak ref data so it can be used during Mark-Sweep
-  assert(MarkSweep::ref_processor() == NULL, "no stomping");
-  bool clear_all_softrefs = _heap->collector_policy()->use_should_clear_all_soft_refs(true /*ignored*/);
-  GenMarkSweep::_ref_processor = &rp;
-
-  rp.enable_discovery(true, true);
-  rp.setup_policy(clear_all_softrefs);
-
   CodeCache::gc_prologue();
-  allocate_stacks();
 
   // We should save the marks of the currently locked biased monitors.
   // The marking doesn't preserve the marks of biased objects.
-  BiasedLocking::preserve_marks();
+  //BiasedLocking::preserve_marks();
+
+  BarrierSet* old_bs = oopDesc::bs();
+  ShenandoahMarkCompactBarrierSet bs(_heap);
+  oopDesc::set_bs(&bs);
+
+  OrderAccess::fence();
 
   phase1_mark_heap();
 
-  if (ShenandoahTraceFullGC) {
-    gclog_or_tty->print_cr("Shenandoah-full-gc: phase 2: calculating target addresses");
-  }
-  phase2_calculate_target_addresses();
+  OrderAccess::fence();
 
   if (ShenandoahTraceFullGC) {
-    gclog_or_tty->print_cr("Shenandoah-full-gc: phase 3: updating references");
+    tty->print_cr("Shenandoah-full-gc: phase 2: calculating target addresses");
+  }
+  ShenandoahHeapRegionSet* copy_queues[_heap->max_parallel_workers()];
+  phase2_calculate_target_addresses(copy_queues);
+
+  OrderAccess::fence();
+
+  if (ShenandoahTraceFullGC) {
+    tty->print_cr("Shenandoah-full-gc: phase 3: updating references");
   }
 
   // Don't add any more derived pointers during phase3
@@ -126,98 +157,117 @@ void ShenandoahMarkCompact::do_mark_compact() {
   phase3_update_references();
 
   if (ShenandoahTraceFullGC) {
-    gclog_or_tty->print_cr("Shenandoah-full-gc: phase 4: compacting objects");
+    tty->print_cr("Shenandoah-full-gc: phase 4: compacting objects");
   }
 
-  phase4_compact_objects();
-
-  MarkSweep::restore_marks();
-  BiasedLocking::restore_marks();
-  GenMarkSweep::deallocate_stacks();
+  phase4_compact_objects(copy_queues);
 
   CodeCache::gc_epilogue();
   JvmtiExport::gc_epilogue();
 
   // refs processing: clean slate
-  rp.enqueue_discovered_references();
-
-  GenMarkSweep::_ref_processor = NULL;
+  // rp.enqueue_discovered_references();
 
   if (ShenandoahVerify) {
     _heap->verify_heap_after_evacuation();
   }
 
   if (ShenandoahTraceFullGC) {
-    gclog_or_tty->print_cr("Shenandoah-full-gc: finish with heap used: "SIZE_FORMAT" MB", _heap->used() / M);
+    tty->print_cr("Shenandoah-full-gc: finish with heap used: "SIZE_FORMAT" MB", _heap->used() / M);
   }
 
+  _heap->reset_mark_bitmap();
   _heap->_bytesAllocSinceCM = 0;
 
   _heap->set_need_update_refs(false);
 
+  _heap->set_full_gc_in_progress(false);
+
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
 
   _heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::full_gc);
+
+  oopDesc::set_bs(old_bs);
 }
 
-class UpdateRefsClosure: public ExtendedOopClosure {
-public:
-  virtual void do_oop(oop* p) {
+#ifdef ASSERT
+class VerifyNotForwardedPointersClosure : public MetadataAwareOopClosure {
+  void do_oop(oop* p) {
     oop obj = oopDesc::load_heap_oop(p);
     if (! oopDesc::is_null(obj)) {
-      ShenandoahBarrierSet::resolve_and_update_oop_static(p, obj);
+      assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)),
+             "expect forwarded oop");
+      ShenandoahHeap* heap = ShenandoahHeap::heap();
+      if (! heap->is_marked_current(obj)) {
+        tty->print_cr("ref region humongous? %s", BOOL_TO_STR(heap->heap_region_containing(p)->is_humongous()));
+      }
+      assert(heap->is_marked_current(obj), "must be marked");
+      assert(! heap->allocated_after_mark_start((HeapWord*) obj), "must be truly marked");
     }
   }
-  virtual void do_oop(narrowOop* p) {
+  void do_oop(narrowOop* p) {
     Unimplemented();
   }
 };
 
+class ShenandoahMCVerifyAfterMarkingObjectClosure : public ObjectClosure {
+  void do_object(oop p) {
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    assert(oopDesc::unsafe_equals(p, ShenandoahBarrierSet::resolve_oop_static_not_null(p)),
+           "expect forwarded oop");
+    assert(heap->is_marked_current(p), "must be marked");
+    assert(! heap->allocated_after_mark_start((HeapWord*) p), "must be truly marked");
+    VerifyNotForwardedPointersClosure cl;
+    p->oop_iterate(&cl);
+  }
+};
+
+class ShenandoahMCVerifyAfterMarkingRegionClosure : public ShenandoahHeapRegionClosure {
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    ShenandoahMCVerifyAfterMarkingObjectClosure cl;
+    if (! r->is_humongous_continuation()) {
+      r->marked_object_iterate(&cl);
+    }
+    return false;
+  }
+};
+
+class ShenandoahMCVerifyBeforeMarkingObjectClosure : public ObjectClosure {
+public:
+  bool marked;
+  ShenandoahMCVerifyBeforeMarkingObjectClosure() : ObjectClosure(), marked(false) {
+  }
+  void do_object(oop p) {
+    marked = true;
+  }
+};
+
+class ShenandoahMCVerifyBeforeMarkingRegionClosure : public ShenandoahHeapRegionClosure {
+public:
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    ShenandoahMCVerifyBeforeMarkingObjectClosure cl;
+    if (! r->is_humongous_continuation()) {
+      r->marked_object_iterate(&cl);
+    }
+    assert(! cl.marked, "must not see marked objects");
+    return false;
+  }
+};
+
+#endif
+
 void ShenandoahMarkCompact::phase1_mark_heap() {
   ShenandoahHeap* _heap = ShenandoahHeap::heap();
-  ReferenceProcessor* ref_proc = GenMarkSweep::ref_processor();
 
-  {
-    MarkingCodeBlobClosure follow_code_closure(&MarkSweep::follow_root_closure, CodeBlobToOopClosure::FixRelocations);
+#ifdef ASSERT
+  ShenandoahMCVerifyBeforeMarkingRegionClosure cl1;
+  _heap->heap_region_iterate(&cl1);
+#endif
 
-    UpdateRefsClosure uprefs;
-    CLDToOopClosure cld_uprefs(&uprefs, false);
-    CodeBlobToOopClosure code_uprefs(&uprefs, CodeBlobToOopClosure::FixRelocations);
+  ShenandoahConcurrentMark* cm = _heap->concurrentMark();
 
-    // Need cleared claim bits for the roots processing
-    ClassLoaderDataGraph::clear_claimed_marks();
-    ShenandoahRootProcessor rp(_heap, 1);
-    rp.process_roots(&MarkSweep::follow_root_closure, &uprefs,
-                     &MarkSweep::follow_cld_closure, &cld_uprefs, &MarkSweep::follow_cld_closure,
-                     &follow_code_closure, &code_uprefs);
-
-  }
-
-  _heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::weakrefs);
-
-  const ReferenceProcessorStats& stats =
-    ref_proc->process_discovered_references(&MarkSweep::is_alive,
-                                            &GenMarkSweep::keep_alive,
-                                            &MarkSweep::follow_stack_closure,
-                                            NULL,
-                                            NULL,
-                                            _heap->tracer()->gc_id());
-
-  //     heap->tracer()->report_gc_reference_stats(stats);
-
-  _heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::weakrefs);
-
-  // Unload classes and purge the SystemDictionary.
-  bool purged_class = SystemDictionary::do_unloading(&MarkSweep::is_alive);
-
-  // Unload nmethods.
-  CodeCache::do_unloading(&MarkSweep::is_alive, purged_class);
-
-  // Prune dead klasses from subklass/sibling/implementor lists.
-  Klass::clean_weak_klass_links(&MarkSweep::is_alive);
-
-  // Delete entries for dead interned string and clean up unreferenced symbols in symbol table.
-  _heap->unlink_string_and_symbol_table(&MarkSweep::is_alive);
+  cm->prepare_unmarked_root_objs_no_derived_ptrs(true);
+  cm->shared_finish_mark_from_roots();
 
   if (VerifyDuringGC) {
     HandleMark hm;  // handle scope
@@ -234,88 +284,221 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
     // fail. At the end of the GC, the original mark word values
     // (including hash values) are restored to the appropriate
     // objects.
-    if (!VerifySilently) {
-      gclog_or_tty->print(" VerifyDuringGC:(full)[Verifying ");
-    }
     //    Universe::heap()->verify(VerifySilently, VerifyOption_G1UseMarkWord);
-    _heap->verify(VerifySilently, VerifyOption_G1UseMarkWord);
-    if (!VerifySilently) {
-      gclog_or_tty->print_cr("]");
-    }
+    _heap->verify(true, VerifyOption_G1UseMarkWord);
   }
+
+#ifdef ASSERT
+  ShenandoahMCVerifyAfterMarkingRegionClosure cl;
+  _heap->heap_region_iterate(&cl);
+#endif
 }
 
-class ShenandoahPrepareForCompaction : public ShenandoahHeapRegionClosure {
-  CompactPoint _cp;
+class ShenandoahPrepareForCompactionObjectClosure : public ObjectClosure {
+
+private:
+
   ShenandoahHeap* _heap;
-  bool _dead_humongous;
+  ShenandoahHeapRegionSet* _to_regions;
+  ShenandoahHeapRegion* _to_region;
+  ShenandoahHeapRegion* _from_region;
+  HeapWord* _compact_point;
 
 public:
-  ShenandoahPrepareForCompaction() :
+
+  ShenandoahPrepareForCompactionObjectClosure(ShenandoahHeapRegionSet* to_regions, ShenandoahHeapRegion* to_region) :
     _heap(ShenandoahHeap::heap()),
-    _dead_humongous(false) {
+    _to_regions(to_regions),
+    _to_region(to_region),
+    _from_region(NULL),
+    _compact_point(to_region->bottom()) {
   }
 
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    // We need to save the contents
-    if (!r->is_humongous()) {
-      if (_cp.space == NULL) {
-        _cp.space = r;
-        _cp.threshold = r->initialize_threshold();
+  void set_from_region(ShenandoahHeapRegion* from_region) {
+    _from_region = from_region;
+  }
+
+  ShenandoahHeapRegion* to_region() const {
+    return _to_region;
+  }
+  HeapWord* compact_point() const {
+    return _compact_point;
+  }
+  void do_object(oop p) {
+    assert(_from_region != NULL, "must set before work");
+    assert(_heap->is_marked_current(p), "must be marked");
+    assert(! _heap->allocated_after_mark_start((HeapWord*) p), "must be truly marked");
+    size_t size = p->size();
+    size_t obj_size = size + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+    if (_compact_point + obj_size > _to_region->end()) {
+      // Object doesn't fit. Pick next to-region and start compacting there.
+      _to_region->set_new_top(_compact_point);
+      ShenandoahHeapRegion* new_to_region = _to_regions->next();
+      if (new_to_region == NULL) {
+        new_to_region = _from_region;
       }
-      _dead_humongous = false;
-      r->prepare_for_compaction(&_cp);
-    }  else {
-      if (r->is_humongous_start()) {
-        oop obj = oop(r->bottom() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
-        if (obj->is_gc_marked()) {
-          obj->forward_to(obj);
-          _dead_humongous = false;
-        } else {
-          if (_cp.space == NULL) {
-            _cp.space = r;
-            _cp.threshold = r->initialize_threshold();
-          }
-          _dead_humongous = true;
-          guarantee(r->region_number() >= ((ShenandoahHeapRegion*)_cp.space)->region_number(),
-                    "only reset regions that are not yet used for compaction");
-          r->reset();
-          r->prepare_for_compaction(&_cp);
-        }
-      } else {
-        assert(r->is_humongous_continuation(), "expect humongous continuation");
-        if (_dead_humongous) {
-          guarantee(r->region_number() > ((ShenandoahHeapRegion*)_cp.space)->region_number(),
-                    "only reset regions that are not yet used for compaction");
-          r->reset();
-          r->prepare_for_compaction(&_cp);
-        }
-      }
+      assert(new_to_region != _to_region, "must not reuse same to-region");
+      assert(new_to_region != NULL, "must not be NULL");
+      _to_region = new_to_region;
+      _compact_point = _to_region->bottom();
     }
-    return false;
+    assert(_compact_point + obj_size <= _to_region->end(), "must fit");
+    // tty->print_cr("forwarding %p to %p", p, _compact_point + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+    assert(oopDesc::unsafe_equals(p, ShenandoahBarrierSet::resolve_oop_static_not_null(p)),
+           "expect forwarded oop");
+    BrooksPointer::get(p).set_forwardee(oop(_compact_point + BrooksPointer::BROOKS_POINTER_OBJ_SIZE));
+    _compact_point += obj_size;
   }
 };
 
-void ShenandoahMarkCompact::phase2_calculate_target_addresses() {
-  ShenandoahPrepareForCompaction prepare;
-  ShenandoahHeap::heap()->heap_region_iterate(&prepare);
+class ShenandoahPrepareForCompactionTask : public AbstractGangTask {
+private:
+
+  ShenandoahHeapRegionSet** _copy_queues;
+  ShenandoahHeapRegionSet* _from_regions;
+
+  ShenandoahHeapRegion* next_from_region(ShenandoahHeapRegionSet* copy_queue) {
+    ShenandoahHeapRegion* from_region = _from_regions->claim_next();
+    while (from_region != NULL && from_region->is_humongous()) {
+      from_region = _from_regions->claim_next();
+    }
+    if (from_region != NULL) {
+      assert(copy_queue != NULL, "sanity");
+      assert(! from_region->is_humongous(), "must not get humongous regions here");
+      copy_queue->add_region(from_region);
+    }
+    return from_region;
+  }
+
+public:
+  ShenandoahPrepareForCompactionTask(ShenandoahHeapRegionSet* from_regions, ShenandoahHeapRegionSet** copy_queues) :
+    AbstractGangTask("Shenandoah Prepare For Compaction Task"),
+    _from_regions(from_regions), _copy_queues(copy_queues) {
+  }
+
+  void work(uint worker_id) {
+    ShenandoahHeapRegionSet* copy_queue = _copy_queues[worker_id];
+    ShenandoahHeapRegion* from_region = next_from_region(copy_queue);
+    if (from_region == NULL) return;
+    ShenandoahHeapRegionSet* to_regions = new ShenandoahHeapRegionSet(ShenandoahHeap::heap()->max_regions());
+    ShenandoahPrepareForCompactionObjectClosure cl(to_regions, from_region);
+    while (from_region != NULL) {
+      assert(from_region != NULL, "sanity");
+      cl.set_from_region(from_region);
+      from_region->marked_object_iterate(&cl);
+      if (from_region != cl.to_region()) {
+        assert(from_region != NULL, "sanity");
+        to_regions->add_region(from_region);
+      }
+      from_region = next_from_region(copy_queue);
+    }
+    assert(cl.to_region() != NULL, "should not happen");
+    cl.to_region()->set_new_top(cl.compact_point());
+    while (to_regions->count() > 0) {
+      ShenandoahHeapRegion* r = to_regions->next();
+      if (r == NULL) {
+        to_regions->print();
+      }
+      assert(r != NULL, "should not happen");
+      r->set_new_top(r->bottom());
+    }
+    delete to_regions;
+  }
+};
+
+void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegionSet** copy_queues) {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  // Initialize copy queues.
+  for (int i = 0; i < heap->max_parallel_workers(); i++) {
+    copy_queues[i] = new ShenandoahHeapRegionSet(heap->max_regions());
+  }
+
+  ShenandoahHeapRegionSet* from_regions = heap->regions();
+  from_regions->clear_current_index();
+  ShenandoahPrepareForCompactionTask prepare_task(from_regions, copy_queues);
+  heap->workers()->run_task(&prepare_task);
 }
 
+class ShenandoahAdjustPointersClosure : public MetadataAwareOopClosure {
+private:
+  ShenandoahHeap* _heap;
 
-class ShenandoahMarkCompactAdjustPointersClosure : public ShenandoahHeapRegionClosure {
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    if (r->is_humongous()) {
-      if (r->is_humongous_start()) {
-        // We must adjust the pointers on the single H object.
-        oop obj = oop(r->bottom() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
-        assert(obj->is_gc_marked(), "should be marked");
-        // point all the oops to the new location
-        obj->adjust_pointers();
-      }
-    } else {
-      r->adjust_pointers();
+public:
+
+  ShenandoahAdjustPointersClosure() : _heap(ShenandoahHeap::heap()) {
+  }
+
+  void do_oop(oop* p) {
+    oop obj = oopDesc::load_heap_oop(p);
+    if (! oopDesc::is_null(obj)) {
+      assert(_heap->is_marked_current(obj), "must be marked");
+      oop forw = oop(BrooksPointer::get(obj).get_forwardee());
+      oopDesc::store_heap_oop(p, forw);
     }
-    return false;
+  }
+  void do_oop(narrowOop* p) {
+    Unimplemented();
+  }
+};
+
+class ShenandoahAdjustPointersObjectClosure : public ObjectClosure {
+private:
+  ShenandoahAdjustPointersClosure* _cl;
+  ShenandoahHeap* _heap;
+public:
+  ShenandoahAdjustPointersObjectClosure(ShenandoahAdjustPointersClosure* cl) :
+    _cl(cl), _heap(ShenandoahHeap::heap()) {
+  }
+  void do_object(oop p) {
+    assert(_heap->is_marked_current(p), "must be marked");
+    p->oop_iterate(_cl);
+  }
+};
+
+class ShenandoahAdjustPointersTask : public AbstractGangTask {
+private:
+  ShenandoahHeapRegionSet* _regions;
+public:
+
+  ShenandoahAdjustPointersTask(ShenandoahHeapRegionSet* regions) :
+    AbstractGangTask("Shenandoah Adjust Pointers Task"),
+    _regions(regions) {
+  }
+
+  void work(uint worker_id) {
+    ShenandoahHeapRegion* r = _regions->claim_next();
+    ShenandoahAdjustPointersClosure cl;
+    ShenandoahAdjustPointersObjectClosure obj_cl(&cl);
+    while (r != NULL) {
+      if (! r->is_humongous_continuation()) {
+        r->marked_object_iterate(&obj_cl);
+      }
+      r = _regions->claim_next();
+    }
+  }
+};
+
+class ShenandoahAdjustRootPointersTask : public AbstractGangTask {
+private:
+  ShenandoahRootProcessor* _rp;
+
+public:
+
+  ShenandoahAdjustRootPointersTask(ShenandoahRootProcessor* rp) :
+    AbstractGangTask("Shenandoah Adjust Root Pointers Task"),
+    _rp(rp) {
+  }
+
+  void work(uint worker_id) {
+    ShenandoahAdjustPointersClosure cl;
+    CLDToOopClosure adjust_cld_closure(&cl, true);
+    CodeBlobToOopClosure adjust_code_closure(&cl,
+                                             CodeBlobToOopClosure::FixRelocations);
+
+    _rp->process_all_roots(&cl,
+                           &adjust_cld_closure,
+                           &adjust_code_closure);
   }
 };
 
@@ -325,60 +508,67 @@ void ShenandoahMarkCompact::phase3_update_references() {
     // Need cleared claim bits for the roots processing
   ClassLoaderDataGraph::clear_claimed_marks();
 
-  CodeBlobToOopClosure adjust_code_closure(&MarkSweep::adjust_pointer_closure,
-                                           CodeBlobToOopClosure::FixRelocations);
-
   {
-    ShenandoahRootProcessor rp(heap, 1);
-    rp.process_all_roots(&MarkSweep::adjust_pointer_closure,
-                         &MarkSweep::adjust_cld_closure,
-                         &adjust_code_closure);
+    heap->set_par_threads(heap->max_parallel_workers());
+    ShenandoahRootProcessor rp(heap, heap->max_parallel_workers());
+    ShenandoahAdjustRootPointersTask task(&rp);
+    heap->workers()->run_task(&task);
+    heap->set_par_threads(0);
   }
 
   // Now adjust pointers in remaining weak roots.  (All of which should
   // have been cleared if they pointed to non-surviving objects.)
-  GenMarkSweep::ref_processor()->weak_oops_do(&MarkSweep::adjust_pointer_closure);
+  ShenandoahAdjustPointersClosure cl;
+  heap->ref_processor()->weak_oops_do(&cl);
 
   ShenandoahAlwaysTrueClosure always_true;
-  JNIHandles::weak_oops_do(&always_true, &MarkSweep::adjust_pointer_closure);
+  JNIHandles::weak_oops_do(&always_true, &cl);
 
-  //  if (G1StringDedup::is_enabled()) {
-  //    G1StringDedup::oops_do(&MarkSweep::adjust_pointer_closure);
-  //  }
-
-  MarkSweep::adjust_marks();
-
-  ShenandoahMarkCompactAdjustPointersClosure apc;
-  heap->heap_region_iterate(&apc);
+  ShenandoahHeapRegionSet* regions = heap->regions();
+  regions->clear_current_index();
+  ShenandoahAdjustPointersTask adjust_pointers_task(regions);
+  heap->workers()->run_task(&adjust_pointers_task);
 }
 
-class ShenandoahCleanupObjectClosure : public ObjectClosure {
-  void  do_object(oop p) {
-    ShenandoahHeap::heap()->initialize_brooks_ptr(p);
+class ShenandoahCompactObjectsClosure : public ObjectClosure {
+private:
+  ShenandoahHeap* _heap;
+public:
+  ShenandoahCompactObjectsClosure() : _heap(ShenandoahHeap::heap()) {
+  }
+  void do_object(oop p) {
+    assert(_heap->is_marked_current(p), "must be marked");
+    size_t size = p->size();
+    HeapWord* compact_to = BrooksPointer::get(p).get_forwardee();
+    HeapWord* compact_from = (HeapWord*) p;
+    if (compact_from != compact_to) {
+      Copy::aligned_conjoint_words(compact_from, compact_to, size);
+    }
+    oop new_obj = oop(compact_to);
+    // new_obj->init_mark();
+    _heap->initialize_brooks_ptr(new_obj);
   }
 };
 
-class CompactObjectsClosure : public ShenandoahHeapRegionClosure {
-
+class ShenandoahCompactObjectsTask : public AbstractGangTask {
+  ShenandoahHeapRegionSet** _regions;
 public:
-
-  CompactObjectsClosure() {
+  ShenandoahCompactObjectsTask(ShenandoahHeapRegionSet** regions) :
+    AbstractGangTask("Shenandoah Compact Objects Task"),
+    _regions(regions) {
   }
-
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    if (r->is_humongous()) {
-      if (r->is_humongous_start()) {
-        oop obj = oop(r->bottom() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
-        assert(obj->is_gc_marked(), "expect marked humongous object");
-        obj->init_mark();
-      }
-    } else {
-      r->compact();
+  void work(uint worker_id) {
+    ShenandoahHeapRegionSet* copy_queue = _regions[worker_id];
+    copy_queue->clear_current_index();
+    ShenandoahCompactObjectsClosure cl;
+    ShenandoahHeapRegion* r = copy_queue->next();
+    while (r != NULL) {
+      assert(! r->is_humongous(), "must not get humongous regions here");
+      r->marked_object_iterate(&cl);
+      r->set_top(r->new_top());
+      r = copy_queue->next();
     }
-
-    return false;
   }
-
 };
 
 class ShenandoahPostCompactClosure : public ShenandoahHeapRegionClosure {
@@ -392,6 +582,7 @@ public:
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     r->reset_top_at_prev_mark_start();
+    r->set_is_in_collection_set(false);
     if (r->is_humongous()) {
       _live += ShenandoahHeapRegion::RegionSizeBytes;
 
@@ -411,14 +602,12 @@ public:
 
 };
 
-void ShenandoahMarkCompact::phase4_compact_objects() {
+void ShenandoahMarkCompact::phase4_compact_objects(ShenandoahHeapRegionSet** copy_queues) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  CompactObjectsClosure coc;
-  heap->heap_region_iterate(&coc);
+  ShenandoahCompactObjectsTask compact_task(copy_queues);
+  heap->workers()->run_task(&compact_task);
 
-  ShenandoahCleanupObjectClosure cleanup;
-  heap->object_iterate(&cleanup);
-
+  heap->clear_cset_fast_test();
   ShenandoahPostCompactClosure post_compact;
   heap->heap_region_iterate(&post_compact);
 
@@ -428,4 +617,9 @@ void ShenandoahMarkCompact::phase4_compact_objects() {
   heap->prev_mark_bit_map()->clearAll();
 
   heap->set_used(post_compact.getLive());
+
+  for (int i = 0; i < heap->max_parallel_workers(); i++) {
+    delete copy_queues[i];
+  }
+
 }

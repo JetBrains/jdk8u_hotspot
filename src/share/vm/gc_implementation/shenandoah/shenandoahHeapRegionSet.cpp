@@ -120,7 +120,18 @@ void ShenandoahHeapRegionSet::heap_region_iterate(ShenandoahHeapRegionClosure* b
 }
 
 void ShenandoahHeapRegionSet::print() {
-  Unimplemented();
+  tty->print_cr("_current_index: "SIZE_FORMAT" current region: %p, _active_end: "SIZE_FORMAT, _current_index, _regions[_current_index], _active_end);
+  //  Unimplemented();
+}
+
+ShenandoahHeapRegion* ShenandoahHeapRegionSet::next() {
+  size_t next = _current_index;
+  if (next < _active_end) {
+    _current_index++;
+    return get(next);
+  } else {
+    return NULL;
+  }
 }
 
 ShenandoahHeapRegion* ShenandoahHeapRegionSet::claim_next() {

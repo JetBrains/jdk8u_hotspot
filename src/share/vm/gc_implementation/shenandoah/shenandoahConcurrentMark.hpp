@@ -91,6 +91,7 @@ public:
   void prepare_unmarked_root_objs();
   void prepare_unmarked_root_objs_no_derived_ptrs(bool update_refs);
 
+  void shared_finish_mark_from_roots();
   void finish_mark_from_roots();
   // Those are only needed public because they're called from closures.
 

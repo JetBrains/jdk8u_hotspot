@@ -310,7 +310,7 @@ void ShenandoahConcurrentMark::mark_from_roots() {
     ReferenceProcessor* rp = sh->ref_processor();
     // enable ("weak") refs discovery
     rp->enable_discovery(true /*verify_no_refs*/, true);
-    rp->setup_policy(false); // snapshot the soft ref policy to be used in this cycle
+    rp->setup_policy(sh->is_full_gc_in_progress()); // snapshot the soft ref policy to be used in this cycle
   }
 
   SCMConcurrentMarkingTask markingTask = SCMConcurrentMarkingTask(this, &terminator, update_refs);
@@ -377,6 +377,34 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::drain_satb);
   }
 
+  shared_finish_mark_from_roots();
+
+  if (ShenandoahGCVerbose) {
+    tty->print_cr("Finishing finishMarkFromRoots");
+#ifdef SLOWDEBUG
+    for (int i = 0; i <(int)_max_conc_worker_id; i++) {
+      tty->print("Queue: "INT32_FORMAT":", i);
+      _task_queues->queue(i)->stats.print(tty, 10);
+      tty->cr();
+      _task_queues->queue(i)->stats.verify();
+    }
+#endif
+  }
+
+#ifdef ASSERT
+  verify_roots();
+
+  if (ShenandoahDumpHeapAfterConcurrentMark) {
+    sh->ensure_parsability(false);
+    sh->print_all_refs("post-mark");
+  }
+#endif
+}
+
+void ShenandoahConcurrentMark::shared_finish_mark_from_roots() {
+
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
+
   // Finally mark everything else we've got in our queues during the previous steps.
   {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::drain_queues);
@@ -425,26 +453,6 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
   }
 #endif
 
-  if (ShenandoahGCVerbose) {
-    tty->print_cr("Finishing finishMarkFromRoots");
-#ifdef SLOWDEBUG
-    for (int i = 0; i <(int)_max_conc_worker_id; i++) {
-      tty->print("Queue: "INT32_FORMAT":", i);
-      _task_queues->queue(i)->stats.print(tty, 10);
-      tty->cr();
-      _task_queues->queue(i)->stats.verify();
-    }
-#endif
-  }
-
-#ifdef ASSERT
-  verify_roots();
-
-  if (ShenandoahDumpHeapAfterConcurrentMark) {
-    sh->ensure_parsability(false);
-    sh->print_all_refs("post-mark");
-  }
-#endif
 }
 
 #ifdef ASSERT

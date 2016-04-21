@@ -180,9 +180,11 @@ public:
   void do_object(oop obj) {
 
     if ((! _skip_unreachable_objects) || _heap->is_marked_current(obj)) {
+#ifdef ASSERT
       if (_skip_unreachable_objects) {
         assert(_heap->is_marked_current(obj), "obj must be live");
       }
+#endif
       obj->oop_iterate(_cl);
     }
 
@@ -205,6 +207,25 @@ void ShenandoahHeapRegion::object_iterate_interruptible(ObjectClosure* blk, bool
 #else
       p += oop(p)->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
 #endif
+  }
+}
+
+void ShenandoahHeapRegion::marked_object_iterate(ObjectClosure* blk) {
+  HeapWord* p = bottom();
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  CMBitMap* bitmap = heap->next_mark_bit_map();
+  while (p < top()) {
+    p += BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+    p = bitmap->getNextMarkedWordAddress(p, top());
+    if (p < top()) {
+      oop obj = oop(p);
+      assert(heap->is_marked_current(obj), "must be marked");
+      assert(p >= bottom() && p < top(), "must be within region bounds");
+      assert(obj->is_oop(), "sanity");
+      size_t size = obj->size();
+      blk->do_object(obj);
+      p += size;
+    }
   }
 }
 
@@ -361,6 +382,11 @@ void ShenandoahHeapRegion::compact() {
 void ShenandoahHeapRegion::init_top_at_mark_start() {
   _top_at_mark_start = top();
   ShenandoahHeap::heap()->set_top_at_mark_start(bottom(), top());
+}
+
+void ShenandoahHeapRegion::set_top_at_mark_start(HeapWord* top) {
+  _top_at_mark_start = top;
+  ShenandoahHeap::heap()->set_top_at_mark_start(bottom(), top);
 }
 
 void ShenandoahHeapRegion::reset_top_at_prev_mark_start() {

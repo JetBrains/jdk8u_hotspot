@@ -45,6 +45,10 @@ inline void BrooksPointer::set_forwardee(oop forwardee) {
 #endif
 }
 
+inline HeapWord* BrooksPointer::get_forwardee() {
+  return *_heap_word;
+}
+
 inline HeapWord* BrooksPointer::cas_forwardee(HeapWord* old, HeapWord* forwardee) {
   assert(ShenandoahHeap::heap()->is_in(forwardee), "forwardee must point to a heap address");
 

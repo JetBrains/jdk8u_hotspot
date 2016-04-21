@@ -219,6 +219,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _shenandoah_policy(policy),
   _concurrent_mark_in_progress(false),
   _evacuation_in_progress(false),
+  _full_gc_in_progress(false),
   _free_regions(NULL),
   _collection_set(NULL),
   _bytesAllocSinceCM(0),
@@ -650,7 +651,7 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
 
     // 2nd attempt. Try next region.
     size_t remaining = my_current_region->free();
-    current_idx = _free_regions->claim_next(current_idx);
+    current_idx = _free_regions->par_claim_next(current_idx);
     my_current_region = _free_regions->get(current_idx);
 
     if (my_current_region == NULL) {
@@ -868,10 +869,7 @@ public:
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
 
-    // If marking has been cancelled, we can't recycle regions, we only
-    // clear their collection-set status.
     if (_heap->cancelled_concgc()) {
-      r->set_is_in_collection_set(false);
       // The aborted marking bitmap needs to be cleared at the end of cycle.
       // Setup the top-marker for this.
       r->set_top_prev_mark_bitmap(r->top_at_mark_start());
@@ -904,11 +902,17 @@ void ShenandoahHeap::recycle_dirty_regions() {
   heap_region_iterate(&cl);
 
   _shenandoah_policy->record_bytes_reclaimed(cl.bytes_reclaimed());
-  clear_cset_fast_test();
+  if (! cancelled_concgc()) {
+    clear_cset_fast_test();
+  }
 }
 
 ShenandoahFreeSet* ShenandoahHeap::free_regions() {
   return _free_regions;
+}
+
+CMBitMap* ShenandoahHeap::next_mark_bit_map() {
+  return _next_mark_bit_map;
 }
 
 void ShenandoahHeap::print_heap_regions(outputStream* st) const {
@@ -2427,4 +2431,12 @@ void ShenandoahHeap::clear_free_regions() {
 void ShenandoahHeap::set_top_at_mark_start(HeapWord* region_base, HeapWord* addr) {
   uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::RegionSizeShift;
   _top_at_mark_starts[index] = addr;
+}
+
+void ShenandoahHeap::set_full_gc_in_progress(bool in_progress) {
+  _full_gc_in_progress = in_progress;
+}
+
+bool ShenandoahHeap::is_full_gc_in_progress() const {
+  return _full_gc_in_progress;
 }

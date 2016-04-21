@@ -83,6 +83,8 @@ private:
   HeapWord* _top_at_prev_mark_start;
   HeapWord* _top_prev_mark_bitmap;
 
+  HeapWord* _new_top;
+
 #ifdef ASSERT
   int _mem_protection_level;
 #endif
@@ -113,6 +115,8 @@ public:
   void reset();
 
   void oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects);
+
+  void marked_object_iterate(ObjectClosure* blk);
 
   void object_iterate_interruptible(ObjectClosure* blk, bool allow_cancel);
 
@@ -153,6 +157,7 @@ public:
   void compact();
 
   void init_top_at_mark_start();
+  void set_top_at_mark_start(HeapWord* top);
   HeapWord* top_at_mark_start();
   void reset_top_at_prev_mark_start();
   HeapWord* top_at_prev_mark_start();
@@ -163,6 +168,9 @@ public:
 
   inline bool allocated_after_mark_start(HeapWord* addr);
   bool allocated_after_prev_mark_start(HeapWord* addr) const;
+
+  void set_new_top(HeapWord* new_top) { _new_top = new_top; }
+  HeapWord* new_top() const { return _new_top; }
 
 private:
   void do_reset();

@@ -112,8 +112,9 @@ inline ShenandoahHeapRegion* ShenandoahHeap::heap_region_containing(const void* 
 inline oop ShenandoahHeap::update_oop_ref_not_null(oop* p, oop obj) {
   if (in_cset_fast_test((HeapWord*) obj)) {
     oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-    assert(! oopDesc::unsafe_equals(forw, obj), "expect forwarded object");
+    assert(! oopDesc::unsafe_equals(forw, obj) || is_full_gc_in_progress(), "expect forwarded object");
     obj = forw;
+    assert(obj->is_oop(), "sanity");
     oopDesc::store_heap_oop(p, obj);
   }
 #ifdef ASSERT
@@ -135,7 +136,8 @@ inline oop ShenandoahHeap::maybe_update_oop_ref(oop* p) {
 
 inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
 
-  assert((! is_in(p)) || (! heap_region_containing(p)->is_in_collection_set()),
+  assert((! is_in(p)) || (! heap_region_containing(p)->is_in_collection_set())
+         || is_full_gc_in_progress(),
          "never update refs in from-space, unless evacuation has been cancelled");
 
 #ifdef ASSERT
@@ -146,14 +148,13 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
   }
 #endif
   assert(is_in(heap_oop), "only ever call this on objects in the heap");
-  assert((! (is_in(p) && heap_region_containing(p)->is_in_collection_set())), "we don't want to update references in from-space");
   if (in_cset_fast_test((HeapWord*) heap_oop)) {
     oop forwarded_oop = ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop); // read brooks ptr
-    assert(! oopDesc::unsafe_equals(forwarded_oop, heap_oop), "expect forwarded object");
+    assert(! oopDesc::unsafe_equals(forwarded_oop, heap_oop) || is_full_gc_in_progress(), "expect forwarded object");
     // tty->print_cr("updating old ref: "PTR_FORMAT" pointing to "PTR_FORMAT" to new ref: "PTR_FORMAT, p2i(p), p2i(heap_oop), p2i(forwarded_oop));
     assert(forwarded_oop->is_oop(), "oop required");
     assert(is_in(forwarded_oop), "forwardee must be in heap");
-    assert(! heap_region_containing(forwarded_oop)->is_in_collection_set(), "forwardee must not be in collection set");
+    assert(oopDesc::bs()->is_safe(forwarded_oop), "forwardee must not be in collection set");
     // If this fails, another thread wrote to p before us, it will be logged in SATB and the
     // reference be updated later.
     oop result = (oop) Atomic::cmpxchg_ptr(forwarded_oop, p, heap_oop);

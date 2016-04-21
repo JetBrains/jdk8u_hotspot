@@ -24,12 +24,10 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHMARKCOMPACT_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHMARKCOMPACT_HPP
 
-#include "memory/genMarkSweep.hpp"
-#include "utilities/taskqueue.hpp"
-#include "utilities/workgroup.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "memory/allocation.hpp"
 
 class HeapWord;
+class ShenandoahHeapRegionSet;
 
 /**
  * This implements full-GC (e.g. when invoking System.gc() ) using a
@@ -53,9 +51,9 @@ public:
 private:
 
   static void phase1_mark_heap();
-  static void phase2_calculate_target_addresses();
+  static void phase2_calculate_target_addresses(ShenandoahHeapRegionSet** copy_queues);
   static void phase3_update_references();
-  static void phase4_compact_objects();
+  static void phase4_compact_objects(ShenandoahHeapRegionSet** copy_queues);
   static void finish_compaction(HeapWord* last_addr);
 
   static void allocate_stacks();

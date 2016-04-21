@@ -252,6 +252,8 @@ public:
 
   volatile unsigned int _concurrent_mark_in_progress;
 
+  bool _full_gc_in_progress;
+
   volatile unsigned int _evacuation_in_progress;
   bool _need_update_refs;
   bool _need_reset_bitmaps;
@@ -269,6 +271,7 @@ public:
 
   void swap_mark_bitmaps();
   CMBitMap* prev_mark_bit_map();
+  CMBitMap* next_mark_bit_map();
 
   inline bool mark_current(oop obj) const;
   inline bool mark_current_no_checks(oop obj) const;
@@ -332,6 +335,9 @@ public:
 
   void set_evacuation_in_progress(bool in_progress);
   inline bool is_evacuation_in_progress();
+
+  void set_full_gc_in_progress(bool in_progress);
+  bool is_full_gc_in_progress() const;
 
   inline bool need_update_refs() const;
   void set_need_update_refs(bool update_refs);
