@@ -297,4 +297,13 @@ inline bool ShenandoahHeap::requires_marking(const void* entry) const {
   return ! is_marked_current(oop(entry));
 }
 
+inline bool ShenandoahHeap::concurrent_mark_in_progress() {
+  return _concurrent_mark_in_progress;
+}
+
+
+inline bool ShenandoahHeap::is_evacuation_in_progress() {
+  return _evacuation_in_progress;
+}
+
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

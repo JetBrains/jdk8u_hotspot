@@ -47,8 +47,9 @@ public:
 
 };
 
-ShenandoahBarrierSet::ShenandoahBarrierSet() :
-  BarrierSet()
+ShenandoahBarrierSet::ShenandoahBarrierSet(ShenandoahHeap* heap) :
+  BarrierSet(BarrierSet::FakeRtti(BarrierSet::ShenandoahBarrierSet)),
+  _heap(heap)
 {
   _kind = BarrierSet::ShenandoahBarrierSet;
 }
@@ -157,16 +158,14 @@ bool ShenandoahBarrierSet::write_prim_needs_barrier(HeapWord* hw, size_t s, juin
 }
 
 bool ShenandoahBarrierSet::need_update_refs_barrier() {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  return heap->concurrent_mark_in_progress() && heap->need_update_refs();
+  return _heap->concurrent_mark_in_progress() && _heap->need_update_refs();
 }
 
 void ShenandoahBarrierSet::write_ref_array_work(MemRegion mr) {
   if (! need_update_refs_barrier()) return;
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
   for (HeapWord* word = mr.start(); word < mr.end(); word++) {
     oop* oop_ptr = (oop*) word;
-    heap->maybe_update_oop_ref(oop_ptr);
+    _heap->maybe_update_oop_ref(oop_ptr);
   }
 }
 
@@ -174,12 +173,11 @@ template <class T>
 void ShenandoahBarrierSet::write_ref_array_pre_work(T* dst, int count) {
 
 #ifdef ASSERT
-    ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
-    if (sh->is_in(dst) &&
-        sh->heap_region_containing((HeapWord*) dst)->is_in_collection_set() &&
-        ! sh->cancelled_concgc()) {
+    if (_heap->is_in(dst) &&
+        _heap->heap_region_containing((HeapWord*) dst)->is_in_collection_set() &&
+        ! _heap->cancelled_concgc()) {
       tty->print_cr("dst = "PTR_FORMAT, p2i(dst));
-      sh->heap_region_containing((HeapWord*) dst)->print();
+      _heap->heap_region_containing((HeapWord*) dst)->print();
       assert(false, "We should have fixed this earlier");
     }
 #endif
@@ -213,12 +211,12 @@ void ShenandoahBarrierSet::write_ref_field_pre_static(T* field, oop newVal) {
   T heap_oop = oopDesc::load_heap_oop(field);
 
 #ifdef ASSERT
-    ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
-    if (sh->is_in(field) &&
-        sh->heap_region_containing((HeapWord*)field)->is_in_collection_set() &&
-        ! sh->cancelled_concgc()) {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+    if (heap->is_in(field) &&
+        heap->heap_region_containing((HeapWord*)field)->is_in_collection_set() &&
+        ! heap->cancelled_concgc()) {
       tty->print_cr("field = "PTR_FORMAT, p2i(field));
-      sh->heap_region_containing((HeapWord*)field)->print();
+      heap->heap_region_containing((HeapWord*)field)->print();
       assert(false, "We should have fixed this earlier");
     }
 #endif
@@ -250,7 +248,7 @@ void ShenandoahBarrierSet::write_ref_field_pre_work(void* field, oop new_val) {
 void ShenandoahBarrierSet::write_ref_field_work(void* v, oop o, bool release) {
   if (! need_update_refs_barrier()) return;
   assert (! UseCompressedOops, "compressed oops not supported yet");
-  ShenandoahHeap::heap()->maybe_update_oop_ref((oop*) v);
+  _heap->maybe_update_oop_ref((oop*) v);
   // tty->print_cr("write_ref_field_work: v = "PTR_FORMAT" o = "PTR_FORMAT, v, o);
 }
 
@@ -292,7 +290,7 @@ bool ShenandoahBarrierSet::obj_equals(narrowOop obj1, narrowOop obj2) {
 #ifdef ASSERT
 bool ShenandoahBarrierSet::is_safe(oop o) {
   if (o == NULL) return true;
-  if (ShenandoahHeap::heap()->heap_region_containing(o)->is_in_collection_set()) {
+  if (_heap->heap_region_containing(o)->is_in_collection_set()) {
     return false;
   }
   if (! oopDesc::unsafe_equals(o, read_barrier(o))) {
@@ -308,10 +306,9 @@ bool ShenandoahBarrierSet::is_safe(narrowOop o) {
 #endif
 
 oop ShenandoahBarrierSet::resolve_and_maybe_copy_oop_work(oop src) {
-  ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
   assert(src != NULL, "only evacuated non NULL oops");
 
-  if (sh->in_cset_fast_test((HeapWord*) src)) {
+  if (_heap->in_cset_fast_test((HeapWord*) src)) {
     return resolve_and_maybe_copy_oop_work2(src);
   } else {
     return src;
@@ -319,38 +316,28 @@ oop ShenandoahBarrierSet::resolve_and_maybe_copy_oop_work(oop src) {
 }
 
 oop ShenandoahBarrierSet::resolve_and_maybe_copy_oop_work2(oop src) {
-  ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
-  if (! sh->is_evacuation_in_progress()) {
-    // We may get here through a barrier that just took a safepoint that
-    // turned off evacuation. In this case, return right away.
-    return ShenandoahBarrierSet::resolve_oop_static(src);
-  }
   assert(src != NULL, "only evacuated non NULL oops");
-  assert(sh->heap_region_containing(src)->is_in_collection_set(), "only evacuate objects in collection set");
-  assert(! sh->heap_region_containing(src)->is_humongous(), "never evacuate humongous objects");
+  assert(_heap->heap_region_containing(src)->is_in_collection_set(), "only evacuate objects in collection set");
+  assert(! _heap->heap_region_containing(src)->is_humongous(), "never evacuate humongous objects");
   // TODO: Consider passing thread from caller.
-  oop dst = sh->evacuate_object(src, Thread::current());
+  oop dst = _heap->evacuate_object(src, Thread::current());
 #ifdef ASSERT
     if (ShenandoahTraceEvacuations) {
       tty->print_cr("src = "PTR_FORMAT" dst = "PTR_FORMAT" src = "PTR_FORMAT" src-2 = "PTR_FORMAT,
                  p2i((HeapWord*) src), p2i((HeapWord*) dst), p2i((HeapWord*) src), p2i(((HeapWord*) src) - 2));
     }
 #endif
-  assert(sh->is_in(dst), "result should be in the heap");
+  assert(_heap->is_in(dst), "result should be in the heap");
   return dst;
 }
 
 oop ShenandoahBarrierSet::resolve_and_maybe_copy_oopHelper(oop src) {
-    if (src != NULL) {
-      ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
-      oop tmp = resolve_oop_static(src);
-      if (! sh->is_evacuation_in_progress()) {
-        return tmp;
-      }
-      return resolve_and_maybe_copy_oop_work(src);
-    } else {
-      return NULL;
-    }
+  assert(src != NULL, "checked before");
+  if (! _heap->is_evacuation_in_progress()) {
+    OrderAccess::loadload();
+    return resolve_oop_static(src);
+  }
+  return resolve_and_maybe_copy_oop_work(src);
 }
 
 JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_c2(oopDesc* src))
@@ -372,17 +359,16 @@ JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_c1(JavaThread* thread, oo
 JRT_END
 
 oop ShenandoahBarrierSet::write_barrier(oop src) {
-    ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
-    oop result;
-    if (src != NULL && sh->is_in(src)) {
-      result = resolve_and_maybe_copy_oopHelper(src);
-      assert(sh->is_in(result), "result should be in the heap");
-    } else {
-      result = src;
-    }
-    assert(result == NULL || (sh->is_in(result) && result->is_oop()), "resolved oop must be NULL, or a valid oop in the heap");
+  if (! oopDesc::is_null(src)) {
+    assert(_heap->is_in(src), "sanity");
+    assert(src != NULL, "checked before");
+    oop result = resolve_and_maybe_copy_oopHelper(src);
+    assert(_heap->is_in(result) && result->is_oop(), "resolved oop must be NULL, or a valid oop in the heap");
     return result;
+  } else {
+    return NULL;
   }
+}
 
 oop ShenandoahBarrierSet::resolve_and_update_oop(oop* p, oop obj) {
   return resolve_and_update_oop_static(p, obj);

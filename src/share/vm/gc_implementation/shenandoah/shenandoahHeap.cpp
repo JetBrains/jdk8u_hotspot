@@ -128,7 +128,7 @@ jint ShenandoahHeap::initialize() {
   _reserved.set_start((HeapWord*)heap_rs.base());
   _reserved.set_end((HeapWord*) (heap_rs.base() + heap_rs.size()));
 
-  set_barrier_set(new ShenandoahBarrierSet());
+  set_barrier_set(new ShenandoahBarrierSet(this));
   ReservedSpace pgc_rs = heap_rs.first_part(max_byte_size);
   _storage.initialize(pgc_rs, init_byte_size);
   if (ShenandoahGCVerbose) {
@@ -2047,10 +2047,6 @@ void ShenandoahHeap::stop_concurrent_marking() {
 #endif
 }
 
-bool ShenandoahHeap::concurrent_mark_in_progress() {
-  return _concurrent_mark_in_progress;
-}
-
 void ShenandoahHeap::set_concurrent_mark_in_progress(bool in_progress) {
   if (ShenandoahTracePhases) {
     if (in_progress) {
@@ -2075,10 +2071,6 @@ void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
   JavaThread::set_evacuation_in_progress_all_threads(in_progress);
   _evacuation_in_progress = in_progress;
   OrderAccess::fence();
-}
-
-bool ShenandoahHeap::is_evacuation_in_progress() {
-  return _evacuation_in_progress;
 }
 
 void ShenandoahHeap::verify_copy(oop p,oop c){

@@ -30,11 +30,12 @@
 class ShenandoahBarrierSet: public BarrierSet {
 private:
 
+  ShenandoahHeap* _heap;
   static inline oop get_shenandoah_forwardee_helper(oop p);
 
 public:
 
-  ShenandoahBarrierSet();
+  ShenandoahBarrierSet(ShenandoahHeap* heap);
 
   void print_on(outputStream* st) const;
 

@@ -328,7 +328,7 @@ public:
   void set_used(size_t bytes);
 
   void set_evacuation_in_progress(bool in_progress);
-  bool is_evacuation_in_progress();
+  inline bool is_evacuation_in_progress();
 
   inline bool need_update_refs() const;
   void set_need_update_refs(bool update_refs);
@@ -414,7 +414,7 @@ public:
 
   void shutdown();
 
-  bool concurrent_mark_in_progress();
+  inline bool concurrent_mark_in_progress();
   size_t calculateUsed();
   size_t calculateFree();
 
