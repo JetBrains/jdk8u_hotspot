@@ -203,6 +203,11 @@ jint ShenandoahHeap::initialize() {
                ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::RegionSizeShift);
   clear_cset_fast_test();
 
+  _top_at_mark_starts_base =
+                   NEW_C_HEAP_ARRAY(HeapWord*, _max_regions, mtGC);
+  _top_at_mark_starts = _top_at_mark_starts_base -
+               ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::RegionSizeShift);
+
   _monitoring_support = new ShenandoahMonitoringSupport(this);
 
   _concurrent_gc_thread = new ShenandoahConcurrentThread();
@@ -226,6 +231,8 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _ref_processor(NULL),
   _in_cset_fast_test(NULL),
   _in_cset_fast_test_base(NULL),
+  _top_at_mark_starts(NULL),
+  _top_at_mark_starts_base(NULL),
   _mark_bit_map0(),
   _mark_bit_map1(),
   _cancelled_concgc(false),
@@ -2415,4 +2422,9 @@ void ShenandoahHeap::add_free_region(ShenandoahHeapRegion* r) {
 
 void ShenandoahHeap::clear_free_regions() {
   _free_regions->clear();
+}
+
+void ShenandoahHeap::set_top_at_mark_start(HeapWord* region_base, HeapWord* addr) {
+  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::RegionSizeShift;
+  _top_at_mark_starts[index] = addr;
 }

@@ -57,14 +57,13 @@ inline bool ShenandoahHeap::mark_current(oop obj) const {
 }
 
 inline bool ShenandoahHeap::mark_current_no_checks(oop obj) const {
-  ShenandoahHeapRegion* r = heap_region_containing(obj);
   HeapWord* addr = (HeapWord*) obj;
-  return (! r->allocated_after_mark_start(addr)) && _next_mark_bit_map->parMark(addr);
+  return (! allocated_after_mark_start(addr)) && _next_mark_bit_map->parMark(addr);
 }
 
 inline bool ShenandoahHeap::is_marked_current(oop obj) const {
-  ShenandoahHeapRegion* r = heap_region_containing((void*) obj);
-  return is_marked_current(obj, r);
+  HeapWord* addr = (HeapWord*) obj;
+  return allocated_after_mark_start(addr) || _next_mark_bit_map->isMarked(addr);
 }
 
 inline bool ShenandoahHeap::is_marked_current(oop obj, ShenandoahHeapRegion* r) const {
@@ -193,13 +192,13 @@ inline void ShenandoahHeap::initialize_brooks_ptr(oop p) {
   brooks_ptr.set_forwardee(p);
 }
 
-inline void ShenandoahHeap::copy_object(oop p, HeapWord* s) {
+inline void ShenandoahHeap::copy_object(oop p, HeapWord* s, size_t words) {
   HeapWord* filler = s;
   assert(s != NULL, "allocation of brooks pointer must not fail");
   HeapWord* copy = s + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
 
   guarantee(copy != NULL, "allocation of copy object must not fail");
-  Copy::aligned_disjoint_words((HeapWord*) p, copy, p->size());
+  Copy::aligned_disjoint_words((HeapWord*) p, copy, words);
   initialize_brooks_ptr(oop(copy));
 
 #ifdef ASSERT
@@ -256,13 +255,13 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
 #ifdef ASSERT
   if (ShenandoahVerifyReadsToFromSpace) {
     hr->memProtectionOff();
-    copy_object(p, filler);
+    copy_object(p, filler, required - BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
     hr->memProtectionOn();
   } else {
-    copy_object(p, filler);
+    copy_object(p, filler, required - BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
   }
 #else
-    copy_object(p, filler);
+    copy_object(p, filler, required - BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
 #endif
 
   HeapWord* result = BrooksPointer::get(p).cas_forwardee((HeapWord*) p, copy);
@@ -306,4 +305,14 @@ inline bool ShenandoahHeap::is_evacuation_in_progress() {
   return _evacuation_in_progress;
 }
 
+inline bool ShenandoahHeap::allocated_after_mark_start(HeapWord* addr) const {
+  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::RegionSizeShift;
+  HeapWord* top_at_mark_start = _top_at_mark_starts[index];
+  bool alloc_after_mark_start = addr >= top_at_mark_start;
+#ifdef ASSERT
+  ShenandoahHeapRegion* r = heap_region_containing(addr);
+  assert(alloc_after_mark_start == r->allocated_after_mark_start(addr), "sanity");
+#endif
+  return alloc_after_mark_start;
+}
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

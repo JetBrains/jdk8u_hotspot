@@ -121,6 +121,9 @@ private:
   bool* _in_cset_fast_test_base;
   uint _in_cset_fast_test_length;
 
+  HeapWord** _top_at_mark_starts;
+  HeapWord** _top_at_mark_starts_base;
+
   bool _cancelled_concgc;
 
   ShenandoahJNICritical* _jni_critical;
@@ -391,6 +394,10 @@ public:
     memset(_in_cset_fast_test_base, false,
            (size_t) _in_cset_fast_test_length * sizeof(bool));
   }
+
+
+  inline bool allocated_after_mark_start(HeapWord* addr) const;
+  void set_top_at_mark_start(HeapWord* region_base, HeapWord* addr);
 
   GCTracer* tracer();
   ShenandoahCollectionSet* collection_set() { return _collection_set; }

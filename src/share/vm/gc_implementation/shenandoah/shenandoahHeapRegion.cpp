@@ -360,6 +360,7 @@ void ShenandoahHeapRegion::compact() {
 
 void ShenandoahHeapRegion::init_top_at_mark_start() {
   _top_at_mark_start = top();
+  ShenandoahHeap::heap()->set_top_at_mark_start(bottom(), top());
 }
 
 void ShenandoahHeapRegion::reset_top_at_prev_mark_start() {
@@ -411,6 +412,7 @@ void ShenandoahHeapRegion::swap_top_at_mark_start() {
   HeapWord* tmp = _top_at_prev_mark_start;
   _top_at_prev_mark_start = _top_at_mark_start;
   _top_at_mark_start = tmp;
+  ShenandoahHeap::heap()->set_top_at_mark_start(bottom(), tmp);
 }
 
 void ShenandoahHeapRegion::set_top_prev_mark_bitmap(HeapWord* top) {
