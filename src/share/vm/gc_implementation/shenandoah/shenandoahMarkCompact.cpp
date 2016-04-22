@@ -577,7 +577,16 @@ public:
     r->reset_top_at_prev_mark_start();
     r->set_is_in_collection_set(false);
     if (r->is_humongous()) {
-      _live += ShenandoahHeapRegion::RegionSizeBytes;
+      if (r->is_humongous_start()) {
+        oop humongous_obj = oop(r->bottom() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+        if (! _heap->is_marked_current(humongous_obj)) {
+          _heap->reclaim_humongous_region_at(r);
+        } else {
+          _live += ShenandoahHeapRegion::RegionSizeBytes;
+        }
+      } else {
+        _live += ShenandoahHeapRegion::RegionSizeBytes;
+      }
 
     } else {
       size_t live = r->used();
