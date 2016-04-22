@@ -208,6 +208,11 @@ jint ShenandoahHeap::initialize() {
   _top_at_mark_starts = _top_at_mark_starts_base -
                ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::RegionSizeShift);
 
+  for (i = 0; i < _num_regions; i++) {
+    _in_cset_fast_test_base[i] = false; // Not in cset
+    _top_at_mark_starts_base[i] = _ordered_regions->get(i)->bottom();
+  }
+
   _monitoring_support = new ShenandoahMonitoringSupport(this);
 
   _concurrent_gc_thread = new ShenandoahConcurrentThread();
@@ -2142,6 +2147,9 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
     assert(_ordered_regions->active_regions() == new_region->region_number(), "must match");
     _ordered_regions->add_region(new_region);
     _sorted_regions->add_region(new_region);
+    _in_cset_fast_test_base[new_region_index] = false; // Not in cset
+    _top_at_mark_starts_base[new_region_index] = new_region->bottom();
+
     regions[i] = new_region;
   }
   _free_regions->par_add_regions(regions, 0, num_regions, num_regions);
