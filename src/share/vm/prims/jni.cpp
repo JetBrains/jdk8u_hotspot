@@ -3637,6 +3637,7 @@ JNI_QUICK_ENTRY(ElementType*, \
   EntryProbe; \
   /* allocate an chunk of memory in c land */ \
   typeArrayOop a = typeArrayOop(JNIHandles::resolve_non_null(array)); \
+  a = typeArrayOop(oopDesc::bs()->read_barrier(a)); \
   ElementType* result; \
   int len = a->length(); \
   if (len == 0) { \
@@ -3728,6 +3729,7 @@ JNI_QUICK_ENTRY(void, \
   JNIWrapper("Release" XSTR(Result) "ArrayElements"); \
   EntryProbe; \
   typeArrayOop a = typeArrayOop(JNIHandles::resolve_non_null(array)); \
+  a = typeArrayOop(oopDesc::bs()->write_barrier(a)); \
   int len = a->length(); \
   if (len != 0) {   /* Empty array:  nothing to free or copy. */  \
     if ((mode == 0) || (mode == JNI_COMMIT)) { \
@@ -3813,6 +3815,7 @@ jni_Get##Result##ArrayRegion(JNIEnv *env, ElementType##Array array, jsize start,
   EntryProbe; \
   DT_VOID_RETURN_MARK(Get##Result##ArrayRegion); \
   typeArrayOop src = typeArrayOop(JNIHandles::resolve_non_null(array)); \
+  src = typeArrayOop(oopDesc::bs()->read_barrier(src)); \
   if (start < 0 || len < 0 || ((unsigned int)start + (unsigned int)len > (unsigned int)src->length())) { \
     THROW(vmSymbols::java_lang_ArrayIndexOutOfBoundsException()); \
   } else { \
@@ -3898,6 +3901,7 @@ jni_Set##Result##ArrayRegion(JNIEnv *env, ElementType##Array array, jsize start,
   EntryProbe; \
   DT_VOID_RETURN_MARK(Set##Result##ArrayRegion); \
   typeArrayOop dst = typeArrayOop(JNIHandles::resolve_non_null(array)); \
+  dst = typeArrayOop(oopDesc::bs()->write_barrier(dst)); \
   if (start < 0 || len < 0 || ((unsigned int)start + (unsigned int)len > (unsigned int)dst->length())) { \
     THROW(vmSymbols::java_lang_ArrayIndexOutOfBoundsException()); \
   } else { \

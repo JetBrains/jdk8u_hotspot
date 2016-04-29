@@ -681,6 +681,8 @@ address InterpreterGenerator::generate_accessor_entry(void) {
                     ConstantPoolCache::base_offset() +
                     ConstantPoolCacheEntry::flags_offset()));
 
+    oopDesc::bs()->interpreter_read_barrier_not_null(_masm, rax);
+
     Label notObj, notInt, notByte, notShort;
     const Address field_address(rax, rcx, Address::times_1);
 

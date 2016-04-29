@@ -264,7 +264,7 @@ UNSAFE_ENTRY(jobject, Unsafe_GetObject(JNIEnv *env, jobject unsafe, jobject obj,
   // We could be accessing the referent field in a reference
   // object. If G1 is enabled then we need to register non-null
   // referent with the SATB barrier.
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     bool needs_barrier = false;
 
     if (ret != NULL) {
@@ -1185,7 +1185,7 @@ UNSAFE_ENTRY(void, Unsafe_MonitorEnter(JNIEnv *env, jobject unsafe, jobject jobj
     if (jobj == NULL) {
       THROW(vmSymbols::java_lang_NullPointerException());
     }
-    Handle obj(thread, JNIHandles::resolve_non_null(jobj));
+    Handle obj(thread, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
     ObjectSynchronizer::jni_enter(obj, CHECK);
   }
 UNSAFE_END
@@ -1197,7 +1197,7 @@ UNSAFE_ENTRY(jboolean, Unsafe_TryMonitorEnter(JNIEnv *env, jobject unsafe, jobje
     if (jobj == NULL) {
       THROW_(vmSymbols::java_lang_NullPointerException(), JNI_FALSE);
     }
-    Handle obj(thread, JNIHandles::resolve_non_null(jobj));
+    Handle obj(thread, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
     bool res = ObjectSynchronizer::jni_try_enter(obj, CHECK_0);
     return (res ? JNI_TRUE : JNI_FALSE);
   }
@@ -1210,7 +1210,7 @@ UNSAFE_ENTRY(void, Unsafe_MonitorExit(JNIEnv *env, jobject unsafe, jobject jobj)
     if (jobj == NULL) {
       THROW(vmSymbols::java_lang_NullPointerException());
     }
-    Handle obj(THREAD, JNIHandles::resolve_non_null(jobj));
+    Handle obj(THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
     ObjectSynchronizer::jni_exit(obj(), CHECK);
   }
 UNSAFE_END
