@@ -80,6 +80,8 @@
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1CollectorPolicy_ext.hpp"
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #endif // INCLUDE_ALL_GCS
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
@@ -572,12 +574,12 @@ bool Universe::should_fill_in_stack_trace(Handle throwable) {
   // preallocated errors with backtrace have been consumed. Also need to avoid
   // a potential loop which could happen if an out of memory occurs when attempting
   // to allocate the backtrace.
-  return ((throwable() != Universe::_out_of_memory_error_java_heap) &&
-          (throwable() != Universe::_out_of_memory_error_metaspace)  &&
-          (throwable() != Universe::_out_of_memory_error_class_metaspace)  &&
-          (throwable() != Universe::_out_of_memory_error_array_size) &&
-          (throwable() != Universe::_out_of_memory_error_gc_overhead_limit) &&
-          (throwable() != Universe::_out_of_memory_error_realloc_objects));
+  return ((!oopDesc::equals(throwable(), Universe::_out_of_memory_error_java_heap)) &&
+          (!oopDesc::equals(throwable(), Universe::_out_of_memory_error_metaspace))  &&
+          (!oopDesc::equals(throwable(), Universe::_out_of_memory_error_class_metaspace))  &&
+          (!oopDesc::equals(throwable(), Universe::_out_of_memory_error_array_size)) &&
+          (!oopDesc::equals(throwable(), Universe::_out_of_memory_error_gc_overhead_limit)) &&
+          (!oopDesc::equals(throwable(), Universe::_out_of_memory_error_realloc_objects)));
 }
 
 
@@ -807,6 +809,15 @@ jint Universe::initialize_heap() {
     Universe::_collectedHeap = g1h;
 #else  // INCLUDE_ALL_GCS
     fatal("UseG1GC not supported in java kernel vm.");
+#endif // INCLUDE_ALL_GCS
+
+  } else if (UseShenandoahGC) {
+#if INCLUDE_ALL_GCS
+    ShenandoahCollectorPolicy* shcp = new ShenandoahCollectorPolicy();
+    ShenandoahHeap* sh = new ShenandoahHeap(shcp);
+    Universe::_collectedHeap = sh;
+#else  // INCLUDE_ALL_GCS
+    fatal("UseShenandoahGC not supported in java kernel vm.");
 #endif // INCLUDE_ALL_GCS
 
   } else {

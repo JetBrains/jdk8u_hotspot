@@ -729,7 +729,9 @@ Node *PhaseGVN::transform_no_reclaim( Node *n ) {
 
   if( t->singleton() && !k->is_Con() ) {
     NOT_PRODUCT( set_progress(); )
-    return makecon(t);          // Turn into a constant
+    if (t == Type::TOP || k->Opcode() != Op_ShenandoahWriteBarrier) {
+      return makecon(t);          // Turn into a constant
+    }
   }
 
   // Now check for Identities
@@ -1134,7 +1136,9 @@ Node *PhaseIterGVN::transform_old( Node *n ) {
     NOT_PRODUCT( set_progress(); )
     Node *con = makecon(t);     // Make a constant
     add_users_to_worklist( k );
-    subsume_node( k, con );     // Everybody using k now uses con
+    if (k->Opcode() != Op_ShenandoahWriteBarrier || t == Type::TOP) {
+      subsume_node( k, con );     // Everybody using k now uses con
+    }
     return con;
   }
 

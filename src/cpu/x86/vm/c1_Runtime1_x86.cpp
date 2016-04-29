@@ -39,6 +39,7 @@
 #include "utilities/macros.hpp"
 #include "vmreg_x86.inline.hpp"
 #if INCLUDE_ALL_GCS
+#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #endif
 
@@ -1609,13 +1610,24 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
       break;
 
 #if INCLUDE_ALL_GCS
+    case shenandoah_write_barrier_slow_id:
+      {
+        StubFrame f(sasm, "shenandoah_write_barrier", dont_gc_arguments);
+
+        save_live_registers(sasm, 1);
+        __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_c1), r15_thread, rax);
+        restore_live_registers_except_rax(sasm);
+        __ verify_oop(rax);
+
+      }
+      break;
     case g1_pre_barrier_slow_id:
       {
         StubFrame f(sasm, "g1_pre_barrier", dont_gc_arguments);
         // arg0 : previous value of memory
 
         BarrierSet* bs = Universe::heap()->barrier_set();
-        if (bs->kind() != BarrierSet::G1SATBCTLogging) {
+        if (bs->kind() != BarrierSet::G1SATBCTLogging && bs->kind() != BarrierSet::ShenandoahBarrierSet) {
           __ movptr(rax, (int)id);
           __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, unimplemented_entry), rax);
           __ should_not_reach_here();
@@ -1708,6 +1720,12 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         Address store_addr(rbp, 2*BytesPerWord);
 
         BarrierSet* bs = Universe::heap()->barrier_set();
+        if (bs->kind() == BarrierSet::ShenandoahBarrierSet) {
+          __ movptr(rax, (int)id);
+          __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, unimplemented_entry), rax);
+          __ should_not_reach_here();
+          break;
+        }
         CardTableModRefBS* ct = (CardTableModRefBS*)bs;
         assert(sizeof(*ct->byte_map_base) == sizeof(jbyte), "adjust this code");
 

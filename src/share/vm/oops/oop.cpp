@@ -99,7 +99,7 @@ intptr_t oopDesc::slow_identity_hash() {
   // slow case; we have to acquire the micro lock in order to locate the header
   ResetNoHandleMark rnm; // Might be called from LEAF/QUICK ENTRY
   HandleMark hm;
-  Handle object(this);
+  Handle object(oopDesc::bs()->write_barrier(this));
   return ObjectSynchronizer::identity_hash_value_for(object);
 }
 

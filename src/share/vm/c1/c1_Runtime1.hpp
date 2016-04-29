@@ -68,6 +68,7 @@ class StubAssembler;
   stub(load_klass_patching)          \
   stub(load_mirror_patching)         \
   stub(load_appendix_patching)       \
+  stub(shenandoah_write_barrier_slow)\
   stub(g1_pre_barrier_slow)          \
   stub(g1_post_barrier_slow)         \
   stub(fpu2long_stub)                \

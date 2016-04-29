@@ -72,6 +72,7 @@
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.inline.hpp"
 #include "gc_implementation/parallelScavenge/psPromotionManager.inline.hpp"
 #include "gc_implementation/parallelScavenge/psScavenge.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "oops/oop.pcgc.inline.hpp"
 #endif // INCLUDE_ALL_GCS
 #ifdef COMPILER1
@@ -529,6 +530,7 @@ void InstanceKlass::fence_and_clear_init_lock() {
 void InstanceKlass::eager_initialize_impl(instanceKlassHandle this_oop) {
   EXCEPTION_MARK;
   oop init_lock = this_oop->init_lock();
+  init_lock = oopDesc::bs()->write_barrier(init_lock);
   ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
 
   // abort if someone beat us to the initialization
@@ -675,6 +677,7 @@ bool InstanceKlass::link_class_impl(
   // verification & rewriting
   {
     oop init_lock = this_oop->init_lock();
+    init_lock = oopDesc::bs()->write_barrier(init_lock);
     ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
     // rewritten will have been set if loader constraint error found
     // on an earlier link attempt
@@ -833,6 +836,7 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
   // Step 1
   {
     oop init_lock = this_oop->init_lock();
+    init_lock = oopDesc::bs()->write_barrier(init_lock);
     ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
 
     Thread *self = THREAD; // it's passed the current thread
@@ -965,6 +969,7 @@ void InstanceKlass::set_initialization_state_and_notify(ClassState state, TRAPS)
 
 void InstanceKlass::set_initialization_state_and_notify_impl(instanceKlassHandle this_oop, ClassState state, TRAPS) {
   oop init_lock = this_oop->init_lock();
+  init_lock = oopDesc::bs()->write_barrier(init_lock);
   ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
   this_oop->set_init_state(state);
   this_oop->fence_and_clear_init_lock();
@@ -2628,7 +2633,7 @@ bool InstanceKlass::is_same_class_package(oop classloader2, Symbol* classname2) 
 // and classname information is enough to determine a class's package
 bool InstanceKlass::is_same_class_package(oop class_loader1, Symbol* class_name1,
                                           oop class_loader2, Symbol* class_name2) {
-  if (class_loader1 != class_loader2) {
+  if (! oopDesc::equals(class_loader1, class_loader2)) {
     return false;
   } else if (class_name1 == class_name2) {
     return true;                // skip painful bytewise comparison

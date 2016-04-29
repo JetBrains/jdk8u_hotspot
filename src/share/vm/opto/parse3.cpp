@@ -202,6 +202,12 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
   // Compute address and memory type.
   int offset = field->offset_in_bytes();
   const TypePtr* adr_type = C->alias_type(field)->adr_type();
+
+  // Insert read barrier for Shenandoah.
+  if (! ShenandoahOptimizeFinals || (! field->is_final() && ! field->is_stable())) {
+    obj = shenandoah_read_barrier(obj);
+  }
+
   Node *adr = basic_plus_adr(obj, obj, offset);
   BasicType bt = field->layout_type();
 
@@ -235,6 +241,16 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
   MemNode::MemOrd mo = is_vol ? MemNode::acquire : MemNode::unordered;
   Node* ld = make_load(NULL, adr, type, bt, adr_type, mo, LoadNode::DependsOnlyOnTest, is_vol);
 
+  // Only enabled for Shenandoah. Can this be useful in general?
+  if (UseShenandoahGC && ShenandoahOptimizeFinals && UseImplicitStableValues) {
+    if (field->holder()->name() == ciSymbol::java_lang_String() &&
+        field->offset() == java_lang_String::value_offset_in_bytes()) {
+      const TypeAryPtr*  value_type = TypeAryPtr::make(TypePtr::NotNull,
+                                                       TypeAry::make(TypeInt::CHAR,TypeInt::POS),
+                                                       ciTypeArrayKlass::make(T_CHAR), true, 0);
+        ld = cast_array_to_stable(ld, value_type);
+    }
+  }
   // Adjust Java stack
   if (type2size[bt] == 1)
     push(ld);
@@ -283,6 +299,9 @@ void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
   // another volatile read.
   if (is_vol)  insert_mem_bar(Op_MemBarRelease);
 
+  // Insert write barrier for Shenandoah.
+  obj = shenandoah_write_barrier(obj);
+
   // Compute address and memory type.
   int offset = field->offset_in_bytes();
   const TypePtr* adr_type = C->alias_type(field)->adr_type();
@@ -312,6 +331,9 @@ void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
     } else {
       field_type = TypeOopPtr::make_from_klass(field->type()->as_klass());
     }
+
+    val = shenandoah_read_barrier_nomem(val);
+
     store = store_oop_to_object(control(), obj, adr, adr_type, val, field_type, bt, mo);
   } else {
     store = store_to_memory(control(), adr, val, bt, adr_type, mo, is_vol);

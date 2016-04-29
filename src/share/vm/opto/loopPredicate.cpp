@@ -442,7 +442,7 @@ class Invariance : public StackObj {
           // loop, it was marked invariant but n is only invariant if
           // it depends only on that test. Otherwise, unless that test
           // is out of the loop, it's not invariant.
-          if (n->is_CFG() || n->depends_only_on_test() || n->in(0) == NULL || !_phase->is_member(_lpt, n->in(0))) {
+          if (n->Opcode() == Op_ShenandoahWBMemProj || n->is_CFG() || n->depends_only_on_test() || n->in(0) == NULL || !_phase->is_member(_lpt, n->in(0))) {
             _invariant.set(n->_idx); // I am a invariant too
           }
         }

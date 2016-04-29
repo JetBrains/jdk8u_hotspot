@@ -542,13 +542,13 @@ JVM_END
 JVM_ENTRY(jint, JVM_IHashCode(JNIEnv* env, jobject handle))
   JVMWrapper("JVM_IHashCode");
   // as implemented in the classic virtual machine; return 0 if object is NULL
-  return handle == NULL ? 0 : ObjectSynchronizer::FastHashCode (THREAD, JNIHandles::resolve_non_null(handle)) ;
+  return handle == NULL ? 0 : ObjectSynchronizer::FastHashCode (THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(handle))) ;
 JVM_END
 
 
 JVM_ENTRY(void, JVM_MonitorWait(JNIEnv* env, jobject handle, jlong ms))
   JVMWrapper("JVM_MonitorWait");
-  Handle obj(THREAD, JNIHandles::resolve_non_null(handle));
+  Handle obj(THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(handle)));
   JavaThreadInObjectWaitState jtiows(thread, ms != 0);
   if (JvmtiExport::should_post_monitor_wait()) {
     JvmtiExport::post_monitor_wait((JavaThread *)THREAD, (oop)obj(), ms);
@@ -565,21 +565,21 @@ JVM_END
 
 JVM_ENTRY(void, JVM_MonitorNotify(JNIEnv* env, jobject handle))
   JVMWrapper("JVM_MonitorNotify");
-  Handle obj(THREAD, JNIHandles::resolve_non_null(handle));
+  Handle obj(THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(handle)));
   ObjectSynchronizer::notify(obj, CHECK);
 JVM_END
 
 
 JVM_ENTRY(void, JVM_MonitorNotifyAll(JNIEnv* env, jobject handle))
   JVMWrapper("JVM_MonitorNotifyAll");
-  Handle obj(THREAD, JNIHandles::resolve_non_null(handle));
+  Handle obj(THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(handle)));
   ObjectSynchronizer::notifyall(obj, CHECK);
 JVM_END
 
 
 JVM_ENTRY(jobject, JVM_Clone(JNIEnv* env, jobject handle))
   JVMWrapper("JVM_Clone");
-  Handle obj(THREAD, JNIHandles::resolve_non_null(handle));
+  Handle obj(THREAD, oopDesc::bs()->read_barrier(JNIHandles::resolve_non_null(handle)));
   const KlassHandle klass (THREAD, obj->klass());
   JvmtiVMObjectAllocEventCollector oam;
 
@@ -1021,6 +1021,7 @@ static jclass jvm_define_class_common(JNIEnv *env, const char *name,
   ClassFileStream st((u1*) buf, len, (char *)source);
   Handle class_loader (THREAD, JNIHandles::resolve(loader));
   if (UsePerfData) {
+    Handle class_loader1 (THREAD, oopDesc::bs()->write_barrier(class_loader()));
     is_lock_held_by_thread(class_loader,
                            ClassLoader::sync_JVMDefineClassLockFreeCounter(),
                            THREAD);
@@ -1085,7 +1086,8 @@ JVM_ENTRY(jclass, JVM_FindLoadedClass(JNIEnv *env, jobject loader, jstring name)
   //   us to pass the NULL as the initiating class loader.
   Handle h_loader(THREAD, JNIHandles::resolve(loader));
   if (UsePerfData) {
-    is_lock_held_by_thread(h_loader,
+    Handle h_loader1(THREAD, oopDesc::bs()->write_barrier(h_loader()));
+    is_lock_held_by_thread(h_loader1,
                            ClassLoader::sync_JVMFindLoadedClassLockFreeCounter(),
                            THREAD);
   }
@@ -1459,7 +1461,7 @@ JVM_ENTRY(jobject, JVM_GetStackAccessControlContext(JNIEnv *env, jclass cls))
       protection_domain = method->method_holder()->protection_domain();
     }
 
-    if ((previous_protection_domain != protection_domain) && (protection_domain != NULL)) {
+    if ((! oopDesc::equals(previous_protection_domain, protection_domain)) && protection_domain != NULL) {
       local_array->push(protection_domain);
       previous_protection_domain = protection_domain;
     }
@@ -3256,7 +3258,7 @@ JVM_ENTRY(jint, JVM_CountStackFrames(JNIEnv* env, jobject jthread))
   int count = 0;
 
   {
-    MutexLockerEx ml(thread->threadObj() == java_thread ? NULL : Threads_lock);
+    MutexLockerEx ml(oopDesc::equals(thread->threadObj(), java_thread) ? NULL : Threads_lock);
     // We need to re-resolve the java_thread, since a GC might have happened during the
     // acquire of the lock
     JavaThread* thr = java_lang_Thread::thread(JNIHandles::resolve_non_null(jthread));
@@ -3305,7 +3307,7 @@ JVM_ENTRY(void, JVM_Interrupt(JNIEnv* env, jobject jthread))
 
   // Ensure that the C++ Thread and OSThread structures aren't freed before we operate
   oop java_thread = JNIHandles::resolve_non_null(jthread);
-  MutexLockerEx ml(thread->threadObj() == java_thread ? NULL : Threads_lock);
+  MutexLockerEx ml(oopDesc::equals(thread->threadObj(), java_thread) ? NULL : Threads_lock);
   // We need to re-resolve the java_thread, since a GC might have happened during the
   // acquire of the lock
   JavaThread* thr = java_lang_Thread::thread(JNIHandles::resolve_non_null(jthread));
@@ -3320,7 +3322,7 @@ JVM_QUICK_ENTRY(jboolean, JVM_IsInterrupted(JNIEnv* env, jobject jthread, jboole
 
   // Ensure that the C++ Thread and OSThread structures aren't freed before we operate
   oop java_thread = JNIHandles::resolve_non_null(jthread);
-  MutexLockerEx ml(thread->threadObj() == java_thread ? NULL : Threads_lock);
+  MutexLockerEx ml(oopDesc::equals(thread->threadObj(), java_thread) ? NULL : Threads_lock);
   // We need to re-resolve the java_thread, since a GC might have happened during the
   // acquire of the lock
   JavaThread* thr = java_lang_Thread::thread(JNIHandles::resolve_non_null(jthread));
@@ -3340,7 +3342,7 @@ JVM_ENTRY(jboolean, JVM_HoldsLock(JNIEnv* env, jclass threadClass, jobject obj))
   if (obj == NULL) {
     THROW_(vmSymbols::java_lang_NullPointerException(), JNI_FALSE);
   }
-  Handle h_obj(THREAD, JNIHandles::resolve(obj));
+  Handle h_obj(THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve(obj)));
   return ObjectSynchronizer::current_thread_holds_lock((JavaThread*)THREAD, h_obj);
 JVM_END
 

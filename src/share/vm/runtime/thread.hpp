@@ -256,8 +256,11 @@ class Thread: public ThreadShadow {
   friend class GC_locker;
 
   ThreadLocalAllocBuffer _tlab;                 // Thread-local eden
+  ThreadLocalAllocBuffer _gclab;                // Thread-local allocation buffer for GC (e.g. evacuation)
   jlong _allocated_bytes;                       // Cumulative number of bytes allocated on
                                                 // the Java heap
+  jlong _allocated_bytes_gclab;                 // Cumulative number of bytes allocated on
+                                                // the Java heap, in GCLABs
 
   // Thread-local buffer used by MetadataOnStackMark.
   MetadataOnStackBuffer* _metadata_on_stack_buffer;
@@ -434,14 +437,22 @@ class Thread: public ThreadShadow {
   ThreadLocalAllocBuffer& tlab()                 { return _tlab; }
   void initialize_tlab() {
     if (UseTLAB) {
-      tlab().initialize();
+      tlab().initialize(false);
+      gclab().initialize(true);
     }
   }
+
+  // Thread-Local GC Allocation Buffer (GCLAB) support
+  ThreadLocalAllocBuffer& gclab()                { return _gclab; }
 
   jlong allocated_bytes()               { return _allocated_bytes; }
   void set_allocated_bytes(jlong value) { _allocated_bytes = value; }
   void incr_allocated_bytes(jlong size) { _allocated_bytes += size; }
   inline jlong cooked_allocated_bytes();
+
+  jlong allocated_bytes_gclab()                { return _allocated_bytes_gclab; }
+  void set_allocated_bytes_gclab(jlong value)  { _allocated_bytes_gclab = value; }
+  void incr_allocated_bytes_gclab(jlong size)  { _allocated_bytes_gclab += size; }
 
   TRACE_DATA* trace_data()              { return &_trace_data; }
 
@@ -625,6 +636,10 @@ protected:
   TLAB_FIELD_OFFSET(slow_allocations)
 
 #undef TLAB_FIELD_OFFSET
+
+  static ByteSize gclab_start_offset()         { return byte_offset_of(Thread, _gclab) + ThreadLocalAllocBuffer::start_offset(); }
+  static ByteSize gclab_top_offset()           { return byte_offset_of(Thread, _gclab) + ThreadLocalAllocBuffer::top_offset(); }
+  static ByteSize gclab_end_offset()           { return byte_offset_of(Thread, _gclab) + ThreadLocalAllocBuffer::end_offset(); }
 
   static ByteSize allocated_bytes_offset()       { return byte_offset_of(Thread, _allocated_bytes ); }
 
@@ -965,6 +980,10 @@ class JavaThread: public Thread {
   static DirtyCardQueueSet _dirty_card_queue_set;
 
   void flush_barrier_queues();
+
+  bool _evacuation_in_progress;
+  static bool _evacuation_in_progress_global;
+
 #endif // INCLUDE_ALL_GCS
 
   friend class VMThread;
@@ -1381,6 +1400,9 @@ class JavaThread: public Thread {
 #if INCLUDE_ALL_GCS
   static ByteSize satb_mark_queue_offset()       { return byte_offset_of(JavaThread, _satb_mark_queue); }
   static ByteSize dirty_card_queue_offset()      { return byte_offset_of(JavaThread, _dirty_card_queue); }
+
+  static ByteSize evacuation_in_progress_offset() { return byte_offset_of(JavaThread, _evacuation_in_progress); }
+
 #endif // INCLUDE_ALL_GCS
 
   // Returns the jni environment for this thread
@@ -1679,6 +1701,12 @@ public:
   static DirtyCardQueueSet& dirty_card_queue_set() {
     return _dirty_card_queue_set;
   }
+
+  bool evacuation_in_progress() const;
+
+  void set_evacuation_in_progress(bool in_prog);
+
+  static void set_evacuation_in_progress_all_threads(bool in_prog);
 #endif // INCLUDE_ALL_GCS
 
   // This method initializes the SATB and dirty card queues before a

@@ -25,6 +25,7 @@
 #include "precompiled.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "compiler/compileLog.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "memory/allocation.inline.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "opto/addnode.hpp"
@@ -38,6 +39,7 @@
 #include "opto/mulnode.hpp"
 #include "opto/phaseX.hpp"
 #include "opto/regmask.hpp"
+#include "opto/shenandoahSupport.hpp"
 
 // Portions of code courtesy of Clifford Click
 
@@ -755,6 +757,17 @@ Node *MemNode::Ideal_common_DU_postCCP( PhaseCCP *ccp, Node* n, Node* adr ) {
         ccp->hash_insert(n);
         return n;
 
+      case Op_ShenandoahReadBarrier:
+      case Op_ShenandoahWriteBarrier:
+        if (adr->in(ShenandoahBarrierNode::Control) == NULL) {
+          // Keep looking for cast nodes.
+          adr = adr->in(ShenandoahBarrierNode::ValueIn);
+          continue;
+        }
+        ccp->hash_delete(n);
+        n->set_req(MemNode::Control, adr->in(ShenandoahBarrierNode::Control));
+        ccp->hash_insert(n);
+        return n;
       case Op_CastPP:
         // If the CastPP is useless, just peek on through it.
         if( ccp->type(adr) == ccp->type(adr->in(1)) ) {
@@ -1082,6 +1095,7 @@ Node* MemNode::can_see_stored_value(Node* st, PhaseTransform* phase) const {
         (tp != NULL) && tp->is_ptr_to_boxed_value()) {
       intptr_t ignore = 0;
       Node* base = AddPNode::Ideal_base_and_offset(ld_adr, phase, ignore);
+      base = ShenandoahBarrierNode::skip_through_barrier(base);
       if (base != NULL && base->is_Proj() &&
           base->as_Proj()->_con == TypeFunc::Parms &&
           base->in(0)->is_CallStaticJava() &&
@@ -1653,7 +1667,7 @@ const Type *LoadNode::Value( PhaseTransform *phase ) const {
     // as to alignment, which will therefore produce the smallest
     // possible base offset.
     const int min_base_off = arrayOopDesc::base_offset_in_bytes(T_BYTE);
-    const bool off_beyond_header = ((uint)off >= (uint)min_base_off);
+    const bool off_beyond_header = (off != BrooksPointer::BYTE_OFFSET || !UseShenandoahGC) && ((uint)off >= (uint)min_base_off);
 
     // Try to constant-fold a stable array element.
     if (FoldStableValues && ary->is_stable() && ary->const_oop() != NULL) {

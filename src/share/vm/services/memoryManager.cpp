@@ -98,6 +98,10 @@ GCMemoryManager* MemoryManager::get_g1OldGen_memory_manager() {
   return (GCMemoryManager*) new G1OldGenMemoryManager();
 }
 
+GCMemoryManager* MemoryManager::get_shenandoah_memory_manager() {
+  return (GCMemoryManager*) new ShenandoahMemoryManager();
+}
+
 instanceOop MemoryManager::get_memory_manager_instance(TRAPS) {
   // Must do an acquire so as to force ordering of subsequent
   // loads from anything _memory_mgr_obj points to or implies.

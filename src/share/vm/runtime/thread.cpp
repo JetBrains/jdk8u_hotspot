@@ -97,6 +97,7 @@
 # include "os_bsd.inline.hpp"
 #endif
 #if INCLUDE_ALL_GCS
+#include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
 #include "gc_implementation/concurrentMarkSweep/concurrentMarkSweepThread.hpp"
 #include "gc_implementation/g1/concurrentMarkThread.inline.hpp"
 #include "gc_implementation/parallelScavenge/pcTasks.hpp"
@@ -1504,13 +1505,15 @@ void JavaThread::initialize() {
 #if INCLUDE_ALL_GCS
 SATBMarkQueueSet JavaThread::_satb_mark_queue_set;
 DirtyCardQueueSet JavaThread::_dirty_card_queue_set;
+bool JavaThread::_evacuation_in_progress_global = false;
 #endif // INCLUDE_ALL_GCS
 
 JavaThread::JavaThread(bool is_attaching_via_jni) :
   Thread()
 #if INCLUDE_ALL_GCS
   , _satb_mark_queue(&_satb_mark_queue_set),
-  _dirty_card_queue(&_dirty_card_queue_set)
+    _dirty_card_queue(&_dirty_card_queue_set),
+    _evacuation_in_progress(_evacuation_in_progress_global)
 #endif // INCLUDE_ALL_GCS
 {
   initialize();
@@ -1567,7 +1570,8 @@ JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
   Thread()
 #if INCLUDE_ALL_GCS
   , _satb_mark_queue(&_satb_mark_queue_set),
-  _dirty_card_queue(&_dirty_card_queue_set)
+    _dirty_card_queue(&_dirty_card_queue_set),
+    _evacuation_in_progress(_evacuation_in_progress_global)
 #endif // INCLUDE_ALL_GCS
 {
   if (TraceThreadEvents) {
@@ -1708,7 +1712,7 @@ void JavaThread::thread_main_inner() {
 
 static void ensure_join(JavaThread* thread) {
   // We do not need to grap the Threads_lock, since we are operating on ourself.
-  Handle threadObj(thread, thread->threadObj());
+  Handle threadObj(thread, oopDesc::bs()->write_barrier(thread->threadObj()));
   assert(threadObj.not_null(), "java thread object must exist");
   ObjectLocker lock(threadObj, thread);
   // Ignore pending exception (ThreadDeath), since we are exiting anyway
@@ -1920,8 +1924,11 @@ void JavaThread::exit(bool destroy_vm, ExitType exit_type) {
   // from the list of active threads. We must do this after any deferred
   // card marks have been flushed (above) so that any entries that are
   // added to the thread's dirty card queue as a result are not lost.
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     flush_barrier_queues();
+  }
+  if (UseShenandoahGC && UseTLAB) {
+    gclab().make_parsable(true);
   }
 #endif // INCLUDE_ALL_GCS
 
@@ -1957,6 +1964,21 @@ void JavaThread::initialize_queues() {
   // active field set to true.
   assert(dirty_queue.is_active(), "dirty card queue should be active");
 }
+
+bool JavaThread::evacuation_in_progress() const {
+  return _evacuation_in_progress;
+}
+
+void JavaThread::set_evacuation_in_progress(bool in_prog) {
+  _evacuation_in_progress = in_prog;
+}
+
+void JavaThread::set_evacuation_in_progress_all_threads(bool in_prog) {
+  _evacuation_in_progress_global = in_prog;
+  for (JavaThread* t = Threads::first(); t; t = t->next()) {
+    t->set_evacuation_in_progress(in_prog);
+  }
+}
 #endif // INCLUDE_ALL_GCS
 
 void JavaThread::cleanup_failed_attach_current_thread() {
@@ -1986,8 +2008,11 @@ void JavaThread::cleanup_failed_attach_current_thread() {
   }
 
 #if INCLUDE_ALL_GCS
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     flush_barrier_queues();
+  }
+  if (UseShenandoahGC && UseTLAB) {
+    gclab().make_parsable(true);
   }
 #endif // INCLUDE_ALL_GCS
 
@@ -2957,6 +2982,7 @@ const char* JavaThread::get_threadgroup_name() const {
     oop thread_group = java_lang_Thread::threadGroup(thread_obj);
     if (thread_group != NULL) {
       typeArrayOop name = java_lang_ThreadGroup::name(thread_group);
+      name = typeArrayOop(oopDesc::bs()->read_barrier(name));
       // ThreadGroup.name can be null
       if (name != NULL) {
         const char* str = UNICODE::as_utf8((jchar*) name->base(T_CHAR), name->length());
@@ -2976,6 +3002,7 @@ const char* JavaThread::get_parent_name() const {
       oop parent = java_lang_ThreadGroup::parent(thread_group);
       if (parent != NULL) {
         typeArrayOop name = java_lang_ThreadGroup::name(parent);
+        name = typeArrayOop(oopDesc::bs()->read_barrier(name));
         // ThreadGroup.name can be null
         if (name != NULL) {
           const char* str = UNICODE::as_utf8((jchar*) name->base(T_CHAR), name->length());
@@ -3588,9 +3615,11 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   // Support for ConcurrentMarkSweep. This should be cleaned up
   // and better encapsulated. The ugly nested if test would go away
   // once things are properly refactored. XXX YSR
-  if (UseConcMarkSweepGC || UseG1GC) {
+  if (UseConcMarkSweepGC || UseG1GC || UseShenandoahGC) {
     if (UseConcMarkSweepGC) {
       ConcurrentMarkSweepThread::makeSurrogateLockerThread(THREAD);
+    } else if (UseShenandoahGC) {
+      ShenandoahConcurrentThread::makeSurrogateLockerThread(THREAD);
     } else {
       ConcurrentMarkThread::makeSurrogateLockerThread(THREAD);
     }
@@ -4009,6 +4038,9 @@ bool Threads::destroy_vm() {
 
   thread->exit(true);
 
+  // Stop GC threads.
+  Universe::heap()->shutdown();
+
   // Stop VM thread.
   {
     // 4945125 The vm thread comes to a safepoint during exit.
@@ -4179,7 +4211,7 @@ void Threads::possibly_parallel_oops_do(OopClosure* f, CLDClosure* cld_f, CodeBl
   bool is_par = sh->n_par_threads() > 0;
   assert(!is_par ||
          (SharedHeap::heap()->n_par_threads() ==
-          SharedHeap::heap()->workers()->active_workers()), "Mismatch");
+          SharedHeap::heap()->workers()->active_workers()) || UseShenandoahGC, "Mismatch");
   int cp = SharedHeap::heap()->strong_roots_parity();
   ALL_JAVA_THREADS(p) {
     if (p->claim_oops_do(is_par, cp)) {

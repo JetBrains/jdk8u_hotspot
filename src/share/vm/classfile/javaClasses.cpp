@@ -206,7 +206,9 @@ Handle java_lang_String::create_from_str(const char* utf8_str, TRAPS) {
   int length = UTF8::unicode_length(utf8_str);
   Handle h_obj = basic_create(length, CHECK_NH);
   if (length > 0) {
-    UTF8::convert_to_unicode(utf8_str, value(h_obj())->char_at_addr(0), length);
+    typeArrayOop buffer = value(h_obj());
+    buffer = typeArrayOop(oopDesc::bs()->write_barrier(buffer));
+    UTF8::convert_to_unicode(utf8_str, buffer->char_at_addr(0), length);
   }
   return h_obj;
 }
@@ -220,7 +222,9 @@ Handle java_lang_String::create_from_symbol(Symbol* symbol, TRAPS) {
   int length = UTF8::unicode_length((char*)symbol->bytes(), symbol->utf8_length());
   Handle h_obj = basic_create(length, CHECK_NH);
   if (length > 0) {
-    UTF8::convert_to_unicode((char*)symbol->bytes(), value(h_obj())->char_at_addr(0), length);
+    typeArrayOop buffer = value(h_obj());
+    buffer = typeArrayOop(oopDesc::bs()->write_barrier(buffer));
+    UTF8::convert_to_unicode((char*)symbol->bytes(), buffer->char_at_addr(0), length);
   }
   return h_obj;
 }
@@ -428,6 +432,9 @@ bool java_lang_String::equals(oop java_string, jchar* chars, int len) {
   assert(java_string->klass() == SystemDictionary::String_klass(),
          "must be java_string");
   typeArrayOop value  = java_lang_String::value(java_string);
+  if (ShenandoahVerifyReadsToFromSpace) {
+    value = (typeArrayOop) oopDesc::bs()->read_barrier(value);
+  }
   int          offset = java_lang_String::offset(java_string);
   int          length = java_lang_String::length(java_string);
   if (length != len) {
@@ -626,7 +633,7 @@ void java_lang_Class::create_mirror(KlassHandle k, Handle class_loader,
     }
 
     // set the classLoader field in the java_lang_Class instance
-    assert(class_loader() == k->class_loader(), "should be same");
+    assert(oopDesc::equals(class_loader(), k->class_loader()), "should be same");
     set_class_loader(mirror(), class_loader());
 
     // Setup indirection from klass->mirror last
@@ -837,9 +844,9 @@ BasicType java_lang_Class::primitive_type(oop java_class) {
     // Note: create_basic_type_mirror above initializes ak to a non-null value.
     type = ArrayKlass::cast(ak)->element_type();
   } else {
-    assert(java_class == Universe::void_mirror(), "only valid non-array primitive");
+    assert(oopDesc::equals(java_class, Universe::void_mirror()), "only valid non-array primitive");
   }
-  assert(Universe::java_mirror(type) == java_class, "must be consistent");
+  assert(oopDesc::equals(Universe::java_mirror(type), java_class), "must be consistent");
   return type;
 }
 
@@ -3031,6 +3038,7 @@ ClassLoaderData** java_lang_ClassLoader::loader_data_addr(oop loader) {
 }
 
 ClassLoaderData* java_lang_ClassLoader::loader_data(oop loader) {
+  loader = oopDesc::bs()->read_barrier(loader);
   return *java_lang_ClassLoader::loader_data_addr(loader);
 }
 
@@ -3047,6 +3055,9 @@ void java_lang_ClassLoader::compute_offsets() {
 }
 
 oop java_lang_ClassLoader::parent(oop loader) {
+  if (ShenandoahVerifyReadsToFromSpace) {
+    loader = oopDesc::bs()->read_barrier(loader);
+  }
   assert(is_instance(loader), "loader must be oop");
   return loader->obj_field(parent_offset);
 }
@@ -3059,7 +3070,7 @@ bool java_lang_ClassLoader::isAncestor(oop loader, oop cl) {
   // This loop taken verbatim from ClassLoader.java:
   do {
     acl = parent(acl);
-    if (cl == acl) {
+    if (oopDesc::equals(cl, acl)) {
       return true;
     }
     assert(++loop_count > 0, "loop_count overflow");
@@ -3086,7 +3097,7 @@ bool java_lang_ClassLoader::is_trusted_loader(oop loader) {
 
   oop cl = SystemDictionary::java_system_loader();
   while(cl != NULL) {
-    if (cl == loader) return true;
+    if (oopDesc::equals(cl, loader)) return true;
     cl = parent(cl);
   }
   return false;

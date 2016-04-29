@@ -1596,6 +1596,7 @@ void PhaseStringOpts::replace_string_concat(StringConcat* sc) {
     char_alloc->maybe_set_complete(_gvn);
 
     // Now copy the string representations into the final char[]
+    char_array = __ shenandoah_write_barrier(char_array);
     Node* start = __ intcon(0);
     for (int argi = 0; argi < sc->num_arguments(); argi++) {
       Node* arg = sc->argument(argi);

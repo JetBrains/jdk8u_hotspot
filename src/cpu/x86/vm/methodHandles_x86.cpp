@@ -164,8 +164,10 @@ void MethodHandles::jump_to_lambda_form(MacroAssembler* _masm,
   //NOT_PRODUCT({ FlagSetting fs(TraceMethodHandles, true); trace_method_handle(_masm, "LZMH"); });
 
   // Load the invoker, as MH -> MH.form -> LF.vmentry
+  oopDesc::bs()->interpreter_read_barrier(_masm, recv);
   __ verify_oop(recv);
   __ load_heap_oop(method_temp, Address(recv, NONZERO(java_lang_invoke_MethodHandle::form_offset_in_bytes())));
+  oopDesc::bs()->interpreter_read_barrier(_masm, method_temp);
   __ verify_oop(method_temp);
   __ load_heap_oop(method_temp, Address(method_temp, NONZERO(java_lang_invoke_LambdaForm::vmentry_offset_in_bytes())));
   __ verify_oop(method_temp);
@@ -179,10 +181,12 @@ void MethodHandles::jump_to_lambda_form(MacroAssembler* _masm,
                         Address(temp2, ConstMethod::size_of_parameters_offset()),
                         sizeof(u2), /*is_signed*/ false);
     // assert(sizeof(u2) == sizeof(Method::_size_of_parameters), "");
+    __ movptr(temp2, __ argument_address(temp2, -1));
+    oopDesc::bs()->interpreter_read_barrier(_masm, temp2);
     Label L;
-    __ cmpptr(recv, __ argument_address(temp2, -1));
+    __ cmpptr(recv, temp2);
     __ jcc(Assembler::equal, L);
-    __ movptr(rax, __ argument_address(temp2, -1));
+    __ movptr(rax, temp2);
     __ STOP("receiver not on stack");
     __ BIND(L);
   }
@@ -375,6 +379,7 @@ void MethodHandles::generate_method_handle_dispatch(MacroAssembler* _masm,
     //  rsi/r13 - interpreter linkage (if interpreted)
     //  rcx, rdx, rsi, rdi, r8 - compiler arguments (if compiled)
 
+    oopDesc::bs()->interpreter_read_barrier(_masm, member_reg);
     Label L_incompatible_class_change_error;
     switch (iid) {
     case vmIntrinsics::_linkToSpecial:

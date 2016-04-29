@@ -241,6 +241,10 @@ ciObject* ciObjectFactory::get(oop key) {
 
   assert(Universe::heap()->is_in_reserved(key), "must be");
 
+  // In Shenandoah we need to make sure that nobody forwards the key elsewhere
+  // under our hood.
+  key = oopDesc::bs()->write_barrier(key);
+
   NonPermObject* &bucket = find_non_perm(key);
   if (bucket != NULL) {
     return bucket->object();
@@ -250,7 +254,7 @@ ciObject* ciObjectFactory::get(oop key) {
   // into the cache.
   Handle keyHandle(key);
   ciObject* new_object = create_new_object(keyHandle());
-  assert(keyHandle() == new_object->get_oop(), "must be properly recorded");
+  assert(oopDesc::safe_equals(keyHandle(), new_object->get_oop()), "must be properly recorded");
   init_ident_of(new_object);
   assert(Universe::heap()->is_in_reserved(new_object->get_oop()), "must be");
 
@@ -487,8 +491,8 @@ ciKlass* ciObjectFactory::get_unloaded_klass(ciKlass* accessing_klass,
   for (int i=0; i<_unloaded_klasses->length(); i++) {
     ciKlass* entry = _unloaded_klasses->at(i);
     if (entry->name()->equals(name) &&
-        entry->loader() == loader &&
-        entry->protection_domain() == domain) {
+        oopDesc::equals(entry->loader(), loader) &&
+        oopDesc::equals(entry->protection_domain(), domain)) {
       // We've found a match.
       return entry;
     }

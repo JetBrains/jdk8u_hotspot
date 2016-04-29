@@ -29,6 +29,7 @@
 #include "utilities/macros.hpp"
 #if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/g1_specialized_oop_closures.hpp"
+#include "gc_implementation/shenandoah/shenandoah_specialized_oop_closures.hpp"
 #endif // INCLUDE_ALL_GCS
 
 // The following OopClosure types get specialized versions of
@@ -104,7 +105,8 @@ class NoHeaderExtendedOopClosure;
   f(Par_PushOrMarkClosure,_nv)                          \
   f(CMSKeepAliveClosure,_nv)                            \
   f(CMSInnerParMarkAndPushClosure,_nv)                  \
-  FURTHER_SPECIALIZED_OOP_OOP_ITERATE_CLOSURES(f)
+  FURTHER_SPECIALIZED_OOP_OOP_ITERATE_CLOSURES(f)       \
+  SPECIALIZED_OOP_OOP_ITERATE_CLOSURES_SHENANDOAH(f)
 #else  // INCLUDE_ALL_GCS
 #define SPECIALIZED_OOP_OOP_ITERATE_CLOSURES_2(f)
 #endif // INCLUDE_ALL_GCS

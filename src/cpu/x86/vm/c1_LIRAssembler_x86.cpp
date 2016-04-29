@@ -32,6 +32,8 @@
 #include "c1/c1_ValueStack.hpp"
 #include "ci/ciArrayKlass.hpp"
 #include "ci/ciInstance.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "memory/barrierSet.hpp"
 #include "memory/cardTableModRefBS.hpp"
@@ -1513,6 +1515,55 @@ void LIR_Assembler::emit_opBranch(LIR_OpBranch* op) {
   }
 }
 
+void LIR_Assembler::emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* op) {
+  Label done;
+  Register obj = op->in_opr()->as_register();
+  Register res = op->result_opr()->as_register();
+  Register tmp1 = op->tmp1_opr()->as_register();
+  Register tmp2 = op->tmp2_opr()->as_register();
+  assert_different_registers(res, tmp1, tmp2);
+
+  if (res != obj) {
+    __ mov(res, obj);
+  }
+
+  // Check for null.
+  if (op->need_null_check()) {
+    __ testptr(res, res);
+    __ jcc(Assembler::zero, done);
+  }
+
+  // Check for evacuation-in-progress
+  Address evacuation_in_progress = Address(r15_thread, in_bytes(JavaThread::evacuation_in_progress_offset()));
+  __ cmpb(evacuation_in_progress, 0);
+
+  // The read-barrier.
+  __ movptr(res, Address(res, BrooksPointer::BYTE_OFFSET));
+
+  __ jcc(Assembler::equal, done);
+
+  // Check for object in collection set.
+  __ movptr(tmp1, res);
+  __ shrptr(tmp1, ShenandoahHeapRegion::RegionSizeShift);
+  __ movptr(tmp2, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
+  __ movbool(tmp2, Address(tmp2, tmp1, Address::times_1));
+  __ testb(tmp2, 0x1);
+  __ jcc(Assembler::zero, done);
+
+  if (res != rax) {
+    __ xchgptr(res, rax); // Move obj into rax and save rax into obj.
+  }
+
+  __ call(RuntimeAddress(Runtime1::entry_for(Runtime1::shenandoah_write_barrier_slow_id)));
+
+  if (res != rax) {
+    __ xchgptr(rax, res); // Swap back obj with rax.
+  }
+
+  __ bind(done);
+
+}
+
 void LIR_Assembler::emit_opConvert(LIR_OpConvert* op) {
   LIR_Opr src  = op->in_opr();
   LIR_Opr dest = op->result_opr();
@@ -2009,10 +2060,43 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
       } else
 #endif
       {
-        if (os::is_MP()) {
-          __ lock();
+        if (UseShenandoahGC) {
+          Label done;
+          Label retry;
+
+          __ bind(retry);
+
+          // Save original cmp-value into tmp1, before following cas destroys it.
+          __ movptr(op->tmp1()->as_register(), op->cmp_value()->as_register());
+
+          if (os::is_MP()) {
+            __ lock();
+          }
+          __ cmpxchgptr(newval, Address(addr, 0));
+
+          // If the cmpxchg succeeded, then we're done.
+          __ jcc(Assembler::equal, done);
+
+          // Resolve the original cmp value.
+          oopDesc::bs()->interpreter_read_barrier(masm(), op->tmp1()->as_register());
+          // Resolve the old value at address. We get the old value in cmp/rax
+          // when the comparison in cmpxchg failed.
+          __ movptr(op->tmp2()->as_register(), cmpval);
+          oopDesc::bs()->interpreter_read_barrier(masm(), op->tmp2()->as_register());
+
+          // We're done if the expected/cmp value is not the same as old. It's a valid
+          // cmpxchg failure then. Otherwise we need special treatment for Shenandoah
+          // to prevent false positives.
+          __ cmpptr(op->tmp1()->as_register(), op->tmp2()->as_register());
+          __ jcc(Assembler::equal, retry);
+
+          __ bind(done);
+        } else {
+          if (os::is_MP()) {
+            __ lock();
+          }
+          __ cmpxchgptr(newval, Address(addr, 0));
         }
-        __ cmpxchgptr(newval, Address(addr, 0));
       }
     } else {
       assert(op->code() == lir_cas_int, "lir_cas_int expected");
@@ -2701,6 +2785,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
       // cpu register - cpu register
       if (opr1->type() == T_OBJECT || opr1->type() == T_ARRAY) {
         __ cmpptr(reg1, opr2->as_register());
+        oopDesc::bs()->asm_acmp_barrier(masm(), reg1, opr2->as_register());
       } else {
         assert(opr2->type() != T_OBJECT && opr2->type() != T_ARRAY, "cmp int, oop?");
         __ cmpl(reg1, opr2->as_register());
@@ -2708,7 +2793,13 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
     } else if (opr2->is_stack()) {
       // cpu register - stack
       if (opr1->type() == T_OBJECT || opr1->type() == T_ARRAY) {
-        __ cmpptr(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
+        if (UseShenandoahGC) {
+          __ movptr(rscratch1, frame_map()->address_for_slot(opr2->single_stack_ix()));
+          __ cmpptr(reg1, rscratch1);
+          oopDesc::bs()->asm_acmp_barrier(masm(), reg1, rscratch1);
+        } else {
+          __ cmpptr(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
+        }
       } else {
         __ cmpl(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
       }
@@ -2726,6 +2817,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
 #ifdef _LP64
           __ movoop(rscratch1, o);
           __ cmpptr(reg1, rscratch1);
+          oopDesc::bs()->asm_acmp_barrier(masm(), reg1, rscratch1);
 #else
           __ cmpoop(reg1, c->as_jobject());
 #endif // _LP64
@@ -2838,7 +2930,13 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
 #ifdef _LP64
       // %%% Make this explode if addr isn't reachable until we figure out a
       // better strategy by giving noreg as the temp for as_Address
-      __ cmpptr(rscratch1, as_Address(addr, noreg));
+      if (UseShenandoahGC) {
+        __ movptr(rscratch2, as_Address(addr, noreg));
+        __ cmpptr(rscratch1, rscratch2);
+        oopDesc::bs()->asm_acmp_barrier(masm(), rscratch1, rscratch2);
+      } else {
+        __ cmpptr(rscratch1, as_Address(addr, noreg));
+      }
 #else
       __ cmpoop(as_Address(addr), c->as_jobject());
 #endif // _LP64

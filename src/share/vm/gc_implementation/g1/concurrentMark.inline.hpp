@@ -195,10 +195,10 @@ inline bool CMBitMapRO::iterate(BitMapClosure* cl) {
 #define check_mark(addr)                                                       \
   assert(_bmStartWord <= (addr) && (addr) < (_bmStartWord + _bmWordSize),      \
          "outside underlying space?");                                         \
-  assert(G1CollectedHeap::heap()->is_in_exact(addr),                           \
+  /* assert(G1CollectedHeap::heap()->is_in_exact(addr),                  \
          err_msg("Trying to access not available bitmap "PTR_FORMAT            \
                  " corresponding to "PTR_FORMAT" (%u)",                        \
-                 p2i(this), p2i(addr), G1CollectedHeap::heap()->addr_to_region(addr)));
+                 p2i(this), p2i(addr), G1CollectedHeap::heap()->addr_to_region(addr))); */
 
 inline void CMBitMap::mark(HeapWord* addr) {
   check_mark(addr);
