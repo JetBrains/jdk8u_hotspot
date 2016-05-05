@@ -830,6 +830,7 @@ void ShenandoahConcurrentMark::concurrent_mark_loop(ShenandoahMarkObjsClosure<T>
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   int seed = 17;
   while (true) {
+    if (heap->cancelled_concgc())  q->set_empty();
     if (heap->cancelled_concgc() ||
         (!try_queue(q, cl) &&
          !try_draining_an_satb_buffer(q) &&

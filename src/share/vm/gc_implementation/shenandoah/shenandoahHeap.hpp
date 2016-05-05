@@ -219,6 +219,8 @@ public:
 
   void marked_object_iterate(ShenandoahHeapRegion* region, ObjectClosure* cl);
   void marked_object_iterate_careful(ShenandoahHeapRegion* region, ObjectClosure* cl);
+
+  HeapWord *first_region_bottom() { return _first_region_bottom; }
 private:
   void marked_object_iterate(ShenandoahHeapRegion* region, ObjectClosure* cl, HeapWord* start, HeapWord* limit);
 
@@ -437,6 +439,7 @@ public:
   void shutdown();
 
   inline bool concurrent_mark_in_progress();
+  static inline address concurrent_mark_in_progress_addr();
   size_t calculateUsed();
   size_t calculateFree();
 

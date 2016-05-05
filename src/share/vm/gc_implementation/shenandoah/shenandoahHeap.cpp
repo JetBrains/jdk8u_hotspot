@@ -395,6 +395,7 @@ void ShenandoahHeap::verify_heap_size_consistency() {
 }
 
 size_t ShenandoahHeap::used() const {
+  OrderAccess::acquire();
   return _used;
 }
 
@@ -404,6 +405,7 @@ void ShenandoahHeap::increase_used(size_t bytes) {
 
 void ShenandoahHeap::set_used(size_t bytes) {
   _used = bytes;
+  OrderAccess::release();
 }
 
 void ShenandoahHeap::decrease_used(size_t bytes) {

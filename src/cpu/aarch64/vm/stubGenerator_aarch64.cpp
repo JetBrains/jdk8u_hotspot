@@ -27,6 +27,10 @@
 #include "precompiled.hpp"
 #include "asm/macroAssembler.hpp"
 #include "asm/macroAssembler.inline.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
+#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "interpreter/interpreter.hpp"
 #include "nativeInst_aarch64.hpp"
 #include "oops/instanceOop.hpp"
@@ -41,6 +45,9 @@
 #include "runtime/stubRoutines.hpp"
 #include "runtime/thread.inline.hpp"
 #include "utilities/top.hpp"
+
+#include "stubRoutines_aarch64.hpp"
+
 #ifdef COMPILER2
 #include "opto/runtime.hpp"
 #endif
@@ -589,6 +596,166 @@ class StubGenerator: public StubCodeGenerator {
     return start;
   }
 
+  // Shenandoah write barrier.
+  //
+  // Input:
+  //   r0: OOP to evacuate.  Not null.
+  //
+  // Output:
+  //   r0: Pointer to evacuated OOP.
+  //
+  // Trash rscratch1, rscratch2.  Preserve everything else.
+
+  address generate_shenandoah_wb() {
+    StubCodeMark mark(this, "StubRoutines", "shenandoah_wb");
+
+    __ align(6);
+    address start = __ pc();
+
+    Label work, slow_case, lose, not_an_instance, is_array;
+    Address evacuation_in_progress
+      = Address(rthread, in_bytes(JavaThread::evacuation_in_progress_offset()));
+
+    __ mov(rscratch2, ShenandoahHeap::in_cset_fast_test_addr());
+    __ lsr(rscratch1, r0, ShenandoahHeapRegion::RegionSizeShift);
+    __ ldrb(rscratch2, Address(rscratch2, rscratch1));
+    __ tbnz(rscratch2, 0, work);
+    __ ret(lr);
+
+    __ bind(work);
+
+    RegSet saved = RegSet::range(r1, r4);
+    __ push(saved, sp);
+
+    Register obj = r0, size = r2, newobj = r3, newobj_end = rscratch2;
+
+    __ ldr(newobj, Address(rthread, JavaThread::gclab_top_offset()));
+    __ cbz(newobj, slow_case); // No GCLAB
+
+    __ load_klass(r1, obj);
+    __ ldrw(size, Address(r1, Klass::layout_helper_offset()));
+    __ tbnz(size, BitsPerInt - 1, not_an_instance);  // make sure it's an instance (LH > 0)
+    assert(Klass::_lh_neutral_value == 0, "must be");
+    __ cbzw(size, slow_case);
+    __ tbnz(size, exact_log2(Klass::_lh_instance_slow_path_bit), slow_case);
+    __ bind(is_array);
+
+    // size contains the size (in bytes) of the object.
+
+    // Make sure it's not a really big object.
+    // ??? Maybe this test is not necessary.
+    __ cmp(size, 128 * HeapWordSize);
+    __ br(Assembler::GE, slow_case);
+
+    int oop_extra_words = Universe::heap()->oop_extra_words();
+    __ add(newobj_end, newobj, oop_extra_words * HeapWordSize);
+    __ add(newobj_end, newobj_end, size, ext::uxtw);
+
+    // Pointer to end of new object is in newobj_end.
+
+    __ ldr(rscratch1, Address(rthread, JavaThread::gclab_end_offset()));
+    __ cmp(newobj_end, rscratch1);
+    __ br(Assembler::HS, slow_case); // No room in GCLAB
+
+    // Store Brooks pointer and adjust start of newobj.
+    Universe::heap()->compile_prepare_oop(_masm, newobj);
+
+    // We can reuse newobj_end (rscratch2) to hold dst.
+    Register src = r1, dst = newobj_end;
+
+    // Copy the object from obj to newobj.  This loop is short and
+    // sweet: the typical size of an object is about eight HeapWords
+    // so it makes no sense to optimize for a large memory copy.
+    // There might be some sense to calling generate_copy_longs from
+    // here if the object to be copied is very large.
+    Label loop, odd_count;
+    {
+      __ mov(src, obj);
+      __ mov(dst, newobj);
+      __ tbnz(size, exact_log2(HeapWordSize), odd_count);
+
+      // Live registers: obj, newobj, size, src, dst.
+
+      __ bind(loop);
+      // Count is even.  Copy pairs of HeapWords.
+      __ ldp(rscratch1, r4, __ post(src, 2 * HeapWordSize));
+      __ stp(rscratch1, r4, __ post(dst, 2 * HeapWordSize));
+      __ subs(size, size, 2 * HeapWordSize);
+      __ br(Assembler::GT, loop);
+    }
+
+    // All copied.  Now try to CAS the Brooks pointer.
+    Label succeed;
+    __ lea(r2, Address(obj, BrooksPointer::BYTE_OFFSET));
+    __ cmpxchgptr(obj, newobj, r2, rscratch1, succeed, NULL);
+      // If we lose the CAS we are racing with someone who just beat
+      // us evacuating the object.  This leaves the address of the
+      // evacuated object in r0.
+
+    // We lost.
+    __ pop(saved, sp);
+    __ ret(lr);
+
+    // We won.
+    __ bind(succeed);
+    __ mov(obj, newobj);
+    // dst points to end of newobj.
+    __ str(dst, Address(rthread, JavaThread::gclab_top_offset()));
+    __ pop(saved, sp);
+    __ ret(lr);
+
+    // Come here if the count of HeapWords is odd.
+    {
+      __ bind(odd_count);
+      __ ldr(rscratch1, __ post(src, HeapWordSize));
+      __ str(rscratch1, __ post(dst, HeapWordSize));
+      __ subs(size, size, HeapWordSize);
+      __ b(loop);
+    }
+
+    // Come here if obj is an array of some kind.
+    {
+      __ bind(not_an_instance);
+
+      // It's an array.  Calculate the size in r4.
+      __ ubfx(r4, size, Klass::_lh_header_size_shift,
+              exact_log2(Klass::_lh_header_size_mask+1));
+      __ ldrw(rscratch1, Address(obj, arrayOopDesc::length_offset_in_bytes()));
+      __ ubfx(rscratch2, size, Klass::_lh_log2_element_size_shift,
+              exact_log2(Klass::_lh_log2_element_size_mask+1));
+      __ lslv(rscratch1, rscratch1, rscratch2);
+      __ add(size, rscratch1, r4);
+
+      // Round up the size.
+      __ add(size, size, MinObjAlignmentInBytes-1);
+      __ andr(size, size, -MinObjAlignmentInBytes);
+
+      __ b(is_array);
+    }
+
+    {
+      // Make a runtime call to evacuate the object.
+      __ bind(slow_case);
+      __ pop(saved, sp);
+
+      __ enter(); // required for proper stackwalking of RuntimeStub frame
+
+      __ push_call_clobbered_registers();
+
+      __ mov(lr, CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_c2));
+      __ blrt(lr, 1, 0, MacroAssembler::ret_type_integral);
+      __ mov(rscratch1, obj);
+
+      __ pop_call_clobbered_registers();
+      __ mov(obj, rscratch1);
+
+      __ leave(); // required for proper stackwalking of RuntimeStub frame
+      __ ret(lr);
+    }
+
+    return start;
+  }
+
   // Non-destructive plausibility checks for oops
   //
   // Arguments:
@@ -669,42 +836,43 @@ class StubGenerator: public StubCodeGenerator {
   //     count   -  element count
   //     tmp     - scratch register
   //
-  //     Destroy no registers!
+  //     Destroy no registers except rscratch1 and rscratch2
   //
   void  gen_write_ref_array_pre_barrier(Register addr, Register count, bool dest_uninitialized) {
     BarrierSet* bs = Universe::heap()->barrier_set();
     switch (bs->kind()) {
-    case BarrierSet::G1SATBCT:
     case BarrierSet::G1SATBCTLogging:
-      // With G1, don't generate the call if we statically know that the target in uninitialized
+    case BarrierSet::ShenandoahBarrierSet:
+      // Don't generate the call if we statically know that the target is uninitialized
       if (!dest_uninitialized) {
-	__ push(RegSet::range(r0, r29), sp);         // integer registers except lr & sp
-	if (count == c_rarg0) {
-	  if (addr == c_rarg1) {
-	    // exactly backwards!!
-	    __ stp(c_rarg0, c_rarg1, __ pre(sp, -2 * wordSize));
-	    __ ldp(c_rarg1, c_rarg0, __ post(sp, -2 * wordSize));
-	  } else {
-	    __ mov(c_rarg1, count);
-	    __ mov(c_rarg0, addr);
-	  }
-	} else {
-	  __ mov(c_rarg0, addr);
-	  __ mov(c_rarg1, count);
-	}
-	__ call_VM_leaf(CAST_FROM_FN_PTR(address, BarrierSet::static_write_ref_array_pre), 2);
-	__ pop(RegSet::range(r0, r29), sp);         // integer registers except lr & sp        }
-	break;
+        __ push_call_clobbered_registers();
+        if (count == c_rarg0) {
+          if (addr == c_rarg1) {
+            // exactly backwards!!
+            __ mov(rscratch1, c_rarg0);
+            __ mov(c_rarg0, c_rarg1);
+            __ mov(c_rarg1, rscratch1);
+          } else {
+            __ mov(c_rarg1, count);
+            __ mov(c_rarg0, addr);
+          }
+        } else {
+          __ mov(c_rarg0, addr);
+          __ mov(c_rarg1, count);
+        }
+        __ call_VM_leaf(CAST_FROM_FN_PTR(address, BarrierSet::static_write_ref_array_pre), 2);
+        __ pop_call_clobbered_registers();
+        break;
       case BarrierSet::CardTableModRef:
       case BarrierSet::CardTableExtension:
       case BarrierSet::ModRef:
         break;
       default:
         ShouldNotReachHere();
-
       }
     }
   }
+
 
   //
   // Generate code for an array write post barrier
@@ -722,7 +890,7 @@ class StubGenerator: public StubCodeGenerator {
     switch (bs->kind()) {
       case BarrierSet::G1SATBCT:
       case BarrierSet::G1SATBCTLogging:
-
+      case BarrierSet::ShenandoahBarrierSet:
         {
 	  __ push(RegSet::range(r0, r29), sp);         // integer registers except lr & sp
           // must compute element count unless barrier set interface is changed (other platforms supply count)
@@ -1289,7 +1457,7 @@ class StubGenerator: public StubCodeGenerator {
   //   used by generate_conjoint_int_oop_copy().
   //
   address generate_disjoint_int_copy(bool aligned, address *entry,
-					 const char *name, bool dest_uninitialized = false) {
+					 const char *name) {
     const bool not_oop = false;
     return generate_disjoint_copy(sizeof (jint), aligned, not_oop, entry, name);
   }
@@ -1368,10 +1536,10 @@ class StubGenerator: public StubCodeGenerator {
   //   no-overlap entry point used by generate_conjoint_long_oop_copy().
   //
   address generate_disjoint_oop_copy(bool aligned, address *entry,
-				     const char *name, bool dest_uninitialized = false) {
+				     const char *name, bool dest_uninitialized) {
     const bool is_oop = true;
     const size_t size = UseCompressedOops ? sizeof (jint) : sizeof (jlong);
-    return generate_disjoint_copy(size, aligned, is_oop, entry, name);
+    return generate_disjoint_copy(size, aligned, is_oop, entry, name, dest_uninitialized);
   }
 
   // Arguments:
@@ -1386,10 +1554,11 @@ class StubGenerator: public StubCodeGenerator {
   //
   address generate_conjoint_oop_copy(bool aligned,
 				     address nooverlap_target, address *entry,
-				     const char *name, bool dest_uninitialized = false) {
+				     const char *name, bool dest_uninitialized) {
     const bool is_oop = true;
     const size_t size = UseCompressedOops ? sizeof (jint) : sizeof (jlong);
-    return generate_conjoint_copy(size, aligned, is_oop, nooverlap_target, entry, name);
+    return generate_conjoint_copy(size, aligned, is_oop, nooverlap_target, entry,
+                                  name, dest_uninitialized);
   }
 
 
@@ -1495,6 +1664,8 @@ class StubGenerator: public StubCodeGenerator {
       __ bind(L);
     }
 #endif //ASSERT
+
+    gen_write_ref_array_pre_barrier(to, count, dest_uninitialized);
 
     // save the original count
     __ mov(count_save, count);
@@ -1637,16 +1808,18 @@ class StubGenerator: public StubCodeGenerator {
       bool aligned = !UseCompressedOops;
 
       StubRoutines::_arrayof_oop_disjoint_arraycopy
-	= generate_disjoint_oop_copy(aligned, &entry, "arrayof_oop_disjoint_arraycopy");
+        = generate_disjoint_oop_copy(aligned, &entry, "arrayof_oop_disjoint_arraycopy",
+                                     /*dest_uninitialized*/false);
       StubRoutines::_arrayof_oop_arraycopy
-	= generate_conjoint_oop_copy(aligned, entry, &entry_oop_arraycopy, "arrayof_oop_arraycopy");
+        = generate_conjoint_oop_copy(aligned, entry, &entry_oop_arraycopy, "arrayof_oop_arraycopy",
+                                     /*dest_uninitialized*/false);
       // Aligned versions without pre-barriers
       StubRoutines::_arrayof_oop_disjoint_arraycopy_uninit
-	= generate_disjoint_oop_copy(aligned, &entry, "arrayof_oop_disjoint_arraycopy_uninit",
-				     /*dest_uninitialized*/true);
+        = generate_disjoint_oop_copy(aligned, &entry, "arrayof_oop_disjoint_arraycopy_uninit",
+                                     /*dest_uninitialized*/true);
       StubRoutines::_arrayof_oop_arraycopy_uninit
-	= generate_conjoint_oop_copy(aligned, entry, NULL, "arrayof_oop_arraycopy_uninit",
-				     /*dest_uninitialized*/true);
+        = generate_conjoint_oop_copy(aligned, entry, NULL, "arrayof_oop_arraycopy_uninit",
+                                     /*dest_uninitialized*/true);
     }
 
     StubRoutines::_oop_disjoint_arraycopy            = StubRoutines::_arrayof_oop_disjoint_arraycopy;
@@ -2565,6 +2738,10 @@ class StubGenerator: public StubCodeGenerator {
 
     if (UseMultiplyToLenIntrinsic) {
       StubRoutines::_multiplyToLen = generate_multiplyToLen();
+    }
+
+    if (UseShenandoahGC) {
+      StubRoutines::aarch64::_shenandoah_wb = generate_shenandoah_wb();
     }
 
 #ifndef BUILTIN_SIM

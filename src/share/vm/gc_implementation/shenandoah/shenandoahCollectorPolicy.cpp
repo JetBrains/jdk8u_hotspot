@@ -462,6 +462,7 @@ public:
 
     ShenandoahHeap* _heap = ShenandoahHeap::heap();
     bool shouldStartConcurrentMark = false;
+    OrderAccess::release();
 
     size_t max_live_data = _max_live_data;
     if (max_live_data == 0) {
