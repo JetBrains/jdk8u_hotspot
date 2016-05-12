@@ -126,6 +126,8 @@ void ShenandoahMarkCompact::do_mark_compact() {
   ShenandoahMarkCompactBarrierSet bs(_heap);
   oopDesc::set_bs(&bs);
 
+  _heap->set_need_update_refs(true);
+
   OrderAccess::fence();
 
   phase1_mark_heap();
@@ -260,6 +262,12 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
   ShenandoahConcurrentMark* cm = _heap->concurrentMark();
 
   cm->prepare_unmarked_root_objs_no_derived_ptrs(true);
+  if (ShenandoahProcessReferences) {
+    ReferenceProcessor* rp = _heap->ref_processor();
+    // enable ("weak") refs discovery
+    rp->enable_discovery(true /*verify_no_refs*/, true);
+    rp->setup_policy(true); // snapshot the soft ref policy to be used in this cycle
+  }
   cm->shared_finish_mark_from_roots();
 
   if (VerifyDuringGC) {
