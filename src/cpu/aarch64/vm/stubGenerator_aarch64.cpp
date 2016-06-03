@@ -845,24 +845,24 @@ class StubGenerator: public StubCodeGenerator {
     case BarrierSet::ShenandoahBarrierSet:
       // Don't generate the call if we statically know that the target is uninitialized
       if (!dest_uninitialized) {
-        __ push_call_clobbered_registers();
-        if (count == c_rarg0) {
-          if (addr == c_rarg1) {
-            // exactly backwards!!
+	__ push_call_clobbered_registers();
+	if (count == c_rarg0) {
+	  if (addr == c_rarg1) {
+	    // exactly backwards!!
             __ mov(rscratch1, c_rarg0);
             __ mov(c_rarg0, c_rarg1);
             __ mov(c_rarg1, rscratch1);
-          } else {
-            __ mov(c_rarg1, count);
-            __ mov(c_rarg0, addr);
-          }
-        } else {
-          __ mov(c_rarg0, addr);
-          __ mov(c_rarg1, count);
-        }
-        __ call_VM_leaf(CAST_FROM_FN_PTR(address, BarrierSet::static_write_ref_array_pre), 2);
-        __ pop_call_clobbered_registers();
-        break;
+	  } else {
+	    __ mov(c_rarg1, count);
+	    __ mov(c_rarg0, addr);
+	  }
+	} else {
+	  __ mov(c_rarg0, addr);
+	  __ mov(c_rarg1, count);
+	}
+	__ call_VM_leaf(CAST_FROM_FN_PTR(address, BarrierSet::static_write_ref_array_pre), 2);
+	__ pop_call_clobbered_registers();
+	break;
       case BarrierSet::CardTableModRef:
       case BarrierSet::CardTableExtension:
       case BarrierSet::ModRef:
@@ -892,7 +892,7 @@ class StubGenerator: public StubCodeGenerator {
       case BarrierSet::G1SATBCTLogging:
       case BarrierSet::ShenandoahBarrierSet:
         {
-	  __ push(RegSet::range(r0, r29), sp);         // integer registers except lr & sp
+	  __ push_call_clobbered_registers();
           // must compute element count unless barrier set interface is changed (other platforms supply count)
           assert_different_registers(start, end, scratch);
           __ lea(scratch, Address(end, BytesPerHeapOop));
@@ -901,7 +901,7 @@ class StubGenerator: public StubCodeGenerator {
           __ mov(c_rarg0, start);
           __ mov(c_rarg1, scratch);
           __ call_VM_leaf(CAST_FROM_FN_PTR(address, BarrierSet::static_write_ref_array_post), 2);
-	  __ pop(RegSet::range(r0, r29), sp);         // integer registers except lr & sp        }
+	  __ pop_call_clobbered_registers();
         }
         break;
       case BarrierSet::CardTableModRef:
@@ -1808,10 +1808,10 @@ class StubGenerator: public StubCodeGenerator {
       bool aligned = !UseCompressedOops;
 
       StubRoutines::_arrayof_oop_disjoint_arraycopy
-        = generate_disjoint_oop_copy(aligned, &entry, "arrayof_oop_disjoint_arraycopy",
+	= generate_disjoint_oop_copy(aligned, &entry, "arrayof_oop_disjoint_arraycopy",
                                      /*dest_uninitialized*/false);
       StubRoutines::_arrayof_oop_arraycopy
-        = generate_conjoint_oop_copy(aligned, entry, &entry_oop_arraycopy, "arrayof_oop_arraycopy",
+	= generate_conjoint_oop_copy(aligned, entry, &entry_oop_arraycopy, "arrayof_oop_arraycopy",
                                      /*dest_uninitialized*/false);
       // Aligned versions without pre-barriers
       StubRoutines::_arrayof_oop_disjoint_arraycopy_uninit
