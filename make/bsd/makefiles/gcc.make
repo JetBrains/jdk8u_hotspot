@@ -327,11 +327,6 @@ endif
 
 # Flags for generating make dependency flags.
 DEPFLAGS = -MMD -MP -MF $(DEP_DIR)/$(@:%=%.d)
-ifeq ($(USE_CLANG),)
-  ifneq ($(CC_VER_MAJOR), 2)
-    DEPFLAGS += -fpch-deps
-  endif
-endif
 
 # -DDONT_USE_PRECOMPILED_HEADER will exclude all includes in precompiled.hpp.
 ifeq ($(USE_PRECOMPILED_HEADER),0)
