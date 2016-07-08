@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -995,7 +995,9 @@ void JvmtiExport::post_class_unload(Klass* klass) {
         // Before we call the JVMTI agent, we have to set the state in the
         // thread for which we are proxying.
         JavaThreadState prev_state = real_thread->thread_state();
-        assert(prev_state == _thread_blocked, "JavaThread should be at safepoint");
+        assert(((Thread *)real_thread)->is_ConcurrentGC_thread() ||
+               (real_thread->is_Java_thread() && prev_state == _thread_blocked),
+               "should be ConcurrentGCThread or JavaThread at safepoint");
         real_thread->set_thread_state(_thread_in_native);
 
         jvmtiExtensionEvent callback = env->ext_callbacks()->ClassUnload;
@@ -1586,7 +1588,7 @@ void JvmtiExport::post_raw_field_modification(JavaThread *thread, Method* method
   address location, KlassHandle field_klass, Handle object, jfieldID field,
   char sig_type, jvalue *value) {
 
-  if (sig_type == 'I' || sig_type == 'Z' || sig_type == 'C' || sig_type == 'S') {
+  if (sig_type == 'I' || sig_type == 'Z' || sig_type == 'B' || sig_type == 'C' || sig_type == 'S') {
     // 'I' instructions are used for byte, char, short and int.
     // determine which it really is, and convert
     fieldDescriptor fd;

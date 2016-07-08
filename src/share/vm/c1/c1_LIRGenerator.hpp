@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -410,7 +410,7 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
   }
 
   static LIR_Condition lir_cond(If::Condition cond) {
-    LIR_Condition l;
+    LIR_Condition l = lir_cond_unknown;
     switch (cond) {
     case If::eql: l = lir_cond_equal;        break;
     case If::neq: l = lir_cond_notEqual;     break;
@@ -420,6 +420,7 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
     case If::gtr: l = lir_cond_greater;      break;
     case If::aeq: l = lir_cond_aboveEqual;   break;
     case If::beq: l = lir_cond_belowEqual;   break;
+    default: fatal("You must pass valid If::Condition");
     };
     return l;
   }
@@ -445,6 +446,7 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
   void profile_arguments(ProfileCall* x);
   void profile_parameters(Base* x);
   void profile_parameters_at_call(ProfileCall* x);
+  LIR_Opr maybe_mask_boolean(StoreIndexed* x, LIR_Opr array, LIR_Opr value, CodeEmitInfo*& null_check_info);
 
  public:
   Compilation*  compilation() const              { return _compilation; }

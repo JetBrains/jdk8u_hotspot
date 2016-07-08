@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -2417,11 +2417,9 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
   m->set_constants(_cp);
   m->set_name_index(name_index);
   m->set_signature_index(signature_index);
-#ifdef CC_INTERP
-  // hmm is there a gc issue here??
+
   ResultTypeFinder rtf(_cp->symbol_at(signature_index));
-  m->set_result_index(rtf.type());
-#endif
+  m->constMethod()->set_result_type(rtf.type());
 
   if (args_size >= 0) {
     m->set_size_of_parameters(args_size);
@@ -3190,19 +3188,19 @@ void ClassFileParser::layout_fields(Handle class_loader,
 
   // Field size and offset computation
   int nonstatic_field_size = _super_klass() == NULL ? 0 : _super_klass()->nonstatic_field_size();
-  int next_static_oop_offset;
-  int next_static_double_offset;
-  int next_static_word_offset;
-  int next_static_short_offset;
-  int next_static_byte_offset;
-  int next_nonstatic_oop_offset;
-  int next_nonstatic_double_offset;
-  int next_nonstatic_word_offset;
-  int next_nonstatic_short_offset;
-  int next_nonstatic_byte_offset;
-  int first_nonstatic_oop_offset;
-  int next_nonstatic_field_offset;
-  int next_nonstatic_padded_offset;
+  int next_static_oop_offset = 0;
+  int next_static_double_offset = 0;
+  int next_static_word_offset = 0;
+  int next_static_short_offset = 0;
+  int next_static_byte_offset = 0;
+  int next_nonstatic_oop_offset = 0;
+  int next_nonstatic_double_offset = 0;
+  int next_nonstatic_word_offset = 0;
+  int next_nonstatic_short_offset = 0;
+  int next_nonstatic_byte_offset = 0;
+  int first_nonstatic_oop_offset = 0;
+  int next_nonstatic_field_offset = 0;
+  int next_nonstatic_padded_offset = 0;
 
   // Count the contended fields by type.
   //
@@ -3355,14 +3353,14 @@ void ClassFileParser::layout_fields(Handle class_loader,
     ShouldNotReachHere();
   }
 
-  int nonstatic_oop_space_count   = 0;
-  int nonstatic_word_space_count  = 0;
-  int nonstatic_short_space_count = 0;
-  int nonstatic_byte_space_count  = 0;
-  int nonstatic_oop_space_offset;
-  int nonstatic_word_space_offset;
-  int nonstatic_short_space_offset;
-  int nonstatic_byte_space_offset;
+  int nonstatic_oop_space_count    = 0;
+  int nonstatic_word_space_count   = 0;
+  int nonstatic_short_space_count  = 0;
+  int nonstatic_byte_space_count   = 0;
+  int nonstatic_oop_space_offset   = 0;
+  int nonstatic_word_space_offset  = 0;
+  int nonstatic_short_space_offset = 0;
+  int nonstatic_byte_space_offset  = 0;
 
   // Try to squeeze some of the fields into the gaps due to
   // long/double alignment.
@@ -3434,7 +3432,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
     // contended instance fields are handled below
     if (fs.is_contended() && !fs.access_flags().is_static()) continue;
 
-    int real_offset;
+    int real_offset = 0;
     FieldAllocationType atype = (FieldAllocationType) fs.allocation_type();
 
     // pack the rest of the fields
@@ -3567,7 +3565,7 @@ void ClassFileParser::layout_fields(Handle class_loader,
         // handle statics below
         if (fs.access_flags().is_static()) continue;
 
-        int real_offset;
+        int real_offset = 0;
         FieldAllocationType atype = (FieldAllocationType) fs.allocation_type();
 
         switch (atype) {

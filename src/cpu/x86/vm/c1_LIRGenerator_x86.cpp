@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -195,7 +195,7 @@ LIR_Address* LIRGenerator::emit_array_address(LIR_Opr array_opr, LIR_Opr index_o
 
 
 LIR_Opr LIRGenerator::load_immediate(int x, BasicType type) {
-  LIR_Opr r;
+  LIR_Opr r = NULL;
   if (type == T_LONG) {
     r = LIR_OprFact::longConst(x);
   } else if (type == T_INT) {
@@ -283,7 +283,7 @@ void LIRGenerator::do_StoreIndexed(StoreIndexed* x) {
     length.load_item();
 
   }
-  if (needs_store_check) {
+  if (needs_store_check || x->check_boolean()) {
     value.load_item();
   } else {
     value.load_for_store(x->elt_type());
@@ -331,7 +331,8 @@ void LIRGenerator::do_StoreIndexed(StoreIndexed* x) {
     // Seems to be a precise
     post_barrier(LIR_OprFact::address(array_addr), value.result());
   } else {
-    __ move(value.result(), array_addr, null_check_info);
+    LIR_Opr result = maybe_mask_boolean(x, array.result(), value.result(), null_check_info);
+    __ move(result, array_addr, null_check_info);
   }
 }
 
@@ -484,7 +485,7 @@ void LIRGenerator::do_ArithmeticOp_Long(ArithmeticOp* x) {
     __ cmp(lir_cond_equal, right.result(), LIR_OprFact::longConst(0));
     __ branch(lir_cond_equal, T_LONG, new DivByZeroStub(info));
 
-    address entry;
+    address entry = NULL;
     switch (x->op()) {
     case Bytecodes::_lrem:
       entry = CAST_FROM_FN_PTR(address, SharedRuntime::lrem);
@@ -1024,7 +1025,7 @@ LIR_Opr fixed_register_for(BasicType type) {
 
 void LIRGenerator::do_Convert(Convert* x) {
   // flags that vary for the different operations and different SSE-settings
-  bool fixed_input, fixed_result, round_result, needs_stub;
+  bool fixed_input = false, fixed_result = false, round_result = false, needs_stub = false;
 
   switch (x->op()) {
     case Bytecodes::_i2l: // fall through

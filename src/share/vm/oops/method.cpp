@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -84,9 +84,6 @@ Method::Method(ConstMethod* xconst, AccessFlags access_flags, int size) {
   set_constMethod(xconst);
   set_access_flags(access_flags);
   set_method_size(size);
-#ifdef CC_INTERP
-  set_result_index(T_VOID);
-#endif
   set_intrinsic_id(vmIntrinsics::_none);
   set_jfr_towrite(false);
   set_force_inline(false);
@@ -411,12 +408,6 @@ void Method::compute_size_of_parameters(Thread *thread) {
   ArgumentSizeComputer asc(signature());
   set_size_of_parameters(asc.size() + (is_static() ? 0 : 1));
 }
-
-#ifdef CC_INTERP
-void Method::set_result_index(BasicType type)          {
-  _result_index = Interpreter::BasicType_as_index(type);
-}
-#endif
 
 BasicType Method::result_type() const {
   ResultTypeFinder rtf(signature());
@@ -1123,10 +1114,8 @@ methodHandle Method::make_method_handle_intrinsic(vmIntrinsics::ID iid,
   m->set_signature_index(_imcp_invoke_signature);
   assert(MethodHandles::is_signature_polymorphic_name(m->name()), "");
   assert(m->signature() == signature, "");
-#ifdef CC_INTERP
   ResultTypeFinder rtf(signature);
-  m->set_result_index(rtf.type());
-#endif
+  m->constMethod()->set_result_type(rtf.type());
   m->compute_size_of_parameters(THREAD);
   m->init_intrinsic_id();
   assert(m->is_method_handle_intrinsic(), "");
@@ -1789,7 +1778,7 @@ class JNIMethodBlock : public CHeapObj<mtClass> {
   void clear_all_methods() {
     for (JNIMethodBlock* b = this; b != NULL; b = b->_next) {
       for (int i = 0; i< number_of_methods; i++) {
-        _methods[i] = NULL;
+        b->_methods[i] = NULL;
       }
     }
   }
@@ -1799,7 +1788,7 @@ class JNIMethodBlock : public CHeapObj<mtClass> {
     int count = 0;
     for (JNIMethodBlock* b = this; b != NULL; b = b->_next) {
       for (int i = 0; i< number_of_methods; i++) {
-        if (_methods[i] != _free_method) count++;
+        if (b->_methods[i] != _free_method) count++;
       }
     }
     return count;
@@ -1857,6 +1846,9 @@ bool Method::is_method_id(jmethodID mid) {
   Method* m = resolve_jmethod_id(mid);
   assert(m != NULL, "should be called with non-null method");
   InstanceKlass* ik = m->method_holder();
+  if (ik == NULL) {
+    return false;
+  }
   ClassLoaderData* cld = ik->class_loader_data();
   if (cld->jmethod_ids() == NULL) return false;
   return (cld->jmethod_ids()->contains((Method**)mid));
@@ -1864,6 +1856,9 @@ bool Method::is_method_id(jmethodID mid) {
 
 Method* Method::checked_resolve_jmethod_id(jmethodID mid) {
   if (mid == NULL) return NULL;
+  if (!Method::is_method_id(mid)) {
+    return NULL;
+  }
   Method* o = resolve_jmethod_id(mid);
   if (o == NULL || o == JNIMethodBlock::_free_method || !((Metadata*)o)->is_method()) {
     return NULL;
