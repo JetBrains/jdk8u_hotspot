@@ -92,6 +92,7 @@ private:
 
   void obj_at_put(int index, oop value) {
     objArrayOop p = (objArrayOop) oopDesc::bs()->write_barrier(this);
+    value = oopDesc::bs()->read_barrier(value);
     if (UseCompressedOops) {
       oop_store(p->obj_at_addr<narrowOop>(index), value);
     } else {
