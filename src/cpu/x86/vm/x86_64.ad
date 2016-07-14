@@ -7361,7 +7361,10 @@ instruct compareAndSwapP_shenandoah(rRegI res,
     }
     __ cmpxchgptr($newval$$Register, $mem_ptr$$Address);
     __ jccb(Assembler::equal, done);
-
+    __ testptr($tmp$$Register, $tmp$$Register);
+    __ jccb(Assembler::zero, done);
+    __ testptr($oldval$$Register, $oldval$$Register);
+    __ jccb(Assembler::zero, done);
     __ movptr($tmp$$Register, Address($tmp$$Register, BrooksPointer::BYTE_OFFSET));
     __ cmpptr($tmp$$Register, Address($oldval$$Register, BrooksPointer::BYTE_OFFSET));
     __ jccb(Assembler::equal, retry);
