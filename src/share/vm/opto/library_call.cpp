@@ -6517,6 +6517,7 @@ bool LibraryCallKit::inline_sha_implCompress(vmIntrinsics::ID id) {
     return false;
   }
   // 'src_start' points to src array + offset
+  src = shenandoah_read_barrier(src);
   Node* src_start = array_element_address(src, ofs, src_elem);
   Node* state = NULL;
   address stubAddr;
@@ -6583,6 +6584,7 @@ bool LibraryCallKit::inline_digestBase_implCompressMB(int predicate) {
     return false;
   }
   // 'src_start' points to src array + offset
+  src = shenandoah_read_barrier(src);
   Node* src_start = array_element_address(src, ofs, src_elem);
 
   const char* klass_SHA_name = NULL;
@@ -6664,6 +6666,8 @@ Node * LibraryCallKit::get_state_from_sha_object(Node *sha_object) {
   assert (sha_state != NULL, "wrong version of sun.security.provider.SHA/SHA2");
   if (sha_state == NULL) return (Node *) NULL;
 
+  sha_state = shenandoah_write_barrier(sha_state);
+
   // now have the array, need to get the start address of the state array
   Node* state = array_element_address(sha_state, intcon(0), T_INT);
   return state;
@@ -6674,6 +6678,8 @@ Node * LibraryCallKit::get_state_from_sha5_object(Node *sha_object) {
   Node* sha_state = load_field_from_object(sha_object, "state", "[J", /*is_exact*/ false);
   assert (sha_state != NULL, "wrong version of sun.security.provider.SHA5");
   if (sha_state == NULL) return (Node *) NULL;
+
+  sha_state = shenandoah_write_barrier(sha_state);
 
   // now have the array, need to get the start address of the state array
   Node* state = array_element_address(sha_state, intcon(0), T_LONG);
