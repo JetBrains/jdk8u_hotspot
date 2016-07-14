@@ -353,7 +353,7 @@ Klass* SystemDictionary::resolve_super_or_fail(Symbol* child_name,
        ((quicksuperk = InstanceKlass::cast(childk)->super()) != NULL) &&
 
          ((quicksuperk->name() == class_name) &&
-            (quicksuperk->class_loader()  == class_loader()))) {
+          (oopDesc::equals(quicksuperk->class_loader(), class_loader())))) {
            return quicksuperk;
     } else {
       PlaceholderEntry* probe = placeholders()->get_entry(p_index, p_hash, child_name, loader_data);
