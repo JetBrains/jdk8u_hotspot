@@ -526,6 +526,12 @@ reg_class int_rdi_reg(RDI);
 
 %}
 
+source_hpp %{
+
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
+
+%}
+
 //----------SOURCE BLOCK-------------------------------------------------------
 // This is a block of C++ code which provides values, functions, and
 // definitions necessary in the rest of the architecture description
@@ -7305,7 +7311,7 @@ instruct compareAndSwapP(rRegI res,
                          rax_RegP oldval, rRegP newval,
                          rFlagsReg cr)
 %{
-  predicate(VM_Version::supports_cx8());
+  predicate(VM_Version::supports_cx8() && !UseShenandoahGC);
   match(Set res (CompareAndSwapP mem_ptr (Binary oldval newval)));
   effect(KILL cr, KILL oldval);
 
@@ -7321,6 +7327,49 @@ instruct compareAndSwapP(rRegI res,
              REX_breg(res), Opcode(0x0F), Opcode(0x94), reg(res), // sete
              REX_reg_breg(res, res), // movzbl
              Opcode(0xF), Opcode(0xB6), reg_reg(res, res));
+  ins_pipe( pipe_cmpxchg );
+%}
+
+instruct compareAndSwapP_shenandoah(rRegI res,
+                                    memory mem_ptr,
+                                    rRegP tmp,
+                                    rax_RegP oldval, rRegP newval,
+                                    rFlagsReg cr)
+%{
+  predicate(VM_Version::supports_cx8() && UseShenandoahGC);
+  match(Set res (CompareAndSwapP mem_ptr (Binary oldval newval)));
+  effect(TEMP tmp, KILL cr, KILL oldval);
+
+  format %{ "retry:\n\t"
+            "read_barrier $tmp, $oldval\n\t"
+            "cmpxchgq $mem_ptr,$newval\t# "
+            "If rax == $mem_ptr then store $newval into $mem_ptr\n\t"
+            "je done\n\t"
+            "cmpptr $tmp, (read_barrier rax)\n\t"
+            "je retry\n\t"
+            "done:\n\t"
+            "sete    $res\n\t"
+            "movzbl  $res, $res" %}
+  ins_encode %{
+    Label done;
+    Label retry;
+
+    __ mov($tmp$$Register, $oldval$$Register);
+    __ bind(retry);
+    if (os::is_MP()) {
+      __ lock();
+    }
+    __ cmpxchgptr($newval$$Register, $mem_ptr$$Address);
+    __ jccb(Assembler::equal, done);
+
+    __ movptr($tmp$$Register, Address($tmp$$Register, BrooksPointer::BYTE_OFFSET));
+    __ cmpptr($tmp$$Register, Address($oldval$$Register, BrooksPointer::BYTE_OFFSET));
+    __ jccb(Assembler::equal, retry);
+
+    __ bind(done);
+    __ setb(Assembler::zero, $res$$Register);
+    __ movzbl($res$$Register, $res$$Register);
+  %}
   ins_pipe( pipe_cmpxchg );
 %}
 

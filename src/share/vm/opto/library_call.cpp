@@ -2986,8 +2986,6 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
   // For now, we handle only those cases that actually exist: ints,
   // longs, and Object. Adding others should be straightforward.
   Node* load_store;
-  Node* result;
-  bool need_mem = true;
   switch(type) {
   case T_INT:
     if (kind == LS_xadd) {
@@ -2999,7 +2997,6 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
     } else {
       ShouldNotReachHere();
     }
-    result = load_store;
     break;
   case T_LONG:
     if (kind == LS_xadd) {
@@ -3011,7 +3008,6 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
     } else {
       ShouldNotReachHere();
     }
-    result = load_store;
     break;
   case T_OBJECT:
     // Transformation of a value which could be NULL pointer (CastPP #NULL)
@@ -3057,100 +3053,17 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
         load_store = _gvn.transform(new (C) CompareAndSwapNNode(control(), mem, adr,
                                                                 newval_enc, oldval_enc));
       }
-      result = load_store;
     } else
 #endif
     {
       if (kind == LS_xchg) {
         load_store = _gvn.transform(new (C) GetAndSetPNode(control(), mem, adr, newval, adr_type, value_type->is_oopptr()));
-        result = load_store;
       } else {
         assert(kind == LS_cmpxchg, "wrong LoadStore operation");
         load_store = _gvn.transform(new (C) CompareAndSwapPNode(control(), mem, adr, newval, oldval));
-        result = load_store;
-
-        if (UseShenandoahGC) {
-
-          enum { _success1_path = 1, _success2_path, _fail_path, _cas_path, PATH_LIMIT };
-
-          Node* proj1 = _gvn.transform(new (C) SCMemProjNode(load_store));
-
-          // if (old == expected)
-          Node* cmp_true = _gvn.transform(new (C) CmpINode(load_store, intcon(1)));
-          Node* tst_true = _gvn.transform(new (C) BoolNode(cmp_true, BoolTest::eq));
-          IfNode* iff = create_and_map_if(control(), tst_true, PROB_LIKELY_MAG(2), COUNT_UNKNOWN);
-          Node* iftrue = _gvn.transform(new (C) IfTrueNode(iff));
-          Node* iffalse = _gvn.transform(new (C) IfFalseNode(iff));
-
-          RegionNode* region = new (C) RegionNode(PATH_LIMIT);
-          Node*       phi    = new (C) PhiNode(region, TypeInt::BOOL);
-          Node*       memphi    = PhiNode::make(region, memory(alias_idx), Type::MEMORY, C->alias_type(alias_idx)->adr_type());
-          // success -> return result of CAS1.
-          region->init_req(_success1_path, iftrue);
-          phi   ->init_req(_success1_path, load_store);
-          memphi->init_req(_success1_path, proj1);
-
-          // failure -> check if expected and old matches after read barriers
-          set_control(iffalse);
-
-          // if (read_barrier(expected) == read_barrier(old)
-          oldval = shenandoah_read_barrier(oldval);
-
-          // Load old value from memory. We should really use what we get back from the CAS,
-          // if we can.
-          Node* current = make_load(control(), adr, TypeInstPtr::BOTTOM, type, MemNode::unordered);
-          // read_barrier(old)
-          Node* new_current = shenandoah_read_barrier(current);
-
-          // Compare old and expected, after read barriers on both.
-          Node* chk = _gvn.transform(new (C) CmpPNode(new_current, oldval));
-          Node* test = _gvn.transform(new (C) BoolNode(chk, BoolTest::eq));
-
-          IfNode* iff2 = create_and_map_if(control(), test, PROB_UNLIKELY_MAG(2), COUNT_UNKNOWN);
-          Node* iftrue2 = _gvn.transform(new (C) IfTrueNode(iff2));
-          Node* iffalse2 = _gvn.transform(new (C) IfFalseNode(iff2));
-
-          // If they are not equal, it's a legitimate failure and we return the result of CAS1.
-          region->init_req(_fail_path, iffalse2);
-          phi   ->init_req(_fail_path, load_store);
-          memphi->init_req(_fail_path, proj1);
-
-          // Otherwise we retry with old.
-          set_control(iftrue2);
-          Node* cas2 = _gvn.transform(new (C) CompareAndSwapPNode(control(), mem, adr, newval, current));
-          Node* proj2 = _gvn.transform(new (C) SCMemProjNode(cas2));
-          Node* cmp2 = _gvn.transform(new (C) CmpINode(cas2, intcon(1)));
-          Node* tst2 = _gvn.transform(new (C) BoolNode(cmp2, BoolTest::eq));
-          IfNode* iff3 = create_and_map_if(control(), tst2, PROB_LIKELY_MAG(2), COUNT_UNKNOWN);
-          Node* iftrue3 = _gvn.transform(new (C) IfTrueNode(iff3));
-          Node* iffalse3 = _gvn.transform(new (C) IfFalseNode(iff3));
-
-          // If it succeeds, fine
-          region->init_req(_success2_path, iftrue3);
-          phi   ->init_req(_success2_path, cas2);
-          memphi->init_req(_success2_path, proj2);
-
-          // Otherwise we need to retry one more time.
-          set_control(iffalse3);
-          Node* current3 = make_load(control(), adr, TypeInstPtr::BOTTOM, type, MemNode::unordered);
-          Node* cas3 = _gvn.transform(new (C) CompareAndSwapPNode(control(), mem, adr, newval, current3));
-          Node* proj3 = _gvn.transform(new (C) SCMemProjNode(cas3));
-
-          region->init_req(_cas_path, control());
-          phi   ->init_req(_cas_path, cas3);
-          memphi->init_req(_cas_path, proj3);
-
-          set_control(_gvn.transform(region));
-          record_for_igvn(region);
-          phi = _gvn.transform(phi);
-          result = phi;
-          set_memory(memphi, alias_idx);
-          need_mem = false;
-        }
-
       }
     }
-    post_barrier(control(), result, base, adr, alias_idx, newval, T_OBJECT, true);
+    post_barrier(control(), load_store, base, adr, alias_idx, newval, T_OBJECT, true);
     break;
   default:
     fatal(err_msg_res("unexpected type %d: %s", type, type2name(type)));
@@ -3160,15 +3073,13 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
   // SCMemProjNodes represent the memory state of a LoadStore. Their
   // main role is to prevent LoadStore nodes from being optimized away
   // when their results aren't used.
-  if (need_mem) {
-    Node* proj = _gvn.transform(new (C) SCMemProjNode(load_store));
-    set_memory(proj, alias_idx);
-  }
+  Node* proj = _gvn.transform(new (C) SCMemProjNode(load_store));
+  set_memory(proj, alias_idx);
 
   if (type == T_OBJECT && kind == LS_xchg) {
 #ifdef _LP64
     if (adr->bottom_type()->is_ptr_to_narrowoop()) {
-      result = _gvn.transform(new (C) DecodeNNode(result, load_store->get_ptr_type()));
+      load_store = _gvn.transform(new (C) DecodeNNode(load_store, load_store->get_ptr_type()));
     }
 #endif
     if (can_move_pre_barrier()) {
@@ -3177,7 +3088,7 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
       // gets inserted between them.
       pre_barrier(false /* do_load */,
                   control(), NULL, NULL, max_juint, NULL, NULL,
-                  result /* pre_val */,
+                  load_store /* pre_val */,
                   T_OBJECT);
     }
   }
@@ -3186,8 +3097,8 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
   insert_mem_bar(Op_MemBarCPUOrder);
   insert_mem_bar(Op_MemBarAcquire);
 
-  assert(type2size[result->bottom_type()->basic_type()] == type2size[rtype], "result type should match");
-  set_result(result);
+  assert(type2size[load_store->bottom_type()->basic_type()] == type2size[rtype], "result type should match");
+  set_result(load_store);
   return true;
 }
 
