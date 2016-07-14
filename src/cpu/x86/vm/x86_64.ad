@@ -7311,7 +7311,7 @@ instruct compareAndSwapP(rRegI res,
                          rax_RegP oldval, rRegP newval,
                          rFlagsReg cr)
 %{
-  predicate(VM_Version::supports_cx8() && !UseShenandoahGC);
+  predicate(VM_Version::supports_cx8() && (!UseShenandoahGC || n->in(3)->in(1)->bottom_type() == TypePtr::NULL_PTR));
   match(Set res (CompareAndSwapP mem_ptr (Binary oldval newval)));
   effect(KILL cr, KILL oldval);
 
@@ -7332,41 +7332,43 @@ instruct compareAndSwapP(rRegI res,
 
 instruct compareAndSwapP_shenandoah(rRegI res,
                                     memory mem_ptr,
-                                    rRegP tmp,
+                                    rRegP tmp1, rRegP tmp2,
                                     rax_RegP oldval, rRegP newval,
                                     rFlagsReg cr)
 %{
   predicate(VM_Version::supports_cx8() && UseShenandoahGC);
   match(Set res (CompareAndSwapP mem_ptr (Binary oldval newval)));
-  effect(TEMP tmp, KILL cr, KILL oldval);
+  effect(TEMP tmp1, TEMP tmp2, KILL cr, KILL oldval);
+  ins_cost(1000);
 
-  format %{ "retry:\n\t"
-            "read_barrier $tmp, $oldval\n\t"
+  format %{ "movl $res, 1\n\t"
+            "mov $tmp1, $oldval\n\t"
+            "retry:\n\t"
             "cmpxchgq $mem_ptr,$newval\t# "
             "If rax == $mem_ptr then store $newval into $mem_ptr\n\t"
-            "je done\n\t"
-            "cmpptr $tmp, (read_barrier rax)\n\t"
+            "read_barrier $tmp1\n\t"
+            "mov $tmp2, $oldval\n\t"
+            "read_barrier $tmp2\n\t"
+            "cmpptr $tmp1, $tmp2\n\t"
             "je retry\n\t"
             "done:\n\t"
             "sete    $res\n\t"
             "movzbl  $res, $res" %}
   ins_encode %{
-    Label done;
-    Label retry;
+    Label retry, done;
 
-    __ mov($tmp$$Register, $oldval$$Register);
+    __ mov($tmp1$$Register, $oldval$$Register);
     __ bind(retry);
     if (os::is_MP()) {
       __ lock();
     }
     __ cmpxchgptr($newval$$Register, $mem_ptr$$Address);
     __ jccb(Assembler::equal, done);
-    __ testptr($tmp$$Register, $tmp$$Register);
-    __ jccb(Assembler::zero, done);
-    __ testptr($oldval$$Register, $oldval$$Register);
-    __ jccb(Assembler::zero, done);
-    __ movptr($tmp$$Register, Address($tmp$$Register, BrooksPointer::BYTE_OFFSET));
-    __ cmpptr($tmp$$Register, Address($oldval$$Register, BrooksPointer::BYTE_OFFSET));
+    
+    oopDesc::bs()->interpreter_read_barrier(&_masm, $tmp1$$Register);
+    __ mov($tmp2$$Register, $oldval$$Register);
+    oopDesc::bs()->interpreter_read_barrier(&_masm, $tmp2$$Register);
+    __ cmpptr($tmp1$$Register, $tmp2$$Register);
     __ jccb(Assembler::equal, retry);
 
     __ bind(done);
