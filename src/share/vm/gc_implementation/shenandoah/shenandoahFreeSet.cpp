@@ -56,7 +56,7 @@ size_t ShenandoahFreeSet::capacity() {
  * the caller, how many regions to skip (because we know, there
  * can't start a contiguous range there).
  */
-size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t num) {
+size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t end, size_t num) {
 
   ShenandoahHeapRegion* r1 = get(start);
 
@@ -66,7 +66,7 @@ size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t num) {
   for (size_t i = 1; i < num; i++) {
 
     size_t index = (start + i) % _reserved_end;
-    if (index == _active_end) {
+    if (index == end) {
       // We reached the end of our free list.
       ShouldNotReachHere(); // We limit search in find_contiguous()
       return i;
@@ -83,15 +83,15 @@ size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t num) {
   return 0;
 }
 
-size_t ShenandoahFreeSet::find_contiguous(size_t start, size_t num) {
+size_t ShenandoahFreeSet::find_contiguous(size_t start, size_t end, size_t num) {
 
   assert(start < _reserved_end, "sanity");
 
   // The modulo will take care of wrapping around.
   size_t index = start;
-  while (index != _active_end && diff_to_end(index, _active_end) >= num) {
+  while (index != end && diff_to_end(index, end) > num) {
     assert(index < _reserved_end, "sanity");
-    size_t j = is_contiguous(index, num);
+    size_t j = is_contiguous(index, end, num);
     if (j == 0) {
       return index;
     }
@@ -130,18 +130,18 @@ size_t ShenandoahFreeSet::diff_to_end(size_t i, size_t end) const {
     end += _reserved_end;
   }
   assert(end > i, "sanity");
-  return end - i;
+  return end == i ? _capacity : end - i;
 }
 
 ShenandoahHeapRegion* ShenandoahFreeSet::claim_contiguous(size_t num) {
   size_t current_idx = _current_index;
   size_t next = (current_idx + 1) % _reserved_end;
   size_t end = _active_end;
-  while (next != _active_end && diff_to_end(next, _active_end) > num) {
-    size_t first = find_contiguous(next, num);
+  while (next != end && diff_to_end(next, end) > num) {
+    size_t first = find_contiguous(next, end, num);
     if (first == SIZE_MAX) return NULL;
     size_t next_current = (first + num) % _reserved_end;
-    assert(next_current != _active_end, "never set current==end");
+    assert(next_current != end, "never set current==end");
     do {
       size_t result = (size_t) Atomic::cmpxchg((jlong) next_current, (jlong*) &_current_index, (jlong) current_idx);
       if (result == current_idx) {
@@ -154,7 +154,7 @@ ShenandoahHeapRegion* ShenandoahFreeSet::claim_contiguous(size_t num) {
       }
 
       current_idx = result;
-      assert(current_idx != _active_end, "must not cross active-end");
+      assert(current_idx != end, "must not cross active-end");
       next = (current_idx + 1) % _reserved_end;
       end = _active_end;
     } while (diff_to_end(current_idx, end) > diff_to_end(first, end));
