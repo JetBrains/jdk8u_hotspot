@@ -124,7 +124,6 @@ inline void* index_oop_from_field_offset_long(oop p, jlong field_offset) {
   if (p != NULL) {
     assert(byte_offset >= 0 && byte_offset <= (jlong)MAX_OBJECT_SIZE, "sane offset");
     if (byte_offset == (jint)byte_offset) {
-      p = oopDesc::bs()->write_barrier(p);
       void* ptr_plus_disp = (address)p + byte_offset;
       assert((void*)p->obj_field_addr<oop>((jint)byte_offset) == ptr_plus_disp,
              "raw [ptr+disp] must be consistent with oop::field_base");
@@ -1097,7 +1096,7 @@ Unsafe_DefineAnonymousClass_impl(JNIEnv *env,
   (*temp_alloc) = body;
 
   {
-    jbyte* array_base = typeArrayOop(JNIHandles::resolve_non_null(data))->byte_at_addr(0);
+    jbyte* array_base = typeArrayOop(oopDesc::bs()->read_barrier(JNIHandles::resolve_non_null(data)))->byte_at_addr(0);
     Copy::conjoint_words((HeapWord*) array_base, body, word_length);
   }
 
