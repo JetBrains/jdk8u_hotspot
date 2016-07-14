@@ -35,8 +35,8 @@ private:
 
   size_t _write_index;
 
-  size_t is_contiguous(size_t start, size_t num);
-  size_t find_contiguous(size_t num, size_t start);
+  size_t is_contiguous(size_t start, size_t end, size_t num);
+  size_t find_contiguous(size_t start, size_t end, size_t num);
   void push_back_regions(size_t start, size_t end);
   void initialize_humongous_regions(size_t first, size_t num);
   size_t diff_to_end(size_t i, size_t end) const;

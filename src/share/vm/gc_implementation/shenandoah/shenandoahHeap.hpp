@@ -423,7 +423,7 @@ public:
 private:
 
   bool call_from_write_barrier(bool evacuating);
-  void check_grow_heap(bool evacuating);
+  bool check_grow_heap();
   void grow_heap_by(size_t num_regions);
   void ensure_new_regions(size_t num_new_regions);
 

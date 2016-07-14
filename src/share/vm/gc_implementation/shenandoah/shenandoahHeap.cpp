@@ -575,14 +575,21 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
   HeapWord* result = NULL;
   result = allocate_memory_work(word_size);
 
+  if (result == NULL) {
+    bool retry;
+    do {
+      // Try to grow the heap.
+      retry = check_grow_heap();
+      result = allocate_memory_work(word_size);
+    } while (retry && result == NULL);
+  }
+
   if (result == NULL && ! evacuating) { // Allocation failed, try full-GC, then retry allocation.
     // tty->print_cr("failed to allocate "SIZE_FORMAT " bytes, free regions:", word_size * HeapWordSize);
     // _free_regions->print();
     collect(GCCause::_allocation_failure);
     result = allocate_memory_work(word_size);
   }
-
-  check_grow_heap(evacuating);
 
   // Only update monitoring counters when not calling from a write-barrier.
   // Otherwise we might attempt to grab the Service_lock, which we must
@@ -599,22 +606,13 @@ bool ShenandoahHeap::call_from_write_barrier(bool evacuating) {
   return evacuating && Thread::current()->is_Java_thread();
 }
 
-void ShenandoahHeap::check_grow_heap(bool evacuating) {
-  size_t num_free = (size_t) _free_regions->count();
-  if (num_free > ShenandoahAllocReserveRegions) {
-    return;
-  }
+bool ShenandoahHeap::check_grow_heap() {
 
   assert(_free_regions->max_regions() >= _free_regions->active_regions(), "don't get negative");
+
   size_t available = _max_regions - _num_regions;
   if (available == 0) {
-    return;
-  }
-
-  // We don't have enough reserve regions left, try to grow the heap.
-  // Unless we're coming from a write barrier.
-  if (call_from_write_barrier(evacuating)) {
-    return;
+    return false; // Don't retry.
   }
 
   jbyte growing = Atomic::cmpxchg(1, &_growing_heap, 0);
@@ -626,6 +624,11 @@ void ShenandoahHeap::check_grow_heap(bool evacuating) {
 
     // Reset it back to 0, so that other threads can take it again.
     Atomic::store(0, &_growing_heap);
+    return true;
+  } else {
+    // Let other threads work, then try again.
+    os::yield();
+    return true;
   }
 }
 
