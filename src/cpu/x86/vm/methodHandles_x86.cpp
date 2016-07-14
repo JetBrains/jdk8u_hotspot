@@ -170,6 +170,7 @@ void MethodHandles::jump_to_lambda_form(MacroAssembler* _masm,
   oopDesc::bs()->interpreter_read_barrier(_masm, method_temp);
   __ verify_oop(method_temp);
   __ load_heap_oop(method_temp, Address(method_temp, NONZERO(java_lang_invoke_LambdaForm::vmentry_offset_in_bytes())));
+  oopDesc::bs()->interpreter_read_barrier(_masm, method_temp);
   __ verify_oop(method_temp);
   // the following assumes that a Method* is normally compressed in the vmtarget field:
   __ movptr(method_temp, Address(method_temp, NONZERO(java_lang_invoke_MemberName::vmtarget_offset_in_bytes())));
