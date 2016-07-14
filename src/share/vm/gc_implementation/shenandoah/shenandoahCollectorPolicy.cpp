@@ -634,7 +634,7 @@ static NewAdaptiveHeuristics* configureNewAdaptiveHeuristics() {
 
 ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() {
 
-  ShenandoahHeapRegion::setup_heap_region_size(initial_heap_byte_size(), initial_heap_byte_size());
+  ShenandoahHeapRegion::setup_heap_region_size(initial_heap_byte_size(), max_heap_byte_size());
 
   initialize_all();
 
