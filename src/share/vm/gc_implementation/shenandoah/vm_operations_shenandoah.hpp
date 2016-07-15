@@ -42,6 +42,9 @@ public:
 };
 
 class VM_ShenandoahReferenceOperation : public VM_Operation {
+private:
+  BasicLock _pending_list_basic_lock;
+public:
   bool doit_prologue();
   void doit_epilogue();
 
