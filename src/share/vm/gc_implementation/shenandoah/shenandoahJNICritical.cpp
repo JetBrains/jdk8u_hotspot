@@ -60,9 +60,9 @@ void ShenandoahJNICritical::notify_jni_critical() {
   }
 
   {
-    MonitorLockerEx ml(ShenandoahJNICritical_lock, Mutex::_no_safepoint_check_flag);
+    MonitorLockerEx ml(ShenandoahJNICritical_lock);
     while (_op_ready_for_execution == NULL) {
-      ml.wait(Mutex::_no_safepoint_check_flag);
+      ml.wait();
     }
   }
 
