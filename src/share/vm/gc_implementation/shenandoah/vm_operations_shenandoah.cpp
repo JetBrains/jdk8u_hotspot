@@ -73,14 +73,22 @@ const char* VM_ShenandoahFullGC::name() const {
 
 
 bool VM_ShenandoahReferenceOperation::doit_prologue() {
-  ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
-  sh->acquire_pending_refs_lock();
+  if (Thread::current()->is_Java_thread()) {
+    InstanceRefKlass::acquire_pending_list_lock(&_pending_list_basic_lock);
+  } else {
+    ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
+    sh->acquire_pending_refs_lock();
+  }
   return true;
 }
 
 void VM_ShenandoahReferenceOperation::doit_epilogue() {
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  sh->release_pending_refs_lock();
+  if (Thread::current()->is_Java_thread()) {
+    InstanceRefKlass::release_and_notify_pending_list_lock(&_pending_list_basic_lock);
+  } else {
+    ShenandoahHeap *sh = ShenandoahHeap::heap();
+    sh->release_pending_refs_lock();
+  }
 }
 
 void VM_ShenandoahStartEvacuation::doit() {
