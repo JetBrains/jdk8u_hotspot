@@ -1688,7 +1688,7 @@ class ShenandoahIterateObjectClosureRegionClosure: public ShenandoahHeapRegionCl
 public:
   ShenandoahIterateObjectClosureRegionClosure(ObjectClosure* cl) : _cl(cl) {}
   bool doHeapRegion(ShenandoahHeapRegion* r) {
-    r->object_iterate_interruptible(_cl, false);
+    r->marked_object_iterate(_cl);
     return false;
   }
 };
