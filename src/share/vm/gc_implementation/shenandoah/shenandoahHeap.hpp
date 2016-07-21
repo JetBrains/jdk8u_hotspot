@@ -253,6 +253,9 @@ public:
   void compile_prepare_oop(MacroAssembler* masm, Register obj);
 #endif
 
+  void register_nmethod(nmethod* nm);
+  void unregister_nmethod(nmethod* nm);
+
   Space* space_containing(const void* oop) const;
   void gc_prologue(bool b);
   void gc_epilogue(bool b);

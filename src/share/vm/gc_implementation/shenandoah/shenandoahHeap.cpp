@@ -2474,3 +2474,33 @@ void ShenandoahHeap::set_full_gc_in_progress(bool in_progress) {
 bool ShenandoahHeap::is_full_gc_in_progress() const {
   return _full_gc_in_progress;
 }
+
+class NMethodOopInitializer : public OopClosure {
+private:
+  ShenandoahHeap* _heap;
+public:
+  NMethodOopInitializer() : _heap(ShenandoahHeap::heap()) {
+  }
+
+  void do_oop(oop* o) {
+    oop obj1 = oopDesc::load_heap_oop(o);
+    if (! oopDesc::is_null(obj1)) {
+      oop obj2 = oopDesc::bs()->write_barrier(obj1);
+      if (! oopDesc::unsafe_equals(obj1, obj2)) {
+        oopDesc::store_heap_oop(o, obj2);
+      }
+    }
+  }
+  void do_oop(narrowOop* o) {
+    Unimplemented();
+  }
+};
+
+void ShenandoahHeap::register_nmethod(nmethod* nm) {
+  NMethodOopInitializer init;
+  nm->oops_do(&init);
+  nm->fix_oop_relocations();
+}
+
+void ShenandoahHeap::unregister_nmethod(nmethod* nm) {
+}
