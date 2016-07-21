@@ -241,10 +241,6 @@ ciObject* ciObjectFactory::get(oop key) {
 
   assert(Universe::heap()->is_in_reserved(key), "must be");
 
-  // In Shenandoah we need to make sure that nobody forwards the key elsewhere
-  // under our hood.
-  key = oopDesc::bs()->write_barrier(key);
-
   NonPermObject* &bucket = find_non_perm(key);
   if (bucket != NULL) {
     return bucket->object();
@@ -254,7 +250,7 @@ ciObject* ciObjectFactory::get(oop key) {
   // into the cache.
   Handle keyHandle(key);
   ciObject* new_object = create_new_object(keyHandle());
-  assert(oopDesc::safe_equals(keyHandle(), new_object->get_oop()), "must be properly recorded");
+  assert(oopDesc::equals(keyHandle(), new_object->get_oop()), "must be properly recorded");
   init_ident_of(new_object);
   assert(Universe::heap()->is_in_reserved(new_object->get_oop()), "must be");
 
