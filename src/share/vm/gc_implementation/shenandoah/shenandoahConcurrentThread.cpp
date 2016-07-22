@@ -130,6 +130,7 @@ void ShenandoahConcurrentThread::run() {
     // Make sure the _do_full_gc flag changes are seen.
     OrderAccess::storeload();
   }
+  terminate();
 }
 
 void ShenandoahConcurrentThread::do_full_gc(GCCause::Cause cause) {
@@ -176,5 +177,20 @@ void ShenandoahConcurrentThread::makeSurrogateLockerThread(TRAPS) {
 }
 
 void ShenandoahConcurrentThread::shutdown() {
-  _should_terminate = true;
+  {
+    MutexLockerEx ml(Terminator_lock);
+    _should_terminate = true;
+  }
+
+  {
+    MutexLockerEx ml(CGC_lock, Mutex::_no_safepoint_check_flag);
+    CGC_lock->notify_all();
+  }
+
+  {
+    MutexLockerEx ml(Terminator_lock);
+    while (!_has_terminated) {
+      Terminator_lock->wait();
+    }
+  }
 }
