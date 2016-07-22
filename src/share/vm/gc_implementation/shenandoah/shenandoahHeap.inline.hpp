@@ -162,7 +162,7 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
     if (oopDesc::unsafe_equals(result, heap_oop)) { // CAS successful.
       return forwarded_oop;
     } else {
-      return result;
+      return NULL;
     }
   } else {
     assert(oopDesc::unsafe_equals(heap_oop, ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop)), "expect not forwarded");
