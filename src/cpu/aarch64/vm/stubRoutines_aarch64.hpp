@@ -51,11 +51,18 @@ class aarch64 {
  private:
   static address _shenandoah_wb;
 
+  static address _zero_longs;
+
  public:
 
   static address shenandoah_wb()
   {
     return _shenandoah_wb;
+  }
+
+  static address get_zero_longs()
+  {
+    return _zero_longs;
   }
 
  private:

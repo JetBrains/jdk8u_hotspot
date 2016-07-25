@@ -35,6 +35,19 @@
 
 address StubRoutines::aarch64::_shenandoah_wb = NULL;
 
+address StubRoutines::aarch64::_get_previous_fp_entry = NULL;
+address StubRoutines::aarch64::_get_previous_sp_entry = NULL;
+
+address StubRoutines::aarch64::_f2i_fixup = NULL;
+address StubRoutines::aarch64::_f2l_fixup = NULL;
+address StubRoutines::aarch64::_d2i_fixup = NULL;
+address StubRoutines::aarch64::_d2l_fixup = NULL;
+address StubRoutines::aarch64::_float_sign_mask = NULL;
+address StubRoutines::aarch64::_float_sign_flip = NULL;
+address StubRoutines::aarch64::_double_sign_mask = NULL;
+address StubRoutines::aarch64::_double_sign_flip = NULL;
+address StubRoutines::aarch64::_zero_longs = NULL;
+
 /**
  *  crc_table[] from jdk/src/share/native/java/util/zip/zlib-1.2.5/crc32.h
  */
