@@ -22,6 +22,7 @@
  */
 
 #include "code/codeCache.hpp"
+#include "gc_implementation/shared/gcTraceTime.hpp"
 #include "gc_implementation/shared/isGCActiveMark.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
@@ -76,6 +77,9 @@ void ShenandoahMarkCompact::do_mark_compact() {
 
   ShenandoahHeap* _heap = ShenandoahHeap::heap();
 
+  GCTimer* gc_timer = _heap->shenandoahPolicy()->conc_timer();
+  gc_timer->register_gc_start();
+
   COMPILER2_PRESENT(DerivedPointerTable::clear());
 
   _heap->set_full_gc_in_progress(true);
@@ -106,11 +110,12 @@ void ShenandoahMarkCompact::do_mark_compact() {
   }
   */
 
-  if (ShenandoahTraceFullGC) {
-    tty->print_cr("Shenandoah-full-gc: start with heap used: "SIZE_FORMAT" MB", _heap->used() / M);
-    tty->print_cr("Shenandoah-full-gc: phase 1: marking the heap");
-    // _heap->print_heap_regions();
-  }
+  BarrierSet* old_bs = oopDesc::bs();
+  ShenandoahMarkCompactBarrierSet bs(_heap);
+  oopDesc::set_bs(&bs);
+
+  {
+  GCTraceTime time("Pause Init-Mark", ShenandoahTraceFullGC, true, _heap->shenandoahPolicy()->conc_timer(), _heap->tracer()->gc_id());
 
   if (UseTLAB) {
     _heap->ensure_parsability(true);
@@ -122,10 +127,6 @@ void ShenandoahMarkCompact::do_mark_compact() {
   // The marking doesn't preserve the marks of biased objects.
   //BiasedLocking::preserve_marks();
 
-  BarrierSet* old_bs = oopDesc::bs();
-  ShenandoahMarkCompactBarrierSet bs(_heap);
-  oopDesc::set_bs(&bs);
-
   _heap->set_need_update_refs(true);
 
   OrderAccess::fence();
@@ -134,26 +135,15 @@ void ShenandoahMarkCompact::do_mark_compact() {
 
   OrderAccess::fence();
 
-  if (ShenandoahTraceFullGC) {
-    tty->print_cr("Shenandoah-full-gc: phase 2: calculating target addresses");
-  }
   ShenandoahHeapRegionSet* copy_queues[_heap->max_parallel_workers()];
   phase2_calculate_target_addresses(copy_queues);
 
   OrderAccess::fence();
 
-  if (ShenandoahTraceFullGC) {
-    tty->print_cr("Shenandoah-full-gc: phase 3: updating references");
-  }
-
   // Don't add any more derived pointers during phase3
   COMPILER2_PRESENT(DerivedPointerTable::set_active(false));
 
   phase3_update_references();
-
-  if (ShenandoahTraceFullGC) {
-    tty->print_cr("Shenandoah-full-gc: phase 4: compacting objects");
-  }
 
   phase4_compact_objects(copy_queues);
 
@@ -167,18 +157,17 @@ void ShenandoahMarkCompact::do_mark_compact() {
     _heap->verify_heap_after_evacuation();
   }
 
-  if (ShenandoahTraceFullGC) {
-    tty->print_cr("Shenandoah-full-gc: finish with heap used: "SIZE_FORMAT" MB", _heap->used() / M);
-  }
-
   _heap->reset_mark_bitmap();
   _heap->_bytesAllocSinceCM = 0;
 
   _heap->set_need_update_refs(false);
 
   _heap->set_full_gc_in_progress(false);
+  }
 
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
+
+  gc_timer->register_gc_end();
 
   _heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::full_gc);
 
@@ -253,6 +242,8 @@ public:
 
 void ShenandoahMarkCompact::phase1_mark_heap() {
   ShenandoahHeap* _heap = ShenandoahHeap::heap();
+
+  GCTraceTime time("Phase 1: Mark live objects", ShenandoahTraceFullGC, true, _heap->shenandoahPolicy()->conc_timer(), _heap->tracer()->gc_id());
 
 #ifdef ASSERT
   ShenandoahMCVerifyBeforeMarkingRegionClosure cl1;
@@ -409,6 +400,7 @@ public:
 
 void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegionSet** copy_queues) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+  GCTraceTime time("Phase 2: Compute new object addresses", ShenandoahTraceFullGC, true, heap->shenandoahPolicy()->conc_timer(), heap->tracer()->gc_id());
 
   // Initialize copy queues.
   for (int i = 0; i < heap->max_parallel_workers(); i++) {
@@ -505,6 +497,7 @@ public:
 
 void ShenandoahMarkCompact::phase3_update_references() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+  GCTraceTime time("Phase 3: Adjust pointers", ShenandoahTraceFullGC, true, heap->shenandoahPolicy()->conc_timer(), heap->tracer()->gc_id());
 
     // Need cleared claim bits for the roots processing
   ClassLoaderDataGraph::clear_claimed_marks();
@@ -614,6 +607,7 @@ public:
 
 void ShenandoahMarkCompact::phase4_compact_objects(ShenandoahHeapRegionSet** copy_queues) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+  GCTraceTime time("Phase 4: Move objects", ShenandoahTraceFullGC, true, heap->shenandoahPolicy()->conc_timer(), heap->tracer()->gc_id());
   ShenandoahCompactObjectsTask compact_task(copy_queues);
   heap->workers()->run_task(&compact_task);
 

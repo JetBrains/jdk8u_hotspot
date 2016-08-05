@@ -295,16 +295,11 @@ public:
 };
 
 void ShenandoahHeap::reset_mark_bitmap() {
-  if (ShenandoahTracePhases) {
-    tty->print_cr("Shenandoah starting concurrent reset bitmaps");
-  }
+  GCTraceTime time("Concurrent reset bitmaps", ShenandoahTracePhases, true, NULL, tracer()->gc_id());
 
   ResetBitmapTask task = ResetBitmapTask(_ordered_regions);
   conc_workers()->set_active_workers(_max_conc_workers);
   conc_workers()->run_task(&task);
-  if (ShenandoahTracePhases) {
-    tty->print_cr("Shenandoah finishing concurrent reset bitmaps");
-  }
 }
 
 void ShenandoahHeap::reset_mark_bitmap_range(HeapWord* from, HeapWord* to) {
@@ -858,9 +853,6 @@ public:
       if (_sh->cancelled_concgc()) {
         // tty->print("We cancelled concgc while working on region %d\n", from_hr->region_number());
         // from_hr->print();
-        if (ShenandoahTracePhases) {
-          tty->print_cr("Cancelled concurrent evacuation");
-        }
         break;
       }
       from_hr = _cs->claim_next();
@@ -1165,7 +1157,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
     _free_regions->print();
     */
 
-    if (PrintGCTimeStamps) {
+    if (ShenandoahPrintCollectionSet) {
       gclog_or_tty->print("Collection set live = " SIZE_FORMAT " K reclaimable = " SIZE_FORMAT " K\n",
                           _collection_set->live_data() / K, _collection_set->garbage() / K);
     }
@@ -1506,20 +1498,11 @@ size_t ShenandoahHeap::unsafe_max_alloc() {
 void ShenandoahHeap::collect(GCCause::Cause cause) {
   if (GCCause::is_user_requested_gc(cause)) {
     if (! DisableExplicitGC) {
-      if (ShenandoahTraceFullGC) {
-        gclog_or_tty->print_cr("Shenandoah-full-gc: requested full GC");
-      }
       cancel_concgc();
       _concurrent_gc_thread->do_full_gc(cause);
     }
   } else if (cause == GCCause::_allocation_failure) {
 
-    if (ShenandoahTraceFullGC) {
-      size_t f_used = free_regions()->used();
-      size_t f_capacity = free_regions()->capacity();
-      assert(f_used <= f_capacity, "must use less than we have");
-      gclog_or_tty->print_cr("Shenandoah-full-gc: full GC for allocation failure heap free: "SIZE_FORMAT", available: "SIZE_FORMAT, capacity() - used(),  f_capacity - f_used);
-    }
     cancel_concgc();
     collector_policy()->set_should_clear_all_soft_refs(true);
       _concurrent_gc_thread->do_full_gc(cause);
@@ -2064,26 +2047,11 @@ void ShenandoahHeap::stop_concurrent_marking() {
 }
 
 void ShenandoahHeap::set_concurrent_mark_in_progress(bool in_progress) {
-  if (ShenandoahTracePhases) {
-    if (in_progress) {
-      gclog_or_tty->print_cr("Shenandoah starting concurrent marking, heap used: "SIZE_FORMAT" MB", used() / M);
-    } else {
-      gclog_or_tty->print_cr("Shenandoah finishing concurrent marking, heap used: "SIZE_FORMAT" MB", used() / M);
-    }
-  }
-
   _concurrent_mark_in_progress = in_progress;
   JavaThread::satb_mark_queue_set().set_active_all_threads(in_progress, ! in_progress);
 }
 
 void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
-  if (ShenandoahTracePhases) {
-    if (in_progress) {
-      gclog_or_tty->print_cr("Shenandoah starting concurrent evacuation, heap used: "SIZE_FORMAT" MB", used() / M);
-    } else {
-      gclog_or_tty->print_cr("Shenandoah finishing concurrent evacuation, heap used: "SIZE_FORMAT" MB", used() / M);
-    }
-  }
   JavaThread::set_evacuation_in_progress_all_threads(in_progress);
   _evacuation_in_progress = in_progress;
   OrderAccess::fence();
@@ -2299,9 +2267,6 @@ size_t ShenandoahHeap::tlab_used(Thread* thread) const {
 void ShenandoahHeap::cancel_concgc() {
   // only report it once
   if (!_cancelled_concgc) {
-    if (ShenandoahTracePhases) {
-      tty->print_cr("Cancelling GC");
-    }
     _cancelled_concgc = true;
     OrderAccess::fence();
     _shenandoah_policy->report_concgc_cancelled();

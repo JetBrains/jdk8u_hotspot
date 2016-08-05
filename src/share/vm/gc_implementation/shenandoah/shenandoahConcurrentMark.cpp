@@ -210,9 +210,6 @@ public:
       _cm->concurrent_mark_loop(&cl, worker_id, q,  _terminator);
     }
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    if (ShenandoahTracePhases && heap->cancelled_concgc()) {
-      tty->print_cr("Cancelled concurrent marking");
-    }
   }
 };
 

@@ -21,6 +21,7 @@
  *
  */
 
+#include "gc_implementation/shared/gcTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
@@ -35,6 +36,7 @@ const char* VM_ShenandoahInitMark::name() const {
 
 void VM_ShenandoahInitMark::doit() {
   ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
+  GCTraceTime time("Pause Init-Mark", ShenandoahTracePhases, true, sh->shenandoahPolicy()->conc_timer(), sh->tracer()->gc_id());
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark);
 
   assert(sh->is_bitmap_clear(), "need clear marking bitmap");
@@ -102,6 +104,7 @@ void VM_ShenandoahStartEvacuation::doit() {
     if (ShenandoahGCVerbose)
       tty->print("vm_ShenandoahFinalMark\n");
 
+    GCTraceTime time("Pause Init-Evacuation", ShenandoahTracePhases, true, sh->shenandoahPolicy()->conc_timer(), sh->tracer()->gc_id());
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark);
     sh->concurrentMark()->finish_mark_from_roots();
     sh->stop_concurrent_marking();

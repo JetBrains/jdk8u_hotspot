@@ -21,6 +21,7 @@
  *
  */
 
+#include "gc_implementation/shared/gcTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahJNICritical.hpp"
@@ -58,6 +59,9 @@ void ShenandoahConcurrentThread::run() {
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
+  GCTimer* gc_timer = heap->shenandoahPolicy()->conc_timer();
+  GCTracer* gc_tracer = heap->tracer();
+  GCId gc_id = gc_tracer->gc_id();
   while (!_should_terminate) {
     if (_do_full_gc) {
       {
@@ -78,7 +82,7 @@ void ShenandoahConcurrentThread::run() {
     } else if (heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(),
                                                                heap->capacity()))
       {
-
+        gc_timer->register_gc_start();
         TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
         TraceMemoryManagerStats tmms(false, GCCause::_no_cause_specified);
         if (ShenandoahGCVerbose)
@@ -94,6 +98,7 @@ void ShenandoahConcurrentThread::run() {
           heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark_gross);
         }
         {
+          GCTraceTime time("Concurrent marking", ShenandoahTracePhases, true, NULL, gc_id);
           TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
           ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
         }
@@ -107,6 +112,7 @@ void ShenandoahConcurrentThread::run() {
         }
 
         if (! _should_terminate) {
+          GCTraceTime time("Concurrent evacuation", ShenandoahTracePhases, true, NULL, gc_id);
           TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
           heap->do_evacuation();
         }
@@ -118,6 +124,7 @@ void ShenandoahConcurrentThread::run() {
         heap->reset_mark_bitmap();
         heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
 
+        gc_timer->register_gc_end();
       } else {
       Thread::current()->_ParkEvent->park(10) ;
       // yield();
