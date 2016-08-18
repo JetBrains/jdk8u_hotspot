@@ -1312,6 +1312,9 @@ class CommandLineFlags {
   product(intx, TraceRedefineClasses, 0,                                    \
           "Trace level for JVMTI RedefineClasses")                          \
                                                                             \
+  product(bool, AllowEnhancedClassRedefinition, true,                       \
+          "Allow enhanced class redefinition beyond swapping method bodies")\
+                                                                            \
   develop(bool, StressMethodComparator, false,                              \
           "Run the MethodComparator on all loaded methods")                 \
                                                                             \
@@ -3959,7 +3962,15 @@ class CommandLineFlags {
                                                                             \
   product_pd(bool, PreserveFramePointer,                                    \
              "Use the FP register for holding the frame pointer "           \
-             "and not as a general purpose register.")
+             "and not as a general purpose register.")                      \
+                                                                            \
+  product(ccstr, HotswapDeoptClassPath, NULL,                               \
+          "Class path or fragment of the class path to a folder with "      \
+          "classes allowed to be deoptimized on hotswap. If is not "        \
+          "defined then all classes will be deoptimized on hotswap. "       \
+          "That's default behaviour. Using this option the performance "    \
+          "of hotswap can be considerably increased. ")
+
 
 /*
  *  Macros for factoring of globals

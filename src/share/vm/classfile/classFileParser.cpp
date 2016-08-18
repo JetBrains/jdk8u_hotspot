@@ -763,6 +763,7 @@ bool put_after_lookup(Symbol* name, Symbol* sig, NameSigHash** table) {
 Array<Klass*>* ClassFileParser::parse_interfaces(int length,
                                                  Handle protection_domain,
                                                  Symbol* class_name,
+                                                 bool pick_newest,
                                                  bool* has_default_methods,
                                                  TRAPS) {
   if (length == 0) {
@@ -781,7 +782,11 @@ Array<Klass*>* ClassFileParser::parse_interfaces(int length,
         "Interface name has bad constant pool index %u in class file %s",
         interface_index, CHECK_NULL);
       if (_cp->tag_at(interface_index).is_klass()) {
-        interf = KlassHandle(THREAD, _cp->resolved_klass_at(interface_index));
+        Klass* resolved_klass = _cp->resolved_klass_at(interface_index);
+        if (pick_newest) {
+          resolved_klass = resolved_klass->newest_version();
+        }
+        interf = KlassHandle(THREAD, resolved_klass);
       } else {
         Symbol*  unresolved_klass  = _cp->klass_name_at(interface_index);
 
@@ -795,6 +800,9 @@ Array<Klass*>* ClassFileParser::parse_interfaces(int length,
         Klass* k = SystemDictionary::resolve_super_or_fail(class_name,
                       unresolved_klass, class_loader, protection_domain,
                       false, CHECK_NULL);
+        if (pick_newest) {
+          k = k->newest_version();
+        }
         interf = KlassHandle(THREAD, k);
       }
 
@@ -3135,6 +3143,7 @@ AnnotationArray* ClassFileParser::assemble_annotations(u1* runtime_visible_annot
 }
 
 instanceKlassHandle ClassFileParser::parse_super_class(int super_class_index,
+                                                       bool pick_newest,
                                                        TRAPS) {
   instanceKlassHandle super_klass;
   if (super_class_index == 0) {
@@ -3151,7 +3160,11 @@ instanceKlassHandle ClassFileParser::parse_super_class(int super_class_index,
     // However, make sure it is not an array type.
     bool is_array = false;
     if (_cp->tag_at(super_class_index).is_klass()) {
-      super_klass = instanceKlassHandle(THREAD, _cp->resolved_klass_at(super_class_index));
+      Klass* resolved_klass = _cp->resolved_klass_at(super_class_index);
+      if (pick_newest) {
+        resolved_klass = resolved_klass->newest_version();
+      }
+      super_klass = instanceKlassHandle(THREAD, resolved_klass);
       if (_need_verify)
         is_array = super_klass->oop_is_array();
     } else if (_need_verify) {
@@ -3700,8 +3713,10 @@ void ClassFileParser::layout_fields(Handle class_loader,
 instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
                                                     ClassLoaderData* loader_data,
                                                     Handle protection_domain,
+                                                    KlassHandle old_klass,
                                                     KlassHandle host_klass,
                                                     GrowableArray<Handle>* cp_patches,
+                                                    GrowableArray<Symbol*>* parsed_super_symbols,
                                                     TempNewSymbol& parsed_name,
                                                     bool verify,
                                                     TRAPS) {
@@ -3715,6 +3730,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
   Handle class_loader(THREAD, loader_data->class_loader());
   bool has_default_methods = false;
   bool declares_default_methods = false;
+  bool pick_newest = !old_klass.is_null();
   ResourceMark rm(THREAD);
 
   ClassFileStream* cfs = stream();
@@ -3731,7 +3747,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
 
   init_parsed_class_attributes(loader_data);
 
-  if (JvmtiExport::should_post_class_file_load_hook()) {
+  if (parsed_super_symbols == NULL && JvmtiExport::should_post_class_file_load_hook()) {
     // Get the cached class file bytes (if any) from the class that
     // is being redefined or retransformed. We use jvmti_thread_state()
     // instead of JvmtiThreadState::state_for(jt) so we don't allocate
@@ -3892,6 +3908,26 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
                        CHECK_(nullHandle));
   }
 
+  // (DCEVM) Do not parse full class file, only get super symbols and return.
+  if (parsed_super_symbols != NULL) {
+    u2 super_class_index = cfs->get_u2_fast();
+
+    if (super_class_index != 0) {
+      parsed_super_symbols->append(cp->klass_name_at(super_class_index));
+    }
+
+    // Interfaces
+    u2 itfs_len = cfs->get_u2_fast();
+    Array<Klass*>* local_interfaces =
+        parse_interfaces(itfs_len, protection_domain, _class_name, pick_newest, &has_default_methods, CHECK_NULL);
+
+    for (int i = 0; i < local_interfaces->length(); i++) {
+      Klass* o = local_interfaces->at(i);
+      parsed_super_symbols->append(o->name());
+    }
+    return NULL;
+  }
+
   Klass* preserve_this_klass;   // for storing result across HandleMark
 
   // release all handles when parsing is done
@@ -3930,13 +3966,14 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
 
     u2 super_class_index = cfs->get_u2_fast();
     instanceKlassHandle super_klass = parse_super_class(super_class_index,
+                                                        pick_newest,
                                                         CHECK_NULL);
 
     // Interfaces
     u2 itfs_len = cfs->get_u2_fast();
     Array<Klass*>* local_interfaces =
       parse_interfaces(itfs_len, protection_domain, _class_name,
-                       &has_default_methods, CHECK_(nullHandle));
+                       pick_newest, &has_default_methods, CHECK_(nullHandle));
 
     u2 java_fields_count = 0;
     // Fields (offsets are filled in later)
@@ -3985,6 +4022,9 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
                                                          true,
                                                          CHECK_(nullHandle));
 
+      if (pick_newest) {
+        k = k->newest_version();
+      }
       KlassHandle kh (THREAD, k);
       super_klass = instanceKlassHandle(THREAD, kh());
     }
@@ -4150,7 +4190,7 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     fill_oop_maps(this_klass, info.nonstatic_oop_map_count, info.nonstatic_oop_offsets, info.nonstatic_oop_counts);
 
     // Fill in has_finalizer, has_vanilla_constructor, and layout_helper
-    set_precomputed_flags(this_klass);
+    set_precomputed_flags(this_klass, old_klass);
 
     // reinitialize modifiers, using the InnerClasses attribute
     int computed_modifiers = this_klass->compute_modifier_flags(CHECK_(nullHandle));
@@ -4213,6 +4253,11 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
         tty->print("[Loaded %s from %s]\n", this_klass->external_name(),
                    InstanceKlass::cast(class_loader->klass())->external_name());
       }
+    }
+
+    if (cfs->source() != NULL && HotswapDeoptClassPath != NULL) {
+      if (strstr(cfs->source(), HotswapDeoptClassPath) != NULL) 
+        this_klass->set_deoptimization_incl(true);
     }
 
     if (TraceClassResolution) {
@@ -4402,7 +4447,7 @@ void ClassFileParser::fill_oop_maps(instanceKlassHandle k,
 }
 
 
-void ClassFileParser::set_precomputed_flags(instanceKlassHandle k) {
+void ClassFileParser::set_precomputed_flags(instanceKlassHandle k, KlassHandle old_klass) {
   Klass* super = k->super();
 
   // Check if this klass has an empty finalize method (i.e. one with return bytecode only),
@@ -4410,7 +4455,9 @@ void ClassFileParser::set_precomputed_flags(instanceKlassHandle k) {
   if (!_has_empty_finalizer) {
     if (_has_finalizer ||
         (super != NULL && super->has_finalizer())) {
-      k->set_has_finalizer();
+      if (old_klass.is_null() || old_klass->has_finalizer()) {
+        k->set_has_finalizer();
+      }
     }
   }
 
@@ -4432,7 +4479,7 @@ void ClassFileParser::set_precomputed_flags(instanceKlassHandle k) {
 
   // Check if this klass supports the java.lang.Cloneable interface
   if (SystemDictionary::Cloneable_klass_loaded()) {
-    if (k->is_subtype_of(SystemDictionary::Cloneable_klass())) {
+    if (k->is_subtype_of(SystemDictionary::Cloneable_klass()) || k->is_subtype_of(SystemDictionary::Cloneable_klass()->newest_version())) {
       k->set_is_cloneable();
     }
   }

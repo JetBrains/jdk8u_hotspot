@@ -186,6 +186,14 @@ Klass::Klass() {
   set_next_link(NULL);
   TRACE_INIT_ID(this);
 
+  set_redefinition_flags(Klass::NoRedefinition);
+  set_redefining(false);
+  set_deoptimization_incl(false);
+  set_new_version(NULL);
+  set_old_version(NULL);
+  set_redefinition_index(-1);
+  set_revision_number(-1);
+
   set_prototype_header(markOopDesc::prototype());
   set_biased_lock_revocation_count(0);
   set_last_biased_lock_bulk_revocation_time(0);
@@ -229,6 +237,8 @@ void Klass::initialize_supers(Klass* k, TRAPS) {
   if (FastSuperclassLimit == 0) {
     // None of the other machinery matters.
     set_super(k);
+    if (k != NULL && k->is_deoptimization_incl())
+      set_deoptimization_incl(true);
     return;
   }
   if (k == NULL) {
@@ -240,6 +250,8 @@ void Klass::initialize_supers(Klass* k, TRAPS) {
            "initialize this only once to a non-trivial value");
     set_super(k);
     Klass* sup = k;
+    if (sup->is_deoptimization_incl())
+      set_deoptimization_incl(true);
     int sup_depth = sup->super_depth();
     juint my_depth  = MIN2(sup_depth + 1, (int)primary_super_limit());
     if (!can_be_primary_super_slow())
@@ -390,6 +402,24 @@ void Klass::append_to_sibling_list() {
   // make ourselves the superklass' first subklass
   super->set_subklass(this);
   debug_only(verify();)
+}
+
+// (DCEVM)
+void Klass::remove_from_sibling_list() {
+  debug_only(verify();)
+  // remove ourselves to superklass' subklass list
+  InstanceKlass* super = superklass();
+  assert(super != NULL, "should have super");
+  if (super->subklass() == this) {
+    // first subklass
+    super->set_subklass(next_sibling());
+  } else {
+    Klass* sib = super->subklass();
+    while (sib->next_sibling() != this) {
+      sib = sib->next_sibling();
+    };
+    sib->set_next_sibling(next_sibling());
+  }
 }
 
 bool Klass::is_loader_alive(BoolObjectClosure* is_alive) {

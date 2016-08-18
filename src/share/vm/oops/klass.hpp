@@ -149,6 +149,10 @@ class Klass : public Metadata {
   oop       _java_mirror;
   // Superclass
   Klass*      _super;
+  // Old class
+  Klass*      _old_version;
+  // New class
+  Klass*      _new_version;
   // First subclass (NULL if none); _subklass->next_sibling() is next one
   Klass*      _subklass;
   // Sibling link (or NULL); links all subklasses of a klass
@@ -163,6 +167,17 @@ class Klass : public Metadata {
 
   jint        _modifier_flags;  // Processed access flags, for use by Class.getModifiers.
   AccessFlags _access_flags;    // Access flags. The class/interface distinction is stored here.
+
+  // (DCEVM) fields for enhanced class redefinition
+  jint        _revision_number;        // The revision number for redefined classes
+  jint        _redefinition_index;     // Index of this class when performing the redefinition
+  bool        _subtype_changed;
+  int         _redefinition_flags;     // Level of class redefinition
+  bool        _is_copying_backwards;   // Does the class need to copy fields backwards? => possibly overwrite itself?
+  bool        _original_field_offsets_changed; // Did the original field offsets of this class change during class redefinition?
+  int *       _update_information;     // Update information
+  bool        _is_redefining;
+  bool        _deoptimization_incl; // True if class methods are included in deoptimization
 
   // Biased locking implementation and statistics
   // (the 64-bit chunk goes first, to avoid some fragmentation)
@@ -220,6 +235,56 @@ protected:
   Array<Klass*>* secondary_supers() const { return _secondary_supers; }
   void set_secondary_supers(Array<Klass*>* k) { _secondary_supers = k; }
 
+  // BEGIN class redefinition utilities
+
+  // double links between new and old version of a class
+  Klass* old_version() const                           { return _old_version; }
+  void set_old_version(Klass* klass)                   { assert(_old_version == NULL || klass == NULL, "Can only be set once!"); _old_version = klass; }
+  Klass* new_version() const                           { return _new_version; }
+  void set_new_version(Klass* klass)                 { assert(_new_version == NULL || klass == NULL, "Can only be set once!"); _new_version = klass; }
+
+  // A subtype of this class is no longer a subtype
+  bool has_subtype_changed() const                     { return _subtype_changed; }
+  void set_subtype_changed(bool b)                     { assert(is_newest_version() || new_version()->is_newest_version(), "must be newest or second newest version");
+                                                         _subtype_changed = b; }
+  // state of being redefined
+  int redefinition_index() const                       { return _redefinition_index; }
+  void set_redefinition_index(int index)               { _redefinition_index = index; }
+  void set_redefining(bool b)                          { _is_redefining = b; }
+  bool is_redefining() const                           { return _is_redefining; }
+  int redefinition_flags() const                       { return _redefinition_flags; }
+  bool check_redefinition_flag(int flags) const        { return (_redefinition_flags & flags) != 0; }
+  void set_redefinition_flags(int flags)               { _redefinition_flags = flags; }
+  void set_redefinition_flag(int flag)                 { _redefinition_flags |= flag; }
+  void clear_redefinition_flag(int flag)               { _redefinition_flags &= ~flag; }
+  bool is_copying_backwards() const                    { return _is_copying_backwards; }
+  void set_copying_backwards(bool b)                   { _is_copying_backwards = b; }
+
+  // update information
+  int *update_information() const                      { return _update_information; }
+  void set_update_information(int *info)               { _update_information = info; }
+
+  bool  is_deoptimization_incl() const                 { return _deoptimization_incl; }
+  void  set_deoptimization_incl(bool z)                { _deoptimization_incl = z; }
+
+  // Revision number for redefined classes, -1 for originally loaded classes
+  bool was_redefined() const            { return _revision_number != -1; }
+  jint revision_number() const          { return _revision_number; }
+  void set_revision_number(jint number) { _revision_number = number; }
+
+  const Klass* oldest_version() const   { return _old_version == NULL ? this : _old_version->oldest_version(); }
+        Klass* oldest_version()         { return _old_version == NULL ? this : _old_version->oldest_version(); }
+
+  const Klass* newest_version() const   { return _new_version == NULL ? this : _new_version->newest_version(); }
+        Klass* newest_version()         { return _new_version == NULL ? this : _new_version->newest_version(); }
+
+  const Klass* active_version() const   { return _new_version == NULL || _new_version->is_redefining() ? this : _new_version->active_version(); }
+        Klass* active_version()         { return _new_version == NULL || _new_version->is_redefining() ? this : _new_version->active_version(); }
+
+  bool is_newest_version() const        { return _new_version == NULL; }
+
+  // END class redefinition utilities
+
   // Return the element of the _super chain of the given depth.
   // If there is no such element, return either NULL or this.
   Klass* primary_super_of_depth(juint i) const {
@@ -273,6 +338,7 @@ protected:
   Klass* subklass() const;
   Klass* next_sibling() const;
   void append_to_sibling_list();           // add newly created receiver to superklass' subklass list
+  void remove_from_sibling_list();         // (DCEVM) remove receiver from sibling list
 
   void set_next_link(Klass* k) { _next_link = k; }
   Klass* next_link() const { return _next_link; }   // The next klass defined by the class loader.
@@ -308,6 +374,16 @@ protected:
   void     set_next_sibling(Klass* s);
 
  public:
+  // (DCEVM) Different class redefinition flags of code evolution.
+  enum RedefinitionFlags {
+    NoRedefinition,                             // This class is not redefined at all!
+    ModifyClass = 1,                            // There are changes to the class meta data.
+    ModifyClassSize = ModifyClass << 1,         // The size of the class meta data changes.
+    ModifyInstances = ModifyClassSize << 1,     // There are change to the instance format.
+    ModifyInstanceSize = ModifyInstances << 1,  // The size of instances changes.
+    RemoveSuperType = ModifyInstanceSize << 1,  // A super type of this class is removed.
+    MarkedAsAffected = RemoveSuperType << 1     // This class has been marked as an affected class.
+  };
 
   // Compiler support
   static ByteSize super_offset()                 { return in_ByteSize(offset_of(Klass, _super)); }

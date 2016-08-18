@@ -476,6 +476,7 @@ void nmethod::init_defaults() {
   _lazy_critical_native       = 0;
   _has_wide_vectors           = 0;
   _marked_for_deoptimization  = 0;
+  _deoptimization_incl        = false;
   _lock_count                 = 0;
   _stack_traversal_mark       = 0;
   _unload_reported            = false;           // jvmti state
@@ -688,6 +689,7 @@ nmethod::nmethod(
     _dependencies_offset     = _scopes_pcs_offset;
     _handler_table_offset    = _dependencies_offset;
     _nul_chk_table_offset    = _handler_table_offset;
+
     _nmethod_end_offset      = _nul_chk_table_offset;
     _compile_id              = compile_id;
     _comp_level              = CompLevel_none;
@@ -697,6 +699,8 @@ nmethod::nmethod(
     _exception_cache         = NULL;
     _pc_desc_cache.reset_to(NULL);
     _hotness_counter         = NMethodSweeper::hotness_counter_reset_val();
+    if (method != NULL)
+      _deoptimization_incl = method->method_holder()->is_deoptimization_incl();
 
     code_buffer->copy_values_to(this);
     if (ScavengeRootsInCode) {
@@ -772,6 +776,7 @@ nmethod::nmethod(
     _metadata_offset         = _oops_offset         + round_to(code_buffer->total_oop_size(), oopSize);
     _scopes_data_offset      = _metadata_offset     + round_to(code_buffer->total_metadata_size(), wordSize);
     _scopes_pcs_offset       = _scopes_data_offset;
+
     _dependencies_offset     = _scopes_pcs_offset;
     _handler_table_offset    = _dependencies_offset;
     _nul_chk_table_offset    = _handler_table_offset;
@@ -784,6 +789,8 @@ nmethod::nmethod(
     _exception_cache         = NULL;
     _pc_desc_cache.reset_to(NULL);
     _hotness_counter         = NMethodSweeper::hotness_counter_reset_val();
+    if (method != NULL)
+      _deoptimization_incl = method->method_holder()->is_deoptimization_incl();
 
     code_buffer->copy_values_to(this);
     if (ScavengeRootsInCode) {
@@ -899,6 +906,9 @@ nmethod::nmethod(
     _osr_entry_point         = code_begin()          + offsets->value(CodeOffsets::OSR_Entry);
     _exception_cache         = NULL;
     _pc_desc_cache.reset_to(scopes_pcs_begin());
+
+    if (method != NULL)
+      _deoptimization_incl = method->method_holder()->is_deoptimization_incl();
 
     // Copy contents of ScopeDescRecorder to nmethod
     code_buffer->copy_values_to(this);

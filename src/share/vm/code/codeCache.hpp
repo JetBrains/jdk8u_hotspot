@@ -184,6 +184,7 @@ class CodeCache : AllStatic {
     // tells how many nmethods have dependencies
   static int number_of_nmethods_with_dependencies();
 
+  static void mark_all_incl_nmethods_for_deoptimization();
   static int get_codemem_full_count() { return _codemem_full_count; }
 };
 

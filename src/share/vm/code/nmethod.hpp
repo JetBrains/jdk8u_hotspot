@@ -184,6 +184,8 @@ class nmethod : public CodeBlob {
   bool _marked_for_reclamation;              // Used by NMethodSweeper (set only by sweeper)
   bool _marked_for_deoptimization;           // Used for stack deoptimization
 
+  bool _deoptimization_incl;
+
   // used by jvmti to track if an unload event has been posted for this nmethod.
   bool _unload_reported;
 
@@ -469,6 +471,11 @@ class nmethod : public CodeBlob {
 
   bool  is_marked_for_deoptimization() const      { return _marked_for_deoptimization; }
   void  mark_for_deoptimization()                 { _marked_for_deoptimization = true; }
+
+  bool  is_deoptimization_incl() const            { return _deoptimization_incl; }
+  void  set_deoptimization_incl(bool z)           { _deoptimization_incl = z; }
+
+  void  mark_for_deoptimization_incl()            { if (_deoptimization_incl) _marked_for_deoptimization = true; }
 
   void  make_unloaded(BoolObjectClosure* is_alive, oop cause);
 
