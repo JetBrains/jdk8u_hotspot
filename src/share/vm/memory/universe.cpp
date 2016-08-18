@@ -84,6 +84,8 @@
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
 
+bool Universe::_is_redefining_gc_run = false;
+
 // Known objects
 Klass* Universe::_boolArrayKlassObj                 = NULL;
 Klass* Universe::_byteArrayKlassObj                 = NULL;
@@ -165,6 +167,43 @@ void Universe::basic_type_classes_do(void f(Klass*)) {
   f(longArrayKlassObj());
   f(singleArrayKlassObj());
   f(doubleArrayKlassObj());
+}
+
+// (DCEVM) This method should iterate all pointers that are not within heap objects.
+void Universe::root_oops_do(OopClosure *oopClosure) {
+
+  class AlwaysTrueClosure: public BoolObjectClosure {
+  public:
+    void do_object(oop p) { ShouldNotReachHere(); }
+    bool do_object_b(oop p) { return true; }
+  };
+  AlwaysTrueClosure always_true;
+
+  Universe::oops_do(oopClosure);
+//  ReferenceProcessor::oops_do(oopClosure); (tw) check why no longer there
+  JNIHandles::oops_do(oopClosure);   // Global (strong) JNI handles
+  Threads::oops_do(oopClosure, NULL, NULL);
+  ObjectSynchronizer::oops_do(oopClosure);
+  FlatProfiler::oops_do(oopClosure);
+  JvmtiExport::oops_do(oopClosure);
+
+  // Now adjust pointers in remaining weak roots.  (All of which should
+  // have been cleared if they pointed to non-surviving objects.)
+  // Global (weak) JNI handles
+  JNIHandles::weak_oops_do(&always_true, oopClosure);
+
+  CodeBlobToOopClosure blobClosure(oopClosure, CodeBlobToOopClosure::FixRelocations);
+  CodeCache::blobs_do(&blobClosure);
+  StringTable::oops_do(oopClosure);
+  
+  // (DCEVM) TODO: Check if this is correct?
+  //CodeCache::scavenge_root_nmethods_oops_do(oopClosure);
+  //Management::oops_do(oopClosure);
+  //ref_processor()->weak_oops_do(&oopClosure);
+  //PSScavenge::reference_processor()->weak_oops_do(&oopClosure);
+
+  // SO_AllClasses
+  SystemDictionary::oops_do(oopClosure);
 }
 
 void Universe::oops_do(OopClosure* f, bool do_all) {

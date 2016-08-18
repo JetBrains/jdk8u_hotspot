@@ -1029,6 +1029,7 @@ static jclass jvm_define_class_common(JNIEnv *env, const char *name,
   Klass* k = SystemDictionary::resolve_from_stream(class_name, class_loader,
                                                      protection_domain, &st,
                                                      verify != 0,
+                                                     KlassHandle(),
                                                      CHECK_NULL);
 
   if (TraceClassResolution && k != NULL) {
@@ -4307,6 +4308,15 @@ JVM_END
 // JVM monitoring and management support
 JVM_ENTRY_NO_ENV(void*, JVM_GetManagement(jint version))
   return Management::get_jmm_interface(version);
+JVM_END
+
+JVM_ENTRY_NO_ENV(jint, JVM_GetVmMemoryPressure())
+  // Do nothing, this function is only to make management.dll happy
+  return 0;
+JVM_END
+
+JVM_ENTRY_NO_ENV(void, JVM_SetVmMemoryPressure(jint pressure))
+  // Do nothing, this function is only to make management.dll happy
 JVM_END
 
 // com.sun.tools.attach.VirtualMachine agent properties support

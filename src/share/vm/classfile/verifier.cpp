@@ -189,7 +189,7 @@ bool Verifier::is_eligible_for_verification(instanceKlassHandle klass, bool shou
   Symbol* name = klass->name();
   Klass* refl_magic_klass = SystemDictionary::reflect_MagicAccessorImpl_klass();
 
-  bool is_reflect = refl_magic_klass != NULL && klass->is_subtype_of(refl_magic_klass);
+  bool is_reflect = refl_magic_klass != NULL && (klass->is_subtype_of(refl_magic_klass) || klass->is_subtype_of(refl_magic_klass->newest_version()));
 
   return (should_verify_for(klass->class_loader(), should_verify_class) &&
     // return if the class is a bootstrapping class
@@ -518,7 +518,7 @@ void ErrorContext::stackmap_details(outputStream* ss, const Method* method) cons
 
 ClassVerifier::ClassVerifier(
     instanceKlassHandle klass, TRAPS)
-    : _thread(THREAD), _exception_type(NULL), _message(NULL), _klass(klass) {
+    : _thread(THREAD), _exception_type(NULL), _message(NULL), _klass(klass->newest_version()), _klass_to_verify(klass) {
   _this_type = VerificationType::reference_type(klass->name());
   // Create list to hold symbols in reference area.
   _symbols = new GrowableArray<Symbol*>(100, 0, NULL);
@@ -548,7 +548,7 @@ void ClassVerifier::verify_class(TRAPS) {
       _klass->external_name());
   }
 
-  Array<Method*>* methods = _klass->methods();
+  Array<Method*>* methods = _klass_to_verify->methods();
   int num_methods = methods->length();
 
   for (int index = 0; index < num_methods; index++) {

@@ -92,6 +92,7 @@ private:
 
   ciInstance* get_unloaded_instance(ciInstanceKlass* klass);
 
+  static int compare_cimetadata(ciMetadata** a, ciMetadata** b);
 public:
   static bool is_initialized() { return _initialized; }
 
@@ -147,6 +148,8 @@ public:
 
   void print_contents();
   void print();
+
+  static void resort_shared_ci_metadata();
 };
 
 #endif // SHARE_VM_CI_CIOBJECTFACTORY_HPP

@@ -1450,6 +1450,8 @@ void klassVtable::verify(outputStream* st, bool forced) {
 
 void klassVtable::verify_against(outputStream* st, klassVtable* vt, int index) {
   vtableEntry* vte = &vt->table()[index];
+  // (DCEVM) FIXME-isd: do we need the following line?
+  if (vte->method() == NULL || table()[index].method() == NULL) return;
   if (vte->method()->name()      != table()[index].method()->name() ||
       vte->method()->signature() != table()[index].method()->signature()) {
     fatal("mismatched name/signature of vtable entries");
@@ -1469,6 +1471,8 @@ void klassVtable::print() {
 
 void vtableEntry::verify(klassVtable* vt, outputStream* st) {
   NOT_PRODUCT(FlagSetting fs(IgnoreLockingAssertions, true));
+  // FIXME: (DCEVM) does not hold?
+  if (method() != NULL) {
   assert(method() != NULL, "must have set method");
   method()->verify();
   // we sub_type, because it could be a miranda method
@@ -1476,7 +1480,9 @@ void vtableEntry::verify(klassVtable* vt, outputStream* st) {
 #ifndef PRODUCT
     print();
 #endif
-    fatal(err_msg("vtableEntry " PTR_FORMAT ": method is from subclass", this));
+    // (DCEVM) the following fatal does not work for old versions of classes
+    //fatal(err_msg("vtableEntry " PTR_FORMAT ": method is from subclass", this));
+  }
   }
 }
 

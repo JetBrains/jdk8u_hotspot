@@ -729,7 +729,8 @@ bool InstanceKlass::link_class_impl(
       }
 #endif
       this_oop->set_init_state(linked);
-      if (JvmtiExport::should_post_class_prepare()) {
+      // (DCEVM) Must check for old version in order to prevent infinite loops.
+      if (JvmtiExport::should_post_class_prepare() && this_oop->old_version() == NULL /* JVMTI deadlock otherwise */) {
         Thread *thread = THREAD;
         assert(thread->is_Java_thread(), "thread->is_Java_thread()");
         JvmtiExport::post_class_prepare((JavaThread *) thread, this_oop());
@@ -841,7 +842,9 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
     // If we were to use wait() instead of waitInterruptibly() then
     // we might end up throwing IE from link/symbol resolution sites
     // that aren't expected to throw.  This would wreak havoc.  See 6320309.
-    while(this_oop->is_being_initialized() && !this_oop->is_reentrant_initialization(self)) {
+    // (DCEVM) Wait also for the old class version to be fully initialized.
+    while((this_oop->is_being_initialized() && !this_oop->is_reentrant_initialization(self))
+       || (this_oop->old_version() != NULL && InstanceKlass::cast(this_oop->old_version())->is_being_initialized())) {
         wait = true;
       ol.waitUninterruptibly(CHECK);
     }
@@ -1075,6 +1078,18 @@ bool InstanceKlass::implements_interface(Klass* k) const {
   assert(k->is_interface(), "should be an interface class");
   for (int i = 0; i < transitive_interfaces()->length(); i++) {
     if (transitive_interfaces()->at(i) == k) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool InstanceKlass::implements_interface_any_version(Klass* k) const {
+  k = k->newest_version();
+  if (this->newest_version() == k) return true;
+  assert(k->is_interface(), "should be an interface class");
+  for (int i = 0; i < transitive_interfaces()->length(); i++) {
+    if (transitive_interfaces()->at(i)->newest_version() == k) {
       return true;
     }
   }
@@ -1348,6 +1363,18 @@ void InstanceKlass::methods_do(void f(Method* method)) {
   }
 }
 
+void InstanceKlass::store_update_information(GrowableArray<int> &values) {
+  int *arr = NEW_C_HEAP_ARRAY(int, values.length(), mtClass);
+  for (int i=0; i<values.length(); i++) {
+    arr[i] = values.at(i);
+  }
+  set_update_information(arr);
+}
+
+void InstanceKlass::clear_update_information() {
+  FREE_C_HEAP_ARRAY(int, update_information(), mtClass);
+  set_update_information(NULL);
+}
 
 void InstanceKlass::do_local_static_fields(FieldClosure* cl) {
   for (JavaFieldStream fs(this); !fs.done(); fs.next()) {
@@ -1962,6 +1989,18 @@ void InstanceKlass::add_dependent_nmethod(nmethod* nm) {
   _dependencies = new nmethodBucket(nm, _dependencies);
 }
 
+bool InstanceKlass::update_jmethod_id(Method* method, jmethodID newMethodID) {
+  size_t idnum = (size_t)method->method_idnum();
+  jmethodID* jmeths = methods_jmethod_ids_acquire();
+  size_t length;                                // length assigned as debugging crumb
+  jmethodID id = NULL;
+  if (jmeths != NULL &&                         // If there is a cache
+      (length = (size_t)jmeths[0]) > idnum) {   // and if it is long enough,
+    jmeths[idnum+1] = newMethodID;              // Set method id (may be NULL)
+    return true;
+  }
+  return false;
+}
 
 //
 // Decrement count of the nmethod in the dependency list and remove
@@ -1995,6 +2034,13 @@ void InstanceKlass::remove_dependent_nmethod(nmethod* nm, bool delete_immediatel
     last = b;
     b = b->next();
   }
+
+  // (DCEVM) Hack as dependencies get wrong version of Klass*
+  if (this->old_version() != NULL) {
+    InstanceKlass::cast(this->old_version())->remove_dependent_nmethod(nm, true);
+    return;
+  }
+
 #ifdef ASSERT
   tty->print_cr("### %s can't find dependent nmethod:", this->external_name());
   nm->print();
@@ -3052,6 +3098,24 @@ void InstanceKlass::print_on(outputStream* st) const {
   assert(is_klass(), "must be klass");
   Klass::print_on(st);
 
+  // (DCEVM) Output revision number and revision numbers of older / newer and oldest / newest version of this class.
+  if (AllowEnhancedClassRedefinition) {
+    st->print(BULLET"revision:          %d", revision_number());
+    if (new_version() != NULL) {
+      st->print(" (newer=%d)", new_version()->revision_number());
+    }
+    if (newest_version() != new_version() && newest_version() != this) {
+      st->print(" (newest=%d)", newest_version()->revision_number());
+    }
+    if (old_version() != NULL) {
+      st->print(" (old=%d)", old_version()->revision_number());
+    }
+    if (oldest_version() != old_version() && oldest_version() != this) {
+      st->print(" (oldest=%d)", oldest_version()->revision_number());
+    }
+    st->cr();
+  }
+
   st->print(BULLET"instance size:     %d", size_helper());                        st->cr();
   st->print(BULLET"klass size:        %d", size());                               st->cr();
   st->print(BULLET"access:            "); access_flags().print_on(st);            st->cr();
@@ -3383,7 +3447,7 @@ void InstanceKlass::verify_on(outputStream* st) {
     }
 
     guarantee(sib->is_klass(), "should be klass");
-    guarantee(sib->super() == super, "siblings should have same superklass");
+    guarantee(sib->super() == super || super->newest_version() == SystemDictionary::Object_klass(), "siblings should have same superklass");
   }
 
   // Verify implementor fields
@@ -3548,6 +3612,7 @@ void InstanceKlass::set_init_state(ClassState state) {
 
 // Purge previous versions
 static void purge_previous_versions_internal(InstanceKlass* ik, int emcp_method_count) {
+  // FIXME: (DCEVM) Should we purge something?
   if (ik->previous_versions() != NULL) {
     // This klass has previous versions so see what we can cleanup
     // while it is safe to do so.
@@ -3785,7 +3850,7 @@ void InstanceKlass::add_previous_version(instanceKlassHandle ikh,
 
 // Determine if InstanceKlass has a previous version.
 bool InstanceKlass::has_previous_version() const {
-  return (_previous_versions != NULL && _previous_versions->length() > 0);
+  return _old_version != NULL || (_previous_versions != NULL && _previous_versions->length() > 0);
 } // end has_previous_version()
 
 

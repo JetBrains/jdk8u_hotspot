@@ -173,7 +173,7 @@ oop MethodHandles::init_MemberName(Handle mname, Handle target) {
   return NULL;
 }
 
-oop MethodHandles::init_method_MemberName(Handle mname, CallInfo& info) {
+oop MethodHandles::init_method_MemberName(Handle mname, CallInfo& info, bool reinit) {
   assert(info.resolved_appendix().is_null(), "only normal methods here");
   methodHandle m = info.resolved_method();
   KlassHandle m_klass = m->method_holder();
@@ -271,7 +271,8 @@ oop MethodHandles::init_method_MemberName(Handle mname, CallInfo& info) {
   // This is done eagerly, since it is readily available without
   // constructing any new objects.
   // TO DO: maybe intern mname_oop
-  if (m->method_holder()->add_member_name(mname)) {
+  // DCEVM: if redefining, we don't need to cache member name
+  if (reinit || m->method_holder()->add_member_name(mname)) {
     return mname();
   } else {
     // Redefinition caused this to fail.  Return NULL (and an exception?)

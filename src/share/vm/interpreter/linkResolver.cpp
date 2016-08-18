@@ -215,8 +215,8 @@ void CallInfo::verify() {
 // Klass resolution
 
 void LinkResolver::check_klass_accessability(KlassHandle ref_klass, KlassHandle sel_klass, TRAPS) {
-  if (!Reflection::verify_class_access(ref_klass(),
-                                       sel_klass(),
+  if (!Reflection::verify_class_access(ref_klass()->newest_version(),
+                                       sel_klass()->newest_version(),
                                        true)) {
     ResourceMark rm(THREAD);
     Exceptions::fthrow(
@@ -462,7 +462,7 @@ void LinkResolver::check_method_accessability(KlassHandle ref_klass,
   // We'll check for the method name first, as that's most likely
   // to be false (so we'll short-circuit out of these tests).
   if (sel_method->name() == vmSymbols::clone_name() &&
-      sel_klass() == SystemDictionary::Object_klass() &&
+      sel_klass()->newest_version() == SystemDictionary::Object_klass()->newest_version() &&
       resolved_klass->oop_is_array()) {
     // We need to change "protected" to "public".
     assert(flags.is_protected(), "clone not protected?");
@@ -811,7 +811,7 @@ void LinkResolver::resolve_field(fieldDescriptor& fd, KlassHandle resolved_klass
   }
 
   // Final fields can only be accessed from its own class.
-  if (is_put && fd.access_flags().is_final() && sel_klass() != current_klass()) {
+  if (is_put && fd.access_flags().is_final() && sel_klass() != current_klass() && sel_klass() != current_klass()->active_version()) {
     THROW(vmSymbols::java_lang_IllegalAccessError());
   }
 
@@ -1208,6 +1208,8 @@ void LinkResolver::runtime_resolve_virtual_method(CallInfo& result,
       // recv_klass might be an arrayKlassOop but all vtables start at
       // the same place. The cast is to avoid virtual call and assertion.
       InstanceKlass* inst = (InstanceKlass*)recv_klass();
+      // (DCEVM) Check that the receiver is a subtype of the holder of the resolved method.
+      assert(inst->is_subtype_of(resolved_method->method_holder()), "receiver and resolved method holder are inconsistent");
       selected_method = methodHandle(THREAD, inst->method_at_vtable(vtable_index));
     }
   }

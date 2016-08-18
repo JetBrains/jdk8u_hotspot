@@ -399,6 +399,7 @@ JNI_ENTRY(jclass, jni_DefineClass(JNIEnv *env, const char *name, jobject loaderR
   }
   Klass* k = SystemDictionary::resolve_from_stream(class_name, class_loader,
                                                      Handle(), &st, true,
+                                                     KlassHandle(),
                                                      CHECK_NULL);
 
   if (TraceClassResolution && k != NULL) {

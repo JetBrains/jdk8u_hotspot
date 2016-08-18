@@ -98,6 +98,19 @@ LoaderConstraintEntry** LoaderConstraintTable::find_loader_constraint(
   return pp;
 }
 
+void LoaderConstraintTable::update_after_redefinition() {
+  for (int index = 0; index < table_size(); index++) {
+    LoaderConstraintEntry** p = bucket_addr(index);
+    while(*p) {
+      LoaderConstraintEntry* probe = *p;
+      if (probe->klass() != NULL) {
+        // We swap the class with the newest version with an assumption that the hash will be the same
+        probe->set_klass(probe->klass()->newest_version());
+      }
+      p = probe->next_addr();
+    }
+  }
+}
 
 void LoaderConstraintTable::purge_loader_constraints() {
   assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
@@ -446,7 +459,7 @@ void LoaderConstraintTable::verify(Dictionary* dictionary,
         if (k != NULL) {
           // We found the class in the system dictionary, so we should
           // make sure that the Klass* matches what we already have.
-          guarantee(k == probe->klass(), "klass should be in dictionary");
+          guarantee(k == probe->klass()->newest_version(), "klass should be in dictionary");
         } else {
           // If we don't find the class in the system dictionary, it
           // has to be in the placeholders table.

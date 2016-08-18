@@ -64,6 +64,9 @@ public:
   // Enhanced Class Redefinition support
   void classes_do(KlassClosure* f);
 
+  // (DCEVM) update all klasses with newest version
+  void update_after_redefinition();
+
   // Check class loader constraints
   bool add_entry(Symbol* name, Klass* klass1, Handle loader1,
                                     Klass* klass2, Handle loader2);

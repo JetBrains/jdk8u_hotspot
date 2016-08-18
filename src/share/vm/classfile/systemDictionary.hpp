@@ -153,6 +153,8 @@ class Ticks;
                                                                                                                          \
   /* support for dynamic typing; it's OK if these are NULL in earlier JDKs */                                            \
   do_klass(DirectMethodHandle_klass,                    java_lang_invoke_DirectMethodHandle,       Opt                 ) \
+  do_klass(DirectMethodHandle_StaticAccessor_klass,     java_lang_invoke_DirectMethodHandle_StaticAccessor, Opt        ) \
+  do_klass(DirectMethodHandle_Accessor_klass,           java_lang_invoke_DirectMethodHandle_Accessor, Opt              ) \
   do_klass(MethodHandle_klass,                          java_lang_invoke_MethodHandle,             Pre_JSR292          ) \
   do_klass(MemberName_klass,                            java_lang_invoke_MemberName,               Pre_JSR292          ) \
   do_klass(MethodHandleNatives_klass,                   java_lang_invoke_MethodHandleNatives,      Pre_JSR292          ) \
@@ -282,7 +284,7 @@ public:
   // Resolve from stream (called by jni_DefineClass and JVM_DefineClass)
   static Klass* resolve_from_stream(Symbol* class_name, Handle class_loader,
                                       Handle protection_domain,
-                                      ClassFileStream* st, bool verify, TRAPS);
+                                      ClassFileStream* st, bool verify, KlassHandle old_class, TRAPS);
 
   // Lookup an already loaded class. If not found NULL is returned.
   static Klass* find(Symbol* class_name, Handle class_loader, Handle protection_domain, TRAPS);
@@ -356,6 +358,12 @@ public:
   // System loader lock
   static oop system_loader_lock()           { return _system_loader_lock_obj; }
 
+  // (DCEVM) Remove link to hierarchy
+  static void remove_from_hierarchy(instanceKlassHandle k);
+
+  // (DCEVM) Update constraints
+  static void update_constraints_after_redefinition();
+
 protected:
   // Extended Redefine classes support (tbi)
   static void preloaded_classes_do(KlassClosure* f);
@@ -421,6 +429,9 @@ public:
     int limit = (int)end_id + 1;
     initialize_wk_klasses_until((WKID) limit, start_id, THREAD);
   }
+
+  // (DCEVM) rollback class redefinition
+  static void rollback_redefinition();
 
 public:
   #define WK_KLASS_DECLARE(name, symbol, option) \
@@ -627,7 +638,7 @@ protected:
   // after waiting, but before reentering SystemDictionary_lock
   // to preserve lock order semantics.
   static void double_lock_wait(Handle lockObject, TRAPS);
-  static void define_instance_class(instanceKlassHandle k, TRAPS);
+  static void define_instance_class(instanceKlassHandle k, KlassHandle old_class, TRAPS);
   static instanceKlassHandle find_or_define_instance_class(Symbol* class_name,
                                                 Handle class_loader,
                                                 instanceKlassHandle k, TRAPS);

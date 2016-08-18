@@ -290,6 +290,11 @@ void JvmtiBreakpoint::each_method_version_do(method_action meth_act) {
   Symbol* m_name = _method->name();
   Symbol* m_signature = _method->signature();
 
+  // (DCEVM) Go through old versions of method
+  for (Method* m = _method->old_version(); m != NULL; m = m->old_version()) {
+    (m->*meth_act)(_bci);
+  }
+
   // search previous versions if they exist
   PreviousVersionWalker pvw(thread, (InstanceKlass *)ikh());
   for (PreviousVersionNode * pv_node = pvw.next_previous_version();

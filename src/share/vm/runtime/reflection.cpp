@@ -520,6 +520,12 @@ bool Reflection::verify_field_access(Klass* current_class,
                                      AccessFlags access,
                                      bool classloader_only,
                                      bool protected_restriction) {
+
+  // (DCEVM) Decide accessibility based on active version
+  if (current_class != NULL) {
+    current_class = current_class->active_version();
+  }
+
   // Verify that current_class can access a field of field_class, where that
   // field's access bits are "access".  We assume that we've already verified
   // that current_class can access field_class.

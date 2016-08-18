@@ -139,6 +139,7 @@ class InstanceKlass: public Klass {
   friend class VMStructs;
   friend class ClassFileParser;
   friend class CompileReplay;
+  friend class VM_EnhancedRedefineClasses;
 
  protected:
   // Constructor
@@ -651,7 +652,7 @@ class InstanceKlass: public Klass {
   // If the _previous_versions array is non-NULL, then this klass
   // has been redefined at least once even if we aren't currently
   // tracking a previous version.
-  bool has_been_redefined() const { return _previous_versions != NULL; }
+  bool has_been_redefined() const { return _old_version != NULL || _previous_versions != NULL; }
   bool has_previous_version() const;
   void init_previous_versions() {
     _previous_versions = NULL;
@@ -737,6 +738,7 @@ class InstanceKlass: public Klass {
   static void get_jmethod_id_length_value(jmethodID* cache, size_t idnum,
                 size_t *length_p, jmethodID* id_p);
   jmethodID jmethod_id_or_null(Method* method);
+  bool update_jmethod_id(Method* method, jmethodID newMethodID);
 
   // annotations support
   Annotations* annotations() const          { return _annotations; }
@@ -807,6 +809,7 @@ class InstanceKlass: public Klass {
   // subclass/subinterface checks
   bool implements_interface(Klass* k) const;
   bool is_same_or_direct_interface(Klass* k) const;
+  bool implements_interface_any_version(Klass* k) const;
 
 #ifdef ASSERT
   // check whether this class or one of its superclasses was redefined
@@ -862,6 +865,10 @@ class InstanceKlass: public Klass {
   void do_local_static_fields(FieldClosure* cl);
   void do_nonstatic_fields(FieldClosure* cl); // including inherited fields
   void do_local_static_fields(void f(fieldDescriptor*, Handle, TRAPS), Handle, TRAPS);
+
+  // (DCEVM) instance update information to be used in GC run
+  void store_update_information(GrowableArray<int> &values);
+  void clear_update_information();
 
   void methods_do(void f(Method* method));
   void array_klasses_do(void f(Klass* k));

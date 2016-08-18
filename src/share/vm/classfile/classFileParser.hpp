@@ -219,11 +219,12 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
   Array<Klass*>* parse_interfaces(int length,
                                   Handle protection_domain,
                                   Symbol* class_name,
+                                  bool pick_newest,
                                   bool* has_default_methods,
                                   TRAPS);
   void record_defined_class_dependencies(instanceKlassHandle defined_klass, TRAPS);
 
-  instanceKlassHandle parse_super_class(int super_class_index, TRAPS);
+  instanceKlassHandle parse_super_class(int super_class_index, bool pick_newest, TRAPS);
   // Field parsing
   void parse_field_attributes(u2 attributes_count,
                               bool is_static, u2 signature_index,
@@ -305,7 +306,7 @@ class ClassFileParser VALUE_OBJ_CLASS_SPEC {
                      unsigned int nonstatic_oop_map_count,
                      int* nonstatic_oop_offsets,
                      unsigned int* nonstatic_oop_counts);
-  void set_precomputed_flags(instanceKlassHandle k);
+  void set_precomputed_flags(instanceKlassHandle k, KlassHandle old_klass);
   Array<Klass*>* compute_transitive_interfaces(instanceKlassHandle super,
                                                Array<Klass*>* local_ifs, TRAPS);
 
@@ -470,17 +471,20 @@ PRAGMA_DIAG_POP
   instanceKlassHandle parseClassFile(Symbol* name,
                                      ClassLoaderData* loader_data,
                                      Handle protection_domain,
+                                     KlassHandle old_klass,
                                      TempNewSymbol& parsed_name,
                                      bool verify,
                                      TRAPS) {
     KlassHandle no_host_klass;
-    return parseClassFile(name, loader_data, protection_domain, no_host_klass, NULL, parsed_name, verify, THREAD);
+    return parseClassFile(name, loader_data, protection_domain, old_klass, no_host_klass, NULL, NULL, parsed_name, verify, THREAD);
   }
   instanceKlassHandle parseClassFile(Symbol* name,
                                      ClassLoaderData* loader_data,
                                      Handle protection_domain,
+                                     KlassHandle old_klass,
                                      KlassHandle host_klass,
                                      GrowableArray<Handle>* cp_patches,
+                                     GrowableArray<Symbol*>* parsed_super_symbols,
                                      TempNewSymbol& parsed_name,
                                      bool verify,
                                      TRAPS);
