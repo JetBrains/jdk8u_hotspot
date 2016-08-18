@@ -49,6 +49,18 @@ class aarch64 {
  friend class StubGenerator;
 
  private:
+  static address _get_previous_fp_entry;
+  static address _get_previous_sp_entry;
+
+  static address _f2i_fixup;
+  static address _f2l_fixup;
+  static address _d2i_fixup;
+  static address _d2l_fixup;
+
+  static address _float_sign_mask;
+  static address _float_sign_flip;
+  static address _double_sign_mask;
+  static address _double_sign_flip;
   static address _shenandoah_wb;
 
   static address _zero_longs;
@@ -58,6 +70,56 @@ class aarch64 {
   static address shenandoah_wb()
   {
     return _shenandoah_wb;
+  }
+
+  static address get_previous_fp_entry()
+  {
+    return _get_previous_fp_entry;
+  }
+
+  static address get_previous_sp_entry()
+  {
+    return _get_previous_sp_entry;
+  }
+
+  static address f2i_fixup()
+  {
+    return _f2i_fixup;
+  }
+
+  static address f2l_fixup()
+  {
+    return _f2l_fixup;
+  }
+
+  static address d2i_fixup()
+  {
+    return _d2i_fixup;
+  }
+
+  static address d2l_fixup()
+  {
+    return _d2l_fixup;
+  }
+
+  static address float_sign_mask()
+  {
+    return _float_sign_mask;
+  }
+
+  static address float_sign_flip()
+  {
+    return _float_sign_flip;
+  }
+
+  static address double_sign_mask()
+  {
+    return _double_sign_mask;
+  }
+
+  static address double_sign_flip()
+  {
+    return _double_sign_flip;
   }
 
   static address get_zero_longs()
