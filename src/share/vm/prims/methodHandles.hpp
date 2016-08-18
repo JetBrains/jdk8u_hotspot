@@ -60,7 +60,7 @@ class MethodHandles: AllStatic {
   static Handle new_MemberName(TRAPS);  // must be followed by init_MemberName
   static oop init_MemberName(Handle mname_h, Handle target_h); // compute vmtarget/vmindex from target
   static oop init_field_MemberName(Handle mname_h, fieldDescriptor& fd, bool is_setter = false);
-§  static oop init_method_MemberName(Handle mname_h, CallInfo& info, bool reinit = false);
+  static oop init_method_MemberName(Handle mname_h, CallInfo& info, bool reinit = false);
   static int method_ref_kind(Method* m, bool do_dispatch_if_possible = true);
   static int find_MemberNames(KlassHandle k, Symbol* name, Symbol* sig,
                               int mflags, KlassHandle caller,
