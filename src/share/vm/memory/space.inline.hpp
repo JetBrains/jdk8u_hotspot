@@ -35,7 +35,7 @@ inline HeapWord* Space::block_start(const void* p) {
   return block_start_const(p);
 }
 
-#define SCAN_AND_FORWARD(cp,scan_limit,block_is_obj,block_size) {            \
+#define SCAN_AND_FORWARD(cp,scan_limit,block_is_obj,block_size,redefinition_run) { \
   /* Compute the new addresses for the live objects and store it in the mark \
    * Used by universe::mark_sweep_phase2()                                   \
    */                                                                        \
@@ -93,7 +93,17 @@ inline HeapWord* Space::block_start(const void* p) {
       /* prefetch beyond q */                                                \
       Prefetch::write(q, interval);                                          \
       size_t size = block_size(q);                                           \
+      if (redefinition_run) {                                                \
+        compact_top = cp->space->forward_with_rescue(q, size,                \
+                                                     cp, compact_top);       \
+        if (q < first_dead && oop(q)->is_gc_marked()) {                      \
+          /* Was moved (otherwise, forward would reset mark),                \
+             set first_dead to here */                                       \
+          first_dead = q;                                                    \
+        }                                                                    \
+      } else {                                                               \
       compact_top = cp->space->forward(oop(q), size, cp, compact_top);       \
+      }                                                                      \
       q += size;                                                             \
       end_of_live = q;                                                       \
     } else {                                                                 \
@@ -142,6 +152,8 @@ inline HeapWord* Space::block_start(const void* p) {
     }                                                                        \
   }                                                                          \
                                                                              \
+  if (redefinition_run) { compact_top = forward_rescued(cp, compact_top); }  \
+                                                                             \
   assert(q == t, "just checking");                                           \
   if (liveRange != NULL) {                                                   \
     liveRange->set_end(q);                                                   \
@@ -188,13 +200,8 @@ inline HeapWord* Space::block_start(const void* p) {
       q += size;                                                                \
     }                                                                           \
                                                                                 \
-    if (_first_dead == t) {                                                     \
-      q = t;                                                                    \
-    } else {                                                                    \
-      /* $$$ This is funky.  Using this to read the previously written          \
-       * LiveRange.  See also use below. */                                     \
-      q = (HeapWord*)oop(_first_dead)->mark()->decode_pointer();                \
-    }                                                                           \
+    /* (DCEVM) first_dead can be live object if we move/rescue resized objects */ \
+    q = _first_dead;                                                            \
   }                                                                             \
                                                                                 \
   const intx interval = PrefetchScanIntervalInBytes;                            \
@@ -222,7 +229,7 @@ inline HeapWord* Space::block_start(const void* p) {
   assert(q == t, "just checking");                                              \
 }
 
-#define SCAN_AND_COMPACT(obj_size) {                                            \
+#define SCAN_AND_COMPACT(obj_size, redefinition_run) {                          \
   /* Copy all live objects to their new location                                \
    * Used by MarkSweep::mark_sweep_phase4() */                                  \
                                                                                 \
@@ -247,13 +254,9 @@ inline HeapWord* Space::block_start(const void* p) {
     }                                                                           \
     )  /* debug_only */                                                         \
                                                                                 \
-    if (_first_dead == t) {                                                     \
-      q = t;                                                                    \
-    } else {                                                                    \
-      /* $$$ Funky */                                                           \
-      q = (HeapWord*) oop(_first_dead)->mark()->decode_pointer();               \
+    /* (DCEVM) first_dead can be live object if we move/rescue resized objects */ \
+    q = _first_dead;                                                            \
     }                                                                           \
-  }                                                                             \
                                                                                 \
   const intx scan_interval = PrefetchScanIntervalInBytes;                       \
   const intx copy_interval = PrefetchCopyIntervalInBytes;                       \
@@ -271,11 +274,34 @@ inline HeapWord* Space::block_start(const void* p) {
       size_t size = obj_size(q);                                                \
       HeapWord* compaction_top = (HeapWord*)oop(q)->forwardee();                \
                                                                                 \
+      if (redefinition_run && must_rescue(oop(q), oop(q)->forwardee())) {       \
+        rescue(q);                                                              \
+        debug_only(Copy::fill_to_words(q, size, 0));                            \
+        q += size;                                                              \
+        continue;                                                               \
+      }                                                                         \
+                                                                                \
       /* prefetch beyond compaction_top */                                      \
       Prefetch::write(compaction_top, copy_interval);                           \
                                                                                 \
       /* copy object and reinit its mark */                                     \
-      assert(q != compaction_top, "everything in this pass should be moving");  \
+      assert(q != compaction_top || oop(q)->klass()->new_version() != NULL,     \
+             "everything in this pass should be moving");                       \
+      if (redefinition_run && oop(q)->klass()->new_version() != NULL) {         \
+        Klass* new_version = oop(q)->klass()->new_version();                    \
+        if (new_version->update_information() == NULL) {                        \
+          Copy::aligned_conjoint_words(q, compaction_top, size);                \
+          oop(compaction_top)->set_klass(new_version);                          \
+        } else {                                                                \
+          MarkSweep::update_fields(oop(q), oop(compaction_top));                \
+        }                                                                       \
+        oop(compaction_top)->init_mark();                                       \
+        assert(oop(compaction_top)->klass() != NULL, "should have a class");    \
+                                                                                \
+        debug_only(prev_q = q);                                                 \
+        q += size;                                                              \
+        continue;                                                               \
+      }                                                                         \
       Copy::aligned_conjoint_words(q, compaction_top, size);                    \
       oop(compaction_top)->init_mark();                                         \
       assert(oop(compaction_top)->klass() != NULL, "should have a class");      \

@@ -327,11 +327,16 @@ void GenMarkSweep::mark_sweep_phase4() {
   // in the same order in phase2, phase3 and phase4. We don't quite do that
   // here (perm_gen first rather than last), so we tell the validate code
   // to use a higher index (saved from phase2) when verifying perm_gen.
+  assert(_rescued_oops == NULL, "must be empty before processing");
   GenCollectedHeap* gch = GenCollectedHeap::heap();
 
   GCTraceTime tm("phase 4", PrintGC && Verbose, true, _gc_timer, _gc_tracer->gc_id());
   trace("4");
 
+  MarkSweep::copy_rescued_objects_back();
+
   GenCompactClosure blk;
   gch->generation_iterate(&blk, true);
+
+  MarkSweep::copy_rescued_objects_back();
 }
