@@ -228,6 +228,8 @@
                 _JVM_SetPrimitiveArrayElement
                 _JVM_SetSockOpt
                 _JVM_SetThreadPriority
+                _JVM_GetVmMemoryPressure
+                _JVM_SetVmMemoryPressure
                 _JVM_Sleep
                 _JVM_Socket
                 _JVM_SocketAvailable

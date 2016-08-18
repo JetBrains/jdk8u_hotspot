@@ -227,6 +227,8 @@ SUNWprivate_1.1 {
                 JVM_SetProtectionDomain;
                 JVM_SetSockOpt;
                 JVM_SetThreadPriority;
+                JVM_GetVmMemoryPressure;
+                JVM_SetVmMemoryPressure;
                 JVM_Sleep;
                 JVM_Socket;
                 JVM_SocketAvailable;
