@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -117,13 +117,13 @@ compute_offset(int &dest_offset,
   if (!find_field(ik, name_symbol, signature_symbol, &fd, allow_super)) {
     ResourceMark rm;
     tty->print_cr("Invalid layout of %s at %s", ik->external_name(), name_symbol->as_C_string());
-#ifndef PRODUCT
+//#ifndef PRODUCT
     klass_oop->print();
     tty->print_cr("all fields:");
     for (AllFieldStream fs(InstanceKlass::cast(klass_oop)); !fs.done(); fs.next()) {
       tty->print_cr("  name: %s, sig: %s, flags: %08x", fs.name()->as_C_string(), fs.signature()->as_C_string(), fs.access_flags().as_int());
     }
-#endif //PRODUCT
+//#endif //PRODUCT
     vm_exit_during_initialization("Invalid layout of preloaded class: use -XX:+TraceClassLoading to see the origin of the problem class");
   }
   dest_offset = fd.offset();
@@ -936,7 +936,7 @@ void java_lang_Thread::compute_offsets() {
   assert(_group_offset == 0, "offsets should be initialized only once");
 
   Klass* k = SystemDictionary::Thread_klass();
-  compute_offset(_name_offset,      k, vmSymbols::name_name(),      vmSymbols::string_signature());
+  compute_offset(_name_offset,      k, vmSymbols::name_name(),      vmSymbols::char_array_signature());
   compute_offset(_group_offset,     k, vmSymbols::group_name(),     vmSymbols::threadgroup_signature());
   compute_offset(_contextClassLoader_offset, k, vmSymbols::contextClassLoader_name(), vmSymbols::classloader_signature());
   compute_offset(_inheritedAccessControlContext_offset, k, vmSymbols::inheritedAccessControlContext_name(), vmSymbols::accesscontrolcontext_signature());
@@ -966,12 +966,15 @@ void java_lang_Thread::set_thread(oop java_thread, JavaThread* thread) {
 }
 
 
-oop java_lang_Thread::name(oop java_thread) {
-  return java_thread->obj_field(_name_offset);
+typeArrayOop java_lang_Thread::name(oop java_thread) {
+  oop name = java_thread->obj_field(_name_offset);
+  assert(name == NULL || (name->is_typeArray() && TypeArrayKlass::cast(name->klass())->element_type() == T_CHAR), "just checking");
+  return typeArrayOop(name);
 }
 
 
-void java_lang_Thread::set_name(oop java_thread, oop name) {
+void java_lang_Thread::set_name(oop java_thread, typeArrayOop name) {
+  assert(java_thread->obj_field(_name_offset) == NULL, "name should be NULL");
   java_thread->obj_field_put(_name_offset, name);
 }
 
@@ -1709,6 +1712,8 @@ void java_lang_Throwable::fill_in_stack_trace(Handle throwable, methodHandle met
         skip_throwableInit_check = true;
       }
     }
+    // (DCEVM): Line numbers from newest version must be used for EMCP-swapped methods
+    method = method->newest_version();
     if (method->is_hidden()) {
       if (skip_hidden)  continue;
     }
@@ -2700,6 +2705,50 @@ void java_lang_invoke_DirectMethodHandle::compute_offsets() {
   }
 }
 
+// Support for java_lang_invoke_DirectMethodHandle$StaticAccessor
+
+int java_lang_invoke_DirectMethodHandle_StaticAccessor::_static_offset_offset;
+
+long java_lang_invoke_DirectMethodHandle_StaticAccessor::static_offset(oop dmh) {
+  assert(_static_offset_offset != 0, "");
+  return dmh->long_field(_static_offset_offset);
+}
+
+void java_lang_invoke_DirectMethodHandle_StaticAccessor::set_static_offset(oop dmh, long static_offset) {
+  assert(_static_offset_offset != 0, "");
+  dmh->long_field_put(_static_offset_offset, static_offset);
+}
+
+
+void java_lang_invoke_DirectMethodHandle_StaticAccessor::compute_offsets() {
+  Klass* klass_oop = SystemDictionary::DirectMethodHandle_StaticAccessor_klass();
+  if (klass_oop != NULL && EnableInvokeDynamic) {
+    compute_offset(_static_offset_offset, klass_oop, vmSymbols::static_offset_name(), vmSymbols::long_signature());
+  }
+}
+
+// Support for java_lang_invoke_DirectMethodHandle$Accessor
+
+int java_lang_invoke_DirectMethodHandle_Accessor::_field_offset_offset;
+
+int java_lang_invoke_DirectMethodHandle_Accessor::field_offset(oop dmh) {
+  assert(_field_offset_offset != 0, "");
+  return dmh->int_field(_field_offset_offset);
+}
+
+void java_lang_invoke_DirectMethodHandle_Accessor::set_field_offset(oop dmh, int field_offset) {
+  assert(_field_offset_offset != 0, "");
+  dmh->int_field_put(_field_offset_offset, field_offset);
+}
+
+
+void java_lang_invoke_DirectMethodHandle_Accessor::compute_offsets() {
+  Klass* klass_oop = SystemDictionary::DirectMethodHandle_Accessor_klass();
+  if (klass_oop != NULL && EnableInvokeDynamic) {
+    compute_offset(_field_offset_offset, klass_oop, vmSymbols::field_offset_name(), vmSymbols::int_signature());
+  }
+}
+
 // Support for java_lang_invoke_MethodHandle
 
 int java_lang_invoke_MethodHandle::_type_offset;
@@ -3349,6 +3398,9 @@ void JavaClasses::compute_offsets() {
     java_lang_invoke_LambdaForm::compute_offsets();
     java_lang_invoke_MethodType::compute_offsets();
     java_lang_invoke_CallSite::compute_offsets();
+
+    java_lang_invoke_DirectMethodHandle_StaticAccessor::compute_offsets();
+    java_lang_invoke_DirectMethodHandle_Accessor::compute_offsets();
   }
   java_security_AccessControlContext::compute_offsets();
   // Initialize reflection classes. The layouts of these classes

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,6 +43,7 @@
 #include "prims/jvmtiManageCapabilities.hpp"
 #include "prims/jvmtiRawMonitor.hpp"
 #include "prims/jvmtiRedefineClasses.hpp"
+#include "prims/jvmtiRedefineClasses2.hpp"
 #include "prims/jvmtiTagMap.hpp"
 #include "prims/jvmtiThreadState.inline.hpp"
 #include "prims/jvmtiUtil.hpp"
@@ -207,8 +208,10 @@ JvmtiEnv::GetClassLoaderClasses(jobject initiating_loader, jint* class_count_ptr
 // is_modifiable_class_ptr - pre-checked for NULL
 jvmtiError
 JvmtiEnv::IsModifiableClass(oop k_mirror, jboolean* is_modifiable_class_ptr) {
-  *is_modifiable_class_ptr = VM_RedefineClasses::is_modifiable_class(k_mirror)?
-                                                       JNI_TRUE : JNI_FALSE;
+  bool is_modifiable_class = AllowEnhancedClassRedefinition ?
+    VM_EnhancedRedefineClasses::is_modifiable_class(k_mirror) :
+    VM_RedefineClasses::is_modifiable_class(k_mirror);
+  *is_modifiable_class_ptr = is_modifiable_class ? JNI_TRUE : JNI_FALSE;
   return JVMTI_ERROR_NONE;
 } /* end IsModifiableClass */
 
@@ -277,6 +280,11 @@ JvmtiEnv::RetransformClasses(jint class_count, const jclass* classes) {
     }
     class_definitions[index].klass              = jcls;
   }
+  if (AllowEnhancedClassRedefinition) {
+    VM_EnhancedRedefineClasses op(class_count, class_definitions, jvmti_class_load_kind_retransform);
+    VMThread::execute(&op);
+    return (op.check_error());
+  }
   VM_RedefineClasses op(class_count, class_definitions, jvmti_class_load_kind_retransform);
   VMThread::execute(&op);
   return (op.check_error());
@@ -288,6 +296,11 @@ JvmtiEnv::RetransformClasses(jint class_count, const jclass* classes) {
 jvmtiError
 JvmtiEnv::RedefineClasses(jint class_count, const jvmtiClassDefinition* class_definitions) {
 //TODO: add locking
+  if (AllowEnhancedClassRedefinition) {
+    VM_EnhancedRedefineClasses op(class_count, class_definitions, jvmti_class_load_kind_redefine);
+    VMThread::execute(&op);
+    return (op.check_error());
+  }
   VM_RedefineClasses op(class_count, class_definitions, jvmti_class_load_kind_redefine);
   VMThread::execute(&op);
   return (op.check_error());
@@ -946,7 +959,7 @@ JvmtiEnv::GetThreadInfo(jthread thread, jvmtiThreadInfo* info_ptr) {
     return JVMTI_ERROR_INVALID_THREAD;
 
   Handle thread_obj(current_thread, thread_oop);
-  Handle name;
+  typeArrayHandle    name;
   ThreadPriority priority;
   Handle     thread_group;
   Handle context_class_loader;
@@ -954,7 +967,7 @@ JvmtiEnv::GetThreadInfo(jthread thread, jvmtiThreadInfo* info_ptr) {
 
   { MutexLocker mu(Threads_lock);
 
-    name = Handle(current_thread, java_lang_Thread::name(thread_obj()));
+    name = typeArrayHandle(current_thread, java_lang_Thread::name(thread_obj()));
     priority = java_lang_Thread::priority(thread_obj());
     thread_group = Handle(current_thread, java_lang_Thread::threadGroup(thread_obj()));
     is_daemon = java_lang_Thread::is_daemon(thread_obj());
@@ -965,7 +978,7 @@ JvmtiEnv::GetThreadInfo(jthread thread, jvmtiThreadInfo* info_ptr) {
   { const char *n;
 
     if (name() != NULL) {
-      n = java_lang_String::as_utf8_string(name());
+      n = UNICODE::as_utf8((jchar*) name->base(T_CHAR), name->length());
     } else {
       n = UNICODE::as_utf8(NULL, 0);
     }

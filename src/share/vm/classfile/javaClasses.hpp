@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -343,8 +343,8 @@ class java_lang_Thread : AllStatic {
   // Set JavaThread for instance
   static void set_thread(oop java_thread, JavaThread* thread);
   // Name
-  static oop name(oop java_thread);
-  static void set_name(oop java_thread, oop name);
+  static typeArrayOop name(oop java_thread);
+  static void set_name(oop java_thread, typeArrayOop name);
   // Priority
   static ThreadPriority priority(oop java_thread);
   static void set_priority(oop java_thread, ThreadPriority priority);
@@ -1021,6 +1021,55 @@ class java_lang_invoke_DirectMethodHandle: AllStatic {
   // Accessors for code generation:
   static int member_offset_in_bytes()           { return _member_offset; }
 };
+
+// Interface to java.lang.invoke.DirectMethodHandle$StaticAccessor objects
+
+class java_lang_invoke_DirectMethodHandle_StaticAccessor: AllStatic {
+  friend class JavaClasses;
+
+ private:
+  static int _static_offset_offset;               // offset to static field
+
+  static void compute_offsets();
+
+ public:
+  // Accessors
+  static long      static_offset(oop dmh);
+  static void  set_static_offset(oop dmh, long value);
+
+  // Testers
+  static bool is_subclass(Klass* klass) {
+    return klass->is_subclass_of(SystemDictionary::DirectMethodHandle_StaticAccessor_klass());
+  }
+  static bool is_instance(oop obj) {
+    return obj != NULL && is_subclass(obj->klass());
+  }
+};
+
+// Interface to java.lang.invoke.DirectMethodHandle$Accessor objects
+
+class java_lang_invoke_DirectMethodHandle_Accessor: AllStatic {
+  friend class JavaClasses;
+
+ private:
+  static int _field_offset_offset;               // offset to field
+
+  static void compute_offsets();
+
+ public:
+  // Accessors
+  static int      field_offset(oop dmh);
+  static void set_field_offset(oop dmh, int value);
+
+  // Testers
+  static bool is_subclass(Klass* klass) {
+    return klass->is_subclass_of(SystemDictionary::DirectMethodHandle_Accessor_klass());
+  }
+  static bool is_instance(oop obj) {
+    return obj != NULL && is_subclass(obj->klass());
+  }
+};
+
 
 // Interface to java.lang.invoke.LambdaForm objects
 // (These are a private interface for managing adapter code generation.)
