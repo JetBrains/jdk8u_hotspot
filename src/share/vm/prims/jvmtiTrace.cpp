@@ -266,11 +266,11 @@ const char *JvmtiTrace::safe_get_thread_name(Thread *thread) {
   if (threadObj == NULL) {
     return "NULL";
   }
-  typeArrayOop name = java_lang_Thread::name(threadObj);
+  oop name = java_lang_Thread::name(threadObj);
   if (name == NULL) {
     return "<NOT FILLED IN>";
   }
-  return UNICODE::as_utf8((jchar*) name->base(T_CHAR), name->length());
+  return java_lang_String::as_utf8_string(name);
 }
 
 
