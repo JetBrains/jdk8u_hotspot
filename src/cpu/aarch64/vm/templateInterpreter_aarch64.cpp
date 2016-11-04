@@ -841,6 +841,7 @@ address InterpreterGenerator::generate_CRC32_updateBytes_entry(AbstractInterpret
       __ ldrw(crc,   Address(esp, 4*wordSize)); // Initial CRC
     } else {
       __ ldr(buf, Address(esp, 2*wordSize)); // byte[] array
+      oopDesc::bs()->interpreter_read_barrier_not_null(_masm, buf);
       __ add(buf, buf, arrayOopDesc::base_offset_in_bytes(T_BYTE)); // + header size
       __ ldrw(off, Address(esp, wordSize)); // offset
       __ add(buf, buf, off); // + offset
