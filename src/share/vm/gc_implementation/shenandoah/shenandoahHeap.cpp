@@ -633,6 +633,11 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
     return allocate_large_memory(word_size);
   }
 
+  // Not enough memory in free region set.
+  // Coming out of full GC, it is possible that there is not
+  // free region available, so current_index may not be valid.
+  if (word_size * HeapWordSize > _free_regions->capacity()) return NULL;
+
   jlong current_idx = _free_regions->current_index();
   assert(current_idx >= 0, "expect >= 0");
   ShenandoahHeapRegion* my_current_region = _free_regions->get(current_idx);
@@ -681,7 +686,8 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
 HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
 
   uint required_regions = ShenandoahHumongous::required_regions(words * HeapWordSize);
-  assert(required_regions <= _max_regions, "sanity check");
+  if (required_regions > _max_regions) return NULL;
+
   ShenandoahHeapRegion* r = _free_regions->claim_contiguous(required_regions);
 
   HeapWord* result = NULL;
