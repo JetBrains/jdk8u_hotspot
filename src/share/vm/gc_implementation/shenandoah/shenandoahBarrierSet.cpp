@@ -275,8 +275,9 @@ oop ShenandoahBarrierSet::read_barrier(oop src) {
 bool ShenandoahBarrierSet::obj_equals(oop obj1, oop obj2) {
   bool eq = oopDesc::unsafe_equals(obj1, obj2);
   if (! eq) {
-    obj1 = read_barrier(obj1);
-    obj2 = read_barrier(obj2);
+    OrderAccess::loadload();
+    obj1 = resolve_oop_static(obj1);
+    obj2 = resolve_oop_static(obj2);
     eq = oopDesc::unsafe_equals(obj1, obj2);
   }
   return eq;
