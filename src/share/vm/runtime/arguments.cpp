@@ -1725,6 +1725,11 @@ void Arguments::set_g1_gc_flags() {
 }
 
 void Arguments::set_shenandoah_gc_flags() {
+
+#if !(defined AARCH64 || defined AMD64)
+  UNSUPPORTED_OPTION(UseShenandoahGC);
+#endif
+
   FLAG_SET_DEFAULT(UseDynamicNumberOfGCThreads, true);
   FLAG_SET_DEFAULT(ParallelGCThreads,
                    Abstract_VM_Version::parallel_worker_threads());
