@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,7 @@
 #include "memory/generation.hpp"
 #include "memory/heapInspection.hpp"
 #include "memory/metadataFactory.hpp"
+#include "memory/metaspaceShared.hpp"
 #include "memory/oopFactory.hpp"
 #include "oops/constMethod.hpp"
 #include "oops/methodData.hpp"
@@ -84,9 +85,6 @@ Method::Method(ConstMethod* xconst, AccessFlags access_flags, int size) {
   set_constMethod(xconst);
   set_access_flags(access_flags);
   set_method_size(size);
-#ifdef CC_INTERP
-  set_result_index(T_VOID);
-#endif
   set_intrinsic_id(vmIntrinsics::_none);
   set_jfr_towrite(false);
   set_force_inline(false);
@@ -285,7 +283,12 @@ address Method::bcp_from(int bci) const {
 
 int Method::size(bool is_native) {
   // If native, then include pointers for native_function and signature_handler
+#ifdef TARGET_ARCH_aarch64
+  // aarch64 requires extra word for call format
+  int extra_bytes = (is_native) ? 3*sizeof(address*) : 0;
+#else
   int extra_bytes = (is_native) ? 2*sizeof(address*) : 0;
+#endif // TARGET_ARCH_aarch64
   int extra_words = align_size_up(extra_bytes, BytesPerWord) / BytesPerWord;
   return align_object_size(header_size() + extra_words);
 }
@@ -307,6 +310,33 @@ Symbol* Method::klass_name() const {
 void Method::remove_unshareable_info() {
   unlink_method();
 }
+
+void Method::set_vtable_index(int index) {
+  if (is_shared() && !MetaspaceShared::remapped_readwrite()) {
+    // At runtime initialize_vtable is rerun as part of link_class_impl()
+    // for a shared class loaded by the non-boot loader to obtain the loader
+    // constraints based on the runtime classloaders' context.
+    return; // don't write into the shared class
+  } else {
+    _vtable_index = index;
+  }
+}
+
+void Method::set_itable_index(int index) {
+  if (is_shared() && !MetaspaceShared::remapped_readwrite()) {
+    // At runtime initialize_itable is rerun as part of link_class_impl()
+    // for a shared class loaded by the non-boot loader to obtain the loader
+    // constraints based on the runtime classloaders' context. The dumptime
+    // itable index should be the same as the runtime index.
+    assert(_vtable_index == itable_index_max - index,
+           "archived itable index is different from runtime index");
+    return; // don’t write into the shared class
+  } else {
+    _vtable_index = itable_index_max - index;
+  }
+  assert(valid_itable_index(), "");
+}
+
 
 
 bool Method::was_executed_more_than(int n) {
@@ -411,12 +441,6 @@ void Method::compute_size_of_parameters(Thread *thread) {
   ArgumentSizeComputer asc(signature());
   set_size_of_parameters(asc.size() + (is_static() ? 0 : 1));
 }
-
-#ifdef CC_INTERP
-void Method::set_result_index(BasicType type)          {
-  _result_index = Interpreter::BasicType_as_index(type);
-}
-#endif
 
 BasicType Method::result_type() const {
   ResultTypeFinder rtf(signature());
@@ -714,9 +738,20 @@ void Method::set_signature_handler(address handler) {
   *signature_handler = handler;
 }
 
+#ifdef TARGET_ARCH_aarch64
+void Method::set_call_format(unsigned int call_format) {
+  unsigned int* call_format_p =  (unsigned int *)call_format_addr();
+  *call_format_p = call_format;
+}
+
+unsigned int Method::call_format() {
+  return *(unsigned int *)call_format_addr();
+}
+#endif
 
 void Method::print_made_not_compilable(int comp_level, bool is_osr, bool report, const char* reason) {
   if (PrintCompilation && report) {
+    ResourceMark rm;
     ttyLocker ttyl;
     tty->print("made not %scompilable on ", is_osr ? "OSR " : "");
     if (comp_level == CompLevel_all) {
@@ -738,6 +773,7 @@ void Method::print_made_not_compilable(int comp_level, bool is_osr, bool report,
     tty->cr();
   }
   if ((TraceDeoptimization || LogCompilation) && (xtty != NULL)) {
+    ResourceMark rm;
     ttyLocker ttyl;
     xtty->begin_elem("make_not_compilable thread='" UINTX_FORMAT "' osr='%d' level='%d'",
                      os::current_thread_id(), is_osr, comp_level);
@@ -1123,10 +1159,8 @@ methodHandle Method::make_method_handle_intrinsic(vmIntrinsics::ID iid,
   m->set_signature_index(_imcp_invoke_signature);
   assert(MethodHandles::is_signature_polymorphic_name(m->name()), "");
   assert(m->signature() == signature, "");
-#ifdef CC_INTERP
   ResultTypeFinder rtf(signature);
-  m->set_result_index(rtf.type());
-#endif
+  m->constMethod()->set_result_type(rtf.type());
   m->compute_size_of_parameters(THREAD);
   m->init_intrinsic_id();
   assert(m->is_method_handle_intrinsic(), "");

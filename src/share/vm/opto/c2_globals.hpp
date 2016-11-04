@@ -29,6 +29,9 @@
 #ifdef TARGET_ARCH_x86
 # include "c2_globals_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "c2_globals_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "c2_globals_sparc.hpp"
 #endif
@@ -661,6 +664,18 @@
                                                                             \
   product(bool, UseMultiplyToLenIntrinsic, false,                           \
           "Enables intrinsification of BigInteger.multiplyToLen()")         \
+                                                                            \
+  product(bool, UseSquareToLenIntrinsic, false,                             \
+          "Enables intrinsification of BigInteger.squareToLen()")           \
+                                                                            \
+  product(bool, UseMulAddIntrinsic, false,                                  \
+          "Enables intrinsification of BigInteger.mulAdd()")                \
+                                                                            \
+  product(bool, UseMontgomeryMultiplyIntrinsic, false,                      \
+          "Enables intrinsification of BigInteger.montgomeryMultiply()")    \
+                                                                            \
+  product(bool, UseMontgomerySquareIntrinsic, false,                        \
+          "Enables intrinsification of BigInteger.montgomerySquare()")      \
                                                                             \
   product(bool, UseTypeSpeculation, true,                                   \
           "Speculatively propagate types from profiles")                    \

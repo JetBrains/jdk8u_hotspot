@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,7 +44,7 @@ class EntryPoint VALUE_OBJ_CLASS_SPEC {
  public:
   // Construction
   EntryPoint();
-  EntryPoint(address bentry, address centry, address sentry, address aentry, address ientry, address lentry, address fentry, address dentry, address ventry);
+  EntryPoint(address bentry, address zentry, address centry, address sentry, address aentry, address ientry, address lentry, address fentry, address dentry, address ventry);
 
   // Attributes
   address entry(TosState state) const;                // return target address for a given tosca state
@@ -189,6 +189,9 @@ class TemplateInterpreter: public AbstractInterpreter {
 
 #ifdef TARGET_ARCH_x86
 # include "templateInterpreter_x86.hpp"
+#endif
+#ifdef TARGET_ARCH_aarch64
+# include "templateInterpreter_aarch64.hpp"
 #endif
 #ifdef TARGET_ARCH_sparc
 # include "templateInterpreter_sparc.hpp"

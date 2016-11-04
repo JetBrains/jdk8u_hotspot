@@ -62,6 +62,10 @@
 # include "nativeInst_x86.hpp"
 # include "vmreg_x86.inline.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "nativeInst_aarch64.hpp"
+# include "vmreg_aarch64.inline.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "nativeInst_sparc.hpp"
 # include "vmreg_sparc.inline.hpp"
@@ -83,6 +87,10 @@
 #endif
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
+
+#ifdef BUILTIN_SIM
+#include "../../../../../../simulator/simulator.hpp"
+#endif
 
 // Shared stub locations
 RuntimeStub*        SharedRuntime::_wrong_method_blob;
@@ -2499,7 +2507,25 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
       CompileBroker::handle_full_code_cache();
       return NULL; // Out of CodeCache space
     }
+#ifdef BUILTIN_SIM
+    address old_i2c = entry->get_i2c_entry();
+    address old_c2i = entry->get_c2i_entry();
+    AArch64Simulator *sim =  (NotifySimulator ? AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck) : NULL);
+#endif
+
     entry->relocate(new_adapter->content_begin());
+
+#ifdef BUILTIN_SIM
+    if (NotifySimulator) {
+      address new_i2c = entry->get_i2c_entry();
+      address new_c2i = entry->get_c2i_entry();
+      long offset = new_i2c - old_i2c;
+      sim->notifyRelocate(old_i2c, offset);
+      offset = new_c2i - old_c2i;
+      sim->notifyRelocate(old_c2i, offset);
+    }
+#endif
+
 #ifndef PRODUCT
     // debugging suppport
     if (PrintAdapterHandlers || PrintStubCode) {
@@ -2836,8 +2862,6 @@ VMRegPair *SharedRuntime::find_callee_arguments(Symbol* sig, bool has_receiver, 
   char *s = sig->as_C_string();
   int len = (int)strlen(s);
   s++; len--;                   // Skip opening paren
-  char *t = s+len;
-  while( *(--t) != ')' ) ;      // Find close paren
 
   BasicType *sig_bt = NEW_RESOURCE_ARRAY( BasicType, 256 );
   VMRegPair *regs = NEW_RESOURCE_ARRAY( VMRegPair, 256 );
@@ -2846,7 +2870,7 @@ VMRegPair *SharedRuntime::find_callee_arguments(Symbol* sig, bool has_receiver, 
     sig_bt[cnt++] = T_OBJECT; // Receiver is argument 0; not in signature
   }
 
-  while( s < t ) {
+  while( *s != ')' ) {          // Find closing right paren
     switch( *s++ ) {            // Switch on signature character
     case 'B': sig_bt[cnt++] = T_BYTE;    break;
     case 'C': sig_bt[cnt++] = T_CHAR;    break;

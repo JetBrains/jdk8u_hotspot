@@ -490,6 +490,11 @@ JVM_SetClassSigners(JNIEnv *env, jclass cls, jobjectArray signers);
 JNIEXPORT jobject JNICALL
 JVM_GetProtectionDomain(JNIEnv *env, jclass cls);
 
+#if defined(TARGET_JDK_VERSION) && (TARGET_JDK_VERSION == 7)
+JNIEXPORT void JNICALL
+JVM_SetProtectionDomain(JNIEnv *env, jclass cls, jobject protection_domain);
+#endif
+
 JNIEXPORT jboolean JNICALL
 JVM_IsArrayClass(JNIEnv *env, jclass cls);
 

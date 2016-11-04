@@ -108,7 +108,7 @@ class typeArrayOopDesc : public arrayOopDesc {
   }
   void bool_at_put(int which, jboolean contents)  {
     typeArrayOop p = typeArrayOop(oopDesc::bs()->write_barrier(this));
-    *p->bool_at_addr(which) = contents;
+    *p->bool_at_addr(which) = (((jint)contents) & 1);
   }
 
   jchar char_at(int which) const                  {

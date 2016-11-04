@@ -167,7 +167,6 @@ void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
 
 void ShenandoahCollectorPolicy::record_phase_start(TimingPhase phase) {
   _timing_data[phase]._start = os::elapsedTime();
-
 }
 
 void ShenandoahCollectorPolicy::record_phase_end(TimingPhase phase) {
@@ -412,6 +411,7 @@ public:
 
     ShenandoahHeap* _heap = ShenandoahHeap::heap();
     bool shouldStartConcurrentMark = false;
+    OrderAccess::release();
 
     size_t max_live_data = _max_live_data;
     if (max_live_data == 0) {

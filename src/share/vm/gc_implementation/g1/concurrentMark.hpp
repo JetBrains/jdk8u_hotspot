@@ -164,7 +164,7 @@ class CMBitMap : public CMBitMapRO {
   MemRegion getAndClearMarkedRegion(HeapWord* addr, HeapWord* end_addr);
 
   // Clear the whole mark bitmap.
-  void clearAll();
+  virtual void clearAll();
 };
 
 class G1CMBitMap : public CMBitMap {
@@ -176,6 +176,7 @@ class G1CMBitMap : public CMBitMap {
 
   // Initializes the underlying BitMap to cover the given area.
   void initialize(MemRegion heap, G1RegionToSpaceMapper* storage);
+  void clearAll();
 };
 
 // Represents a marking stack used by ConcurrentMarking in the G1 collector.

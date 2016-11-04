@@ -36,6 +36,8 @@
 # include "adfiles/ad_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "adfiles/ad_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "adfiles/ad_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -677,7 +679,7 @@ uint PhaseCFG::sched_call(Block* block, uint node_cnt, Node_List& worklist, Grow
   block->insert_node(proj, node_cnt++);
 
   // Select the right register save policy.
-  const char * save_policy;
+  const char *save_policy = NULL;
   switch (op) {
     case Op_CallRuntime:
     case Op_CallLeaf:
@@ -1090,11 +1092,12 @@ void PhaseCFG::call_catch_cleanup(Block* block) {
     Block *sb = block->_succs[i];
     // Clone the entire area; ignoring the edge fixup for now.
     for( uint j = end; j > beg; j-- ) {
-      // It is safe here to clone a node with anti_dependence
-      // since clones dominate on each path.
       Node *clone = block->get_node(j-1)->clone();
       sb->insert_node(clone, 1);
       map_node_to_block(clone, sb);
+      if (clone->needs_anti_dependence_check()) {
+        insert_anti_dependences(sb, clone);
+      }
     }
   }
 

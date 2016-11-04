@@ -34,6 +34,9 @@
 #ifdef TARGET_ARCH_x86
 # include "nativeInst_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "nativeInst_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "nativeInst_sparc.hpp"
 #endif
@@ -105,6 +108,8 @@ class StubRoutines: AllStatic {
 # include "stubRoutines_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "stubRoutines_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "stubRoutines_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "stubRoutines_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -209,6 +214,10 @@ class StubRoutines: AllStatic {
   static address _crc_table_adr;
 
   static address _multiplyToLen;
+  static address _squareToLen;
+  static address _mulAdd;
+  static address _montgomeryMultiply;
+  static address _montgomerySquare;
 
   // These are versions of the java.lang.Math methods which perform
   // the same operations as the intrinsic version.  They are used for
@@ -224,6 +233,7 @@ class StubRoutines: AllStatic {
   static double (*_intrinsic_cos)(double);
   static double (*_intrinsic_tan)(double);
 
+#ifndef BUILTIN_SIM
   // Safefetch stubs.
   static address _safefetch32_entry;
   static address _safefetch32_fault_pc;
@@ -231,6 +241,7 @@ class StubRoutines: AllStatic {
   static address _safefetchN_entry;
   static address _safefetchN_fault_pc;
   static address _safefetchN_continuation_pc;
+#endif
 
  public:
   // Initialization/Testing
@@ -367,6 +378,10 @@ class StubRoutines: AllStatic {
   static address crc_table_addr()      { return _crc_table_adr; }
 
   static address multiplyToLen()       {return _multiplyToLen; }
+  static address squareToLen()         {return _squareToLen; }
+  static address mulAdd()              {return _mulAdd; }
+  static address montgomeryMultiply()  { return _montgomeryMultiply; }
+  static address montgomerySquare()    { return _montgomerySquare; }
 
   static address select_fill_function(BasicType t, bool aligned, const char* &name);
 
@@ -401,10 +416,10 @@ class StubRoutines: AllStatic {
     return _intrinsic_tan(d);
   }
 
+#ifndef BUILTIN_SIM
   //
   // Safefetch stub support
   //
-
   typedef int      (*SafeFetch32Stub)(int*      adr, int      errValue);
   typedef intptr_t (*SafeFetchNStub) (intptr_t* adr, intptr_t errValue);
 
@@ -428,6 +443,7 @@ class StubRoutines: AllStatic {
     ShouldNotReachHere();
     return NULL;
   }
+#endif
 
   //
   // Default versions of the above arraycopy functions for platforms which do
@@ -448,6 +464,7 @@ class StubRoutines: AllStatic {
   static void arrayof_oop_copy_uninit(HeapWord* src, HeapWord* dest, size_t count);
 };
 
+#ifndef BUILTIN_SIM
 // Safefetch allows to load a value from a location that's not known
 // to be valid. If the load causes a fault, the error value is returned.
 inline int SafeFetch32(int* adr, int errValue) {
@@ -458,5 +475,6 @@ inline intptr_t SafeFetchN(intptr_t* adr, intptr_t errValue) {
   assert(StubRoutines::SafeFetchN_stub(), "stub not yet generated");
   return StubRoutines::SafeFetchN_stub()(adr, errValue);
 }
+#endif
 
 #endif // SHARE_VM_RUNTIME_STUBROUTINES_HPP

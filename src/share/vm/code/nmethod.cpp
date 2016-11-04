@@ -49,6 +49,10 @@
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
 
+#ifdef BUILTIN_SIM
+#include "../../../../../simulator/simulator.hpp"
+#endif
+
 unsigned char nmethod::_global_unloading_clock = 0;
 
 #ifdef DTRACE_ENABLED
@@ -706,6 +710,15 @@ nmethod::nmethod(
       Universe::heap()->register_nmethod(this);
     }
     debug_only(verify_scavenge_root_oops());
+
+#ifdef BUILTIN_SIM
+    if (NotifySimulator) {
+      unsigned char *base = code_buffer->insts()->start();
+      long delta = entry_point() - base;
+      AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck)->notifyRelocate(base, delta);
+    }
+#endif
+
     CodeCache::commit(this);
   }
 
@@ -911,6 +924,14 @@ nmethod::nmethod(
       Universe::heap()->register_nmethod(this);
     }
     debug_only(verify_scavenge_root_oops());
+
+#ifdef BUILTIN_SIM
+    if (NotifySimulator) {
+      unsigned char *base = code_buffer->insts()->start();
+      long delta = entry_point() - base;
+      AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck)->notifyRelocate(base, delta);
+    }
+#endif
 
     CodeCache::commit(this);
 

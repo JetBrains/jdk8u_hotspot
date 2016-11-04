@@ -446,13 +446,13 @@ class LIR_OprDesc: public CompilationResourceObj {
     return as_register();
   }
 
-#ifdef X86
+#if defined(X86)
   XMMRegister as_xmm_float_reg() const;
   XMMRegister as_xmm_double_reg() const;
   // for compatibility with RInfo
   int fpu () const                                  { return lo_reg_half(); }
-#endif // X86
-#if defined(SPARC) || defined(ARM) || defined(PPC)
+#endif
+#if defined(SPARC) || defined(ARM) || defined(PPC) || defined(AARCH64)
   FloatRegister as_float_reg   () const;
   FloatRegister as_double_reg  () const;
 #endif
@@ -542,7 +542,7 @@ class LIR_Address: public LIR_OprPtr {
      , _type(type)
      , _disp(0) { verify(); }
 
-#if defined(X86) || defined(ARM)
+#if defined(X86) || defined(ARM) || defined(AARCH64)
   LIR_Address(LIR_Opr base, LIR_Opr index, Scale scale, intx disp, BasicType type):
        _base(base)
      , _index(index)
@@ -625,7 +625,7 @@ class LIR_OprFact: public AllStatic {
                                                                              LIR_OprDesc::double_type          |
                                                                              LIR_OprDesc::fpu_register         |
                                                                              LIR_OprDesc::double_size); }
-#elif defined(X86)
+#elif defined(X86) || defined(AARCH64)
   static LIR_Opr double_fpu(int reg)            { return (LIR_Opr)(intptr_t)((reg  << LIR_OprDesc::reg1_shift) |
                                                                              (reg  << LIR_OprDesc::reg2_shift) |
                                                                              LIR_OprDesc::double_type          |
@@ -1496,7 +1496,7 @@ class LIR_OpConvert: public LIR_Op1 {
  private:
    Bytecodes::Code _bytecode;
    ConversionStub* _stub;
-#ifdef PPC
+#if defined(PPC) || defined(TARGET_ARCH_aarch64)
   LIR_Opr _tmp1;
   LIR_Opr _tmp2;
 #endif
@@ -1511,7 +1511,7 @@ class LIR_OpConvert: public LIR_Op1 {
 #endif
      , _bytecode(code)                           {}
 
-#ifdef PPC
+#if defined(PPC) || defined(TARGET_ARCH_aarch64)
    LIR_OpConvert(Bytecodes::Code code, LIR_Opr opr, LIR_Opr result, ConversionStub* stub
                  ,LIR_Opr tmp1, LIR_Opr tmp2)
      : LIR_Op1(lir_convert, opr, result)
@@ -1523,7 +1523,7 @@ class LIR_OpConvert: public LIR_Op1 {
 
   Bytecodes::Code bytecode() const               { return _bytecode; }
   ConversionStub* stub() const                   { return _stub; }
-#ifdef PPC
+#if defined(PPC) || defined(TARGET_ARCH_aarch64)
   LIR_Opr tmp1() const                           { return _tmp1; }
   LIR_Opr tmp2() const                           { return _tmp2; }
 #endif
@@ -2166,7 +2166,14 @@ class LIR_List: public CompilationResourceObj {
 #ifdef PPC
   void convert(Bytecodes::Code code, LIR_Opr left, LIR_Opr dst, LIR_Opr tmp1, LIR_Opr tmp2) { append(new LIR_OpConvert(code, left, dst, NULL, tmp1, tmp2)); }
 #endif
+#if defined (TARGET_ARCH_aarch64)
+  void convert(Bytecodes::Code code, LIR_Opr left, LIR_Opr dst,
+	       ConversionStub* stub = NULL, LIR_Opr tmp1 = LIR_OprDesc::illegalOpr()) {
+    append(new LIR_OpConvert(code, left, dst, stub, tmp1, LIR_OprDesc::illegalOpr()));
+  }
+#else
   void convert(Bytecodes::Code code, LIR_Opr left, LIR_Opr dst, ConversionStub* stub = NULL/*, bool is_32bit = false*/) { append(new LIR_OpConvert(code, left, dst, stub)); }
+#endif
 
   void shenandoah_wb(LIR_Opr obj, LIR_Opr result, LIR_Opr tmp1, LIR_Opr tmp2, CodeEmitInfo* info, bool need_null_check) { append(new LIR_OpShenandoahWriteBarrier(obj, result, tmp1, tmp2, info, need_null_check)); }
 

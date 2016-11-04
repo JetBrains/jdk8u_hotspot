@@ -209,7 +209,6 @@ public:
       ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure> cl(&qh);
       _cm->concurrent_mark_loop(&cl, worker_id, q,  _terminator);
     }
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
   }
 };
 
@@ -827,6 +826,7 @@ void ShenandoahConcurrentMark::concurrent_mark_loop(ShenandoahMarkObjsClosure<T>
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   int seed = 17;
   while (true) {
+    if (heap->cancelled_concgc())  q->set_empty();
     if (heap->cancelled_concgc() ||
         (!try_queue(q, cl) &&
          !try_draining_an_satb_buffer(q) &&

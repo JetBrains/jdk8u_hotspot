@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -44,6 +44,9 @@
 #include "utilities/macros.hpp"
 #ifdef TARGET_ARCH_x86
 # include "bytes_x86.hpp"
+#endif
+#ifdef TARGET_ARCH_aarch64
+# include "bytes_aarch64.hpp"
 #endif
 #ifdef TARGET_ARCH_sparc
 # include "bytes_sparc.hpp"
@@ -357,7 +360,7 @@ inline jboolean oopDesc::bool_field(int offset) const               {
 }
 inline void oopDesc::bool_field_put(int offset, jboolean contents)  {
   oop p = bs()->write_barrier(this);
-  *p->bool_field_addr(offset) = (jint) contents;
+  *p->bool_field_addr(offset) =  (( (jint) contents) & 1);
 }
 
 inline jchar oopDesc::char_field(int offset) const                  {
@@ -454,7 +457,7 @@ inline jboolean oopDesc::bool_field_acquire(int offset) const               {
 }
 inline void oopDesc::release_bool_field_put(int offset, jboolean contents)  {
   oop p = bs()->write_barrier(this);
-  OrderAccess::release_store(p->bool_field_addr(offset), contents);
+  OrderAccess::release_store(p->bool_field_addr(offset), (contents & 1));
 }
 
 inline jchar oopDesc::char_field_acquire(int offset) const                  {

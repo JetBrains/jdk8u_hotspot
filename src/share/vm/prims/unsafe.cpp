@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -156,6 +156,15 @@ jint Unsafe_invocation_key_to_method_slot(jint key) {
 
 ///// Data in the Java heap.
 
+#define truncate_jboolean(x) ((x) & 1)
+#define truncate_jbyte(x) (x)
+#define truncate_jshort(x) (x)
+#define truncate_jchar(x) (x)
+#define truncate_jint(x) (x)
+#define truncate_jlong(x) (x)
+#define truncate_jfloat(x) (x)
+#define truncate_jdouble(x) (x)
+
 #define GET_FIELD(obj, offset, type_name, v) \
   oop p = JNIHandles::resolve(obj); \
   p = oopDesc::bs()->read_barrier(p); \
@@ -164,7 +173,7 @@ jint Unsafe_invocation_key_to_method_slot(jint key) {
 #define SET_FIELD(obj, offset, type_name, x) \
   oop p = JNIHandles::resolve(obj); \
   p = oopDesc::bs()->write_barrier(p); \
-  *(type_name*)index_oop_from_field_offset_long(p, offset) = x
+  *(type_name*)index_oop_from_field_offset_long(p, offset) = truncate_##type_name(x)
 
 #define GET_FIELD_VOLATILE(obj, offset, type_name, v) \
   oop p = JNIHandles::resolve(obj); \
@@ -177,7 +186,7 @@ jint Unsafe_invocation_key_to_method_slot(jint key) {
 #define SET_FIELD_VOLATILE(obj, offset, type_name, x) \
   oop p = JNIHandles::resolve(obj); \
   p = oopDesc::bs()->write_barrier(p); \
-  OrderAccess::release_store_fence((volatile type_name*)index_oop_from_field_offset_long(p, offset), x);
+  OrderAccess::release_store_fence((volatile type_name*)index_oop_from_field_offset_long(p, offset), truncate_##type_name(x));
 
 // Macros for oops that check UseCompressedOops
 
@@ -868,7 +877,7 @@ static void getBaseAndScale(int& base, int& scale, jclass acls, TRAPS) {
 
 UNSAFE_ENTRY(jint, Unsafe_ArrayBaseOffset(JNIEnv *env, jobject unsafe, jclass acls))
   UnsafeWrapper("Unsafe_ArrayBaseOffset");
-  int base, scale;
+  int base = 0, scale = 0;
   getBaseAndScale(base, scale, acls, CHECK_0);
   return field_offset_from_byte_offset(base);
 UNSAFE_END
@@ -876,7 +885,7 @@ UNSAFE_END
 
 UNSAFE_ENTRY(jint, Unsafe_ArrayIndexScale(JNIEnv *env, jobject unsafe, jclass acls))
   UnsafeWrapper("Unsafe_ArrayIndexScale");
-  int base, scale;
+  int base = 0, scale = 0;
   getBaseAndScale(base, scale, acls, CHECK_0);
   // This VM packs both fields and array elements down to the byte.
   // But watch out:  If this changes, so that array references for

@@ -232,6 +232,13 @@ void G1CMBitMap::initialize(MemRegion heap, G1RegionToSpaceMapper* storage) {
   storage->set_mapping_changed_listener(&_listener);
 }
 
+void G1CMBitMap::clearAll() {
+  ClearBitmapHRClosure cl(NULL, this, false /* may_yield */);
+  G1CollectedHeap::heap()->heap_region_iterate(&cl);
+  guarantee(cl.complete(), "Must have completed iteration.");
+  return;
+}
+
 CMMarkStack::CMMarkStack(ConcurrentMark* cm) :
   _base(NULL), _cm(cm)
 #ifdef ASSERT

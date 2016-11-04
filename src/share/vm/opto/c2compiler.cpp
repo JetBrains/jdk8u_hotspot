@@ -31,6 +31,8 @@
 # include "adfiles/ad_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "adfiles/ad_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "adfiles/ad_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -48,6 +50,9 @@ const char* C2Compiler::retry_no_subsuming_loads() {
 }
 const char* C2Compiler::retry_no_escape_analysis() {
   return "retry without escape analysis";
+}
+const char* C2Compiler::retry_class_loading_during_parsing() {
+  return "retry class loading during parsing";
 }
 bool C2Compiler::init_c2_runtime() {
 
@@ -115,6 +120,10 @@ void C2Compiler::compile_method(ciEnv* env, ciMethod* target, int entry_bci) {
 
     // Check result and retry if appropriate.
     if (C.failure_reason() != NULL) {
+      if (C.failure_reason_is(retry_class_loading_during_parsing())) {
+        env->record_failure(C.failure_reason());
+        continue;  // retry
+      }
       if (C.failure_reason_is(retry_no_subsuming_loads())) {
         assert(subsume_loads, "must make progress");
         subsume_loads = false;

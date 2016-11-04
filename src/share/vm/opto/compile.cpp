@@ -75,6 +75,8 @@
 # include "adfiles/ad_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "adfiles/ad_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "adfiles/ad_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -83,6 +85,9 @@
 # include "adfiles/ad_ppc_64.hpp"
 #endif
 
+#ifdef BUILTIN_SIM
+#include "../../../../../../simulator/simulator.hpp"
+#endif
 
 // -------------------- Compile::mach_constant_base_node -----------------------
 // Constant table base node singleton.
@@ -412,6 +417,13 @@ void Compile::remove_useless_nodes(Unique_Node_List &useful) {
     Node* n = C->macro_node(i);
     if (!useful.member(n)) {
       remove_macro_node(n);
+    }
+  }
+  // Remove useless CastII nodes with range check dependency
+  for (int i = range_check_cast_count() - 1; i >= 0; i--) {
+    Node* cast = range_check_cast_node(i);
+    if (!useful.member(cast)) {
+      remove_range_check_cast(cast);
     }
   }
   // Remove useless expensive node
@@ -786,7 +798,9 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
     }
     JVMState* jvms = build_start_state(start(), tf());
     if ((jvms = cg->generate(jvms)) == NULL) {
-      record_method_not_compilable("method parse failed");
+      if (!failure_reason_is(C2Compiler::retry_class_loading_during_parsing())) {
+        record_method_not_compilable("method parse failed");
+      }
       return;
     }
     GraphKit kit(jvms);
@@ -911,6 +925,37 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
       _code_offsets.set_value(CodeOffsets::Verified_Entry, _first_block_size);
       _code_offsets.set_value(CodeOffsets::OSR_Entry, 0);
     }
+
+#ifdef BUILTIN_SIM
+    char *method_name = NULL;
+    AArch64Simulator *sim = NULL;
+    size_t len = 65536;
+    if (NotifySimulator) {
+      method_name = new char[len];
+    }
+    if (method_name) {
+      unsigned char *entry = code_buffer()->insts_begin();
+      stringStream st(method_name, 400);
+      if (_entry_bci != InvocationEntryBci) {
+        st.print("osr:");
+      }
+      _method->holder()->name()->print_symbol_on(&st);
+      // convert '/' separators in class name into '.' separator
+      for (unsigned i = 0; i < len; i++) {
+        if (method_name[i] == '/') {
+          method_name[i] = '.';
+        } else if (method_name[i] == '\0') {
+          break;
+        }
+      }
+      st.print(".");
+      _method->name()->print_symbol_on(&st);
+      _method->signature()->as_symbol()->print_symbol_on(&st);
+      sim = AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck);
+      sim->notifyCompile(method_name, entry);
+      sim->notifyRelocate(entry, 0);
+    }
+#endif
 
     env()->register_method(_method, _entry_bci,
                            &_code_offsets,
@@ -1150,6 +1195,7 @@ void Compile::Init(int aliaslevel) {
   _macro_nodes = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   _predicate_opaqs = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   _expensive_nodes = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
+  _range_check_casts = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   register_library_intrinsics();
 }
 
@@ -1882,6 +1928,22 @@ void Compile::cleanup_loop_predicates(PhaseIterGVN &igvn) {
   assert(predicate_count()==0, "should be clean!");
 }
 
+void Compile::add_range_check_cast(Node* n) {
+  assert(n->isa_CastII()->has_range_check(), "CastII should have range check dependency");
+  assert(!_range_check_casts->contains(n), "duplicate entry in range check casts");
+  _range_check_casts->append(n);
+}
+
+// Remove all range check dependent CastIINodes.
+void Compile::remove_range_check_casts(PhaseIterGVN &igvn) {
+  for (int i = range_check_cast_count(); i > 0; i--) {
+    Node* cast = range_check_cast_node(i-1);
+    assert(cast->isa_CastII()->has_range_check(), "CastII should have range check dependency");
+    igvn.replace_node(cast, cast->in(1));
+  }
+  assert(range_check_cast_count() == 0, "should be empty");
+}
+
 // StringOpts and late inlining of string methods
 void Compile::inline_string_calls(bool parse_time) {
   {
@@ -2222,6 +2284,12 @@ void Compile::Optimize() {
     // at least to this point, even if no loop optimizations were done.
     NOT_PRODUCT( TracePhase t2("idealLoopVerify", &_t_idealLoopVerify, TimeCompiler); )
     PhaseIdealLoop::verify(igvn);
+  }
+
+  if (range_check_cast_count() > 0) {
+    // No more loop optimizations. Remove all range check dependent CastIINodes.
+    C->remove_range_check_casts(igvn);
+    igvn.optimize();
   }
 
   {
@@ -2993,6 +3061,16 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
 
 #endif
 
+#ifdef ASSERT
+  case Op_CastII:
+    // Verify that all range check dependent CastII nodes were removed.
+    if (n->isa_CastII()->has_range_check()) {
+      n->dump(3);
+      assert(false, "Range check dependent CastII node was not removed");
+    }
+    break;
+#endif
+
   case Op_ModI:
     if (UseDivMod) {
       // Check if a%b and a/b both exist
@@ -3683,7 +3761,7 @@ void Compile::ConstantTable::emit(CodeBuffer& cb) {
   MacroAssembler _masm(&cb);
   for (int i = 0; i < _constants.length(); i++) {
     Constant con = _constants.at(i);
-    address constant_addr;
+    address constant_addr = NULL;
     switch (con.type()) {
     case T_LONG:   constant_addr = _masm.long_constant(  con.get_jlong()  ); break;
     case T_FLOAT:  constant_addr = _masm.float_constant( con.get_jfloat() ); break;
@@ -4033,6 +4111,24 @@ void Compile::remove_speculative_types(PhaseIterGVN &igvn) {
     igvn.check_no_speculative_types();
 #endif
   }
+}
+
+// Convert integer value to a narrowed long type dependent on ctrl (for example, a range check)
+Node* Compile::constrained_convI2L(PhaseGVN* phase, Node* value, const TypeInt* itype, Node* ctrl) {
+  if (ctrl != NULL) {
+    // Express control dependency by a CastII node with a narrow type.
+    value = new (phase->C) CastIINode(value, itype, false, true /* range check dependency */);
+    // Make the CastII node dependent on the control input to prevent the narrowed ConvI2L
+    // node from floating above the range check during loop optimizations. Otherwise, the
+    // ConvI2L node may be eliminated independently of the range check, causing the data path
+    // to become TOP while the control path is still there (although it's unreachable).
+    value->set_req(0, ctrl);
+    // Save CastII node to remove it after loop optimizations.
+    phase->C->add_range_check_cast(value);
+    value = phase->transform(value);
+  }
+  const TypeLong* ltype = TypeLong::make(itype->_lo, itype->_hi, itype->_widen);
+  return phase->transform(new (phase->C) ConvI2LNode(value, ltype));
 }
 
 // Auxiliary method to support randomized stressing/fuzzing.

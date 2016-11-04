@@ -1765,8 +1765,8 @@ void LIR_Assembler::emit_typecheck_helper(LIR_OpTypeCheck *op, Label* success, L
   Register Rtmp1 = noreg;
 
   // check if it needs to be profiled
-  ciMethodData* md;
-  ciProfileData* data;
+  ciMethodData* md = NULL;
+  ciProfileData* data = NULL;
 
   if (op->should_profile()) {
     ciMethod* method = op->profiled_method();
@@ -1925,8 +1925,8 @@ void LIR_Assembler::emit_opTypeCheck(LIR_OpTypeCheck* op) {
     CodeStub* stub = op->stub();
 
     // check if it needs to be profiled
-    ciMethodData* md;
-    ciProfileData* data;
+    ciMethodData* md = NULL;
+    ciProfileData* data = NULL;
 
     if (op->should_profile()) {
       ciMethod* method = op->profiled_method();
@@ -2136,7 +2136,8 @@ void LIR_Assembler::cmove(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2, L
     case lir_cond_greater:      acond = Assembler::greater;      ncond = Assembler::lessEqual;    break;
     case lir_cond_belowEqual:   acond = Assembler::belowEqual;   ncond = Assembler::above;        break;
     case lir_cond_aboveEqual:   acond = Assembler::aboveEqual;   ncond = Assembler::below;        break;
-    default:                    ShouldNotReachHere();
+    default:                    acond = Assembler::equal;        ncond = Assembler::notEqual;
+                                ShouldNotReachHere();
   }
 
   if (opr1->is_cpu_register()) {
@@ -3268,11 +3269,11 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
       if (PrintC1Statistics) {
         __ incrementl(ExternalAddress((address)&Runtime1::_generic_arraycopystub_cnt));
       }
-#endif
+#endif // PRODUCT
       __ call(RuntimeAddress(copyfunc_addr));
     }
     __ addptr(rsp, 6*wordSize);
-#else
+#else // 
     __ mov(c_rarg4, j_rarg4);
     if (copyfunc_addr == NULL) { // Use C version if stub was not generated
       __ call(RuntimeAddress(C_entry));
@@ -3335,27 +3336,23 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
   assert(default_type != NULL && default_type->is_array_klass() && default_type->is_loaded(), "must be true at this point");
 
   int elem_size = type2aelembytes(basic_type);
-  int shift_amount;
   Address::ScaleFactor scale;
 
   switch (elem_size) {
     case 1 :
-      shift_amount = 0;
       scale = Address::times_1;
       break;
     case 2 :
-      shift_amount = 1;
       scale = Address::times_2;
       break;
     case 4 :
-      shift_amount = 2;
       scale = Address::times_4;
       break;
     case 8 :
-      shift_amount = 3;
       scale = Address::times_8;
       break;
     default:
+      scale = Address::no_scale;
       ShouldNotReachHere();
   }
 
@@ -3374,6 +3371,23 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
   if (flags & LIR_OpArrayCopy::dst_null_check) {
     __ testptr(dst, dst);
     __ jcc(Assembler::zero, *stub->entry());
+  }
+
+  // If the compiler was not able to prove that exact type of the source or the destination
+  // of the arraycopy is an array type, check at runtime if the source or the destination is
+  // an instance type.
+  if (flags & LIR_OpArrayCopy::type_check) {
+    if (!(flags & LIR_OpArrayCopy::dst_objarray)) {
+      __ load_klass(tmp, dst);
+      __ cmpl(Address(tmp, in_bytes(Klass::layout_helper_offset())), Klass::_lh_neutral_value);
+      __ jcc(Assembler::greaterEqual, *stub->entry());
+    }
+
+    if (!(flags & LIR_OpArrayCopy::src_objarray)) {
+      __ load_klass(tmp, src);
+      __ cmpl(Address(tmp, in_bytes(Klass::layout_helper_offset())), Klass::_lh_neutral_value);
+      __ jcc(Assembler::greaterEqual, *stub->entry());
+    }
   }
 
   // check if negative

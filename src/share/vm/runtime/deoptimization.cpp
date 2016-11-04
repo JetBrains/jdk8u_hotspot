@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -53,6 +53,9 @@
 #ifdef TARGET_ARCH_x86
 # include "vmreg_x86.inline.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "vmreg_aarch64.inline.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "vmreg_sparc.inline.hpp"
 #endif
@@ -72,6 +75,8 @@
 # include "adfiles/ad_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "adfiles/ad_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "adfiles/ad_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -847,13 +852,25 @@ public:
       _obj->int_field_put(offset, (jint)*((jint*)&val));
       break;
 
-    case T_SHORT: case T_CHAR: // 2 bytes
+    case T_SHORT:
       assert(value->type() == T_INT, "Agreement.");
       val = value->get_int();
       _obj->short_field_put(offset, (jshort)*((jint*)&val));
       break;
 
-    case T_BOOLEAN: case T_BYTE: // 1 byte
+    case T_CHAR:
+      assert(value->type() == T_INT, "Agreement.");
+      val = value->get_int();
+      _obj->char_field_put(offset, (jchar)*((jint*)&val));
+      break;
+
+    case T_BYTE:
+      assert(value->type() == T_INT, "Agreement.");
+      val = value->get_int();
+      _obj->byte_field_put(offset, (jbyte)*((jint*)&val));
+      break;
+
+    case T_BOOLEAN:
       assert(value->type() == T_INT, "Agreement.");
       val = value->get_int();
       _obj->bool_field_put(offset, (jboolean)*((jint*)&val));
@@ -899,13 +916,25 @@ void Deoptimization::reassign_type_array_elements(frame* fr, RegisterMap* reg_ma
       obj->int_at_put(index, (jint)*((jint*)&val));
       break;
 
-    case T_SHORT: case T_CHAR: // 2 bytes
+    case T_SHORT:
       assert(value->type() == T_INT, "Agreement.");
       val = value->get_int();
       obj->short_at_put(index, (jshort)*((jint*)&val));
       break;
 
-    case T_BOOLEAN: case T_BYTE: // 1 byte
+    case T_CHAR:
+      assert(value->type() == T_INT, "Agreement.");
+      val = value->get_int();
+      obj->char_at_put(index, (jchar)*((jint*)&val));
+      break;
+
+    case T_BYTE:
+      assert(value->type() == T_INT, "Agreement.");
+      val = value->get_int();
+      obj->byte_at_put(index, (jbyte)*((jint*)&val));
+      break;
+
+    case T_BOOLEAN:
       assert(value->type() == T_INT, "Agreement.");
       val = value->get_int();
       obj->bool_at_put(index, (jboolean)*((jint*)&val));
@@ -1857,8 +1886,6 @@ const char* Deoptimization::format_trap_state(char* buf, size_t buflen,
                        trap_reason_name(reason),
                        recomp_flag ? " recompiled" : "");
   }
-  if (len >= buflen)
-    buf[buflen-1] = '\0';
   return buf;
 }
 
@@ -1928,8 +1955,6 @@ const char* Deoptimization::format_trap_request(char* buf, size_t buflen,
     len = jio_snprintf(buf, buflen, "reason='%s' action='%s' index='%d'",
                        reason, action, unloaded_class_index);
   }
-  if (len >= buflen)
-    buf[buflen-1] = '\0';
   return buf;
 }
 

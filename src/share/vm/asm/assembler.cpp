@@ -314,5 +314,18 @@ bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
     }
   }
 #endif
-  return (offset < 0 && ((!UseShenandoahGC) || offset != BrooksPointer::BYTE_OFFSET)) || os::vm_page_size() <= offset;
+
+#ifdef AARCH64
+  // AArch64 uses 48-bit addresses
+  const unsigned long address_bits = 0xfffffffffffful;
+#else
+  const unsigned long address_bits = 0xfffffffffffffffful;
+#endif
+
+  if (UseShenandoahGC
+      && ((offset & address_bits)
+          == (BrooksPointer::BYTE_OFFSET & address_bits)))
+    return false;
+
+  return offset < 0 || os::vm_page_size() <= offset;
 }

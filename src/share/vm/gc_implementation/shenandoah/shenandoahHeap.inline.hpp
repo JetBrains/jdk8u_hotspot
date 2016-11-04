@@ -301,6 +301,9 @@ inline bool ShenandoahHeap::concurrent_mark_in_progress() {
   return _concurrent_mark_in_progress;
 }
 
+inline address ShenandoahHeap::concurrent_mark_in_progress_addr() {
+  return (address) &(ShenandoahHeap::heap()->_concurrent_mark_in_progress);
+}
 
 inline bool ShenandoahHeap::is_evacuation_in_progress() {
   return _evacuation_in_progress;

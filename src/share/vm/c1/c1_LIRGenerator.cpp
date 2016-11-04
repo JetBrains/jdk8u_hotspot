@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2005, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2005, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -2162,7 +2162,7 @@ void LIRGenerator::do_UnsafeGetRaw(UnsafeGetRaw* x) {
     assert(index_op->type() == T_INT, "only int constants supported");
     addr = new LIR_Address(base_op, index_op->as_jint(), dst_type);
   } else {
-#ifdef X86
+#if defined(X86) || defined(AARCH64)
     addr = new LIR_Address(base_op, index_op, LIR_Address::Scale(log2_scale), 0, dst_type);
 #elif defined(GENERATE_ADDRESS_IS_PREFERRED)
     addr = generate_address(base_op, index_op, log2_scale, 0, dst_type);
@@ -3409,7 +3409,7 @@ void LIRGenerator::do_ProfileInvoke(ProfileInvoke* x) {
 }
 
 void LIRGenerator::increment_event_counter(CodeEmitInfo* info, int bci, bool backedge) {
-  int freq_log;
+  int freq_log = 0;
   int level = compilation()->env()->comp_level();
   if (level == CompLevel_limited_profile) {
     freq_log = (backedge ? Tier2BackedgeNotifyFreqLog : Tier2InvokeNotifyFreqLog);
@@ -3430,7 +3430,7 @@ void LIRGenerator::increment_event_counter_impl(CodeEmitInfo* info,
   assert(level > CompLevel_simple, "Shouldn't be here");
 
   int offset = -1;
-  LIR_Opr counter_holder;
+  LIR_Opr counter_holder = NULL;
   if (level == CompLevel_limited_profile) {
     MethodCounters* counters_adr = method->ensure_method_counters();
     if (counters_adr == NULL) {
@@ -3707,4 +3707,27 @@ void LIRGenerator::do_MemBar(MemBar* x) {
       default                   : ShouldNotReachHere(); break;
     }
   }
+}
+
+LIR_Opr LIRGenerator::maybe_mask_boolean(StoreIndexed* x, LIR_Opr array, LIR_Opr value, CodeEmitInfo*& null_check_info) {
+  if (x->check_boolean()) {
+    LIR_Opr value_fixed = rlock_byte(T_BYTE);
+    if (TwoOperandLIRForm) {
+      __ move(value, value_fixed);
+      __ logical_and(value_fixed, LIR_OprFact::intConst(1), value_fixed);
+    } else {
+      __ logical_and(value, LIR_OprFact::intConst(1), value_fixed);
+    }
+    LIR_Opr klass = new_register(T_METADATA);
+    __ move(new LIR_Address(array, oopDesc::klass_offset_in_bytes(), T_ADDRESS), klass, null_check_info);
+    null_check_info = NULL;
+    LIR_Opr layout = new_register(T_INT);
+    __ move(new LIR_Address(klass, in_bytes(Klass::layout_helper_offset()), T_INT), layout);
+    int diffbit = Klass::layout_helper_boolean_diffbit();
+    __ logical_and(layout, LIR_OprFact::intConst(diffbit), layout);
+    __ cmp(lir_cond_notEqual, layout, LIR_OprFact::intConst(0));
+    __ cmove(lir_cond_notEqual, value_fixed, value, value_fixed, T_BYTE);
+    value = value_fixed;
+  }
+  return value;
 }
