@@ -2697,6 +2697,7 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   {
     __ pop(ztos);
     if (!is_static) pop_and_check_object(obj);
+    oopDesc::bs()->interpreter_write_barrier(_masm, obj);
     __ andw(r0, r0, 0x1);
     __ strb(r0, field);
     if (!is_static) {
