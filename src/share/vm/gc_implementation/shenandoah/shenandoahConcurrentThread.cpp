@@ -118,6 +118,7 @@ void ShenandoahConcurrentThread::run() {
         }
 
         if (heap->is_evacuation_in_progress()) {
+          MutexLocker mu(Threads_lock);
           heap->set_evacuation_in_progress(false);
         }
         heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);

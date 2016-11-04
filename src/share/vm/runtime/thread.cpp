@@ -1963,6 +1963,8 @@ void JavaThread::initialize_queues() {
   // The dirty card queue should have been constructed with its
   // active field set to true.
   assert(dirty_queue.is_active(), "dirty card queue should be active");
+
+  _evacuation_in_progress = _evacuation_in_progress_global;
 }
 
 bool JavaThread::evacuation_in_progress() const {
@@ -1974,8 +1976,9 @@ void JavaThread::set_evacuation_in_progress(bool in_prog) {
 }
 
 void JavaThread::set_evacuation_in_progress_all_threads(bool in_prog) {
+  assert(Threads_lock->owned_by_self(), "must hold Threads_lock");
   _evacuation_in_progress_global = in_prog;
-  for (JavaThread* t = Threads::first(); t; t = t->next()) {
+  for (JavaThread* t = Threads::first(); t != NULL; t = t->next()) {
     t->set_evacuation_in_progress(in_prog);
   }
 }
