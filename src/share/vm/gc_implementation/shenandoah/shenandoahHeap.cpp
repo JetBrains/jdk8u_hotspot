@@ -2209,11 +2209,11 @@ void ShenandoahHeap::ref_processing_init() {
   isAlive.init(ShenandoahHeap::heap());
   _ref_processor =
     new ReferenceProcessor(mr,    // span
-                           ParallelRefProcEnabled && (ConcGCThreads > 1),
+                           ParallelRefProcEnabled,
                            // mt processing
                            (int) ConcGCThreads,
                            // degree of mt processing
-                           (ConcGCThreads > 1),
+                           true,
                            // mt discovery
                            (int) ConcGCThreads,
                            // degree of mt discovery
