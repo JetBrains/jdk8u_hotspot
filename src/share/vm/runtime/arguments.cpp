@@ -2127,6 +2127,7 @@ bool Arguments::check_gc_consistency() {
   if (UseConcMarkSweepGC || UseParNewGC) i++;
   if (UseParallelGC || UseParallelOldGC) i++;
   if (UseG1GC)                           i++;
+  if (UseShenandoahGC)                   i++;
   if (i > 1) {
     jio_fprintf(defaultStream::error_stream(),
                 "Conflicting collector combinations in option list; "
