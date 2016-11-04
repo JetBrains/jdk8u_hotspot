@@ -1067,7 +1067,7 @@ void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
 
   oop humongous_obj = oop(r->bottom() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
   size_t size = humongous_obj->size() + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
-  uint required_regions = (size * HeapWordSize) / ShenandoahHeapRegion::RegionSizeBytes  + 1;
+  uint required_regions = ShenandoahHumongous::required_regions(size * HeapWordSize);
   uint index = r->region_number();
 
 
