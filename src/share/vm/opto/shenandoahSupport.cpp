@@ -216,14 +216,17 @@ Node* ShenandoahReadBarrierNode::Ideal(PhaseGVN *phase, bool can_reshape) {
 
   Node* input = in(Memory);
   if (input->Opcode() == Op_ShenandoahWBMemProj) {
-    input = input->in(0);
-    if (input->is_top()) return NULL; // Dead path.
-    assert(input->Opcode() == Op_ShenandoahWriteBarrier, "expect write barrier");
-    const Type* in_type = phase->type(input);
+    Node* wb = input->in(0);
+    if (wb->is_top()) return NULL; // Dead path.
+    assert(wb->Opcode() == Op_ShenandoahWriteBarrier, "expect write barrier");
+    const Type* in_type = phase->type(wb);
     const Type* this_type = phase->type(this);
     if (is_independent(in_type, this_type)) {
-      phase->igvn_rehash_node_delayed(input);
-      set_req(Memory, input->in(Memory));
+      phase->igvn_rehash_node_delayed(wb);
+      set_req(Memory, wb->in(Memory));
+      if (can_reshape && input->outcnt() == 0) {
+        phase->is_IterGVN()->_worklist.push(input);
+      }
       return this;
     }
   }

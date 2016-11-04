@@ -1525,6 +1525,13 @@ void PhaseIterGVN::add_users_to_worklist( Node *n ) {
       Node* imem = use->as_Initialize()->proj_out(TypeFunc::Memory);
       if (imem != NULL)  add_users_to_worklist0(imem);
     }
+
+    if (use->is_ShenandoahBarrier()) {
+      Node* cmp = use->find_out_with(Op_CmpP);
+      if (cmp != NULL) {
+        _worklist.push(cmp);
+      }
+    }
   }
 }
 
