@@ -562,15 +562,13 @@ class StubGenerator: public StubCodeGenerator {
   //
   // Trash rscratch1, rscratch2.  Preserve everything else.
 
-  address generate_shenandoah_wb() {
+  address generate_shenandoah_wb(bool c_abi) {
     StubCodeMark mark(this, "StubRoutines", "shenandoah_wb");
 
     __ align(6);
     address start = __ pc();
 
     Label work, slow_case, lose, not_an_instance, is_array;
-    Address evacuation_in_progress
-      = Address(rthread, in_bytes(JavaThread::evacuation_in_progress_offset()));
 
     __ mov(rscratch2, ShenandoahHeap::in_cset_fast_test_addr());
     __ lsr(rscratch1, r0, ShenandoahHeapRegion::RegionSizeShift);
@@ -581,7 +579,9 @@ class StubGenerator: public StubCodeGenerator {
     __ bind(work);
 
     RegSet saved = RegSet::range(r1, r4);
-    __ push(saved, sp);
+    if (!c_abi) {
+      __ push(saved, sp);
+    }
 
     Register obj = r0, size = r2, newobj = r3, newobj_end = rscratch2;
 
@@ -642,14 +642,16 @@ class StubGenerator: public StubCodeGenerator {
 
     // All copied.  Now try to CAS the Brooks pointer.
     Label succeed;
-    __ lea(r2, Address(obj, BrooksPointer::BYTE_OFFSET));
+    __ lea(r2, Address(obj, BrooksPointer::byte_offset()));
     __ cmpxchgptr(obj, newobj, r2, rscratch1, succeed, NULL);
       // If we lose the CAS we are racing with someone who just beat
       // us evacuating the object.  This leaves the address of the
       // evacuated object in r0.
 
     // We lost.
-    __ pop(saved, sp);
+    if (!c_abi) {
+      __ pop(saved, sp);
+    }
     __ ret(lr);
 
     // We won.
@@ -657,7 +659,9 @@ class StubGenerator: public StubCodeGenerator {
     __ mov(obj, newobj);
     // dst points to end of newobj.
     __ str(dst, Address(rthread, JavaThread::gclab_top_offset()));
-    __ pop(saved, sp);
+    if (!c_abi) {
+      __ pop(saved, sp);
+    }
     __ ret(lr);
 
     // Come here if the count of HeapWords is odd.
@@ -692,18 +696,27 @@ class StubGenerator: public StubCodeGenerator {
     {
       // Make a runtime call to evacuate the object.
       __ bind(slow_case);
-      __ pop(saved, sp);
+      if (!c_abi) {
+        __ pop(saved, sp);
+      }
 
       __ enter(); // required for proper stackwalking of RuntimeStub frame
 
-      __ push_call_clobbered_registers();
+      if (!c_abi) {
+        __ push_call_clobbered_registers();
+      } else {
+        __ push_call_clobbered_fp_registers();
+      }
 
       __ mov(lr, CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_c2));
       __ blrt(lr, 1, 0, MacroAssembler::ret_type_integral);
-      __ mov(rscratch1, obj);
-
-      __ pop_call_clobbered_registers();
-      __ mov(obj, rscratch1);
+      if (!c_abi) {
+        __ mov(rscratch1, obj);
+        __ pop_call_clobbered_registers();
+        __ mov(obj, rscratch1);
+      } else {
+        __ pop_call_clobbered_fp_registers();
+      }
 
       __ leave(); // required for proper stackwalking of RuntimeStub frame
       __ ret(lr);
@@ -825,6 +838,7 @@ class StubGenerator: public StubCodeGenerator {
         break;
       default:
         ShouldNotReachHere();
+
       }
     }
   }
@@ -1796,7 +1810,7 @@ class StubGenerator: public StubCodeGenerator {
   //   used by generate_conjoint_int_oop_copy().
   //
   address generate_disjoint_int_copy(bool aligned, address *entry,
-					 const char *name) {
+                                        const char *name) {
     const bool not_oop = false;
     return generate_disjoint_copy(sizeof (jint), aligned, not_oop, entry, name);
   }
@@ -2909,7 +2923,7 @@ class StubGenerator: public StubCodeGenerator {
     __ align(CodeEntryAlignment);
     StubCodeMark mark(this, "StubRoutines", "cipherBlockChaining_encryptAESCrypt");
 
-    Label L_loadkeys_44, L_loadkeys_52, L_aes_loop, L_rounds_44, L_rounds_52;
+    Label L_loadkeys_44, L_loadkeys_52, L_aes_loop, L_rounds_44, L_rounds_52, _L_finish;
 
     const Register from        = c_rarg0;  // source array address
     const Register to          = c_rarg1;  // destination array address
@@ -2920,9 +2934,12 @@ class StubGenerator: public StubCodeGenerator {
     const Register keylen      = rscratch1;
 
     address start = __ pc();
+
       __ enter();
 
-      __ mov(rscratch2, len_reg);
+      __ subsw(rscratch2, len_reg, zr);
+      __ br(Assembler::LE, _L_finish);
+
       __ ldrw(keylen, Address(key, arrayOopDesc::length_offset_in_bytes() - arrayOopDesc::base_offset_in_bytes(T_INT)));
 
       __ ld1(v0, __ T16B, rvec);
@@ -2980,11 +2997,13 @@ class StubGenerator: public StubCodeGenerator {
       __ eor(v0, __ T16B, v0, v31);
 
       __ st1(v0, __ T16B, __ post(to, 16));
-      __ sub(len_reg, len_reg, 16);
-      __ cbnz(len_reg, L_aes_loop);
+
+      __ subw(len_reg, len_reg, 16);
+      __ cbnzw(len_reg, L_aes_loop);
 
       __ st1(v0, __ T16B, rvec);
 
+    __ BIND(_L_finish);
       __ mov(r0, rscratch2);
 
       __ leave();
@@ -3010,7 +3029,7 @@ class StubGenerator: public StubCodeGenerator {
     __ align(CodeEntryAlignment);
     StubCodeMark mark(this, "StubRoutines", "cipherBlockChaining_decryptAESCrypt");
 
-    Label L_loadkeys_44, L_loadkeys_52, L_aes_loop, L_rounds_44, L_rounds_52;
+    Label L_loadkeys_44, L_loadkeys_52, L_aes_loop, L_rounds_44, L_rounds_52, _L_finish;
 
     const Register from        = c_rarg0;  // source array address
     const Register to          = c_rarg1;  // destination array address
@@ -3021,9 +3040,12 @@ class StubGenerator: public StubCodeGenerator {
     const Register keylen      = rscratch1;
 
     address start = __ pc();
+
       __ enter();
 
-      __ mov(rscratch2, len_reg);
+      __ subsw(rscratch2, len_reg, zr);
+      __ br(Assembler::LE, _L_finish);
+
       __ ldrw(keylen, Address(key, arrayOopDesc::length_offset_in_bytes() - arrayOopDesc::base_offset_in_bytes(T_INT)));
 
       __ ld1(v2, __ T16B, rvec);
@@ -3086,11 +3108,12 @@ class StubGenerator: public StubCodeGenerator {
       __ st1(v0, __ T16B, __ post(to, 16));
       __ orr(v2, __ T16B, v1, v1);
 
-      __ sub(len_reg, len_reg, 16);
-      __ cbnz(len_reg, L_aes_loop);
+      __ subw(len_reg, len_reg, 16);
+      __ cbnzw(len_reg, L_aes_loop);
 
       __ st1(v2, __ T16B, rvec);
 
+    __ BIND(_L_finish);
       __ mov(r0, rscratch2);
 
       __ leave();
@@ -4419,10 +4442,6 @@ class StubGenerator: public StubCodeGenerator {
       StubRoutines::_multiplyToLen = generate_multiplyToLen();
     }
 
-    if (UseShenandoahGC) {
-      StubRoutines::aarch64::_shenandoah_wb = generate_shenandoah_wb();
-    }
-
     if (UseMontgomeryMultiplyIntrinsic) {
       StubCodeMark mark(this, "StubRoutines", "montgomeryMultiply");
       MontgomeryMultiplyGenerator g(_masm, /*squaring*/false);
@@ -4464,16 +4483,27 @@ class StubGenerator: public StubCodeGenerator {
 #endif
   }
 
+  void generate_barriers() {
+    if (UseShenandoahGC) {
+      StubRoutines::aarch64::_shenandoah_wb = generate_shenandoah_wb(false);
+      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true);
+    }
+  }
+
  public:
-  StubGenerator(CodeBuffer* code, bool all) : StubCodeGenerator(code) {
-    if (all) {
+  StubGenerator(CodeBuffer* code, int phase) : StubCodeGenerator(code) {
+    if (phase == 2) {
       generate_all();
-    } else {
+    } else if (phase == 1) {
       generate_initial();
+    } else if (phase == 3) {
+      generate_barriers();
+    } else {
+      ShouldNotReachHere();
     }
   }
 }; // end class declaration
 
-void StubGenerator_generate(CodeBuffer* code, bool all) {
-  StubGenerator g(code, all);
+void StubGenerator_generate(CodeBuffer* code, int phase) {
+  StubGenerator g(code, phase);
 }

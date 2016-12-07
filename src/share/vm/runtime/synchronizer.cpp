@@ -157,6 +157,7 @@ static volatile intptr_t ListLock = 0 ;      // protects global monitor free-lis
 static volatile int MonitorFreeCount  = 0 ;      // # on gFreeList
 static volatile int MonitorPopulation = 0 ;      // # Extant -- in circulation
 #define CHAINMARKER (cast_to_oop<intptr_t>(-1))
+#define CLAIMEDMARKER (cast_to_oop<intptr_t>(-2))
 
 // -----------------------------------------------------------------------------
 //  Fast Monitor Enter/Exit
@@ -209,7 +210,7 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   // swing the displaced header from the box back to the mark.
   if (mark == (markOop) lock) {
      assert (dhw->is_neutral(), "invariant") ;
-     if ((markOop) Atomic::cmpxchg_ptr (dhw, object->mark_addr(), mark) == mark) {
+     if (object->cas_set_mark(dhw, mark) == mark) {
         TEVENT (fast_exit: release stacklock) ;
         return;
      }
@@ -231,7 +232,7 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
     // Anticipate successful CAS -- the ST of the displaced mark must
     // be visible <= the ST performed by the CAS.
     lock->set_displaced_header(mark);
-    if (mark == (markOop) Atomic::cmpxchg_ptr(lock, obj()->mark_addr(), mark)) {
+    if (mark == obj()->cas_set_mark((markOop) lock, mark)) {
       TEVENT (slow_enter: release stacklock) ;
       return ;
     }
@@ -647,7 +648,7 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
     hash = get_next_hash(Self, obj);  // allocate a new hash code
     temp = mark->copy_set_hash(hash); // merge the hash code into header
     // use (machine word version) atomic operation to install the hash
-    test = (markOop) Atomic::cmpxchg_ptr(temp, obj->mark_addr(), mark);
+    test = obj->cas_set_mark(temp, mark);
     if (test == mark) {
       return hash;
     }
@@ -844,9 +845,9 @@ void ObjectSynchronizer::monitors_iterate(MonitorClosure* closure) {
 
 // Get the next block in the block list.
 static inline ObjectMonitor* next(ObjectMonitor* block) {
-  assert(block->object() == CHAINMARKER, "must be a block header");
+  assert(block->object() == CHAINMARKER || block->object() == CLAIMEDMARKER, "must be a valid block header");
   block = block->FreeNext ;
-  assert(block == NULL || block->object() == CHAINMARKER, "must be a block header");
+  assert(block == NULL || block->object() == CHAINMARKER || block->object() == CLAIMEDMARKER, "must be a valid block header");
   return block;
 }
 
@@ -1212,7 +1213,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       if (mark->has_monitor()) {
           ObjectMonitor * inf = mark->monitor() ;
           assert (inf->header()->is_neutral(), "invariant");
-          assert (inf->object() == object, "invariant") ;
+          assert (oopDesc::equals((oop) inf->object(), object), "invariant") ;
           assert (ObjectSynchronizer::verify_objmon_isinpool(inf), "monitor is invalid");
           return inf ;
       }
@@ -1259,7 +1260,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
           m->_recursions   = 0 ;
           m->_SpinDuration = ObjectMonitor::Knob_SpinLimit ;   // Consider: maintain by type/class
 
-          markOop cmp = (markOop) Atomic::cmpxchg_ptr (markOopDesc::INFLATING(), object->mark_addr(), mark) ;
+          markOop cmp = object->cas_set_mark(markOopDesc::INFLATING(), mark);
           if (cmp != mark) {
              omRelease (Self, m, true) ;
              continue ;       // Interference -- just retry
@@ -1352,7 +1353,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       m->_Responsible  = NULL ;
       m->_SpinDuration = ObjectMonitor::Knob_SpinLimit ;       // consider: keep metastats by type/class
 
-      if (Atomic::cmpxchg_ptr (markOopDesc::encode(m), object->mark_addr(), mark) != mark) {
+      if (object->cas_set_mark(markOopDesc::encode(m), mark) != mark) {
           m->set_object (NULL) ;
           m->set_owner  (NULL) ;
           m->OwnerIsThread = 0 ;
@@ -1679,3 +1680,58 @@ int ObjectSynchronizer::verify_objmon_isinpool(ObjectMonitor *monitor) {
 }
 
 #endif
+
+ParallelObjectSynchronizerIterator ObjectSynchronizer::parallel_iterator() {
+  return ParallelObjectSynchronizerIterator(gBlockList);
+}
+
+// ParallelObjectSynchronizerIterator implementation
+ParallelObjectSynchronizerIterator::ParallelObjectSynchronizerIterator(ObjectMonitor * head)
+  : _head(head), _cur(head) {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must at safepoint");
+}
+
+ParallelObjectSynchronizerIterator::~ParallelObjectSynchronizerIterator() {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must at safepoint");
+  ObjectMonitor* block = _head;
+  for (; block != NULL; block = next(block)) {
+    assert(block->object() == CLAIMEDMARKER, "Must be a claimed block");
+    // Restore chainmarker
+    block->set_object(CHAINMARKER);
+  }
+}
+
+void* ParallelObjectSynchronizerIterator::claim() {
+  ObjectMonitor* my_cur = _cur;
+  ObjectMonitor* next_block;
+
+  while (true) {
+    if (my_cur == NULL) return NULL;
+
+    if (my_cur->object() == CHAINMARKER) {
+      if (my_cur->cas_set_object(CLAIMEDMARKER, CHAINMARKER) == CHAINMARKER) {
+        return (void*)my_cur;
+      }
+    } else {
+      assert(my_cur->object() == CLAIMEDMARKER, "Must be");
+    }
+
+    next_block = next(my_cur);
+    my_cur = (ObjectMonitor*) Atomic::cmpxchg_ptr(next_block, &_cur, my_cur);
+  }
+}
+
+bool ParallelObjectSynchronizerIterator::parallel_oops_do(OopClosure* f) {
+  ObjectMonitor* block = (ObjectMonitor*) claim();
+  if (block != NULL) {
+    assert(block->object() == CLAIMEDMARKER, "Must be a claimed block");
+    for (int i = 1; i < ObjectSynchronizer::_BLOCKSIZE; i++) {
+      ObjectMonitor* mid = &block[i];
+      if (mid->object() != NULL) {
+        f->do_oop((oop*) mid->object_addr());
+      }
+    }
+    return true;
+  }
+  return false;
+}

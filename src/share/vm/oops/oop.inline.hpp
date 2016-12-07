@@ -65,11 +65,13 @@
 // We need a separate file to avoid circular references
 
 inline void oopDesc::release_set_mark(markOop m) {
-  OrderAccess::release_store_ptr(&_mark, m);
+  oop p = bs()->write_barrier(this);
+  OrderAccess::release_store_ptr(&p->_mark, m);
 }
 
 inline markOop oopDesc::cas_set_mark(markOop new_mark, markOop old_mark) {
-  return (markOop) Atomic::cmpxchg_ptr(new_mark, &_mark, old_mark);
+  oop p = bs()->write_barrier(this);
+  return (markOop) Atomic::cmpxchg_ptr(new_mark, &p->_mark, old_mark);
 }
 
 inline Klass* oopDesc::klass() const {
@@ -201,7 +203,7 @@ inline narrowOop oopDesc::encode_heap_oop_not_null(oop v) {
   assert(OopEncodingHeapMax > pd, "change encoding max if new encoding");
   uint64_t result = pd >> shift;
   assert((result & CONST64(0xffffffff00000000)) == 0, "narrow oop overflow");
-  assert(decode_heap_oop(result) == v, "reversibility");
+  assert(oopDesc::unsafe_equals(decode_heap_oop(result), v), "reversibility");
   return (narrowOop)result;
 }
 

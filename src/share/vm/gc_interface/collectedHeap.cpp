@@ -132,6 +132,14 @@ void CollectedHeap::unregister_nmethod(nmethod* nm) {
   assert_locked_or_safepoint(CodeCache_lock);
 }
 
+void CollectedHeap::pin_object(oop o) {
+  // Defaults to no-op
+}
+
+void CollectedHeap::unpin_object(oop o) {
+  // Defaults to no-op
+}
+
 void CollectedHeap::trace_heap(GCWhen::Type when, GCTracer* gc_tracer) {
   const GCHeapSummary& heap_summary = create_heap_summary();
   gc_tracer->report_gc_heap_summary(when, heap_summary);

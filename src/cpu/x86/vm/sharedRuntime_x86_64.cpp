@@ -696,6 +696,10 @@ static void gen_i2c_adapter(MacroAssembler *masm,
       range_check(masm, rax, r11,
                   StubRoutines::code2()->code_begin(), StubRoutines::code2()->code_end(),
                   L_ok);
+    if (StubRoutines::code3() != NULL)
+      range_check(masm, rax, r11,
+                  StubRoutines::code3()->code_begin(), StubRoutines::code3()->code_end(),
+                  L_ok);
     const char* msg = "i2c adapter must return to an interpreter frame";
     __ block_comment(msg);
     __ stop(msg);
@@ -2453,6 +2457,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
 
     Label done;
 
+    __ shenandoah_store_addr_check(obj_reg);
     if (UseBiasedLocking) {
       __ biased_locking_exit(obj_reg, old_hdr, done);
     }

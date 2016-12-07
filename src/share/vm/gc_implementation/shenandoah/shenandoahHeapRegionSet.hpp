@@ -30,6 +30,8 @@
 
 class ShenandoahHeapRegion;
 
+extern outputStream* tty;
+
 class ShenandoahHeapRegionClosure : public StackObj {
   bool _complete;
   void incomplete() {_complete = false;}
@@ -81,7 +83,7 @@ public:
     QuickSort::sort<ShenandoahHeapRegion*>(_regions, _active_end, comparator, false);
   }
 
-  void print();
+  void print(outputStream* out = tty);
 public:
 
   void heap_region_iterate(ShenandoahHeapRegionClosure* blk,

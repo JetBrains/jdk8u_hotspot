@@ -24,20 +24,22 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_HPP
 
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
+
+typedef BufferedOverflowTaskQueue<ObjArrayFromToTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
+typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
+
 class ShenandoahHeap;
-class QHolder;
 
 class ShenandoahMarkUpdateRefsClosure : public MetadataAwareOopClosure {
-  QHolder* _queue;
+  SCMObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 
 public:
-  ShenandoahMarkUpdateRefsClosure(QHolder* q);
+  ShenandoahMarkUpdateRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp);
 
-  void do_oop_nv(narrowOop* p) {
-    Unimplemented();
-  }
-  void do_oop_nv(oop* p);
+  template <class T>
+  void do_oop_nv(T* p);
 
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
   virtual void do_oop(oop* p) { do_oop_nv(p); }
@@ -45,16 +47,14 @@ public:
 };
 
 class ShenandoahMarkRefsClosure : public MetadataAwareOopClosure {
-  QHolder* _queue;
+  SCMObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 
 public:
-  ShenandoahMarkRefsClosure(QHolder* q);
+  ShenandoahMarkRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp);
 
-  void do_oop_nv(narrowOop* p) {
-    Unimplemented();
-  }
-  void do_oop_nv(oop* p);
+  template <class T>
+  void do_oop_nv(T* p);
 
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
   virtual void do_oop(oop* p) { do_oop_nv(p); }

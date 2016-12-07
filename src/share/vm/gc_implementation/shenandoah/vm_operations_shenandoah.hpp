@@ -60,7 +60,10 @@ class VM_ShenandoahStartEvacuation: public VM_ShenandoahReferenceOperation {
 };
 
 class VM_ShenandoahFullGC : public VM_ShenandoahReferenceOperation {
- public:
+private:
+  GCCause::Cause _gc_cause;
+public:
+  VM_ShenandoahFullGC(GCCause::Cause gc_cause);
   VMOp_Type type() const;
   void doit();
   const char* name() const;

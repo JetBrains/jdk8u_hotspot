@@ -531,7 +531,6 @@ void InstanceKlass::fence_and_clear_init_lock() {
 void InstanceKlass::eager_initialize_impl(instanceKlassHandle this_oop) {
   EXCEPTION_MARK;
   oop init_lock = this_oop->init_lock();
-  init_lock = oopDesc::bs()->write_barrier(init_lock);
   ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
 
   // abort if someone beat us to the initialization
@@ -678,7 +677,6 @@ bool InstanceKlass::link_class_impl(
   // verification & rewriting
   {
     oop init_lock = this_oop->init_lock();
-    init_lock = oopDesc::bs()->write_barrier(init_lock);
     ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
     // rewritten will have been set if loader constraint error found
     // on an earlier link attempt
@@ -852,7 +850,6 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
   // Step 1
   {
     oop init_lock = this_oop->init_lock();
-    init_lock = oopDesc::bs()->write_barrier(init_lock);
     ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
 
     Thread *self = THREAD; // it's passed the current thread
@@ -985,7 +982,6 @@ void InstanceKlass::set_initialization_state_and_notify(ClassState state, TRAPS)
 
 void InstanceKlass::set_initialization_state_and_notify_impl(instanceKlassHandle this_oop, ClassState state, TRAPS) {
   oop init_lock = this_oop->init_lock();
-  init_lock = oopDesc::bs()->write_barrier(init_lock);
   ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
   this_oop->set_init_state(state);
   this_oop->fence_and_clear_init_lock();
@@ -2589,7 +2585,7 @@ void InstanceKlass::set_source_debug_extension(char* array, int length) {
 }
 
 address InstanceKlass::static_field_addr(int offset) {
-  return (address)(offset + InstanceMirrorKlass::offset_of_static_fields() + cast_from_oop<intptr_t>(java_mirror()));
+  return (address)(offset + InstanceMirrorKlass::offset_of_static_fields() + cast_from_oop<intptr_t>(oopDesc::bs()->write_barrier(java_mirror())));
 }
 
 

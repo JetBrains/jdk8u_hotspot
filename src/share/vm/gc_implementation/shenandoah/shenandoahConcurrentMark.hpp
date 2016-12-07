@@ -26,47 +26,38 @@
 
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 
-typedef OverflowTaskQueue<ObjArrayTask, mtGC> ShenandoahOverflowTaskQueue;
-typedef Padded<ShenandoahOverflowTaskQueue> SCMObjToScanQueue;
-typedef GenericTaskQueueSet<SCMObjToScanQueue, mtGC> SCMObjToScanQueueSet;
+typedef BufferedOverflowTaskQueue<ObjArrayFromToTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
+typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
 
 class ShenandoahConcurrentMark;
 
-class QHolder {
-private:
-  SCMObjToScanQueue* _queue;
-public:
-  QHolder(SCMObjToScanQueue* q) : _queue(q) {
-  }
-  inline SCMObjToScanQueue* queue() {
-    return _queue;
-  }
-};
-
 #ifdef ASSERT
 class ShenandoahVerifyRootsClosure1 : public OopClosure {
-  void do_oop(oop* p);
+private:
+  template <class T>
+  inline void do_oop_work(T* p);
 
-  void do_oop(narrowOop* p) {
-    Unimplemented();
-  }
+public:
+  void do_oop(oop* p);
+  void do_oop(narrowOop* p);
 };
 #endif
 
-template <class T>
+template <class T, bool CL>
 class ShenandoahMarkObjsClosure {
   ShenandoahHeap* _heap;
   T _mark_refs;
-  QHolder* _queue;
+  SCMObjToScanQueue* _queue;
   uint _last_region_idx;
   size_t _live_data;
 public:
-  ShenandoahMarkObjsClosure(QHolder* q);
+  ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp);
   ~ShenandoahMarkObjsClosure();
 
-  inline void do_object(oop obj, int index);
-  inline void do_objarray(objArrayOop array, int index);
+  inline void do_object_or_array(oop obj, int from, int to);
+  inline void do_array(objArrayOop array, int from, int to);
   inline void count_liveness(oop obj);
 };
 
@@ -76,11 +67,23 @@ private:
   // The per-worker-thread work queues
   SCMObjToScanQueueSet* _task_queues;
 
-  uint _max_conc_worker_id;
+  bool _process_references;
+  bool _unload_classes;
+
+  jbyte _claimed_codecache;
 
 public:
   // We need to do this later when the heap is already created.
-  void initialize();
+  void initialize(uint workers);
+
+  void set_process_references(bool pr);
+  bool process_references() const;
+
+  void set_unload_classes(bool uc);
+  bool unload_classes() const;
+
+  bool claim_codecache();
+  void clear_claim_codecache();
 
   static inline void mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q);
 
@@ -88,28 +91,33 @@ public:
 
   // Prepares unmarked root objects by marking them and putting
   // them into the marking task queue.
-  void prepare_unmarked_root_objs();
-  void prepare_unmarked_root_objs_no_derived_ptrs(bool update_refs);
+  void init_mark_roots();
+  void mark_roots();
+  void update_roots();
+  void final_update_roots();
 
-  void shared_finish_mark_from_roots();
+  void shared_finish_mark_from_roots(bool full_gc);
   void finish_mark_from_roots();
   // Those are only needed public because they're called from closures.
 
-  template <class T>
-  void concurrent_mark_loop(ShenandoahMarkObjsClosure<T>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
+  template <class T, bool CL>
+  void concurrent_mark_loop(ShenandoahMarkObjsClosure<T, CL>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
 
-  template <class T>
-  void final_mark_loop(ShenandoahMarkObjsClosure<T>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
+  template <class T, bool CL>
+  void final_mark_loop(ShenandoahMarkObjsClosure<T, CL>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
+
+  template <class T, bool CL>
+  inline bool try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T, CL>* cl);
+
+  template <class T, bool CL>
+  inline bool try_to_steal(uint worker_id, ShenandoahMarkObjsClosure<T, CL>* cl, int *seed);
 
   SCMObjToScanQueue* get_queue(uint worker_id);
-  template <class T>
-  inline bool try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T>* cl);
-  template <class T>
-  inline bool try_to_steal(uint worker_id, ShenandoahMarkObjsClosure<T>* cl, int *seed);
+  void clear_queue(SCMObjToScanQueue *q);
+
   inline bool try_draining_an_satb_buffer(SCMObjToScanQueue* q);
   void drain_satb_buffers(uint worker_id, bool remark = false);
   SCMObjToScanQueueSet* task_queues() { return _task_queues;}
-  uint max_conc_worker_id() { return _max_conc_worker_id; }
 
   void cancel();
 
@@ -121,10 +129,16 @@ private:
 
   void weak_refs_work();
 
+  /**
+   * Process assigned queue and others if there are any to be claimed.
+   * Return false if the process is terminated by concurrent gc cancellation.
+   */
+  template <class T, bool CL>
+  bool concurrent_process_queues(ShenandoahHeap* heap, SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T, CL>* cl);
+
 #if TASKQUEUE_STATS
-  static void print_taskqueue_stats_hdr(outputStream* const st = gclog_or_tty);
-  void print_taskqueue_stats(outputStream* const st = gclog_or_tty) const;
-  void print_push_only_taskqueue_stats(outputStream* const st = gclog_or_tty) const;
+  static void print_taskqueue_stats_hdr(outputStream* const st = tty);
+  void print_taskqueue_stats() const;
   void reset_taskqueue_stats();
 #endif // TASKQUEUE_STATS
 

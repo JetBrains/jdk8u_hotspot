@@ -22,6 +22,7 @@
  */
 
 #include "gc_implementation/shared/gcTraceTime.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
@@ -36,13 +37,11 @@ const char* VM_ShenandoahInitMark::name() const {
 
 void VM_ShenandoahInitMark::doit() {
   ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
-  GCTraceTime time("Pause Init-Mark", ShenandoahTracePhases, true, sh->shenandoahPolicy()->conc_timer(), sh->tracer()->gc_id());
+  GCTraceTime time("Pause Init-Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark);
 
-  assert(sh->is_bitmap_clear(), "need clear marking bitmap");
+  assert(sh->is_next_bitmap_clear(), "need clear marking bitmap");
 
-  if (ShenandoahGCVerbose)
-    tty->print("vm_ShenandoahInitMark\n");
   sh->start_concurrent_marking();
   if (UseTLAB) {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
@@ -58,9 +57,13 @@ VM_Operation::VMOp_Type VM_ShenandoahFullGC::type() const {
   return VMOp_ShenandoahFullGC;
 }
 
+VM_ShenandoahFullGC::VM_ShenandoahFullGC(GCCause::Cause gc_cause) :
+  _gc_cause(gc_cause) {
+}
+
 void VM_ShenandoahFullGC::doit() {
 
-  ShenandoahMarkCompact::do_mark_compact();
+  ShenandoahMarkCompact::do_mark_compact(_gc_cause);
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   if (UseTLAB) {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
@@ -95,16 +98,12 @@ void VM_ShenandoahReferenceOperation::doit_epilogue() {
 
 void VM_ShenandoahStartEvacuation::doit() {
 
-  // We need to do the finish mark here, so that a JNI critical region
-  // can't divide it from evacuation start. It is critical that we
+  // It is critical that we
   // evacuate roots right after finishing marking, so that we don't
   // get unmarked objects in the roots.
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   if (! sh->cancelled_concgc()) {
-    if (ShenandoahGCVerbose)
-      tty->print("vm_ShenandoahFinalMark\n");
-
-    GCTraceTime time("Pause Init-Evacuation", ShenandoahTracePhases, true, sh->shenandoahPolicy()->conc_timer(), sh->tracer()->gc_id());
+    GCTraceTime time("Pause Final Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark);
     sh->concurrentMark()->finish_mark_from_roots();
     sh->stop_concurrent_marking();
@@ -124,9 +123,9 @@ void VM_ShenandoahStartEvacuation::doit() {
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_evac);
 
   } else {
+    GCTraceTime time("Cancel concurrent Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
-    sh->recycle_dirty_regions();
   }
 }
 

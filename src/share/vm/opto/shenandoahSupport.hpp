@@ -59,8 +59,8 @@ public:
   static Node* skip_through_barrier(Node* n);
 
   virtual const class TypePtr* adr_type() const {
-    const TypePtr* adr_type = bottom_type()->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
-    assert(adr_type->offset() == BrooksPointer::BYTE_OFFSET, "sane offset");
+    const TypePtr* adr_type = bottom_type()->is_ptr()->add_offset(BrooksPointer::byte_offset());
+    assert(adr_type->offset() == BrooksPointer::byte_offset(), "sane offset");
     assert(Compile::current()->alias_type(adr_type)->is_rewritable(), "brooks ptr must be rewritable");
     return adr_type;
   }

@@ -54,6 +54,7 @@ void VM_Version_init();
 void os_init_globals();        // depends on VM_Version_init, before universe_init
 void stubRoutines_init1();
 jint universe_init();          // depends on codeCache_init and stubRoutines_init
+void stubRoutines_init3();     // note: StubRoutines need 3-phase init
 void interpreter_init();       // before any methods loaded
 void invocationCounter_init(); // before any methods loaded
 void marksweep_init();
@@ -105,6 +106,8 @@ jint init_globals() {
                                   // stubRoutines_init1 and metaspace_init.
   if (status != JNI_OK)
     return status;
+
+  stubRoutines_init3();
 
   interpreter_init();  // before any methods loaded
   invocationCounter_init();  // before any methods loaded

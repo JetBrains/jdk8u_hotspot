@@ -165,7 +165,7 @@ bool ShenandoahReadBarrierNode::dominates_memory_rb_impl(PhaseTransform* phase,
   } else if (current->is_MemBar()) {
     return false; // TODO: Do we need to stop at *any* membar?
   } else if (current->is_MergeMem()) {
-    const TypePtr* adr_type = phase->type(b2)->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
+    const TypePtr* adr_type = phase->type(b2)->is_ptr()->add_offset(BrooksPointer::byte_offset());
     uint alias_idx = phase->C->get_alias_index(adr_type);
     Node* mem_in = current->as_MergeMem()->memory_at(alias_idx);
     return dominates_memory_rb_impl(phase, b1, b2, current->in(TypeFunc::Memory), visited);
@@ -207,7 +207,7 @@ Node* ShenandoahReadBarrierNode::Ideal(PhaseGVN *phase, bool can_reshape) {
   // If memory input is a MergeMem, take the appropriate slice out of it.
   Node* mem_in = in(Memory);
   if (mem_in->isa_MergeMem()) {
-    const TypePtr* adr_type = bottom_type()->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
+    const TypePtr* adr_type = bottom_type()->is_ptr()->add_offset(BrooksPointer::byte_offset());
     uint alias_idx = phase->C->get_alias_index(adr_type);
     mem_in = mem_in->as_MergeMem()->memory_at(alias_idx);
     set_req(Memory, mem_in);
@@ -264,7 +264,7 @@ Node* ShenandoahWriteBarrierNode::Ideal(PhaseGVN *phase, bool can_reshape) {
 
   Node* mem_in = in(Memory);
   if (mem_in->isa_MergeMem()) {
-    const TypePtr* adr_type = bottom_type()->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
+    const TypePtr* adr_type = bottom_type()->is_ptr()->add_offset(BrooksPointer::byte_offset());
     uint alias_idx = phase->C->get_alias_index(adr_type);
     mem_in = mem_in->as_MergeMem()->memory_at(alias_idx);
     set_req(Memory, mem_in);
@@ -343,7 +343,7 @@ bool ShenandoahBarrierNode::dominates_memory_impl(PhaseTransform* phase,
   } else if (current->is_MemBar()) {
     return dominates_memory_impl(phase, b1, b2, current->in(TypeFunc::Memory), visited);
   } else if (current->is_MergeMem()) {
-    const TypePtr* adr_type = phase->type(b2)->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
+    const TypePtr* adr_type = phase->type(b2)->is_ptr()->add_offset(BrooksPointer::byte_offset());
     uint alias_idx = phase->C->get_alias_index(adr_type);
     Node* mem_in = current->as_MergeMem()->memory_at(alias_idx);
     return dominates_memory_impl(phase, b1, b2, current->in(TypeFunc::Memory), visited);

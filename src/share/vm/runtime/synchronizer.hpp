@@ -34,8 +34,25 @@
 
 class ObjectMonitor;
 
+class ParallelObjectSynchronizerIterator VALUE_OBJ_CLASS_SPEC {
+  friend class ObjectSynchronizer;
+
+  private:
+    ObjectMonitor*  _head;
+    ObjectMonitor*  volatile _cur;
+
+  private:
+    ParallelObjectSynchronizerIterator(ObjectMonitor* head);
+    void* claim();
+
+  public:
+    ~ParallelObjectSynchronizerIterator();
+    bool parallel_oops_do(OopClosure* f);
+};
+
 class ObjectSynchronizer : AllStatic {
   friend class VMStructs;
+  friend class ParallelObjectSynchronizerIterator;
  public:
   typedef enum {
     owner_self,
@@ -119,6 +136,9 @@ class ObjectSynchronizer : AllStatic {
   static bool deflate_monitor(ObjectMonitor* mid, oop obj, ObjectMonitor** FreeHeadp,
                               ObjectMonitor** FreeTailp);
   static void oops_do(OopClosure* f);
+
+  // Parallel GC support
+  static ParallelObjectSynchronizerIterator parallel_iterator();
 
   // debugging
   static void verify() PRODUCT_RETURN;

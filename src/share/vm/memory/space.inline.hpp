@@ -103,7 +103,7 @@ inline HeapWord* Space::block_start(const void* p) {
         /* prefetch beyond end */                                            \
         Prefetch::write(end, interval);                                      \
         end += block_size(end);                                              \
-      } while (end < t && (!block_is_obj(end) || !oop(end)->is_gc_marked())); \
+      } while (end < t && (!block_is_obj(end) || !oop(end)->is_gc_marked()));\
                                                                              \
       /* see if we might want to pretend this object is alive so that        \
        * we don't have to compact quite as often.                            \

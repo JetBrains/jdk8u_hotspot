@@ -27,22 +27,23 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 
-inline void ShenandoahMarkUpdateRefsClosure::do_oop_nv(oop* p) {
+template <class T>
+inline void ShenandoahMarkUpdateRefsClosure::do_oop_nv(T* p) {
   // We piggy-back reference updating to the marking tasks.
   oop obj = _heap->maybe_update_oop_ref(p);
   assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "need to-space object here");
   if (! oopDesc::is_null(obj)) {
-    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue->queue());
+    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
   }
 }
 
-inline void ShenandoahMarkRefsClosure::do_oop_nv(oop* p) {
-  oop obj = oopDesc::load_heap_oop(p);
-  assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "expect forwarded obj in queue");
+template <class T>
+inline void ShenandoahMarkRefsClosure::do_oop_nv(T* p) {
+  oop obj = oopDesc::load_decode_heap_oop(p);
+  assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "need to-space object here");
 
   if (! oopDesc::is_null(obj)) {
-    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue->queue());
+    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
   }
 }
-
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_INLINE_HPP

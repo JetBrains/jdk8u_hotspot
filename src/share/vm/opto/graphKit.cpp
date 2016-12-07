@@ -4240,7 +4240,7 @@ Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_
     if (obj_type->higher_equal(TypePtr::NULL_PTR)) {
       return obj;
     }
-    const TypePtr* adr_type = obj_type->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
+    const TypePtr* adr_type = obj_type->is_ptr()->add_offset(BrooksPointer::byte_offset());
     Node* mem = use_mem ? memory(adr_type) : immutable_memory();
 
     if (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, obj, mem, use_mem)) {
@@ -4294,7 +4294,7 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
       return obj;
     }
     const Type* obj_type = obj->bottom_type();
-    const TypePtr* adr_type = obj_type->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
+    const TypePtr* adr_type = obj_type->is_ptr()->add_offset(BrooksPointer::byte_offset());
     if (obj_type->meet(TypePtr::NULL_PTR) == obj_type->remove_speculative()) {
       // We don't know if it's null or not. Need null-check.
       enum { _not_null_path = 1, _null_path, PATH_LIMIT };

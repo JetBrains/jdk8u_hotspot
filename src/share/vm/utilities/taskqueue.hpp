@@ -492,6 +492,7 @@ protected:
 public:
   // Returns "true" if some TaskQueue in the set contains a task.
   virtual bool peek() = 0;
+  virtual size_t tasks() = 0;
 };
 
 template <MEMFLAGS F> class TaskQueueSetSuperImpl: public CHeapObj<F>, public TaskQueueSetSuper {
@@ -528,6 +529,9 @@ public:
   bool steal(uint queue_num, int* seed, E& t);
 
   bool peek();
+  size_t tasks();
+
+  uint size() const { return _n; }
 };
 
 template<class T, MEMFLAGS F> void
@@ -585,6 +589,15 @@ bool GenericTaskQueueSet<T, F>::peek() {
   return false;
 }
 
+template<class T, MEMFLAGS F>
+size_t GenericTaskQueueSet<T, F>::tasks() {
+  size_t n = 0;
+  for (uint j = 0; j < _n; j++) {
+    n += _queues[j]->size();
+  }
+  return n;
+}
+
 // When to terminate from the termination protocol.
 class TerminatorTerminator: public CHeapObj<mtInternal> {
 public:
@@ -597,7 +610,7 @@ public:
 #undef TRACESPINNING
 
 class ParallelTaskTerminator: public StackObj {
-private:
+protected:
   int _n_threads;
   TaskQueueSetSuper* _queue_set;
   int _offered_termination;
@@ -623,7 +636,7 @@ public:
   // else is.  If returns "true", all threads are terminated.  If returns
   // "false", available work has been observed in one of the task queues,
   // so the global task is not complete.
-  bool offer_termination() {
+  virtual bool offer_termination() {
     return offer_termination(NULL);
   }
 

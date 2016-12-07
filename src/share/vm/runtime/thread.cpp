@@ -1712,7 +1712,7 @@ void JavaThread::thread_main_inner() {
 
 static void ensure_join(JavaThread* thread) {
   // We do not need to grap the Threads_lock, since we are operating on ourself.
-  Handle threadObj(thread, oopDesc::bs()->write_barrier(thread->threadObj()));
+  Handle threadObj(thread, thread->threadObj());
   assert(threadObj.not_null(), "java thread object must exist");
   ObjectLocker lock(threadObj, thread);
   // Ignore pending exception (ThreadDeath), since we are exiting anyway
@@ -4041,9 +4041,6 @@ bool Threads::destroy_vm() {
 
   thread->exit(true);
 
-  // Stop GC threads.
-  Universe::heap()->shutdown();
-
   // Stop VM thread.
   {
     // 4945125 The vm thread comes to a safepoint during exit.
@@ -4214,7 +4211,8 @@ void Threads::possibly_parallel_oops_do(OopClosure* f, CLDClosure* cld_f, CodeBl
   bool is_par = sh->n_par_threads() > 0;
   assert(!is_par ||
          (SharedHeap::heap()->n_par_threads() ==
-          SharedHeap::heap()->workers()->active_workers()) || UseShenandoahGC, "Mismatch");
+          SharedHeap::heap()->workers()->active_workers()
+	  || UseShenandoahGC), "Mismatch");
   int cp = SharedHeap::heap()->strong_roots_parity();
   ALL_JAVA_THREADS(p) {
     if (p->claim_oops_do(is_par, cp)) {

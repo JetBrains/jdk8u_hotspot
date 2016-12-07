@@ -43,6 +43,7 @@
 
 BufferBlob* StubRoutines::_code1                                = NULL;
 BufferBlob* StubRoutines::_code2                                = NULL;
+BufferBlob* StubRoutines::_code3                                = NULL;
 
 address StubRoutines::_call_stub_return_address                 = NULL;
 address StubRoutines::_call_stub_entry                          = NULL;
@@ -158,13 +159,15 @@ address StubRoutines::_safefetchN_fault_pc               = NULL;
 address StubRoutines::_safefetchN_continuation_pc        = NULL;
 #endif
 
+address StubRoutines::_shenandoah_wb_C = NULL;
+
 // Initialization
 //
 // Note: to break cycle with universe initialization, stubs are generated in two phases.
 // The first one generates stubs needed during universe init (e.g., _handle_must_compile_first_entry).
 // The second phase includes all other stubs (which may depend on universe being initialized.)
 
-extern void StubGenerator_generate(CodeBuffer* code, bool all); // only interface to generators
+extern void StubGenerator_generate(CodeBuffer* code, int phase); // only interface to generators
 
 void StubRoutines::initialize1() {
   if (_code1 == NULL) {
@@ -175,7 +178,7 @@ void StubRoutines::initialize1() {
       vm_exit_out_of_memory(code_size1, OOM_MALLOC_ERROR, "CodeCache: no room for StubRoutines (1)");
     }
     CodeBuffer buffer(_code1);
-    StubGenerator_generate(&buffer, false);
+    StubGenerator_generate(&buffer, 1);
   }
 }
 
@@ -230,7 +233,7 @@ void StubRoutines::initialize2() {
       vm_exit_out_of_memory(code_size2, OOM_MALLOC_ERROR, "CodeCache: no room for StubRoutines (2)");
     }
     CodeBuffer buffer(_code2);
-    StubGenerator_generate(&buffer, true);
+    StubGenerator_generate(&buffer, 2);
   }
 
 #ifdef ASSERT
@@ -311,9 +314,22 @@ void StubRoutines::initialize2() {
 #endif
 }
 
+void StubRoutines::initialize3() {
+  if (UseShenandoahGC && _code3 == NULL) {
+    ResourceMark rm;
+    TraceTime timer("StubRoutines generation 3", TraceStartupTime);
+    _code3 = BufferBlob::create("StubRoutines (3)", code_size3);
+    if (_code3 == NULL) {
+      vm_exit_out_of_memory(code_size3, OOM_MALLOC_ERROR, "CodeCache: no room for StubRoutines (3)");
+    }
+    CodeBuffer buffer(_code3);
+    StubGenerator_generate(&buffer, 3);
+  }
+}
 
 void stubRoutines_init1() { StubRoutines::initialize1(); }
 void stubRoutines_init2() { StubRoutines::initialize2(); }
+void stubRoutines_init3() { StubRoutines::initialize3(); }
 
 //
 // Default versions of arraycopy functions

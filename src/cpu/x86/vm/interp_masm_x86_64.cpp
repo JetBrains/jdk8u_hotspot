@@ -574,6 +574,7 @@ void InterpreterMacroAssembler::remove_activation(
   lea(c_rarg1, monitor); // address of first monitor
 
   movptr(rax, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
+  shenandoah_store_addr_check(rax); // Invariant
   testptr(rax, rax);
   jcc(Assembler::notZero, unlock);
 
@@ -651,6 +652,7 @@ void InterpreterMacroAssembler::remove_activation(
 
     bind(loop);
     // check if current entry is used
+    shenandoah_lock_check(c_rarg1);
     cmpptr(Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()), (int32_t) NULL);
     jcc(Assembler::notEqual, exception);
 
@@ -712,6 +714,8 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
     // Load object pointer into obj_reg %c_rarg3
     movptr(obj_reg, Address(lock_reg, obj_offset));
 
+    shenandoah_store_addr_check(obj_reg);
+
     if (UseBiasedLocking) {
       biased_locking_enter(lock_reg, obj_reg, swap_reg, rscratch1, false, done, &slow_case);
     }
@@ -728,6 +732,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
     assert(lock_offset == 0,
            "displached header must be first word in BasicObjectLock");
 
+    // obj_reg has been checked a few lines up.
     if (os::is_MP()) lock();
     cmpxchgptr(lock_reg, Address(obj_reg, 0));
     if (PrintBiasedLockingStatistics) {
@@ -802,6 +807,7 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
 
     // Load oop into obj_reg(%c_rarg3)
     movptr(obj_reg, Address(lock_reg, BasicObjectLock::obj_offset_in_bytes()));
+    shenandoah_store_addr_check(obj_reg); // Invariant
 
     // Free entry
     movptr(Address(lock_reg, BasicObjectLock::obj_offset_in_bytes()), (int32_t)NULL_WORD);

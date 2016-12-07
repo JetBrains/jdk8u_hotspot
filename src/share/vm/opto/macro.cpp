@@ -1678,7 +1678,7 @@ PhaseMacroExpand::initialize_object(AllocateNode* alloc,
 
   if (UseShenandoahGC) {
     // Initialize Shenandoah brooks pointer to point to the object itself.
-    rawmem = make_store(control, rawmem, object, BrooksPointer::BYTE_OFFSET, object, T_OBJECT);
+    rawmem = make_store(control, rawmem, object, BrooksPointer::byte_offset(), object, T_OBJECT);
   }
 
   // Clear the object body, if necessary.

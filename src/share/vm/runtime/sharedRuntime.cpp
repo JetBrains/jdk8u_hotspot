@@ -1863,7 +1863,7 @@ JRT_END
 int SharedRuntime::_monitor_enter_ctr=0;
 #endif
 JRT_ENTRY_NO_ASYNC(void, SharedRuntime::complete_monitor_locking_C(oopDesc* _obj, BasicLock* lock, JavaThread* thread))
-  oop obj(oopDesc::bs()->write_barrier(_obj));
+  oop obj(_obj);
 #ifndef PRODUCT
   _monitor_enter_ctr++;             // monitor enter slow
 #endif
@@ -1885,7 +1885,7 @@ int SharedRuntime::_monitor_exit_ctr=0;
 #endif
 // Handles the uncommon cases of monitor unlocking in compiled code
 JRT_LEAF(void, SharedRuntime::complete_monitor_unlocking_C(oopDesc* _obj, BasicLock* lock))
-  oop obj(oopDesc::bs()->write_barrier(_obj));
+  oop obj(_obj);
 #ifndef PRODUCT
   _monitor_exit_ctr++;              // monitor exit slow
 #endif

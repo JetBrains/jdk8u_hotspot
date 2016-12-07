@@ -1848,7 +1848,7 @@ LIR_Opr LIRGenerator::shenandoah_read_barrier(LIR_Opr obj, CodeEmitInfo* info, b
       __ cmp(lir_cond_equal, result, LIR_OprFact::oopConst(NULL));
       __ branch(lir_cond_equal, T_LONG, done->label());
     }
-    LIR_Address* brooks_ptr_address = generate_address(result, BrooksPointer::BYTE_OFFSET, T_ADDRESS);
+    LIR_Address* brooks_ptr_address = generate_address(result, BrooksPointer::byte_offset(), T_ADDRESS);
     __ load(brooks_ptr_address, result, info ? new CodeEmitInfo(info) : NULL, lir_patch_none);
 
     __ branch_destination(done->label());
@@ -3084,9 +3084,9 @@ void LIRGenerator::do_FPIntrinsics(Intrinsic* x) {
 
 // Code for  :  x->x() {x->cond()} x->y() ? x->tval() : x->fval()
 void LIRGenerator::do_IfOp(IfOp* x) {
-  ValueTag xtag = x->x()->type()->tag();
 #ifdef ASSERT
   {
+    ValueTag xtag = x->x()->type()->tag();
     ValueTag ttag = x->tval()->type()->tag();
     assert(xtag == intTag || xtag == objectTag, "cannot handle others");
     assert(ttag == addressTag || ttag == intTag || ttag == objectTag || ttag == longTag, "cannot handle others");

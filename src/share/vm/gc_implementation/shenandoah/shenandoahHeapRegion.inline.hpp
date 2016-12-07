@@ -25,13 +25,10 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP
 
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
-
-inline bool ShenandoahHeapRegion::allocated_after_mark_start(HeapWord* addr) {
-  return addr >= _top_at_mark_start;
-}
+#include "runtime/atomic.hpp"
 
 inline void ShenandoahHeapRegion::increase_live_data(size_t s) {
-  size_t new_live_data = (size_t) Atomic::add((jlong) s, (jlong*) &liveData);
+  size_t new_live_data = (size_t) Atomic::add_ptr(s, (intptr_t*) &_live_data);
   assert(new_live_data <= used() || is_humongous(), "can't have more live data than used");
 }
 

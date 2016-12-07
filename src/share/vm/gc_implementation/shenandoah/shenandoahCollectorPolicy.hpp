@@ -24,8 +24,6 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAH_COLLECTOR_POLICY_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAH_COLLECTOR_POLICY_HPP
 
-#include "gc_implementation/shared/gcTrace.hpp"
-#include "gc_implementation/shared/gcTimer.hpp"
 #include "memory/collectorPolicy.hpp"
 #include "runtime/arguments.hpp"
 #include "utilities/numberSeq.hpp"
@@ -34,33 +32,82 @@ class ShenandoahCollectionSet;
 class ShenandoahFreeSet;
 class ShenandoahHeap;
 class ShenandoahHeuristics;
+class ShenandoahPhaseTimes;
+
+class STWGCTimer;
+class ConcurrentGCTimer;
 
 class ShenandoahCollectorPolicy: public CollectorPolicy {
 
 public:
   enum TimingPhase {
-    init_mark,
-    final_mark,
     init_mark_gross,
-    final_mark_gross,
+    init_mark,
     accumulate_stats,
     make_parsable,
     clear_liveness,
     scan_roots,
-    rescan_roots,
+    scan_thread_roots,
+    scan_code_roots,
+    scan_string_table_roots,
+    scan_universe_roots,
+    scan_jni_roots,
+    scan_jni_weak_roots,
+    scan_synchronizer_roots,
+    scan_flat_profiler_roots,
+    scan_management_roots,
+    scan_system_dictionary_roots,
+    scan_cldg_roots,
+    scan_jvmti_roots,
+
+    resize_tlabs,
+
+    final_mark_gross,
+    final_mark,
+    update_roots,
+    update_thread_roots,
+    update_code_roots,
+    update_string_table_roots,
+    update_universe_roots,
+    update_jni_roots,
+    update_jni_weak_roots,
+    update_synchronizer_roots,
+    update_flat_profiler_roots,
+    update_management_roots,
+    update_system_dictionary_roots,
+    update_cldg_roots,
+    update_jvmti_roots,
     drain_satb,
-    drain_queues,
     weakrefs,
     class_unloading,
     prepare_evac,
-    init_evac,
-
     recycle_regions,
-    reset_bitmaps,
-    resize_tlabs,
-    full_gc,
+    init_evac,
+    evac_thread_roots,
+    evac_code_roots,
+    evac_string_table_roots,
+    evac_universe_roots,
+    evac_jni_roots,
+    evac_jni_weak_roots,
+    evac_synchronizer_roots,
+    evac_flat_profiler_roots,
+    evac_management_roots,
+    evac_system_dictionary_roots,
+    evac_cldg_roots,
+    evac_jvmti_roots,
+
     conc_mark,
     conc_evac,
+    reset_bitmaps,
+
+    full_gc,
+    full_gc_mark,
+    full_gc_mark_drain_queues,
+    full_gc_mark_weakrefs,
+    full_gc_mark_class_unloading,
+    full_gc_calculate_addresses,
+    full_gc_adjust_pointers,
+    full_gc_copy_objects,
 
     _num_phases
   };
@@ -87,8 +134,14 @@ private:
 
   bool _conc_gc_aborted;
 
+  size_t _cycle_counter;
+
+  ShenandoahPhaseTimes* _phase_times;
+
 public:
   ShenandoahCollectorPolicy();
+
+  ShenandoahPhaseTimes* phase_times();
 
   virtual ShenandoahCollectorPolicy* as_pgc_policy();
 
@@ -106,6 +159,10 @@ public:
 
   void record_phase_start(TimingPhase phase);
   void record_phase_end(TimingPhase phase);
+
+  void record_workers_start(TimingPhase phase);
+  void record_workers_end(TimingPhase phase);
+
   void report_concgc_cancelled();
 
   void record_user_requested_gc();
@@ -120,17 +177,23 @@ public:
   void choose_collection_set(ShenandoahCollectionSet* collection_set);
   void choose_free_set(ShenandoahFreeSet* free_set);
 
-  void print_tracing_info();
+  bool process_references();
+  bool unload_classes();
 
-  GCTimer* conc_timer(){return _conc_timer;}
-  GCTimer* stw_timer() {return _stw_timer;}
+  void print_tracing_info(outputStream* out);
+
+  GCTimer* conc_timer();
+  GCTimer* stw_timer();
   ShenandoahTracer* tracer() {return _tracer;}
 
   void set_conc_gc_aborted() { _conc_gc_aborted = true;}
   void clear_conc_gc_aborted() {_conc_gc_aborted = false;}
 
+  void increase_cycle_counter();
+  size_t cycle_counter() const;
+
 private:
-  void print_summary_sd(const char* str, uint indent, const NumberSeq* seq);
+  void print_summary_sd(outputStream* out, const char* str, const NumberSeq* seq);
 };
 
 

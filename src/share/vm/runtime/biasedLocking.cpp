@@ -211,7 +211,7 @@ static BiasedLocking::Condition revoke_bias(oop obj, bool allow_rebias, bool is_
   BasicLock* highest_lock = NULL;
   for (int i = 0; i < cached_monitor_info->length(); i++) {
     MonitorInfo* mon_info = cached_monitor_info->at(i);
-    if (oopDesc::safe_equals(mon_info->owner(), obj)) {
+    if (oopDesc::equals(mon_info->owner(), obj)) {
       if (TraceBiasedLocking && Verbose) {
         tty->print_cr("   mon_info->owner (" PTR_FORMAT ") == obj (" PTR_FORMAT ")",
                       p2i((void *) mon_info->owner()),
@@ -543,7 +543,7 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
     // the bias of the object.
     markOop biased_value       = mark;
     markOop unbiased_prototype = markOopDesc::prototype()->set_age(mark->age());
-    markOop res_mark = (markOop) Atomic::cmpxchg_ptr(unbiased_prototype, obj->mark_addr(), mark);
+    markOop res_mark = obj->cas_set_mark(unbiased_prototype, mark);
     if (res_mark == biased_value) {
       return BIAS_REVOKED;
     }
@@ -558,8 +558,8 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
       // by another thread so we simply return and let the caller deal
       // with it.
       markOop biased_value       = mark;
-      markOop res_mark = (markOop) Atomic::cmpxchg_ptr(prototype_header, obj->mark_addr(), mark);
-      assert(!(*(obj->mark_addr()))->has_bias_pattern(), "even if we raced, should still be revoked");
+      markOop res_mark = obj->cas_set_mark(prototype_header, mark);
+      assert(! obj->mark()->has_bias_pattern(), "even if we raced, should still be revoked");
       return BIAS_REVOKED;
     } else if (prototype_header->bias_epoch() != mark->bias_epoch()) {
       // The epoch of this biasing has expired indicating that the
@@ -573,14 +573,14 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
         assert(THREAD->is_Java_thread(), "");
         markOop biased_value       = mark;
         markOop rebiased_prototype = markOopDesc::encode((JavaThread*) THREAD, mark->age(), prototype_header->bias_epoch());
-        markOop res_mark = (markOop) Atomic::cmpxchg_ptr(rebiased_prototype, obj->mark_addr(), mark);
+        markOop res_mark = obj->cas_set_mark(rebiased_prototype, mark);
         if (res_mark == biased_value) {
           return BIAS_REVOKED_AND_REBIASED;
         }
       } else {
         markOop biased_value       = mark;
         markOop unbiased_prototype = markOopDesc::prototype()->set_age(mark->age());
-        markOop res_mark = (markOop) Atomic::cmpxchg_ptr(unbiased_prototype, obj->mark_addr(), mark);
+        markOop res_mark = obj->cas_set_mark(unbiased_prototype, mark);
         if (res_mark == biased_value) {
           return BIAS_REVOKED;
         }

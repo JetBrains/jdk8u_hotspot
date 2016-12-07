@@ -28,15 +28,23 @@
 #include "gc_interface/gcCause.hpp"
 #include "memory/resourceArea.hpp"
 
+// For now we just want to have a concurrent marking thread.
+// Once we have that working we will build a concurrent evacuation thread.
+
 class ShenandoahConcurrentThread: public ConcurrentGCThread {
   friend class VMStructs;
 
- public:
-  virtual void run();
+private:
+  Monitor _full_gc_lock;
 
  private:
   static SurrogateLockerThread* _slt;
 
+public:
+  void run();
+  void stop();
+
+private:
   bool _do_full_gc;
   GCCause::Cause _full_gc_cause;
 
@@ -64,8 +72,6 @@ class ShenandoahConcurrentThread: public ConcurrentGCThread {
 
   static void safepoint_synchronize();
   static void safepoint_desynchronize();
-
-  void shutdown();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTTHREAD_HPP

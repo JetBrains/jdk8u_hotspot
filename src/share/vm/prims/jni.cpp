@@ -391,9 +391,9 @@ JNI_ENTRY(jclass, jni_DefineClass(JNIEnv *env, const char *name, jobject loaderR
   if (UsePerfData && !class_loader.is_null()) {
     // check whether the current caller thread holds the lock or not.
     // If not, increment the corresponding counter
-    Handle class_loader1 (THREAD, oopDesc::bs()->write_barrier(class_loader()));
+    Handle class_loader1 (THREAD, class_loader());
     if (ObjectSynchronizer::
-        query_lock_ownership((JavaThread*)THREAD, class_loader1) !=
+        query_lock_ownership((JavaThread*)THREAD, class_loader) !=
         ObjectSynchronizer::owner_self) {
       ClassLoader::sync_JNIDefineClassLockFreeCounter()->inc();
     }
@@ -4153,7 +4153,7 @@ JNI_ENTRY(jint, jni_MonitorEnter(JNIEnv *env, jobject jobj))
     THROW_(vmSymbols::java_lang_NullPointerException(), JNI_ERR);
   }
 
-  Handle obj(thread, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
+  Handle obj(thread, JNIHandles::resolve_non_null(jobj));
   ObjectSynchronizer::jni_enter(obj, CHECK_(JNI_ERR));
   ret = JNI_OK;
   return ret;
@@ -4181,7 +4181,7 @@ JNI_ENTRY(jint, jni_MonitorExit(JNIEnv *env, jobject jobj))
     THROW_(vmSymbols::java_lang_NullPointerException(), JNI_ERR);
   }
 
-  Handle obj(THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
+  Handle obj(THREAD, JNIHandles::resolve_non_null(jobj));
   ObjectSynchronizer::jni_exit(obj(), CHECK_(JNI_ERR));
 
   ret = JNI_OK;
@@ -4273,6 +4273,7 @@ JNI_ENTRY(void*, jni_GetPrimitiveArrayCritical(JNIEnv *env, jarray array, jboole
   }
   oop a = JNIHandles::resolve_non_null(array);
   a = oopDesc::bs()->write_barrier(a);
+  Universe::heap()->pin_object(a);
   assert(a->is_array(), "just checking");
   BasicType type;
   if (a->is_objArray()) {
@@ -4300,6 +4301,21 @@ JNI_ENTRY(void, jni_ReleasePrimitiveArrayCritical(JNIEnv *env, jarray array, voi
                                                   env, array, carray, mode);
 #endif /* USDT2 */
   // The array, carray and mode arguments are ignored
+  oop a = JNIHandles::resolve_non_null(array);
+  a = oopDesc::bs()->read_barrier(a);
+#ifdef ASSERT
+  assert(a->is_array(), "just checking");
+  BasicType type;
+  if (a->is_objArray()) {
+    type = T_OBJECT;
+  } else {
+    type = TypeArrayKlass::cast(a->klass())->element_type();
+  }
+  void* ret = arrayOop(a)->base(type);
+  assert(ret == carray, "check array not moved");
+#endif
+
+  Universe::heap()->unpin_object(a);
   GC_locker::unlock_critical(thread);
 #ifndef USDT2
   DTRACE_PROBE(hotspot_jni, ReleasePrimitiveArrayCritical__return);
@@ -4323,6 +4339,8 @@ JNI_ENTRY(const jchar*, jni_GetStringCritical(JNIEnv *env, jstring string, jbool
     *isCopy = JNI_FALSE;
   }
   oop s = JNIHandles::resolve_non_null(string);
+  s = oopDesc::bs()->write_barrier(s);
+  Universe::heap()->pin_object(s);
   int s_len = java_lang_String::length(s);
   typeArrayOop s_value = java_lang_String::value(s);
   int s_offset = java_lang_String::offset(s);
@@ -4351,6 +4369,9 @@ JNI_ENTRY(void, jni_ReleaseStringCritical(JNIEnv *env, jstring str, const jchar 
                                           env, str, (uint16_t *) chars);
 #endif /* USDT2 */
   // The str and chars arguments are ignored
+  oop s = JNIHandles::resolve_non_null(str);
+  s = oopDesc::bs()->read_barrier(s);
+  Universe::heap()->unpin_object(s);
   GC_locker::unlock_critical(thread);
 #ifndef USDT2
   DTRACE_PROBE(hotspot_jni, ReleaseStringCritical__return);

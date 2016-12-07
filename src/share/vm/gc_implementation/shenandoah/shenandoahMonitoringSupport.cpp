@@ -55,12 +55,12 @@ CollectorCounters* ShenandoahMonitoringSupport::stw_collection_counters() {
   return _stw_collection_counters;
 }
 
-CollectorCounters* ShenandoahMonitoringSupport::concurrent_collection_counters() {
-  return _concurrent_collection_counters;
-}
-
 CollectorCounters* ShenandoahMonitoringSupport::full_collection_counters() {
   return _full_collection_counters;
+}
+
+CollectorCounters* ShenandoahMonitoringSupport::concurrent_collection_counters() {
+  return _concurrent_collection_counters;
 }
 
 void ShenandoahMonitoringSupport::update_counters() {

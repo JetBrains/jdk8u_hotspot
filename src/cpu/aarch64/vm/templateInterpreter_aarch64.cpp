@@ -593,6 +593,7 @@ void InterpreterGenerator::lock_method(void) {
   __ mov(rscratch1, esp);
   __ str(rscratch1, monitor_block_top);  // set new monitor block top
   // store object
+  __ shenandoah_store_addr_check(r0);
   __ str(r0, Address(esp, BasicObjectLock::obj_offset_in_bytes()));
   __ mov(c_rarg1, esp); // object address
   __ lock_object(c_rarg1);
@@ -1273,6 +1274,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
 					  wordSize - sizeof(BasicObjectLock))));
 
       __ ldr(t, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
+      __ shenandoah_store_addr_check(t); // Invariant
       __ cbnz(t, unlock);
 
       // Entry already unlocked, need to throw exception

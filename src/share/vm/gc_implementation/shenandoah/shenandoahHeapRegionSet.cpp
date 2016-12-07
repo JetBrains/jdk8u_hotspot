@@ -21,6 +21,7 @@
  *
  */
 
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.inline.hpp"
 #include "utilities/quickSort.hpp"
@@ -83,7 +84,7 @@ void ShenandoahHeapRegionSet::active_heap_region_iterate(ShenandoahHeapRegionClo
     if (skip_humongous_continuation && current->is_humongous_continuation()) {
       continue;
     }
-    if (skip_dirty_regions && current->is_in_collection_set()) {
+    if (skip_dirty_regions && current->in_collection_set()) {
       continue;
     }
     if (blk->doHeapRegion(current)) {
@@ -103,7 +104,7 @@ void ShenandoahHeapRegionSet::unclaimed_heap_region_iterate(ShenandoahHeapRegion
     if (skip_humongous_continuation && current->is_humongous_continuation()) {
       continue;
     }
-    if (skip_dirty_regions && current->is_in_collection_set()) {
+    if (skip_dirty_regions && current->in_collection_set()) {
       continue;
     }
     if (blk->doHeapRegion(current)) {
@@ -119,9 +120,25 @@ void ShenandoahHeapRegionSet::heap_region_iterate(ShenandoahHeapRegionClosure* b
   active_heap_region_iterate(blk, skip_dirty_regions, skip_humongous_continuation);
 }
 
-void ShenandoahHeapRegionSet::print() {
-  tty->print_cr("_current_index: "SIZE_FORMAT" current region: %p, _active_end: "SIZE_FORMAT, _current_index, _regions[_current_index], _active_end);
-  //  Unimplemented();
+class PrintHeapRegionsClosure : public
+   ShenandoahHeapRegionClosure {
+private:
+  outputStream* _st;
+public:
+  PrintHeapRegionsClosure() : _st(tty) {}
+  PrintHeapRegionsClosure(outputStream* st) : _st(st) {}
+
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    r->print_on(_st);
+    return false;
+  }
+};
+
+void ShenandoahHeapRegionSet::print(outputStream* out) {
+  out->print_cr("_current_index: "SIZE_FORMAT" current region: %p, _active_end: "SIZE_FORMAT, _current_index, _regions[_current_index], _active_end);
+
+  PrintHeapRegionsClosure pc1(out);
+  heap_region_iterate(&pc1, false, false);
 }
 
 ShenandoahHeapRegion* ShenandoahHeapRegionSet::next() {
@@ -135,7 +152,7 @@ ShenandoahHeapRegion* ShenandoahHeapRegionSet::next() {
 }
 
 ShenandoahHeapRegion* ShenandoahHeapRegionSet::claim_next() {
-  size_t next = Atomic::add(1, (jlong*) &_current_index) - 1;
+  size_t next = (size_t) Atomic::add_ptr(1, (intptr_t*) &_current_index) - 1;
   if (next < _active_end) {
     return get(next);
   } else {
@@ -152,11 +169,7 @@ public:
   FindRegionClosure(ShenandoahHeapRegion* query) : _query(query), _result(false) {}
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
-    if (r == _query) {
-      _result = true;
-    } else {
-        _result = false;
-    }
+    _result = (r == _query);
     return _result;
   }
 

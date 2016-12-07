@@ -69,10 +69,16 @@ class oopDesc {
   static BarrierSet* _bs;
 
  public:
-  markOop  mark() const         { return _mark; }
+  markOop  mark()      const {
+    oop p = bs()->read_barrier((oop) this);
+    return p->_mark;
+  }
   markOop* mark_addr() const    { return (markOop*) &_mark; }
 
-  void set_mark(volatile markOop m)      { _mark = m;   }
+  void set_mark(volatile markOop m) {
+    oop p = bs()->write_barrier(this);
+    p->_mark = m;
+  }
 
   void    release_set_mark(markOop m);
   markOop cas_set_mark(markOop new_mark, markOop old_mark);
@@ -152,13 +158,13 @@ class oopDesc {
 
   inline static bool safe_equals(oop o1, oop o2) {
     assert(bs()->is_safe(o1), "o1 not safe?");
-    assert(bs()->is_safe(o2), "o1 not safe?");
+    assert(bs()->is_safe(o2), "o2 not safe?");
     return unsafe_equals(o1, o2);
   }
 
   inline static bool safe_equals(narrowOop o1, narrowOop o2) {
     assert(bs()->is_safe(o1), "o1 not safe?");
-    assert(bs()->is_safe(o2), "o1 not safe?");
+    assert(bs()->is_safe(o2), "o2 not safe?");
     return unsafe_equals(o1, o2);
   }
 

@@ -1498,11 +1498,6 @@ void Arguments::set_use_compressed_oops() {
   // the only value that can override MaxHeapSize if we are
   // to use UseCompressedOops is InitialHeapSize.
   size_t max_heap_size = MAX2(MaxHeapSize, InitialHeapSize);
-  if (UseShenandoahGC && FLAG_IS_DEFAULT(UseCompressedOops)) {
-    warning("Compressed Oops not supported with ShenandoahGC");
-    FLAG_SET_ERGO(bool, UseCompressedOops, false);
-    FLAG_SET_ERGO(bool, UseCompressedClassPointers, false);
-  }
 
   if (max_heap_size <= max_heap_for_compressed_oops()) {
 #if !defined(COMPILER1) || defined(TIERED)
@@ -1570,8 +1565,6 @@ void Arguments::set_conservative_max_heap_alignment() {
   } else if (UseG1GC) {
     heap_alignment = G1CollectedHeap::conservative_max_heap_alignment();
   } else if (UseShenandoahGC) {
-    // TODO: This sucks. Can't we have a clean interface to call the GC's collector
-    // policy for this?
     heap_alignment = ShenandoahHeap::conservative_max_heap_alignment();
   }
 #endif // INCLUDE_ALL_GCS
@@ -1730,12 +1723,8 @@ void Arguments::set_shenandoah_gc_flags() {
   UNSUPPORTED_OPTION(UseShenandoahGC);
 #endif
 
-  FLAG_SET_DEFAULT(UseDynamicNumberOfGCThreads, true);
   FLAG_SET_DEFAULT(ParallelGCThreads,
                    Abstract_VM_Version::parallel_worker_threads());
-
-  FLAG_SET_DEFAULT(VerifyBeforeExit, false);
-  FLAG_SET_DEFAULT(ClassUnloadingWithConcurrentMark, false);
 
   if (FLAG_IS_DEFAULT(ConcGCThreads)) {
     uint conc_threads = MAX2((uintx) 1, ParallelGCThreads);
@@ -1744,6 +1733,14 @@ void Arguments::set_shenandoah_gc_flags() {
 
   if (FLAG_IS_DEFAULT(ParallelRefProcEnabled)) {
     FLAG_SET_DEFAULT(ParallelRefProcEnabled, true);
+  }
+
+  if (AlwaysPreTouch) {
+    // Shenandoah handles pre-touch on its own. It does not let the
+    // generic storage code to do the pre-touch before Shenandoah has
+    // a chance to do it on its own.
+    FLAG_SET_DEFAULT(AlwaysPreTouch, false);
+    FLAG_SET_DEFAULT(ShenandoahAlwaysPreTouch, true);
   }
 }
 

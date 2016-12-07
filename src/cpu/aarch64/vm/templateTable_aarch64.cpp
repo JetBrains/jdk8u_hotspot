@@ -3760,6 +3760,7 @@ void TemplateTable::monitorenter()
     // check if current entry is used
     // if not used then remember entry in c_rarg1
     __ ldr(rscratch1, Address(c_rarg3, BasicObjectLock::obj_offset_in_bytes()));
+    __ shenandoah_store_addr_check(rscratch1); // Invariant
     oopDesc::bs()->interpreter_read_barrier(_masm, rscratch1);
     __ cmp(zr, rscratch1);
     __ csel(c_rarg1, c_rarg3, c_rarg1, Assembler::EQ);
@@ -3816,6 +3817,7 @@ void TemplateTable::monitorenter()
   __ increment(rbcp);
 
   // store object
+  __ shenandoah_store_addr_check(r0); // Invariant
   __ str(r0, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
   __ lock_object(c_rarg1);
 
@@ -3861,6 +3863,7 @@ void TemplateTable::monitorexit()
     __ bind(loop);
     // check if current entry is for same object
     __ ldr(rscratch1, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
+    __ shenandoah_store_addr_check(rscratch1); // Invariant
     oopDesc::bs()->interpreter_read_barrier(_masm, rscratch1);
     __ cmp(r0, rscratch1);
     // if same object then stop searching

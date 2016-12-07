@@ -2549,6 +2549,10 @@ void ObjectMonitor::DeferredInitialize () {
   InitDone = 1 ;
 }
 
+void* ObjectMonitor::cas_set_object(void* obj, void* expected) {
+  return Atomic::cmpxchg_ptr(obj, (volatile void*)&_object, expected);
+}
+
 #ifndef PRODUCT
 void ObjectMonitor::verify() {
 }

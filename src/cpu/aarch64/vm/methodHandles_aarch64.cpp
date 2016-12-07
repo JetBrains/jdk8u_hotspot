@@ -151,11 +151,11 @@ void MethodHandles::jump_to_lambda_form(MacroAssembler* _masm,
                         sizeof(u2), /*is_signed*/ false);
     // assert(sizeof(u2) == sizeof(Method::_size_of_parameters), "");
     Label L;
-    __ ldr(temp2, __ argument_address(temp2, -1));
-    __ cmp(recv, temp2);
-    oopDesc::bs()->asm_acmp_barrier(_masm, recv, temp2);
+    __ ldr(rscratch1, __ argument_address(temp2, -1));
+    __ cmp(recv, rscratch1);
+    oopDesc::bs()->asm_acmp_barrier(_masm, recv, rscratch1);
     __ br(Assembler::EQ, L);
-    __ ldr(r0, temp2);
+    __ ldr(r0, __ argument_address(temp2, -1));
     __ hlt(0);
     __ BIND(L);
   }
