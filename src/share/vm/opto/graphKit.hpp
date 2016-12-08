@@ -902,11 +902,11 @@ class GraphKit : public Phase {
   Node* cast_array_to_stable(Node* ary, const TypeAryPtr* ary_type);
 
   Node* shenandoah_read_barrier(Node* obj);
-  Node* shenandoah_read_barrier_nomem(Node* obj);
+  Node* shenandoah_read_barrier_storeval(Node* obj);
   Node* shenandoah_write_barrier(Node* obj);
-  void shenandoah_acmp_barrier(Node*& a, Node*& b);
+  Node* cmp_objects(Node* a, Node* b);
 private:
-  Node* shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_mem);
+  Node* shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_mem, bool allow_fromspace);
 };
 
 // Helper class to support building of control flow branches. Upon

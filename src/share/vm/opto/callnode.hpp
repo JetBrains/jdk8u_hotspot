@@ -622,7 +622,7 @@ public:
   // Collect all the interesting edges from a call for use in
   // replacing the call by something else.  Used by macro expansion
   // and the late inlining support.
-  void extract_projections(CallProjections* projs, bool separate_io_proj);
+  void extract_projections(CallProjections* projs, bool separate_io_proj, bool do_asserts = true);
 
   virtual uint match_edge(uint idx) const;
 
@@ -759,6 +759,8 @@ public:
   const char *_name;            // Printable name, if _method is NULL
   virtual int   Opcode() const;
   virtual void  calling_convention( BasicType* sig_bt, VMRegPair *parm_regs, uint argcnt ) const;
+
+  bool is_call_to_arraycopystub() const;
 
 #ifndef PRODUCT
   virtual void  dump_spec(outputStream *st) const;

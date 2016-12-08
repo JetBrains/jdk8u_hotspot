@@ -119,22 +119,22 @@ Node *PhaseIdealLoop::split_thru_phi( Node *n, Node *region, int policy ) {
       // igvn->type(x) is set to x->Value() already.
       x->raise_bottom_type(t);
       if (x->Opcode() != Op_ShenandoahWriteBarrier) {
-        Node *y = x->Identity(&_igvn);
-        if (y != x) {
+      Node *y = x->Identity(&_igvn);
+      if (y != x) {
+        wins++;
+        x = y;
+      } else {
+        y = _igvn.hash_find(x);
+        if (y) {
           wins++;
           x = y;
         } else {
-          y = _igvn.hash_find(x);
-          if (y) {
-            wins++;
-            x = y;
-          } else {
-            // Else x is a new node we are keeping
-            // We do not need register_new_node_with_optimizer
-            // because set_type has already been called.
-            _igvn._worklist.push(x);
-          }
+          // Else x is a new node we are keeping
+          // We do not need register_new_node_with_optimizer
+          // because set_type has already been called.
+          _igvn._worklist.push(x);
         }
+      }
       } else {
         _igvn._worklist.push(x);
       }
@@ -221,7 +221,7 @@ void PhaseIdealLoop::split_mem_thru_phi(Node* n, Node* r, Node* phi) {
       for (uint i = 1; i < r->req(); i++) {
         Node* wb = phi->in(i);
         if (wb->Opcode() == Op_ShenandoahWriteBarrier) {
-          assert(! wb->has_out_with(Op_ShenandoahWBMemProj), "new clone does not have mem proj");
+          // assert(! wb->has_out_with(Op_ShenandoahWBMemProj), "new clone does not have mem proj");
           Node* new_proj = new (C) ShenandoahWBMemProjNode(wb);
           register_new_node(new_proj, r->in(i));
           memphi->set_req(i, new_proj);
@@ -233,8 +233,11 @@ void PhaseIdealLoop::split_mem_thru_phi(Node* n, Node* r, Node* phi) {
       }
       register_new_node(memphi, r);
       Node* old_mem_out = n->find_out_with(Op_ShenandoahWBMemProj);
-      assert(old_mem_out != NULL, "expect memory projection");
-      _igvn.replace_node(old_mem_out, memphi);
+      while (old_mem_out != NULL) {
+        assert(old_mem_out != NULL, "expect memory projection");
+        _igvn.replace_node(old_mem_out, memphi);
+        old_mem_out = n->find_out_with(Op_ShenandoahWBMemProj);
+      }
     }
     assert(! n->has_out_with(Op_ShenandoahWBMemProj), "no more memory outs");
   }
@@ -729,6 +732,15 @@ Node *PhaseIdealLoop::split_if_with_blocks_pre( Node *n ) {
   Node *n_ctrl = get_ctrl(n);
   if( !n_ctrl ) return n;       // Dead node
 
+  try_move_shenandoah_barrier_before_loop(n, n_ctrl);
+
+  Node* res = try_common_shenandoah_barriers(n, n_ctrl);
+  if (res != NULL) {
+    return res;
+  }
+
+  try_move_shenandoah_read_barrier(n, n_ctrl);
+
   // Attempt to remix address expressions for loop invariants
   Node *m = remix_address_expressions( n );
   if( m ) return m;
@@ -1046,7 +1058,7 @@ void PhaseIdealLoop::split_if_with_blocks_post( Node *n ) {
             // For inner loop uses get the preheader area.
             x_ctrl = place_near_use(x_ctrl);
 
-            if (n->is_Load()) {
+            if (n->is_Load() || n->Opcode() == Op_ShenandoahReadBarrier) {
               // For loads, add a control edge to a CFG node outside of the loop
               // to force them to not combine and return back inside the loop
               // during GVN optimization (4641526).
@@ -1054,7 +1066,9 @@ void PhaseIdealLoop::split_if_with_blocks_post( Node *n ) {
               // Because we are setting the actual control input, factor in
               // the result from get_late_ctrl() so we respect any
               // anti-dependences. (6233005).
+              if (n->is_Load()) {
               x_ctrl = dom_lca(late_load_ctrl, x_ctrl);
+              }
 
               // Don't allow the control input to be a CFG splitting node.
               // Such nodes should only have ProjNodes as outs, e.g. IfNode

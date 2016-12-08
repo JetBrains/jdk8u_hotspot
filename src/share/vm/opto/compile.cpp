@@ -433,6 +433,12 @@ void Compile::remove_useless_nodes(Unique_Node_List &useful) {
       remove_expensive_node(n);
     }
   }
+  for (int i = C->shenandoah_barriers_count()-1; i >= 0; i--) {
+    Node* n = C->shenandoah_barrier(i);
+    if (!useful.member(n)) {
+      remove_shenandoah_barrier(n->as_ShenandoahBarrier());
+    }
+  }
   // clean up the late inline lists
   remove_useless_late_inlines(&_string_late_inlines, useful);
   remove_useless_late_inlines(&_boxing_late_inlines, useful);
@@ -1196,6 +1202,7 @@ void Compile::Init(int aliaslevel) {
   _predicate_opaqs = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   _expensive_nodes = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   _range_check_casts = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
+  _shenandoah_barriers = new(comp_arena()) GrowableArray<ShenandoahBarrierNode*>(comp_arena(), 8,  0, NULL);
   register_library_intrinsics();
 }
 
@@ -2292,12 +2299,30 @@ void Compile::Optimize() {
     igvn.optimize();
   }
 
+  if (UseShenandoahGC && ShenandoahVerifyOptoBarriers) {
+    ShenandoahBarrierNode::verify(C->root());
+  }
+
   {
     NOT_PRODUCT( TracePhase t2("macroExpand", &_t_macroExpand, TimeCompiler); )
     PhaseMacroExpand  mex(igvn);
     if (mex.expand_macro_nodes()) {
       assert(failing(), "must bail out w/ explicit message");
       return;
+    }
+  }
+
+  if (ShenandoahWriteBarrierToIR) {
+    if (shenandoah_barriers_count() > 0) {
+      C->clear_major_progress();
+      PhaseIdealLoop ideal_loop(igvn, false, true);
+      if (failing()) return;
+      PhaseIdealLoop::verify(igvn);
+#ifdef ASSERT
+      if (UseShenandoahGC) {
+        ShenandoahBarrierNode::verify_raw_mem(C->root());
+      }
+#endif
     }
   }
 
@@ -2867,9 +2892,38 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
     break;
   }
 
-#ifdef _LP64
-  case Op_CastPP:
-    if (n->in(1)->is_DecodeN() && Matcher::gen_narrow_oop_implicit_null_checks()) {
+  case Op_CastPP: {
+    // Remove CastPP nodes to gain more freedom during scheduling but
+    // keep the dependency they encode as control or precedence edges
+    // (if control is set already) on memory operations. Some CastPP
+    // nodes don't have a control (don't carry a dependency): skip
+    // those.
+    if (n->in(0) != NULL) {
+      ResourceMark rm;
+      Unique_Node_List wq;
+      wq.push(n);
+      for (uint next = 0; next < wq.size(); ++next) {
+        Node *m = wq.at(next);
+        for (DUIterator_Fast imax, i = m->fast_outs(imax); i < imax; i++) {
+          Node* use = m->fast_out(i);
+          if (use->is_Mem() || use->is_EncodeNarrowPtr()) {
+            use->ensure_control_or_add_prec(n->in(0));
+          } else if (use->in(0) == NULL) {
+            switch(use->Opcode()) {
+            case Op_AddP:
+            case Op_DecodeN:
+            case Op_DecodeNKlass:
+            case Op_CheckCastPP:
+            case Op_CastPP:
+              wq.push(use);
+              break;
+            }
+          }
+        }
+      }
+    }
+    const bool is_LP64 = LP64_ONLY(true) NOT_LP64(false);
+    if (is_LP64 && n->in(1)->is_DecodeN() && Matcher::gen_narrow_oop_implicit_null_checks()) {
       Node* in1 = n->in(1);
       const Type* t = n->bottom_type();
       Node* new_in1 = in1->clone();
@@ -2902,9 +2956,15 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
       if (in1->outcnt() == 0) {
         in1->disconnect_inputs(NULL, this);
       }
+    } else {
+      n->subsume_by(n->in(1), this);
+      if (n->outcnt() == 0) {
+        n->disconnect_inputs(NULL, this);
+      }
     }
     break;
-
+  }
+#ifdef _LP64
   case Op_CmpP:
     // Do this transformation here to preserve CmpPNode::sub() and
     // other TypePtr related Ideal optimizations (for example, ptr nullness).
@@ -3173,7 +3233,7 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
   case Op_ShenandoahReadBarrier:
     break;
   case Op_ShenandoahWriteBarrier:
-    n->set_req(ShenandoahBarrierNode::Memory, immutable_memory());
+    assert(!ShenandoahWriteBarrierToIR, "should have been expanded already");
     break;
   default:
     assert( !n->is_Call(), "" );
@@ -3576,9 +3636,7 @@ void Compile::verify_barriers() {
             if (cmp->Opcode() == Op_CmpI && cmp->in(2)->is_Con() && cmp->in(2)->bottom_type()->is_int()->get_con() == 0
                 && cmp->in(1)->is_Load()) {
               LoadNode* load = cmp->in(1)->as_Load();
-              if (load->Opcode() == Op_LoadB && load->in(2)->is_AddP() && load->in(2)->in(2)->Opcode() == Op_ThreadLocal
-                  && load->in(2)->in(3)->is_Con()
-                  && load->in(2)->in(3)->bottom_type()->is_intptr_t()->get_con() == marking_offset) {
+              if (load->is_g1_marking_load()) {
 
                 Node* if_ctrl = iff->in(0);
                 Node* load_ctrl = load->in(0);
@@ -4070,7 +4128,7 @@ void Compile::remove_speculative_types(PhaseIterGVN &igvn) {
         const Type* t_no_spec = t->remove_speculative();
         if (t_no_spec != t) {
           bool in_hash = igvn.hash_delete(n);
-          assert(in_hash, "node should be in igvn hash table");
+          assert(in_hash || n->hash() == Node::NO_HASH, "node should be in igvn hash table");
           tn->set_type(t_no_spec);
           igvn.hash_insert(n);
           igvn._worklist.push(n); // give it a chance to go away

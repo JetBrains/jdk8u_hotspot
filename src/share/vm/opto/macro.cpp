@@ -446,7 +446,7 @@ Node *PhaseMacroExpand::value_from_mem_phi(Node *mem, BasicType ft, const Type *
       if (val == mem) {
         values.at_put(j, mem);
       } else if (val->is_Store()) {
-        values.at_put(j, val->in(MemNode::ValueIn));
+        values.at_put(j, ShenandoahBarrierNode::skip_through_barrier(val->in(MemNode::ValueIn)));
       } else if(val->is_Proj() && val->in(0) == alloc) {
         values.at_put(j, _igvn.zerocon(ft));
       } else if (val->is_Phi()) {
@@ -548,7 +548,7 @@ Node *PhaseMacroExpand::value_from_mem(Node *sfpt_mem, BasicType ft, const Type 
       // hit a sentinel, return appropriate 0 value
       return _igvn.zerocon(ft);
     } else if (mem->is_Store()) {
-      return mem->in(MemNode::ValueIn);
+      return ShenandoahBarrierNode::skip_through_barrier(mem->in(MemNode::ValueIn));
     } else if (mem->is_Phi()) {
       // attempt to produce a Phi reflecting the values on the input paths of the Phi
       Node_Stack value_phis(a, 8);
@@ -845,9 +845,6 @@ bool PhaseMacroExpand::scalar_replacement(AllocateNode *alloc, GrowableArray <Sa
         } else {
           field_val = transform_later(new (C) DecodeNNode(field_val, field_val->get_ptr_type()));
         }
-      }
-      if (field_val->isa_ShenandoahBarrier()) {
-        field_val = field_val->in(ShenandoahBarrierNode::ValueIn);
       }
       sfpt->add_req(field_val);
     }
@@ -1291,8 +1288,8 @@ void PhaseMacroExpand::expand_allocate_common(
     // Add to heap top to get a new heap top
 
     if (UseShenandoahGC) {
-      // Allocate one word more for the Shenandoah brooks pointer.
-      size_in_bytes = new (C) AddLNode(size_in_bytes, _igvn.MakeConX(8));
+      // Allocate several words more for the Shenandoah brooks pointer.
+      size_in_bytes = new (C) AddLNode(size_in_bytes, _igvn.MakeConX(BrooksPointer::byte_size()));
       transform_later(size_in_bytes);
     }
 
@@ -1387,9 +1384,8 @@ void PhaseMacroExpand::expand_allocate_common(
     }
 
     if (UseShenandoahGC) {
-      // Bump up object by one word. The preceding word is used for
-      // the Shenandoah brooks pointer.
-      fast_oop = new (C) AddPNode(top(), fast_oop, _igvn.MakeConX(8));
+      // Bump up object for Shenandoah brooks pointer.
+      fast_oop = new (C) AddPNode(top(), fast_oop, _igvn.MakeConX(BrooksPointer::byte_size()));
       transform_later(fast_oop);
     }
 

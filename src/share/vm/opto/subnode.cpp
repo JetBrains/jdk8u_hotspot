@@ -36,6 +36,7 @@
 #include "opto/phaseX.hpp"
 #include "opto/shenandoahSupport.hpp"
 #include "opto/subnode.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "runtime/sharedRuntime.hpp"
 
 // Portions of code courtesy of Clifford Click
@@ -106,8 +107,20 @@ const Type* SubNode::Value(PhaseTransform *phase) const {
   if (t != NULL) {
     return t;
   }
-  const Type* t1 = phase->type(in(1));
-  const Type* t2 = phase->type(in(2));
+  Node* in1 = in(1);
+  Node* in2 = in(2);
+  if (Opcode() == Op_CmpP) {
+    Node* n = ShenandoahBarrierNode::skip_through_barrier(in1);
+    if (!n->is_top()) {
+      in1 = n;
+    }
+    n = ShenandoahBarrierNode::skip_through_barrier(in2);
+    if (!n->is_top()) {
+      in2 = n;
+    }
+  }
+  const Type* t1 = phase->type(in1);
+  const Type* t2 = phase->type(in2);
   return sub(t1,t2);            // Local flavor of type subtraction
 
 }
@@ -906,7 +919,11 @@ bool CmpPNode::shenandoah_optimize_java_mirror_cmp(PhaseGVN *phase, bool can_res
     if (!in(2)->is_Phi() || region == in(2)->in(0)) {
       if (region->in(1) != NULL &&
           region->in(2) != NULL &&
-          region->in(1)->in(0) == region->in(2)->in(0) &&
+          region->in(2)->is_Proj() &&
+          region->in(2)->in(0) != NULL &&
+          region->in(2)->in(0)->is_MemBar() &&
+          region->in(2)->in(0)->in(0) != NULL &&
+          region->in(1)->in(0) == region->in(2)->in(0)->in(0)->in(0) &&
           region->in(1)->in(0)->is_If()) {
         Node* iff = region->in(1)->in(0);
         if (iff->in(1) != NULL &&
@@ -918,6 +935,31 @@ bool CmpPNode::shenandoah_optimize_java_mirror_cmp(PhaseGVN *phase, bool can_res
               (!in(2)->is_Phi() || in(2)->in(1) == cmp->in(2)) &&
               in(1)->in(2)->in(ShenandoahBarrierNode::ValueIn) == cmp->in(1) &&
               (!in(2)->is_Phi() || in(2)->in(2)->in(ShenandoahBarrierNode::ValueIn) == cmp->in(2))) {
+            MemBarNode* membar = region->in(2)->in(0)->as_MemBar();
+            Node* ctrl_proj = membar->proj_out(TypeFunc::Control);
+            Node* mem_proj = membar->proj_out(TypeFunc::Memory);
+            Node* rb1 = in(1)->in(2);
+            Node* rb2 = in(2)->is_Phi() ? in(2)->in(2) : NULL;
+            uint nb_rb = (rb2 == NULL) ? 1 : 2;
+            if (region->in(1)->outcnt() == 1 &&
+                membar->in(0)->outcnt() == 1 &&
+                mem_proj->outcnt() == nb_rb + 1 &&
+                ctrl_proj->outcnt() == nb_rb + 1 &&
+                rb1->in(ShenandoahBarrierNode::Control) == ctrl_proj &&
+                rb1->in(ShenandoahBarrierNode::Memory) == mem_proj &&
+                (rb2 == NULL || (rb2->in(ShenandoahBarrierNode::Control) == ctrl_proj &&
+                                 rb2->in(ShenandoahBarrierNode::Memory) == mem_proj))) {
+              if (can_reshape) {
+                PhaseIterGVN* igvn = phase->is_IterGVN();
+                igvn->replace_input_of(region, 2, membar->in(0));
+                igvn->replace_input_of(membar, 0, phase->C->top());
+              } else {
+                region->set_req(2, membar->in(0));
+                membar->set_req(0, phase->C->top());
+                phase->C->record_for_igvn(region);
+                phase->C->record_for_igvn(membar);
+              }
+            }
             return true;
           }
         }
@@ -945,8 +987,11 @@ bool CmpPNode::shenandoah_optimize_java_mirror_cmp(PhaseGVN *phase, bool can_res
             Node* uu = u->fast_out(j);
             if (uu->is_If() &&
                 uu->in(0) != NULL &&
-                uu->in(0)->Opcode() == Op_IfTrue) {
-              Node* iff = uu->in(0)->in(0);
+                uu->in(0)->is_Proj() &&
+                uu->in(0)->in(0)->is_MemBar() &&
+                uu->in(0)->in(0)->in(0) != NULL &&
+                uu->in(0)->in(0)->in(0)->Opcode() == Op_IfTrue) {
+              Node* iff = uu->in(0)->in(0)->in(0)->in(0);
               if (iff->in(1) != NULL &&
                   iff->in(1)->is_Bool() &&
                   iff->in(1)->as_Bool()->_test._test == BoolTest::ne &&
@@ -977,6 +1022,37 @@ bool CmpPNode::shenandoah_optimize_java_mirror_cmp(PhaseGVN *phase, bool can_res
 // checking to see an unknown klass subtypes a known klass with no subtypes;
 // this only happens on an exact match.  We can shorten this test by 1 load.
 Node *CmpPNode::Ideal( PhaseGVN *phase, bool can_reshape ) {
+  if (UseShenandoahGC) {
+    Node* in1 = in(1);
+    Node* in2 = in(2);
+    if (in1->bottom_type() == TypePtr::NULL_PTR ||
+        AllocateNode::Ideal_allocation(in1, phase) != NULL) {
+      in2 = ShenandoahBarrierNode::skip_through_barrier(in2);
+    }
+    if (in2->bottom_type() == TypePtr::NULL_PTR ||
+        AllocateNode::Ideal_allocation(in2, phase) != NULL) {
+      in1 = ShenandoahBarrierNode::skip_through_barrier(in1);
+    }
+    PhaseIterGVN* igvn = phase->is_IterGVN();
+    if (in1 != in(1)) {
+      if (igvn != NULL) {
+        set_req_X(1, in1, igvn);
+      } else {
+        set_req(1, in1);
+      }
+      assert(in2 == in(2), "only one change");
+      return this;
+    }
+    if (in2 != in(2)) {
+      if (igvn != NULL) {
+        set_req_X(2, in2, igvn);
+      } else {
+        set_req(2, in2);
+      }
+      return this;
+    }
+  }
+
   // Normalize comparisons between Java mirrors into comparisons of the low-
   // level klass, where a dependent load could be shortened.
   //
@@ -996,13 +1072,13 @@ Node *CmpPNode::Ideal( PhaseGVN *phase, bool can_reshape ) {
 
     if (k1 && (k2 || conk2)) {
       if (!UseShenandoahGC || shenandoah_optimize_java_mirror_cmp(phase, can_reshape)) {
-        Node* lhs = k1;
-        Node* rhs = (k2 != NULL) ? k2 : conk2;
-        this->set_req(1, lhs);
-        this->set_req(2, rhs);
-        return this;
-      }
+      Node* lhs = k1;
+      Node* rhs = (k2 != NULL) ? k2 : conk2;
+      this->set_req(1, lhs);
+      this->set_req(2, rhs);
+      return this;
     }
+  }
   }
 
   // Constant pointer on right?
