@@ -403,7 +403,7 @@ void ciObjectFactory::ensure_metadata_alive(ciMetadata* m) {
   ASSERT_IN_VM; // We're handling raw oops here.
 
 #if INCLUDE_ALL_GCS
-  if (!UseG1GC) {
+  if (!(UseG1GC || UseShenandoahGC)) {
     return;
   }
   Klass* metadata_owner_klass;
