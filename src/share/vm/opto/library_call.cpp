@@ -3199,9 +3199,10 @@ bool LibraryCallKit::inline_unsafe_ordered_store(BasicType type) {
   // Ensure that the store is atomic for longs:
   const bool require_atomic_access = true;
   Node* store;
-  if (type == T_OBJECT) // reference stores need a store barrier.
+  if (type == T_OBJECT) { // reference stores need a store barrier.
+    val = shenandoah_read_barrier_storeval(val);
     store = store_oop_to_unknown(control(), base, adr, adr_type, val, type, MemNode::release);
-  else {
+  } else {
     store = store_to_memory(control(), adr, val, type, adr_type, MemNode::release, require_atomic_access);
   }
   insert_mem_bar(Op_MemBarCPUOrder);
