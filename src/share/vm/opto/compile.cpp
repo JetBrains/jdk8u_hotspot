@@ -2906,7 +2906,7 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
         Node *m = wq.at(next);
         for (DUIterator_Fast imax, i = m->fast_outs(imax); i < imax; i++) {
           Node* use = m->fast_out(i);
-          if (use->is_Mem() || use->is_EncodeNarrowPtr()) {
+          if (use->is_Mem() || use->is_EncodeNarrowPtr() || use->is_ShenandoahBarrier()) {
             use->ensure_control_or_add_prec(n->in(0));
           } else if (use->in(0) == NULL) {
             switch(use->Opcode()) {
