@@ -2806,8 +2806,8 @@ bool LibraryCallKit::inline_unsafe_access(bool is_native_ptr, bool is_store, Bas
         __ if_then(heap_base_oop, BoolTest::ne, null(), PROB_UNLIKELY(0.999)); {
           // Sync IdealKit and graphKit.
           sync_kit(ideal);
-          val = shenandoah_read_barrier_storeval(val);
-          Node* st = store_oop_to_unknown(control(), heap_base_oop, adr, adr_type, val, type, mo);
+          Node* rb = shenandoah_read_barrier_storeval(val);
+          Node* st = store_oop_to_unknown(control(), heap_base_oop, adr, adr_type, rb, type, mo);
           // Update IdealKit memory.
           __ sync_kit(this);
         } __ else_(); {
