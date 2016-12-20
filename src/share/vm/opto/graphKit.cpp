@@ -4181,6 +4181,9 @@ void GraphKit::store_String_offset(Node* ctrl, Node* str, Node* value) {
                                                      false, NULL, 0);
   const TypePtr* offset_field_type = string_type->add_offset(offset_offset);
   int offset_field_idx = C->get_alias_index(offset_field_type);
+
+  str = shenandoah_write_barrier(str);
+
   store_to_memory(ctrl, basic_plus_adr(str, offset_offset),
                   value, T_INT, offset_field_idx, MemNode::unordered);
 }
@@ -4204,6 +4207,9 @@ void GraphKit::store_String_length(Node* ctrl, Node* str, Node* value) {
                                                      false, NULL, 0);
   const TypePtr* count_field_type = string_type->add_offset(count_offset);
   int count_field_idx = C->get_alias_index(count_field_type);
+
+  str = shenandoah_write_barrier(str);
+
   store_to_memory(ctrl, basic_plus_adr(str, count_offset),
                   value, T_INT, count_field_idx, MemNode::unordered);
 }
