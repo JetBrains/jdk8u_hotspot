@@ -191,5 +191,13 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
     }
   }
 
+  if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_ReferenceProcessor_oops_do)) {
+    // Evacuate the PLL here so that the SurrogateLockerThread doesn't
+    // have to. If the SLT runs into OOM during evacuation, the
+    // ShenandoahConcurrentThread cannot get back from VMThread::execute()
+    // and therefore never turn off _evacuation_in_progress -> deadlock.
+    oop pll = java_lang_ref_Reference::pending_list_lock();
+    oopDesc::bs()->write_barrier(pll);
+  }
   _process_strong_tasks.all_tasks_completed();
 }

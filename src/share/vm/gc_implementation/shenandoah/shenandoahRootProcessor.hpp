@@ -52,6 +52,7 @@ enum Shenandoah_process_roots_tasks {
   SHENANDOAH_RP_PS_ClassLoaderDataGraph_oops_do,
   SHENANDOAH_RP_PS_jvmti_oops_do,
   SHENANDOAH_RP_PS_CodeCache_oops_do,
+  SHENANDOAH_RP_PS_ReferenceProcessor_oops_do,
   // Leave this one last.
   SHENANDOAH_RP_PS_NumElements
 };
