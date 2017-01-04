@@ -1921,7 +1921,7 @@ void ShenandoahHeap::oom_during_evacuation() {
 
   // We ran out of memory during evacuation. Cancel evacuation, and schedule a full-GC.
   collector_policy()->set_should_clear_all_soft_refs(true);
-  concurrent_thread()->schedule_full_gc();
+  concurrent_thread()->try_set_full_gc();
   cancel_concgc(_oom_evacuation);
 
   if ((! Thread::current()->is_GC_task_thread()) && (! Thread::current()->is_ConcurrentGC_thread())) {

@@ -101,6 +101,10 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
   policy->record_phase_start(ShenandoahCollectorPolicy::full_gc);
 
+  policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_heapdumps);
+  _heap->pre_full_gc_dump(_gc_timer);
+  policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_heapdumps);
+
   policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_prepare);
 
   // Full GC is supposed to recover from any GC state:
@@ -196,6 +200,10 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   }
 
   _gc_timer->register_gc_end();
+
+  policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_heapdumps);
+  _heap->post_full_gc_dump(_gc_timer);
+  policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_heapdumps);
 
   policy->record_phase_end(ShenandoahCollectorPolicy::full_gc);
 

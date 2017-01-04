@@ -528,6 +528,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() : _cycle_counter(0) {
   _phase_names[resize_tlabs] = "Resize TLABs";
 
   _phase_names[full_gc] = "Full GC Times";
+  _phase_names[full_gc_heapdumps] = "  Heap Dumps";
   _phase_names[full_gc_prepare] = "  Prepare";
   _phase_names[full_gc_mark] = "  Mark";
   _phase_names[full_gc_mark_drain_queues] = "    Drain Queues";
