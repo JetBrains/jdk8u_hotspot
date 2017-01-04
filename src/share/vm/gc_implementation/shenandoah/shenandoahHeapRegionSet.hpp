@@ -75,7 +75,9 @@ public:
 
   virtual void add_region(ShenandoahHeapRegion* r);
 
-  ShenandoahHeapRegion* next();
+  // Advance the iteration pointer to the next region.
+  void next();
+  // Return the current region, and advance iteration pointer to next one, atomically.
   ShenandoahHeapRegion* claim_next();
 
   template<class C>
@@ -92,6 +94,8 @@ public:
 
   size_t current_index()   { return _current_index;}
   void clear_current_index() {_current_index = 0; }
+
+  ShenandoahHeapRegion* current() const;
 
 protected:
   bool contains(ShenandoahHeapRegion* r);

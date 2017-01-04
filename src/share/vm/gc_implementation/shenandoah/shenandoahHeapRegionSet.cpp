@@ -141,13 +141,9 @@ void ShenandoahHeapRegionSet::print(outputStream* out) {
   heap_region_iterate(&pc1, false, false);
 }
 
-ShenandoahHeapRegion* ShenandoahHeapRegionSet::next() {
-  size_t next = _current_index;
-  if (next < _active_end) {
+void ShenandoahHeapRegionSet::next() {
+  if (_current_index < _active_end) {
     _current_index++;
-    return get(next);
-  } else {
-    return NULL;
   }
 }
 
@@ -191,8 +187,16 @@ HeapWord* ShenandoahHeapRegionSet::end() const {
 }
 
 ShenandoahHeapRegion* ShenandoahHeapRegionSet::get(size_t i) const {
-  if (i < _reserved_end) {
+  if (i < _active_end) {
     return _regions[i];
+  } else {
+    return NULL;
+  }
+}
+
+ShenandoahHeapRegion* ShenandoahHeapRegionSet::current() const {
+  if (_current_index < _active_end) {
+    return get(_current_index);
   } else {
     return NULL;
   }

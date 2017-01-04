@@ -45,6 +45,7 @@ public:
 
 
 class ShenandoahForwardedIsAliveClosure: public BoolObjectClosure {
+
 private:
   ShenandoahHeap* _heap;
 public:
@@ -64,6 +65,36 @@ public:
 // //      ShenandoahHeap
 
 class ShenandoahHeap : public SharedHeap {
+  enum LockState { unlocked = 0, locked = 1 };
+
+public:
+  class ShenandoahHeapLock : public StackObj {
+  private:
+    ShenandoahHeap* _heap;
+
+  public:
+    ShenandoahHeapLock(ShenandoahHeap* heap) : _heap(heap) {
+      while (OrderAccess::load_acquire(& _heap->_heap_lock) == locked || Atomic::cmpxchg(locked, &_heap->_heap_lock, unlocked) == locked) {
+        SpinPause();
+      }
+      assert(_heap->_heap_lock == locked, "sanity");
+
+#ifdef ASSERT
+      assert(_heap->_heap_lock_owner == NULL, "must not be owned");
+      _heap->_heap_lock_owner = Thread::current();
+#endif
+    }
+
+    ~ShenandoahHeapLock() {
+#ifdef ASSERT
+      _heap->assert_heaplock_owned_by_current_thread();
+      _heap->_heap_lock_owner = NULL;
+#endif
+      OrderAccess::release_store_fence(&_heap->_heap_lock, unlocked);
+    }
+
+  };
+
 public:
   enum ShenandoahCancelCause {
     _oom_evacuation,
@@ -124,8 +155,6 @@ private:
 
   volatile jbyte _cancelled_concgc;
 
-  jbyte _growing_heap;
-
   size_t _bytes_allocated_since_cm;
   size_t _bytes_allocated_during_cm;
   size_t _bytes_allocated_during_cm_start;
@@ -146,6 +175,13 @@ private:
   ShenandoahForwardedIsAliveClosure isAlive;
 
   ConcurrentGCTimer* _gc_timer;
+
+  // See allocate_memory()
+  volatile jbyte _heap_lock;
+
+#ifdef ASSERT
+  volatile Thread* _heap_lock_owner;
+#endif
 
 public:
   ShenandoahHeap(ShenandoahCollectorPolicy* policy);
@@ -369,8 +405,11 @@ public:
   void cancel_concgc(GCCause::Cause cause);
   void cancel_concgc(ShenandoahCancelCause cause);
 
+  void assert_heaplock_owned_by_current_thread() PRODUCT_RETURN;
+
 private:
   HeapWord* allocate_new_tlab(size_t word_size, bool mark);
+  HeapWord* allocate_memory_under_lock(size_t word_size);
   HeapWord* allocate_memory(size_t word_size, bool evacuating);
   // Shenandoah functionality.
   inline HeapWord* allocate_from_gclab(Thread* thread, size_t size);
@@ -412,7 +451,6 @@ private:
   ShenandoahCollectionSet* collection_set() { return _collection_set; }
 
   bool call_from_write_barrier(bool evacuating);
-  bool check_grow_heap();
   void grow_heap_by(size_t num_regions);
   void ensure_new_regions(size_t num_new_regions);
 

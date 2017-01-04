@@ -368,7 +368,8 @@ public:
     if (_compact_point + obj_size > _to_region->end()) {
       // Object doesn't fit. Pick next to-region and start compacting there.
       _to_region->set_new_top(_compact_point);
-      ShenandoahHeapRegion* new_to_region = _to_regions->next();
+      ShenandoahHeapRegion* new_to_region = _to_regions->current();
+      _to_regions->next();
       if (new_to_region == NULL) {
         new_to_region = _from_region;
       }
@@ -431,7 +432,8 @@ public:
     assert(cl.to_region() != NULL, "should not happen");
     cl.to_region()->set_new_top(cl.compact_point());
     while (to_regions->count() > 0) {
-      ShenandoahHeapRegion* r = to_regions->next();
+      ShenandoahHeapRegion* r = to_regions->current();
+      to_regions->next();
       if (r == NULL) {
         to_regions->print();
       }
@@ -603,12 +605,14 @@ public:
     ShenandoahHeapRegionSet* copy_queue = _regions[worker_id];
     copy_queue->clear_current_index();
     ShenandoahCompactObjectsClosure cl;
-    ShenandoahHeapRegion* r = copy_queue->next();
+    ShenandoahHeapRegion* r = copy_queue->current();
+    copy_queue->next();
     while (r != NULL) {
       assert(! r->is_humongous(), "must not get humongous regions here");
       heap->marked_object_iterate(r, &cl);
       r->set_top(r->new_top());
-      r = copy_queue->next();
+      r = copy_queue->current();
+      copy_queue->next();
     }
   }
 };
@@ -658,15 +662,19 @@ void ShenandoahMarkCompact::phase4_compact_objects(ShenandoahHeapRegionSet** cop
   // and must ensure the bitmap is in sync.
   heap->reset_complete_mark_bitmap(heap->workers());
 
-  ShenandoahPostCompactClosure post_compact;
-  heap->heap_region_iterate(&post_compact);
+  {
+    ShenandoahHeap::ShenandoahHeapLock lock(heap);
+    ShenandoahPostCompactClosure post_compact;
+    heap->heap_region_iterate(&post_compact);
+
+    heap->set_used(post_compact.get_live());
+
+  }
 
   heap->clear_cancelled_concgc();
 
   // Also clear the next bitmap in preparation for next marking.
   heap->reset_next_mark_bitmap(heap->workers());
-
-  heap->set_used(post_compact.get_live());
 
   for (uint i = 0; i < heap->max_parallel_workers(); i++) {
     delete copy_queues[i];

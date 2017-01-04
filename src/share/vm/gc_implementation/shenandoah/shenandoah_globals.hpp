@@ -65,10 +65,6 @@
           "dynamic, adaptive, aggressive."                                  \
           "Defauls to dynamic")                                             \
                                                                             \
-  product(uintx, ShenandoahAllocReserveRegions, 10,                         \
-          "How many regions should be kept as allocation reserve, before "  \
-          "Shenandoah attempts to grow the heap. Defaults to 10.")          \
-                                                                            \
   product(uintx, ShenandoahRefProcFrequency, 5,                             \
           "How often should (weak, soft, etc) references be processed. "    \
           "References get processed at every Nth GC cycle. "                \
