@@ -145,6 +145,13 @@
   experimental(size_t, ShenandoahSATBBufferSize, 1 * K,                     \
           "Number of entries in an SATB log buffer.")                       \
                                                                             \
+  product_rw(int, ShenandoahRegionSamplingRate, 100,                        \
+          "Sampling rate for heap region sampling. "                        \
+          "Number of milliseconds between samples")                         \
+                                                                            \
+  product_rw(bool, ShenandoahRegionSampling, false,                         \
+          "Turns on heap region sampling via JVMStat")                      \
+                                                                            \
   diagnostic(bool, ShenandoahWriteBarrier, true,                            \
           "Turn on/off write barriers in Shenandoah")                       \
                                                                             \

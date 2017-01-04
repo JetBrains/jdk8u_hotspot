@@ -30,6 +30,7 @@ class GenerationCounters;
 class HSpaceCounters;
 class ShenandoahHeap;
 class CollectorCounters;
+class ShenandoahHeapRegionCounters;
 
 class ShenandoahMonitoringSupport : public CHeapObj<mtGC> {
 private:
@@ -40,6 +41,8 @@ private:
   GenerationCounters* _heap_counters;
 
   HSpaceCounters* _space_counters;
+
+  ShenandoahHeapRegionCounters* _heap_region_counters;
 
 public:
  ShenandoahMonitoringSupport(ShenandoahHeap* heap);

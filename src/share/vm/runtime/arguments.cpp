@@ -1735,6 +1735,10 @@ void Arguments::set_shenandoah_gc_flags() {
     FLAG_SET_DEFAULT(ParallelRefProcEnabled, true);
   }
 
+  if (FLAG_IS_DEFAULT(PerfDataMemorySize)) {
+    FLAG_SET_DEFAULT(PerfDataMemorySize, 512*K);
+  }
+
   if (AlwaysPreTouch) {
     // Shenandoah handles pre-touch on its own. It does not let the
     // generic storage code to do the pre-touch before Shenandoah has

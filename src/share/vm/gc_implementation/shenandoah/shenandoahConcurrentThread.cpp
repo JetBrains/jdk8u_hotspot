@@ -72,6 +72,7 @@ void ShenandoahConcurrentThread::run() {
     } else {
       Thread::current()->_ParkEvent->park(10);
     }
+    heap->monitoring_support()->update_counters();
 
     // Make sure the _do_full_gc flag changes are seen.
     OrderAccess::storeload();
