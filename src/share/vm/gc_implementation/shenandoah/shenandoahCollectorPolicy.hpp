@@ -127,6 +127,8 @@ private:
 
   size_t _user_requested_gcs;
   size_t _allocation_failure_gcs;
+  size_t _degenerated_cm;
+  size_t _successful_cm;
 
   ShenandoahHeap* _pgc;
   ShenandoahHeuristics* _heuristics;
@@ -175,6 +177,11 @@ public:
   void record_bytes_start_CM(size_t bytes);
   void record_bytes_end_CM(size_t bytes);
   bool should_start_concurrent_mark(size_t used, size_t capacity);
+  bool handover_cancelled_marking();
+
+  void record_cm_cancelled();
+  void record_cm_success();
+  void record_cm_degenerated();
 
   void choose_collection_set(ShenandoahCollectionSet* collection_set);
   void choose_free_set(ShenandoahFreeSet* free_set);

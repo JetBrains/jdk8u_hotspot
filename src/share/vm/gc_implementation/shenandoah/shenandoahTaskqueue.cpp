@@ -76,7 +76,7 @@ bool ShenandoahTaskTerminator::offer_termination(TerminatorTerminator* terminato
 
       _blocker->unlock();
 
-      if (do_spin_master_work()) {
+      if (do_spin_master_work(terminator)) {
         assert(_offered_termination == _n_threads, "termination condition");
         return true;
       } else {
@@ -91,7 +91,7 @@ bool ShenandoahTaskTerminator::offer_termination(TerminatorTerminator* terminato
       }
     }
 
-    if (peek_in_queue_set() ||
+    if (((terminator == NULL || terminator->should_force_termination()) && peek_in_queue_set()) ||
       (terminator != NULL && terminator->should_exit_termination())) {
       _offered_termination --;
       _blocker->unlock();
@@ -100,7 +100,7 @@ bool ShenandoahTaskTerminator::offer_termination(TerminatorTerminator* terminato
   }
 }
 
-bool ShenandoahTaskTerminator::do_spin_master_work() {
+bool ShenandoahTaskTerminator::do_spin_master_work(TerminatorTerminator* terminator) {
   uint yield_count = 0;
   // Number of hard spin loops done since last yield
   uint hard_spin_count = 0;
@@ -172,7 +172,7 @@ bool ShenandoahTaskTerminator::do_spin_master_work() {
       _total_peeks++;
 #endif
     size_t tasks = tasks_in_queue_set();
-    if (tasks > 0) {
+    if (tasks > 0 && (terminator == NULL || ! terminator->should_force_termination())) {
       MonitorLockerEx locker(_blocker, Mutex::_no_safepoint_check_flag);   // no safepoint check
 
       if ((int) tasks >= _offered_termination - 1) {

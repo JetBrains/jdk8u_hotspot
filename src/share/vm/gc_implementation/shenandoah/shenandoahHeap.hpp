@@ -320,6 +320,7 @@ public:
 
   inline oop  evacuate_object(oop src, Thread* thread);
   inline bool cancelled_concgc() const;
+  inline void set_cancelled_concgc(bool v);
   inline bool try_cancel_concgc() const;
   void clear_cancelled_concgc();
 
@@ -458,7 +459,6 @@ private:
   void set_concurrent_mark_in_progress(bool in_progress);
 
   void oom_during_evacuation();
-  inline void set_cancelled_concgc(bool v);
 
   void verify_live();
   void verify_liveness_after_concurrent_mark();

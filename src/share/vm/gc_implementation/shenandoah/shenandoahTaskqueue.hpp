@@ -194,7 +194,16 @@ private:
    * return true if termination condition is detected
    * otherwise, return false
    */
-  bool do_spin_master_work();
+  bool do_spin_master_work(TerminatorTerminator* terminator);
+};
+
+class ShenandoahCancelledTerminatorTerminator : public TerminatorTerminator {
+  virtual bool should_exit_termination() {
+    return false;
+  }
+  virtual bool should_force_termination() {
+    return true;
+  }
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAH_TASKQUEUE_HPP

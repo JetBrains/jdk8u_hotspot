@@ -92,6 +92,11 @@
   product(size_t, PreTouchParallelChunkSize, 1 * G,                         \
           "Per-thread chunk size for parallel memory pre-touch.")           \
                                                                             \
+  product_rw(uintx, ShenandoahFullGCThreshold, 3,                           \
+          "How many cycles in a row to do degenerated marking on "          \
+          "cancelled GC before triggering a full-gc"                        \
+          "Defaults to 3")                                                  \
+                                                                            \
   product_rw(uintx, ShenandoahGarbageThreshold, 60,                         \
           "Sets the percentage of garbage a region need to contain before " \
           "it can be marked for collection. Applies to "                    \
@@ -115,6 +120,19 @@
           "a new GC cycle is started. "                                     \
           "Applies to Shenandoah GC dynamic Heuristic mode only "           \
           "(ignored otherwise). Defauls to 0%.")                            \
+                                                                            \
+  experimental(uintx, ShenandoahInitFreeThreshold, 10,                      \
+               "Initial remaininig free threshold for adaptive heuristics") \
+                                                                            \
+  experimental(uintx, ShenandoahMinFreeThreshold, 3,                        \
+               "Minimum remaininig free threshold for adaptive heuristics") \
+                                                                            \
+  experimental(uintx, ShenandoahMaxFreeThreshold, 30,                       \
+               "Maximum remaininig free threshold for adaptive heuristics") \
+                                                                            \
+  experimental(uintx, ShenandoahHappyCyclesThreshold, 5,                    \
+          "How many successful marking cycles before improving free "       \
+               "threshold for adaptive heuristics")                    \
                                                                             \
   experimental(uint, ShenandoahMarkLoopStride, 1000,                        \
           "How many items are processed during one marking step")           \

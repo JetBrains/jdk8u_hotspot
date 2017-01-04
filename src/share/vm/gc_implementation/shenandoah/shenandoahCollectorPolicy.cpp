@@ -41,6 +41,9 @@ protected:
   size_t _bytes_allocated_start_CM;
   size_t _bytes_allocated_during_CM;
 
+  uint _cancelled_cm_cycles_in_a_row;
+  uint _successful_cm_cycles_in_a_row;
+
 public:
 
   ShenandoahHeuristics();
@@ -54,6 +57,20 @@ public:
   }
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const=0;
+
+  virtual bool handover_cancelled_marking() {
+    return _cancelled_cm_cycles_in_a_row <= ShenandoahFullGCThreshold;
+  }
+
+  virtual void record_cm_cancelled() {
+    _cancelled_cm_cycles_in_a_row++;
+    _successful_cm_cycles_in_a_row = 0;
+  }
+
+  virtual void record_cm_success() {
+    _cancelled_cm_cycles_in_a_row = 0;
+    _successful_cm_cycles_in_a_row++;
+  }
 
   virtual void start_choose_collection_set() {
   }
@@ -88,7 +105,9 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   _bytes_allocated_since_CM(0),
   _bytes_reclaimed_this_cycle(0),
   _bytes_allocated_start_CM(0),
-  _bytes_allocated_during_CM(0)
+  _bytes_allocated_during_CM(0),
+  _cancelled_cm_cycles_in_a_row(0),
+  _successful_cm_cycles_in_a_row(0)
 {
 }
 
@@ -328,68 +347,55 @@ public:
 
 class AdaptiveHeuristics : public ShenandoahHeuristics {
 private:
-  size_t _max_live_data;
-  double _used_threshold_factor;
-  double _garbage_threshold_factor;
-  double _allocation_threshold_factor;
-
-  uintx _used_threshold;
-  uintx _garbage_threshold;
-  uintx _allocation_threshold;
-
-  size_t _garbage;
+  uintx _free_threshold;
 public:
-  AdaptiveHeuristics() : ShenandoahHeuristics() {
-    _max_live_data = 0;
-
-    _used_threshold = 0;
-    _garbage_threshold = 0;
-    _allocation_threshold = 0;
-
-    _used_threshold_factor = 0.;
-    _garbage_threshold_factor = 0.1;
-    _allocation_threshold_factor = 0.;
+  AdaptiveHeuristics() :
+    ShenandoahHeuristics(),
+    _free_threshold(ShenandoahInitFreeThreshold) {
   }
 
   virtual ~AdaptiveHeuristics() {}
 
-  virtual void start_choose_collection_set() {
-    _garbage = 0;
+  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
+    size_t threshold = ShenandoahHeapRegion::RegionSizeBytes * ShenandoahGarbageThreshold / 100;
+    return r->garbage() > threshold;
   }
 
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    size_t bytes_alloc = ShenandoahHeap::heap()->bytes_allocated_since_cm();
-    size_t min_garbage =  bytes_alloc/* * 1.1*/;
-    size_t threshold = ShenandoahHeapRegion::RegionSizeBytes * ShenandoahGarbageThreshold / 100;
-    if (_garbage + immediate_garbage < min_garbage && r->garbage() > threshold) {
-      _garbage += r->garbage();
-      return true;
-    } else {
-      return false;
+  virtual void record_cm_cancelled() {
+    ShenandoahHeuristics::record_cm_cancelled();
+    if (_free_threshold < ShenandoahMaxFreeThreshold) {
+      _free_threshold++;
+      log_debug(gc,ergo)("increasing free threshold to: "UINTX_FORMAT, _free_threshold);
+    }
+  }
+
+  virtual void record_cm_success() {
+    ShenandoahHeuristics::record_cm_success();
+    if (_successful_cm_cycles_in_a_row > ShenandoahHappyCyclesThreshold &&
+        _free_threshold > ShenandoahMinFreeThreshold) {
+      _free_threshold--;
+      log_debug(gc,ergo)("reducing free threshold to: "UINTX_FORMAT, _free_threshold);
+      _successful_cm_cycles_in_a_row = 0;
     }
   }
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
-
-    ShenandoahHeap* _heap = ShenandoahHeap::heap();
     bool shouldStartConcurrentMark = false;
-    OrderAccess::release();
 
-    size_t max_live_data = _max_live_data;
-    if (max_live_data == 0) {
-      max_live_data = capacity * 0.2; // Very generous initial value.
-    } else {
-      max_live_data *= 1.3; // Add some wiggle room.
-    }
-    size_t max_cycle_allocated = _heap->max_allocated_gc();
-    if (max_cycle_allocated == 0) {
-      max_cycle_allocated = capacity * 0.3; // Very generous.
-    } else {
-      max_cycle_allocated *= 1.3; // Add 20% wiggle room. Should be enough.
-    }
-    size_t threshold = _heap->capacity() - max_cycle_allocated - max_live_data;
-    if (used > threshold)
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    size_t free_capacity = heap->free_regions()->capacity();
+    size_t free_used = heap->free_regions()->used();
+    assert(free_used <= free_capacity, "must use less than capacity");
+    size_t available =  free_capacity - free_used;
+    uintx factor = _free_threshold;
+    size_t targetStartMarking = (capacity * factor) / 100;
+
+    size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
+    if (available < targetStartMarking &&
+        heap->bytes_allocated_since_cm() > threshold_bytes_allocated)
     {
+      // Need to check that an appropriate number of regions have
+      // been allocated since last concurrent mark too.
       shouldStartConcurrentMark = true;
     }
 
@@ -417,7 +423,7 @@ public:
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    if (_garbage + immediate_garbage < _min_garbage) {
+    if (_garbage + immediate_garbage < _min_garbage && ! r->is_empty()) {
       _garbage += r->garbage();
       return true;
     } else {
@@ -446,7 +452,7 @@ public:
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
     size_t min_ratio = 100 - ShenandoahGarbageThreshold;
-    if (_live * 100 / MAX2(_garbage + immediate_garbage, 1UL) < min_ratio) {
+    if (_live * 100 / MAX2(_garbage + immediate_garbage, 1UL) < min_ratio && ! r->is_empty()) {
       _garbage += r->garbage();
       _live += r->get_live_data();
       return true;
@@ -456,7 +462,11 @@ public:
   }
 };
 
-ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() : _cycle_counter(0) {
+ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
+  _cycle_counter(0),
+  _successful_cm(0),
+  _degenerated_cm(0)
+{
 
   ShenandoahHeapRegion::setup_heap_region_size(initial_heap_byte_size(), max_heap_byte_size());
 
@@ -630,6 +640,23 @@ bool ShenandoahCollectorPolicy::should_start_concurrent_mark(size_t used,
   return _heuristics->should_start_concurrent_mark(used, capacity);
 }
 
+bool ShenandoahCollectorPolicy::handover_cancelled_marking() {
+  return _heuristics->handover_cancelled_marking();
+}
+
+void ShenandoahCollectorPolicy::record_cm_success() {
+  _heuristics->record_cm_success();
+  _successful_cm++;
+}
+
+void ShenandoahCollectorPolicy::record_cm_degenerated() {
+  _degenerated_cm++;
+}
+
+void ShenandoahCollectorPolicy::record_cm_cancelled() {
+  _heuristics->record_cm_cancelled();
+}
+
 void ShenandoahCollectorPolicy::choose_collection_set(ShenandoahCollectionSet* collection_set) {
   _heuristics->choose_collection_set(collection_set);
 }
@@ -655,6 +682,8 @@ void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
   }
   out->print_cr("User requested GCs: "SIZE_FORMAT, _user_requested_gcs);
   out->print_cr("Allocation failure GCs: "SIZE_FORMAT, _allocation_failure_gcs);
+  out->print_cr("Successful concurrent markings: "SIZE_FORMAT, _successful_cm);
+  out->print_cr("Degenerated concurrent markings: "SIZE_FORMAT, _degenerated_cm);
 
   out->print_cr(" ");
   double total_sum = _timing_data[init_mark_gross]._ms.sum() +

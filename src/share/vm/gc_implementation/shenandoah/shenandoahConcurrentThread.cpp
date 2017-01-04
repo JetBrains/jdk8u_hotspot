@@ -69,6 +69,10 @@ void ShenandoahConcurrentThread::run() {
       service_fullgc_cycle();
     } else if (heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity())) {
       service_normal_cycle();
+      if (heap->is_evacuation_in_progress()) {
+        MutexLocker mu(Threads_lock);
+        heap->set_evacuation_in_progress(false);
+      }
     } else {
       Thread::current()->_ParkEvent->park(10);
     }
@@ -118,7 +122,22 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
   }
 
-  if (check_cancellation()) return;
+  // Possibly hand over remaining marking work to final-mark phase.
+  bool clear_full_gc = false;
+  if (heap->cancelled_concgc()) {
+    heap->shenandoahPolicy()->record_cm_cancelled();
+    if (_full_gc_cause == GCCause::_allocation_failure &&
+        heap->shenandoahPolicy()->handover_cancelled_marking()) {
+      heap->set_cancelled_concgc(false);
+      clear_full_gc = true;
+      heap->shenandoahPolicy()->record_cm_degenerated();
+    } else {
+      heap->gc_timer()->register_gc_end();
+      return;
+    }
+  } else {
+    heap->shenandoahPolicy()->record_cm_success();
+  }
 
   // Proceed to complete marking under STW, and start evacuation:
   {
@@ -131,6 +150,11 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   if (check_cancellation()) return;
 
+  // If we handed off remaining marking work above, we need to kick off waiting Java threads
+  if (clear_full_gc) {
+    reset_full_gc();
+  }
+
   // Continue concurrent evacuation:
   {
     // GCTraceTime time("Concurrent evacuation ", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
@@ -139,11 +163,6 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   }
 
   // Prepare for the next normal cycle:
-  if (heap->is_evacuation_in_progress()) {
-    MutexLocker mu(Threads_lock);
-    heap->set_evacuation_in_progress(false);
-  }
-
   if (check_cancellation()) return;
 
   heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
@@ -200,9 +219,6 @@ void ShenandoahConcurrentThread::service_fullgc_cycle() {
   }
 
   reset_full_gc();
-
-  MonitorLockerEx ml(&_full_gc_lock);
-  ml.notify_all();
 }
 
 void ShenandoahConcurrentThread::do_full_gc(GCCause::Cause cause) {
@@ -230,6 +246,8 @@ void ShenandoahConcurrentThread::do_full_gc(GCCause::Cause cause) {
 
 void ShenandoahConcurrentThread::reset_full_gc() {
   OrderAccess::release_store_fence(&_do_full_gc, 0);
+  MonitorLockerEx ml(&_full_gc_lock);
+  ml.notify_all();
 }
 
 bool ShenandoahConcurrentThread::try_set_full_gc() {

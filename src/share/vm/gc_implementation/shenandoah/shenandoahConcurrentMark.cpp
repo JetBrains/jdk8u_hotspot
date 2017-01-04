@@ -386,7 +386,7 @@ void ShenandoahConcurrentMark::mark_from_roots() {
     sh->conc_workers()->run_task(&markingTask, nworkers);
   }
 
-  assert(task_queues()->is_empty(), "Should be empty");
+  assert(task_queues()->is_empty() || sh->cancelled_concgc(), "Should be empty when not cancelled");
   if (! sh->cancelled_concgc()) {
     TASKQUEUE_STATS_ONLY(print_taskqueue_stats());
   }
@@ -897,14 +897,8 @@ void ShenandoahConcurrentMark::concurrent_mark_loop(ShenandoahMarkObjsClosure<T,
 
   while (true) {
     if (heap->cancelled_concgc()) {
-      clear_queue(q);
-
-      // Clear other queues for termination
-      while ((q = queues->claim_next()) != NULL) {
-        clear_queue(q);
-      }
-
-      while (! terminator->offer_termination());
+      ShenandoahCancelledTerminatorTerminator tt;
+      while (! terminator->offer_termination(&tt));
       return;
     }
 
