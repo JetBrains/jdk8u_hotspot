@@ -290,6 +290,9 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
     if (ShenandoahMinRegionSize < MIN_REGION_SIZE) {
       vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize option");
     }
+    if (ShenandoahMinRegionSize < MinTLABSize) {
+      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize option");
+    }
     if (ShenandoahMaxRegionSize < MIN_REGION_SIZE) {
       vm_exit_during_initialization("Invalid -XX:ShenandoahMaxRegionSize option");
     }
