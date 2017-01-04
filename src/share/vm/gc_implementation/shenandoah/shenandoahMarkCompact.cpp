@@ -98,11 +98,29 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   IsGCActiveMark is_active;
 
   assert(Thread::current()->is_VM_thread(), "Do full GC only while world is stopped");
-  assert(_heap->is_next_bitmap_clear(), "require cleared bitmap");
-  assert(!_heap->concurrent_mark_in_progress(), "can't do full-GC while marking is in progress");
-  assert(!_heap->is_evacuation_in_progress(), "can't do full-GC while evacuation is in progress");
 
   policy->record_phase_start(ShenandoahCollectorPolicy::full_gc);
+
+  policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_prepare);
+
+  // Full GC is supposed to recover from any GC state:
+
+  // a. Cancel concurrent mark, if in progress
+  if (_heap->concurrent_mark_in_progress()) {
+    _heap->concurrentMark()->cancel();
+    _heap->stop_concurrent_marking();
+  }
+  assert(!_heap->concurrent_mark_in_progress(), "sanity");
+
+  // b. Cancel evacuation, if in progress
+  if (_heap->is_evacuation_in_progress()) {
+    _heap->set_evacuation_in_progress(false);
+  }
+  assert(!_heap->is_evacuation_in_progress(), "sanity");
+
+  // c. Reset the bitmaps for new marking
+  _heap->reset_next_mark_bitmap(_heap->workers());
+  assert(_heap->is_next_bitmap_clear(), "sanity");
 
   ClearInCollectionSetHeapRegionClosure cl;
   _heap->heap_region_iterate(&cl, false, false);
@@ -119,6 +137,8 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   BarrierSet* old_bs = oopDesc::bs();
   ShenandoahMarkCompactBarrierSet bs(_heap);
   oopDesc::set_bs(&bs);
+
+  policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_prepare);
 
   {
     GCTraceTime time("Pause Full", ShenandoahLogInfo, true, _gc_timer, _heap->tracer()->gc_id());

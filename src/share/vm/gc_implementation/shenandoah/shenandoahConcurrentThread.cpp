@@ -61,75 +61,13 @@ void ShenandoahConcurrentThread::run() {
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  GCTimer* gc_timer = heap->gc_timer();
-  GCTracer* gc_tracer = heap->shenandoahPolicy()->tracer();
   while (! _should_terminate) {
     if (_do_full_gc) {
-      {
-        if (_full_gc_cause == GCCause::_allocation_failure) {
-          heap->shenandoahPolicy()->record_allocation_failure_gc();
-        } else {
-          heap->shenandoahPolicy()->record_user_requested_gc();
-        }
-
-        TraceCollectorStats tcs(heap->monitoring_support()->full_collection_counters());
-        TraceMemoryManagerStats tmms(true, _full_gc_cause);
-        VM_ShenandoahFullGC full_gc(_full_gc_cause);
-        VMThread::execute(&full_gc);
-      }
-      MonitorLockerEx ml(&_full_gc_lock);
-      _do_full_gc = false;
-      ml.notify_all();
-    } else if (heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(),
-                                                               heap->capacity()))
-      {
-
-        gc_timer->register_gc_start();
-
-        heap->shenandoahPolicy()->increase_cycle_counter();
-
-        TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
-        TraceMemoryManagerStats tmms(false, GCCause::_no_cause_specified);
-
-        {
-          TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-          VM_ShenandoahInitMark initMark;
-          heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark_gross);
-          VMThread::execute(&initMark);
-          heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark_gross);
-        }
-        {
-          // GCTraceTime time("Concurrent marking", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
-          TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
-          ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
-        }
-
-        {
-          TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-          VM_ShenandoahStartEvacuation finishMark;
-          heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark_gross);
-          VMThread::execute(&finishMark);
-          heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark_gross);
-        }
-
-        if (! _should_terminate) {
-          // GCTraceTime time("Concurrent evacuation ", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
-          TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
-          heap->do_evacuation();
-        }
-
-        if (heap->is_evacuation_in_progress()) {
-          MutexLocker mu(Threads_lock);
-          heap->set_evacuation_in_progress(false);
-        }
-        heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
-        heap->reset_next_mark_bitmap(heap->conc_workers());
-        heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
-
-        gc_timer->register_gc_end();
-      } else {
-      Thread::current()->_ParkEvent->park(10) ;
-      // yield();
+      service_fullgc_cycle();
+    } else if (heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity())) {
+      service_normal_cycle();
+    } else {
+      Thread::current()->_ParkEvent->park(10);
     }
 
     // Make sure the _do_full_gc flag changes are seen.
@@ -137,6 +75,83 @@ void ShenandoahConcurrentThread::run() {
   }
   terminate();
 }
+
+void ShenandoahConcurrentThread::service_normal_cycle() {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  GCTimer* gc_timer = heap->gc_timer();
+  GCTracer* gc_tracer = heap->tracer();
+
+  gc_timer->register_gc_start();
+
+  heap->shenandoahPolicy()->increase_cycle_counter();
+
+  TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
+  TraceMemoryManagerStats tmms(false, GCCause::_no_cause_specified);
+
+  // Start initial mark under STW:
+  {
+    TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
+    VM_ShenandoahInitMark initMark;
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark_gross);
+    VMThread::execute(&initMark);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark_gross);
+  }
+
+  if (check_cancellation()) return;
+
+  // Continue concurrent mark:
+  {
+    // GCTraceTime time("Concurrent marking", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
+    TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
+    ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
+  }
+
+  if (check_cancellation()) return;
+
+  // Proceed to complete marking under STW, and start evacuation:
+  {
+    TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
+    VM_ShenandoahStartEvacuation finishMark;
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark_gross);
+    VMThread::execute(&finishMark);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark_gross);
+  }
+
+  if (check_cancellation()) return;
+
+  // Continue concurrent evacuation:
+  {
+    // GCTraceTime time("Concurrent evacuation ", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
+    TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
+    heap->do_evacuation();
+  }
+
+  if (check_cancellation()) return;
+
+  // Prepare for the next normal cycle:
+  if (heap->is_evacuation_in_progress()) {
+    MutexLocker mu(Threads_lock);
+    heap->set_evacuation_in_progress(false);
+  }
+
+  heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
+  heap->reset_next_mark_bitmap(heap->conc_workers());
+  heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
+
+  gc_timer->register_gc_end();
+}
+
+bool ShenandoahConcurrentThread::check_cancellation() {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  if (heap->cancelled_concgc() || _should_terminate) {
+    assert (_do_full_gc || _should_terminate, "Either exiting, or impending Full GC");
+    heap->gc_timer()->register_gc_end();
+    return true;
+  }
+  return false;
+}
+
 
 void ShenandoahConcurrentThread::stop() {
   {
@@ -155,6 +170,26 @@ void ShenandoahConcurrentThread::stop() {
       Terminator_lock->wait();
     }
   }
+}
+
+void ShenandoahConcurrentThread::service_fullgc_cycle() {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  {
+    if (_full_gc_cause == GCCause::_allocation_failure) {
+      heap->shenandoahPolicy()->record_allocation_failure_gc();
+    } else {
+      heap->shenandoahPolicy()->record_user_requested_gc();
+    }
+
+    TraceCollectorStats tcs(heap->monitoring_support()->full_collection_counters());
+    TraceMemoryManagerStats tmms(true, _full_gc_cause);
+    VM_ShenandoahFullGC full_gc(_full_gc_cause);
+    VMThread::execute(&full_gc);
+  }
+  MonitorLockerEx ml(&_full_gc_lock);
+  _do_full_gc = false;
+  ml.notify_all();
 }
 
 void ShenandoahConcurrentThread::do_full_gc(GCCause::Cause cause) {

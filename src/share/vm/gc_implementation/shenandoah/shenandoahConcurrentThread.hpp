@@ -50,7 +50,11 @@ private:
 
   void sleepBeforeNextCycle();
 
- public:
+  bool check_cancellation();
+  void service_normal_cycle();
+  void service_fullgc_cycle();
+
+public:
   // Constructor
   ShenandoahConcurrentThread();
   ~ShenandoahConcurrentThread();

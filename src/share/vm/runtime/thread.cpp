@@ -1976,7 +1976,7 @@ void JavaThread::set_evacuation_in_progress(bool in_prog) {
 }
 
 void JavaThread::set_evacuation_in_progress_all_threads(bool in_prog) {
-  assert(Threads_lock->owned_by_self(), "must hold Threads_lock");
+  assert_locked_or_safepoint(Threads_lock);
   _evacuation_in_progress_global = in_prog;
   for (JavaThread* t = Threads::first(); t != NULL; t = t->next()) {
     t->set_evacuation_in_progress(in_prog);

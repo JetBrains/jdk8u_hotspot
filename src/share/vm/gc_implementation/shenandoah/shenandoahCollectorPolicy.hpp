@@ -101,6 +101,7 @@ public:
     reset_bitmaps,
 
     full_gc,
+    full_gc_prepare,
     full_gc_mark,
     full_gc_mark_drain_queues,
     full_gc_mark_weakrefs,
