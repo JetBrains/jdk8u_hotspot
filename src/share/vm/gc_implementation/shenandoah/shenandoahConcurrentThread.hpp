@@ -46,6 +46,7 @@ public:
 
 private:
   bool _do_full_gc;
+  volatile jbyte _graceful_shutdown;
   GCCause::Cause _full_gc_cause;
 
   void sleepBeforeNextCycle();
@@ -72,10 +73,9 @@ public:
 
   char* name() const { return (char*)"ShenandoahConcurrentThread";}
   void start();
-  void yield();
 
-  static void safepoint_synchronize();
-  static void safepoint_desynchronize();
+  void prepare_for_graceful_shutdown();
+  bool in_graceful_shutdown();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTTHREAD_HPP

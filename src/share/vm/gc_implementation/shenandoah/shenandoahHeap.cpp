@@ -1271,64 +1271,53 @@ void ShenandoahHeap::do_evacuation() {
 }
 
 void ShenandoahHeap::parallel_evacuate() {
+  log_develop_trace(gc)("starting parallel_evacuate");
 
-  if (! cancelled_concgc()) {
+  _shenandoah_policy->record_phase_start(ShenandoahCollectorPolicy::conc_evac);
 
-    log_develop_trace(gc)("starting parallel_evacuate");
-
-    _shenandoah_policy->record_phase_start(ShenandoahCollectorPolicy::conc_evac);
-
-    if (ShenandoahLogTrace) {
-      ResourceMark rm;
-      outputStream* out = gclog_or_tty;
-      out->print("Printing all available regions");
-      print_heap_regions(out);
-    }
-
-    if (ShenandoahLogTrace) {
-      ResourceMark rm;
-      outputStream* out = gclog_or_tty;
-      out->print("Printing collection set which contains "SIZE_FORMAT" regions:\n", _collection_set->count());
-      _collection_set->print(out);
-
-      out->print("Printing free set which contains "SIZE_FORMAT" regions:\n", _free_regions->count());
-      _free_regions->print(out);
-    }
-
-    ParallelEvacuationTask evacuationTask = ParallelEvacuationTask(this, _collection_set);
-
-    conc_workers()->run_task(&evacuationTask);
-
-    if (ShenandoahLogTrace) {
-      ResourceMark rm;
-      outputStream* out = gclog_or_tty;
-      out->print("Printing postgc collection set which contains "SIZE_FORMAT" regions:\n",
-                 _collection_set->count());
-
-      _collection_set->print(out);
-
-      out->print("Printing postgc free regions which contain "SIZE_FORMAT" free regions:\n",
-                 _free_regions->count());
-      _free_regions->print(out);
-
-    }
-
-    if (ShenandoahLogTrace) {
-      ResourceMark rm;
-      outputStream* out = gclog_or_tty;
-      out->print_cr("all regions after evacuation:");
-      print_heap_regions(out);
-    }
-
-    _shenandoah_policy->record_phase_end(ShenandoahCollectorPolicy::conc_evac);
-
-    if (cancelled_concgc()) {
-      // tty->print("GOTCHA: by thread %d", Thread::current()->osthread()->thread_id());
-      concurrent_thread()->schedule_full_gc();
-      // tty->print("PostGotcha: by thread %d FullGC should be scheduled\n",
-      //            Thread::current()->osthread()->thread_id());
-    }
+  if (ShenandoahLogTrace) {
+    ResourceMark rm;
+    outputStream* out = gclog_or_tty;
+    out->print("Printing all available regions");
+    print_heap_regions(out);
   }
+
+  if (ShenandoahLogTrace) {
+    ResourceMark rm;
+    outputStream* out = gclog_or_tty;
+    out->print("Printing collection set which contains "SIZE_FORMAT" regions:\n", _collection_set->count());
+    _collection_set->print(out);
+
+    out->print("Printing free set which contains "SIZE_FORMAT" regions:\n", _free_regions->count());
+    _free_regions->print(out);
+  }
+
+  ParallelEvacuationTask evacuationTask = ParallelEvacuationTask(this, _collection_set);
+
+  conc_workers()->run_task(&evacuationTask);
+
+  if (ShenandoahLogTrace) {
+    ResourceMark rm;
+    outputStream* out = gclog_or_tty;
+    out->print("Printing postgc collection set which contains "SIZE_FORMAT" regions:\n",
+	       _collection_set->count());
+
+    _collection_set->print(out);
+
+    out->print("Printing postgc free regions which contain "SIZE_FORMAT" free regions:\n",
+	       _free_regions->count());
+    _free_regions->print(out);
+
+  }
+
+  if (ShenandoahLogTrace) {
+    ResourceMark rm;
+    outputStream* out = gclog_or_tty;
+    out->print_cr("all regions after evacuation:");
+    print_heap_regions(out);
+  }
+
+  _shenandoah_policy->record_phase_end(ShenandoahCollectorPolicy::conc_evac);
 }
 
 class VerifyEvacuationClosure: public ExtendedOopClosure {
@@ -1463,14 +1452,11 @@ void ShenandoahHeap::collect(GCCause::Cause cause) {
   assert(cause != GCCause::_gc_locker, "no JNI critical callback");
   if (GCCause::is_user_requested_gc(cause)) {
     if (! DisableExplicitGC) {
-      cancel_concgc(cause);
       _concurrent_gc_thread->do_full_gc(cause);
     }
   } else if (cause == GCCause::_allocation_failure) {
-    cancel_concgc(cause);
     collector_policy()->set_should_clear_all_soft_refs(true);
-      _concurrent_gc_thread->do_full_gc(cause);
-
+    _concurrent_gc_thread->do_full_gc(cause);
   }
 }
 
@@ -2068,11 +2054,18 @@ uint ShenandoahHeap::max_conc_workers() {
 }
 
 void ShenandoahHeap::stop() {
-  // We set this early here, to let GC threads terminate before we ask the concurrent thread
-  // to terminate, which would otherwise block until all GC threads come to finish normally.
-  set_cancelled_concgc(true);
-  _concurrent_gc_thread->stop();
+  // The shutdown sequence should be able to terminate when GC is running.
+
+  // Step 1. Notify control thread that we are in shutdown.
+  // Note that we cannot do that with stop(), because stop() is blocking and waits for the actual shutdown.
+  // Doing stop() here would wait for the normal GC cycle to complete, never falling through to cancel below.
+  _concurrent_gc_thread->prepare_for_graceful_shutdown();
+
+  // Step 2. Notify GC workers that we are cancelling GC.
   cancel_concgc(_vm_stop);
+
+  // Step 3. Wait until GC worker exits normally.
+  _concurrent_gc_thread->stop();
 }
 
 void ShenandoahHeap::unlink_string_and_symbol_table(BoolObjectClosure* is_alive, bool process_strings, bool process_symbols) {

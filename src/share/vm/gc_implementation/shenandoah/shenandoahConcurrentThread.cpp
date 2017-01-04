@@ -37,7 +37,8 @@ SurrogateLockerThread* ShenandoahConcurrentThread::_slt = NULL;
 ShenandoahConcurrentThread::ShenandoahConcurrentThread() :
   ConcurrentGCThread(),
   _full_gc_lock(Mutex::leaf, "ShenandoahFullGC_lock", true),
-  _do_full_gc(false)
+  _do_full_gc(false),
+  _graceful_shutdown(0)
 {
   create_and_start();
 }
@@ -62,7 +63,9 @@ void ShenandoahConcurrentThread::run() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
   while (! _should_terminate) {
-    if (_do_full_gc) {
+    if (in_graceful_shutdown()) {
+      break;
+    } else if (_do_full_gc) {
       service_fullgc_cycle();
     } else if (heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity())) {
       service_normal_cycle();
@@ -73,10 +76,17 @@ void ShenandoahConcurrentThread::run() {
     // Make sure the _do_full_gc flag changes are seen.
     OrderAccess::storeload();
   }
+
+  // Wait for the actual stop(), can't leave run_service() earlier.
+  while (! _should_terminate) {
+    Thread::current()->_ParkEvent->park(10);
+  }
   terminate();
 }
 
 void ShenandoahConcurrentThread::service_normal_cycle() {
+  if (check_cancellation()) return;
+
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
   GCTimer* gc_timer = heap->gc_timer();
@@ -144,8 +154,8 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
 bool ShenandoahConcurrentThread::check_cancellation() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  if (heap->cancelled_concgc() || _should_terminate) {
-    assert (_do_full_gc || _should_terminate, "Either exiting, or impending Full GC");
+  if (heap->cancelled_concgc()) {
+    assert (_do_full_gc || in_graceful_shutdown(), "Cancel GC either for Full GC, or gracefully exiting");
     heap->gc_timer()->register_gc_end();
     return true;
   }
@@ -199,6 +209,10 @@ void ShenandoahConcurrentThread::do_full_gc(GCCause::Cause cause) {
   MonitorLockerEx ml(&_full_gc_lock);
   schedule_full_gc();
   _full_gc_cause = cause;
+
+  // Now that full GC is scheduled, we can abort everything else
+  ShenandoahHeap::heap()->cancel_concgc(cause);
+
   while (_do_full_gc) {
     ml.wait();
     OrderAccess::storeload();
@@ -233,4 +247,12 @@ void ShenandoahConcurrentThread::makeSurrogateLockerThread(TRAPS) {
   assert(THREAD->is_Java_thread(), "must be a Java thread");
   assert(_slt == NULL, "SLT already created");
   _slt = SurrogateLockerThread::make(THREAD);
+}
+
+void ShenandoahConcurrentThread::prepare_for_graceful_shutdown() {
+  OrderAccess::release_store_fence(&_graceful_shutdown, 1);
+}
+
+bool ShenandoahConcurrentThread::in_graceful_shutdown() {
+  return OrderAccess::load_acquire(&_graceful_shutdown) == 1;
 }

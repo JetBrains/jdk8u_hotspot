@@ -366,6 +366,9 @@ public:
 
   void swap_mark_bitmaps();
 
+  void cancel_concgc(GCCause::Cause cause);
+  void cancel_concgc(ShenandoahCancelCause cause);
+
 private:
   HeapWord* allocate_new_tlab(size_t word_size, bool mark);
   HeapWord* allocate_memory(size_t word_size, bool evacuating);
@@ -417,8 +420,6 @@ private:
   void set_concurrent_mark_in_progress(bool in_progress);
 
   void oom_during_evacuation();
-  void cancel_concgc(GCCause::Cause cause);
-  void cancel_concgc(ShenandoahCancelCause cause);
   inline void set_cancelled_concgc(bool v);
 
   void verify_live();
