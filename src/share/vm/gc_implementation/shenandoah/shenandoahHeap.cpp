@@ -581,8 +581,10 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
   ShenandoahHeapLock heap_lock(this);
 
   HeapWord* result = allocate_memory_under_lock(word_size);
-  while (result == NULL && _num_regions < _max_regions) {
-    grow_heap_by(1);
+  int grow_by = (word_size * HeapWordSize + ShenandoahHeapRegion::RegionSizeBytes - 1) / ShenandoahHeapRegion::RegionSizeBytes;
+
+  while (result == NULL && _num_regions + grow_by <= _max_regions) {
+    grow_heap_by(grow_by);
     result = allocate_memory_under_lock(word_size);
   }
 
@@ -1948,7 +1950,6 @@ uint ShenandoahHeap::oop_extra_words() {
 void ShenandoahHeap::grow_heap_by(size_t num_regions) {
   size_t base = _num_regions;
   ensure_new_regions(num_regions);
-
   for (size_t i = 0; i < num_regions; i++) {
     ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion();
     size_t new_region_index = i + base;
