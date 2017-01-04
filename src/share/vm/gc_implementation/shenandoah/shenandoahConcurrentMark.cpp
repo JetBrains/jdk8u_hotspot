@@ -893,8 +893,15 @@ void ShenandoahConcurrentMark::concurrent_mark_loop(ShenandoahMarkObjsClosure<T,
   int seed = 17;
   uint stride = ShenandoahMarkLoopStride;
   SCMObjToScanQueueSet* queues = task_queues();
-  bool                  done_queues = false;
 
+  // Drain outstanding queues first
+  if (!concurrent_process_queues(heap, q, cl)) {
+    ShenandoahCancelledTerminatorTerminator tt;
+    while (! terminator->offer_termination(&tt));
+    return;
+  }
+
+  // Normal loop
   while (true) {
     if (heap->cancelled_concgc()) {
       ShenandoahCancelledTerminatorTerminator tt;
@@ -902,18 +909,13 @@ void ShenandoahConcurrentMark::concurrent_mark_loop(ShenandoahMarkObjsClosure<T,
       return;
     }
 
-    if (!done_queues) {
-      done_queues = true;
-      if (!concurrent_process_queues(heap, q, cl)) {
-        // concurrent GC cancelled
-        continue;
-      }
-    }
-
+    ObjArrayFromToTask t;
     for (uint i = 0; i < stride; i++) {
-      if (!try_queue(q, cl) &&
-          !try_draining_an_satb_buffer(q) &&
-          !try_to_steal(worker_id, cl, &seed)) {
+      if (try_queue(q, t) ||
+          try_draining_satb_buffer(q, t) ||
+          queues->steal(worker_id, &seed, t)) {
+        cl->do_object_or_array(t.obj(), t.from(), t.to());
+      } else {
         if (terminator->offer_termination()) return;
       }
     }
@@ -928,8 +930,11 @@ bool ShenandoahConcurrentMark::concurrent_process_queues(ShenandoahHeap* heap,
   while (true) {
     if (heap->cancelled_concgc()) return false;
 
+    ObjArrayFromToTask t;
     for (uint i = 0; i < stride; i++) {
-      if (!try_queue(q, cl)) {
+      if (try_queue(q, t)) {
+        cl->do_object_or_array(t.obj(), t.from(), t.to());
+      } else {
         assert(q->is_empty(), "Must be empty");
         q = queues->claim_next();
         if (q == NULL) {
@@ -947,10 +952,15 @@ void ShenandoahConcurrentMark::final_mark_loop(ShenandoahMarkObjsClosure<T, CL>*
                                                SCMObjToScanQueue* q,
                                                ParallelTaskTerminator* terminator) {
   int seed = 17;
+  SCMObjToScanQueueSet* queues = task_queues();
+
+  ObjArrayFromToTask t;
   while (true) {
-    if (!try_queue(q, cl) &&
-        !try_to_steal(worker_id, cl, &seed)) {
-      if (terminator->offer_termination()) break;
+    if (try_queue(q, t) ||
+        queues->steal(worker_id, &seed, t)) {
+      cl->do_object_or_array(t.obj(), t.from(), t.to());
+    } else {
+      if (terminator->offer_termination()) return;
     }
   }
 }

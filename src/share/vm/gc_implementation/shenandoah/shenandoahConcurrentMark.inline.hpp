@@ -106,28 +106,10 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_array(objArrayOop array, int fr
   array->oop_iterate_range(&_mark_refs, from, to);
 }
 
-template <class T, bool CL>
-inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T, CL>* cl) {
-  ObjArrayFromToTask task;
-  if (q->pop_buffer(task) ||
+inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, ObjArrayFromToTask &task) {
+  return (q->pop_buffer(task) ||
           q->pop_local(task) ||
-          q->pop_overflow(task)) {
-    assert(task.obj() != NULL, "Can't mark null");
-    cl->do_object_or_array(task.obj(), task.from(), task.to());
-    return true;
-  } else {
-    return false;
-  }
-}
-
-template <class T, bool CL>
-inline bool ShenandoahConcurrentMark::try_to_steal(uint worker_id, ShenandoahMarkObjsClosure<T, CL>* cl, int *seed) {
-  ObjArrayFromToTask task;
-  if (task_queues()->steal(worker_id, seed, task)) {
-    cl->do_object_or_array(task.obj(), task.from(), task.to());
-    return true;
-  } else
-    return false;
+          q->pop_overflow(task));
 }
 
 class ShenandoahSATBBufferClosure : public SATBBufferClosure {
@@ -152,10 +134,11 @@ public:
   }
 };
 
-inline bool ShenandoahConcurrentMark:: try_draining_an_satb_buffer(SCMObjToScanQueue* q) {
+inline bool ShenandoahConcurrentMark:: try_draining_satb_buffer(SCMObjToScanQueue *q, ObjArrayFromToTask &task) {
   ShenandoahSATBBufferClosure cl(q);
   SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
-  return satb_mq_set.apply_closure_to_completed_buffer(&cl);
+  bool had_refs = satb_mq_set.apply_closure_to_completed_buffer(&cl);
+  return had_refs && try_queue(q, task);
 }
 
 inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q) {

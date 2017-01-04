@@ -23,6 +23,7 @@
 
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shared/gcTraceTime.hpp"
+#include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"

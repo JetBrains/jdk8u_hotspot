@@ -106,16 +106,12 @@ public:
   template <class T, bool CL>
   void final_mark_loop(ShenandoahMarkObjsClosure<T, CL>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
 
-  template <class T, bool CL>
-  inline bool try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T, CL>* cl);
-
-  template <class T, bool CL>
-  inline bool try_to_steal(uint worker_id, ShenandoahMarkObjsClosure<T, CL>* cl, int *seed);
+  inline bool try_queue(SCMObjToScanQueue* q, ObjArrayFromToTask &task);
 
   SCMObjToScanQueue* get_queue(uint worker_id);
   void clear_queue(SCMObjToScanQueue *q);
 
-  inline bool try_draining_an_satb_buffer(SCMObjToScanQueue* q);
+  inline bool try_draining_satb_buffer(SCMObjToScanQueue *q, ObjArrayFromToTask &task);
   void drain_satb_buffers(uint worker_id, bool remark = false);
   SCMObjToScanQueueSet* task_queues() { return _task_queues;}
 
