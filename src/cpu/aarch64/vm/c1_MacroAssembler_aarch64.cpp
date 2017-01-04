@@ -133,7 +133,6 @@ void C1_MacroAssembler::unlock_object(Register hdr, Register obj, Register disp_
   if (UseBiasedLocking) {
     // load object
     ldr(obj, Address(disp_hdr, BasicObjectLock::obj_offset_in_bytes()));
-
     biased_locking_exit(obj, hdr, done);
   }
 

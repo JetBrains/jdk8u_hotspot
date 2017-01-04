@@ -32,9 +32,6 @@
 #include "c1/c1_ValueStack.hpp"
 #include "ci/ciArrayKlass.hpp"
 #include "ci/ciInstance.hpp"
-#include "gc_implementation/shenandoah/brooksPointer.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "memory/barrierSet.hpp"
 #include "memory/cardTableModRefBS.hpp"
@@ -1523,9 +1520,6 @@ void LIR_Assembler::emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* 
   Label done;
   Register obj = op->in_opr()->as_register();
   Register res = op->result_opr()->as_register();
-  Register tmp1 = op->tmp1_opr()->as_register();
-  Register tmp2 = op->tmp2_opr()->as_register();
-  assert_different_registers(res, tmp1, tmp2);
 
   if (res != obj) {
     __ mov(res, obj);

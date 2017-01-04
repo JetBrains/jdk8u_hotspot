@@ -1473,14 +1473,10 @@ class LIR_OpShenandoahWriteBarrier : public LIR_Op1 {
 
 private:
   bool _need_null_check;
-  LIR_Opr _tmp1;
-  LIR_Opr _tmp2;
 
 public:
-  LIR_OpShenandoahWriteBarrier(LIR_Opr obj, LIR_Opr result, LIR_Opr tmp1, LIR_Opr tmp2, CodeEmitInfo* info, bool need_null_check) : LIR_Op1(lir_shenandoah_wb, obj, result, T_OBJECT, lir_patch_none, info), _tmp1(tmp1), _tmp2(tmp2), _need_null_check(need_null_check) {
+  LIR_OpShenandoahWriteBarrier(LIR_Opr obj, LIR_Opr result, CodeEmitInfo* info, bool need_null_check) : LIR_Op1(lir_shenandoah_wb, obj, result, T_OBJECT, lir_patch_none, info), _need_null_check(need_null_check) {
   }
-  LIR_Opr tmp1_opr() const { return _tmp1; }
-  LIR_Opr tmp2_opr() const { return _tmp2; }
   bool need_null_check() const { return _need_null_check; }
   virtual void emit_code(LIR_Assembler* masm);
   virtual LIR_OpShenandoahWriteBarrier* as_OpShenandoahWriteBarrier() { return this; }
@@ -2175,7 +2171,7 @@ class LIR_List: public CompilationResourceObj {
   void convert(Bytecodes::Code code, LIR_Opr left, LIR_Opr dst, ConversionStub* stub = NULL/*, bool is_32bit = false*/) { append(new LIR_OpConvert(code, left, dst, stub)); }
 #endif
 
-  void shenandoah_wb(LIR_Opr obj, LIR_Opr result, LIR_Opr tmp1, LIR_Opr tmp2, CodeEmitInfo* info, bool need_null_check) { append(new LIR_OpShenandoahWriteBarrier(obj, result, tmp1, tmp2, info, need_null_check)); }
+  void shenandoah_wb(LIR_Opr obj, LIR_Opr result, CodeEmitInfo* info, bool need_null_check) { append(new LIR_OpShenandoahWriteBarrier(obj, result, info, need_null_check)); }
 
   void logical_and (LIR_Opr left, LIR_Opr right, LIR_Opr dst) { append(new LIR_Op2(lir_logic_and,  left, right, dst)); }
   void logical_or  (LIR_Opr left, LIR_Opr right, LIR_Opr dst) { append(new LIR_Op2(lir_logic_or,   left, right, dst)); }

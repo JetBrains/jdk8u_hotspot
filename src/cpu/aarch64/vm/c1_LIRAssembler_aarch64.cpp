@@ -34,9 +34,6 @@
 #include "c1/c1_ValueStack.hpp"
 #include "ci/ciArrayKlass.hpp"
 #include "ci/ciInstance.hpp"
-#include "gc_implementation/shenandoah/brooksPointer.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "memory/barrierSet.hpp"
 #include "memory/cardTableModRefBS.hpp"
@@ -861,7 +858,7 @@ void LIR_Assembler::reg2mem(LIR_Opr src, LIR_Opr dest, BasicType type, LIR_Patch
       if (UseCompressedOops && !wide) {
         __ strw(compressed_src, as_Address(to_addr, rscratch2));
       } else {
-        __ str(compressed_src, as_Address(to_addr));
+         __ str(compressed_src, as_Address(to_addr));
       }
       break;
     case T_METADATA:
@@ -1688,6 +1685,7 @@ void LIR_Assembler::casl(Register addr, Register newval, Register cmpval) {
 
 // Return 1 in rscratch1 if the CAS fails.
 void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
+  assert(VM_Version::supports_cx8(), "wrong machine");
   Register addr = as_reg(op->addr());
   Register newval = as_reg(op->new_value());
   Register cmpval = as_reg(op->cmp_value());

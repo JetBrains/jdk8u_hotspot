@@ -1038,7 +1038,6 @@ void LIRGenerator::do_update_CRC32(Intrinsic* x) {
                                        LIR_Address::times_1,
                                        offset,
                                        T_BYTE);
-
       BasicTypeList signature(3);
       signature.append(T_INT);
       signature.append(T_ADDRESS);
