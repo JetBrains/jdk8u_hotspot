@@ -1624,8 +1624,64 @@ void ShenandoahHeap::object_iterate(ObjectClosure* cl) {
   heap_region_iterate(&blk, false, true);
 }
 
+class ShenandoahSafeObjectIterateAdjustPtrsClosure : public MetadataAwareOopClosure {
+private:
+  ShenandoahHeap* _heap;
+
+public:
+  ShenandoahSafeObjectIterateAdjustPtrsClosure() : _heap(ShenandoahHeap::heap()) {}
+
+private:
+  template <class T>
+  inline void do_oop_work(T* p) {
+    T o = oopDesc::load_heap_oop(p);
+    if (!oopDesc::is_null(o)) {
+      oop obj = oopDesc::decode_heap_oop_not_null(o);
+      oopDesc::encode_store_heap_oop(p, BrooksPointer::forwardee(obj));
+    }
+  }
+public:
+  void do_oop(oop* p) {
+    do_oop_work(p);
+  }
+  void do_oop(narrowOop* p) {
+    do_oop_work(p);
+  }
+};
+
+class ShenandoahSafeObjectIterateAndUpdate : public ObjectClosure {
+private:
+  ObjectClosure* _cl;
+public:
+  ShenandoahSafeObjectIterateAndUpdate(ObjectClosure *cl) : _cl(cl) {}
+
+  virtual void do_object(oop obj) {
+    assert (oopDesc::unsafe_equals(obj, BrooksPointer::forwardee(obj)),
+            "avoid double-counting: only non-forwarded objects here");
+
+    // Fix up the ptrs.
+    ShenandoahSafeObjectIterateAdjustPtrsClosure adjust_ptrs;
+    obj->oop_iterate(&adjust_ptrs);
+
+    // Can reply the object now:
+    _cl->do_object(obj);
+  }
+};
+
 void ShenandoahHeap::safe_object_iterate(ObjectClosure* cl) {
-  Unimplemented();
+  assert(SafepointSynchronize::is_at_safepoint(), "safe iteration is only available during safepoints");
+
+  // Safe iteration does objects only with correct references.
+  // This is why we skip dirty regions that have stale copies of objects,
+  // and fix up the pointers in the returned objects.
+
+  ShenandoahSafeObjectIterateAndUpdate safe_cl(cl);
+  ShenandoahIterateObjectClosureRegionClosure blk(&safe_cl);
+  heap_region_iterate(&blk,
+                      /* skip_dirty_regions = */ true,
+                      /* skip_humongous_continuations = */ true);
+
+  _need_update_refs = false; // already updated the references
 }
 
 class ShenandoahIterateOopClosureRegionClosure : public ShenandoahHeapRegionClosure {
