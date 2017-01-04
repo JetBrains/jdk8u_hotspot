@@ -1287,6 +1287,7 @@ void PhaseMacroExpand::expand_allocate_common(
     transform_later(old_eden_top);
     // Add to heap top to get a new heap top
 
+    Node* init_size_in_bytes = size_in_bytes;
     if (UseShenandoahGC) {
       // Allocate several words more for the Shenandoah brooks pointer.
       size_in_bytes = new (C) AddLNode(size_in_bytes, _igvn.MakeConX(BrooksPointer::byte_size()));
@@ -1392,7 +1393,7 @@ void PhaseMacroExpand::expand_allocate_common(
     InitializeNode* init = alloc->initialization();
     fast_oop_rawmem = initialize_object(alloc,
                                         fast_oop_ctrl, fast_oop_rawmem, fast_oop,
-                                        klass_node, length, size_in_bytes);
+                                        klass_node, length, init_size_in_bytes);
 
     // If initialization is performed by an array copy, any required
     // MemBarStoreStore was already added. If the object does not
