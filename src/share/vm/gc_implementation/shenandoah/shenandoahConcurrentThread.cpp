@@ -138,13 +138,13 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     heap->do_evacuation();
   }
 
-  if (check_cancellation()) return;
-
   // Prepare for the next normal cycle:
   if (heap->is_evacuation_in_progress()) {
     MutexLocker mu(Threads_lock);
     heap->set_evacuation_in_progress(false);
   }
+
+  if (check_cancellation()) return;
 
   heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
   heap->reset_next_mark_bitmap(heap->conc_workers());
