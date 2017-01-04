@@ -223,6 +223,7 @@ size_t ShenandoahFreeSet::par_claim_next(size_t idx) {
   size_t result = (size_t) Atomic::cmpxchg((jlong) next, (jlong*) &_current_index, (jlong) idx);
 
   if (result == idx) {
+    increase_used(get(idx)->free());
     result = next;
   }
   assert (result != _active_end, "don't increase current into active_end");
