@@ -65,7 +65,7 @@ void ShenandoahConcurrentThread::run() {
   while (! _should_terminate) {
     if (in_graceful_shutdown()) {
       break;
-    } else if (_do_full_gc) {
+    } else if (is_full_gc()) {
       service_fullgc_cycle();
     } else if (heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity())) {
       service_normal_cycle();
@@ -155,7 +155,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 bool ShenandoahConcurrentThread::check_cancellation() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->cancelled_concgc()) {
-    assert (_do_full_gc || in_graceful_shutdown(), "Cancel GC either for Full GC, or gracefully exiting");
+    assert (is_full_gc() || in_graceful_shutdown(), "Cancel GC either for Full GC, or gracefully exiting");
     heap->gc_timer()->register_gc_end();
     return true;
   }
@@ -197,31 +197,47 @@ void ShenandoahConcurrentThread::service_fullgc_cycle() {
     VM_ShenandoahFullGC full_gc(_full_gc_cause);
     VMThread::execute(&full_gc);
   }
+
+  reset_full_gc();
+
   MonitorLockerEx ml(&_full_gc_lock);
-  _do_full_gc = false;
   ml.notify_all();
 }
 
 void ShenandoahConcurrentThread::do_full_gc(GCCause::Cause cause) {
-
   assert(Thread::current()->is_Java_thread(), "expect Java thread here");
 
-  MonitorLockerEx ml(&_full_gc_lock);
-  schedule_full_gc();
-  _full_gc_cause = cause;
+  if (try_set_full_gc()) {
+    _full_gc_cause = cause;
 
-  // Now that full GC is scheduled, we can abort everything else
-  ShenandoahHeap::heap()->cancel_concgc(cause);
-
-  while (_do_full_gc) {
-    ml.wait();
-    OrderAccess::storeload();
+    // Now that full GC is scheduled, we can abort everything else
+    ShenandoahHeap::heap()->cancel_concgc(cause);
+  } else {
+    if (_full_gc_cause != cause) {
+      log_info(gc)("Full GC is already pending with cause: %s; new cause is %s",
+                   GCCause::to_string(_full_gc_cause),
+                   GCCause::to_string(cause));
+    }
   }
-  assert(!_do_full_gc, "expect full GC to have completed");
+
+  MonitorLockerEx ml(&_full_gc_lock);
+  while (is_full_gc()) {
+    ml.wait();
+  }
+  assert(!is_full_gc(), "expect full GC to have completed");
 }
 
-void ShenandoahConcurrentThread::schedule_full_gc() {
-  _do_full_gc = true;
+void ShenandoahConcurrentThread::reset_full_gc() {
+  OrderAccess::release_store_fence(&_do_full_gc, 0);
+}
+
+bool ShenandoahConcurrentThread::try_set_full_gc() {
+  jbyte old = Atomic::cmpxchg(1, &_do_full_gc, 0);
+  return old == 0; // success
+}
+
+bool ShenandoahConcurrentThread::is_full_gc() {
+  return OrderAccess::load_acquire(&_do_full_gc) == 1;
 }
 
 void ShenandoahConcurrentThread::print() const {

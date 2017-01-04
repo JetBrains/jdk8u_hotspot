@@ -45,7 +45,7 @@ public:
   void stop();
 
 private:
-  bool _do_full_gc;
+  volatile jbyte _do_full_gc;
   volatile jbyte _graceful_shutdown;
   GCCause::Cause _full_gc_cause;
 
@@ -69,7 +69,9 @@ public:
 
   void do_full_gc(GCCause::Cause cause);
 
-  void schedule_full_gc();
+  bool try_set_full_gc();
+  void reset_full_gc();
+  bool is_full_gc();
 
   char* name() const { return (char*)"ShenandoahConcurrentThread";}
   void start();
