@@ -7173,6 +7173,9 @@ void MacroAssembler::char_arrays_equals(bool is_array_equ, Register ary1, Regist
 
   // Check the input args
   cmpptr(ary1, ary2);
+  if (is_array_equ) {
+    oopDesc::bs()->asm_acmp_barrier(this, ary1, ary2);
+  }
   jcc(Assembler::equal, TRUE_LABEL);
 
   if (is_array_equ) {
