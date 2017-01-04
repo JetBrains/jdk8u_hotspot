@@ -583,10 +583,24 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
     } while (retry && result == NULL);
   }
 
-  if (result == NULL && ! evacuating) { // Allocation failed, try full-GC, then retry allocation.
-    log_develop_trace(gc)("Failed to allocate " SIZE_FORMAT " bytes, free regions: ", word_size * HeapWordSize);
-    collect(GCCause::_allocation_failure);
-    result = allocate_memory_work(word_size);
+  if (!evacuating) {
+    // Allocation failed, try full-GC, then retry allocation.
+    //
+    // It might happen that one of the threads requesting allocation would unblock
+    // way later after full-GC happened, only to fail the second allocation, because
+    // other threads have already depleted the free storage. In this case, a better
+    // strategy would be to try full-GC again.
+    //
+    // Lacking the way to detect progress from "collect" call, we are left with blindly
+    // retrying for some bounded number of times.
+    // TODO: Poll if Full GC made enough progress to warrant retry.
+    int tries = 0;
+    while ((result == NULL) && (tries++ < ShenandoahFullGCTries)) {
+      log_debug(gc)("[" PTR_FORMAT " Failed to allocate " SIZE_FORMAT " bytes, doing full GC, try %d",
+                    p2i(Thread::current()), word_size * HeapWordSize, tries);
+      collect(GCCause::_allocation_failure);
+      result = allocate_memory_work(word_size);
+    }
   }
 
   // Only update monitoring counters when not calling from a write-barrier.

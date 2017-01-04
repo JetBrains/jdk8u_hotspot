@@ -182,6 +182,10 @@
   experimental(intx, ShenandoahMarkScanPrefetch, 32,                        \
           "How many objects to prefetch ahead when traversing mark bitmaps." \
           "Set to 0 to disable prefetching.")                               \
+                                                                            \
+  experimental(intx, ShenandoahFullGCTries, 3,                              \
+          "How many times to try to do Full GC on allocation failure."      \
+          "Set to 0 to never try, and fail instead.")                       \
 
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
