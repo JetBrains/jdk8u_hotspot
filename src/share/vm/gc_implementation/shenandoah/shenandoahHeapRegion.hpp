@@ -40,7 +40,7 @@ public:
 private:
   ShenandoahHeap* _heap;
   size_t _region_number;
-  volatile size_t _live_data;
+  volatile jint _live_data;
   MemRegion reserved;
 
   bool _humongous_start;
@@ -68,9 +68,11 @@ public:
 
   void clear_live_data();
   void set_live_data(size_t s);
-  inline void increase_live_data(size_t s);
+  inline void increase_live_data_words(jint s);
 
-  size_t get_live_data() const;
+  bool has_live() const;
+  size_t get_live_data_bytes() const;
+  size_t get_live_data_words() const;
 
   void print_on(outputStream* st) const;
 

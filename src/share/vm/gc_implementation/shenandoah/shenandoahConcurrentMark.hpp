@@ -50,10 +50,9 @@ class ShenandoahMarkObjsClosure {
   ShenandoahHeap* _heap;
   T _mark_refs;
   SCMObjToScanQueue* _queue;
-  uint _last_region_idx;
-  size_t _live_data;
+  jushort* _live_data;
 public:
-  ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp);
+  ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp, jushort* live_data);
   ~ShenandoahMarkObjsClosure();
 
   inline void do_object_or_array(oop obj, int from, int to);
@@ -71,6 +70,16 @@ private:
   bool _unload_classes;
 
   jbyte _claimed_codecache;
+
+  // Used for buffering per-region liveness data.
+  // Needed since ShenandoahHeapRegion uses atomics to update liveness.
+  //
+  // The array has max-workers elements, each of which is an array of
+  // jushort * max_regions. The choice of jushort is not accidental:
+  // there is a tradeoff between static/dynamic footprint that translates
+  // into cache pressure (which is already high during marking), and
+  // too many atomic updates. size_t/jint is too large, jbyte is too small.
+  jushort** _liveness_local;
 
 public:
   // We need to do this later when the heap is already created.
@@ -114,6 +123,8 @@ public:
   inline bool try_draining_satb_buffer(SCMObjToScanQueue *q, ObjArrayFromToTask &task);
   void drain_satb_buffers(uint worker_id, bool remark = false);
   SCMObjToScanQueueSet* task_queues() { return _task_queues;}
+
+  jushort* get_liveness(uint worker_id);
 
   void cancel();
 

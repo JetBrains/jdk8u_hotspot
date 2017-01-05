@@ -36,7 +36,7 @@ ShenandoahCollectionSet::~ShenandoahCollectionSet() {
 void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
   ShenandoahHeapRegionSet::add_region(r);
   _garbage += r->garbage();
-  _live_data += r->get_live_data();
+  _live_data += r->get_live_data_bytes();
 }
 
 size_t ShenandoahCollectionSet::garbage() {

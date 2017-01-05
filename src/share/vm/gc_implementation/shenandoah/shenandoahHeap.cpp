@@ -679,7 +679,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
     result = my_current_region->par_allocate(word_size);
   }
 
-  my_current_region->increase_live_data(word_size * HeapWordSize);
+  my_current_region->increase_live_data_words(word_size);
   increase_used(word_size * HeapWordSize);
   _free_regions->increase_used(word_size * HeapWordSize);
   return result;
@@ -791,7 +791,7 @@ void ShenandoahHeap::verify_evacuated_region(ShenandoahHeapRegion* from_region) 
 
 void ShenandoahHeap::parallel_evacuate_region(ShenandoahHeapRegion* from_region) {
 
-  assert(from_region->get_live_data() > 0, "all-garbage regions are reclaimed earlier");
+  assert(from_region->has_live(), "all-garbage regions are reclaimed earlier");
 
   ParallelEvacuateRegionObjectClosure evacuate_region(this);
 
@@ -825,7 +825,7 @@ public:
                                     worker_id,
                                     from_hr->region_number());
 
-      assert(from_hr->get_live_data() > 0, "all-garbage regions are reclaimed early");
+      assert(from_hr->has_live(), "all-garbage regions are reclaimed early");
       _sh->parallel_evacuate_region(from_hr);
 
       if (_sh->cancelled_concgc()) {
@@ -1039,7 +1039,7 @@ void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
   uint index = r->region_number();
 
 
-  assert(r->get_live_data() == 0, "liveness must be zero");
+  assert(!r->has_live(), "liveness must be zero");
 
   for(size_t i = 0; i < required_regions; i++) {
 

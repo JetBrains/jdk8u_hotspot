@@ -65,18 +65,25 @@ void ShenandoahHeapRegion::clear_live_data() {
 
 void ShenandoahHeapRegion::set_live_data(size_t s) {
   assert(Thread::current()->is_VM_thread(), "by VM thread");
-  _live_data = s;
+  _live_data = (jint) (s / HeapWordSize);
 }
 
-size_t ShenandoahHeapRegion::get_live_data() const {
-  assert (sizeof(julong) == sizeof(size_t), "do not read excessively");
-  return (size_t)OrderAccess::load_acquire((volatile julong*)&_live_data);
+size_t ShenandoahHeapRegion::get_live_data_words() const {
+  return (size_t)OrderAccess::load_acquire((volatile jint*)&_live_data);
+}
+
+size_t ShenandoahHeapRegion::get_live_data_bytes() const {
+  return get_live_data_words() * HeapWordSize;
+}
+
+bool ShenandoahHeapRegion::has_live() const {
+  return get_live_data_words() != 0;
 }
 
 size_t ShenandoahHeapRegion::garbage() const {
-  assert(used() >= get_live_data() || is_humongous(), err_msg("Live Data must be a subset of used() live: "SIZE_FORMAT" used: "SIZE_FORMAT,
-							      get_live_data(), used()));
-  size_t result = used() - get_live_data();
+  assert(used() >= get_live_data_bytes() || is_humongous(), err_msg("Live Data must be a subset of used() live: "SIZE_FORMAT" used: "SIZE_FORMAT,
+								    get_live_data_bytes(), used()));
+  size_t result = used() - get_live_data_bytes();
   return result;
 }
 
@@ -154,7 +161,7 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
     st->print(" ");
 
   st->print_cr("live = "SIZE_FORMAT" garbage = "SIZE_FORMAT" bottom = "PTR_FORMAT" end = "PTR_FORMAT" top = "PTR_FORMAT,
-               get_live_data(), garbage(), p2i(bottom()), p2i(end()), p2i(top()));
+               get_live_data_bytes(), garbage(), p2i(bottom()), p2i(end()), p2i(top()));
 }
 
 

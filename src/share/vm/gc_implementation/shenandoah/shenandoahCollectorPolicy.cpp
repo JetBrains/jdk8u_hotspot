@@ -148,7 +148,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
     ShenandoahHeapRegion* region = sorted_regions->get(i);
 
     if (! region->is_humongous() && ! region->is_pinned()) {
-      if ((! region->is_empty()) && region->get_live_data() == 0) {
+      if ((! region->is_empty()) && ! region->has_live()) {
         // We can recycle it right away and put it in the free set.
         immediate_regions++;
         immediate_garbage += region->garbage();
@@ -156,19 +156,19 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
         region->recycle();
         log_develop_trace(gc)("Choose region " SIZE_FORMAT " for immediate reclaim with garbage = " SIZE_FORMAT
                               " and live = " SIZE_FORMAT "\n",
-                              region->region_number(), region->garbage(), region->get_live_data());
+                              region->region_number(), region->garbage(), region->get_live_data_bytes());
       } else if (region_in_collection_set(region, immediate_garbage)) {
         log_develop_trace(gc)("Choose region " SIZE_FORMAT " with garbage = " SIZE_FORMAT
                               " and live = " SIZE_FORMAT "\n",
-                              region->region_number(), region->garbage(), region->get_live_data());
+                              region->region_number(), region->garbage(), region->get_live_data_bytes());
         collection_set->add_region(region);
         region->set_in_collection_set(true);
       }
     } else {
-      assert(region->get_live_data() != 0 || region->is_empty() || region->is_pinned() || region->is_humongous(), "check rejected");
+      assert(region->has_live() || region->is_empty() || region->is_pinned() || region->is_humongous(), "check rejected");
       log_develop_trace(gc)("Rejected region " SIZE_FORMAT " with garbage = " SIZE_FORMAT
                             " and live = " SIZE_FORMAT "\n",
-                            region->region_number(), region->garbage(), region->get_live_data());
+                            region->region_number(), region->garbage(), region->get_live_data_bytes());
     }
   }
 
@@ -454,7 +454,7 @@ public:
     size_t min_ratio = 100 - ShenandoahGarbageThreshold;
     if (_live * 100 / MAX2(_garbage + immediate_garbage, 1UL) < min_ratio && ! r->is_empty()) {
       _garbage += r->garbage();
-      _live += r->get_live_data();
+      _live += r->get_live_data_bytes();
       return true;
     } else {
       return false;

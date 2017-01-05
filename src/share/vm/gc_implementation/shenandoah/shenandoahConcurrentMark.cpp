@@ -105,20 +105,29 @@ public:
 
 // Mark the object and add it to the queue to be scanned
 template <class T, bool CL>
-ShenandoahMarkObjsClosure<T, CL>::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+ShenandoahMarkObjsClosure<T, CL>::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp, jushort* live_data) :
   _heap((ShenandoahHeap*)(Universe::heap())),
   _queue(q),
   _mark_refs(T(q, rp)),
-  _last_region_idx(0),
-  _live_data(0)
+  _live_data(live_data)
 {
+  if (CL) {
+    Copy::fill_to_bytes(_live_data, _heap->max_regions() * sizeof(jushort));
+  }
 }
 
 template <class T, bool CL>
 ShenandoahMarkObjsClosure<T, CL>::~ShenandoahMarkObjsClosure() {
   if (CL) {
-    ShenandoahHeapRegion *r = _heap->regions()->get(_last_region_idx);
-    r->increase_live_data(_live_data);
+    for (uint i = 0; i < _heap->max_regions(); i++) {
+      ShenandoahHeapRegion* r = _heap->regions()->get(i);
+      if (r != NULL) {
+        jushort live = _live_data[i];
+        if (live > 0) {
+          r->increase_live_data_words(live);
+        }
+      }
+    }
   }
 }
 
@@ -202,6 +211,7 @@ public:
 
   void work(uint worker_id) {
     SCMObjToScanQueue* q = _cm->get_queue(worker_id);
+    jushort* live_data = _cm->get_liveness(worker_id);
     ReferenceProcessor* rp;
     if (_cm->process_references()) {
       rp = ShenandoahHeap::heap()->ref_processor();
@@ -217,10 +227,10 @@ public:
       }
     }
     if (_update_refs) {
-      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp);
+      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
       _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
     } else {
-      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp);
+      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
       _cm->concurrent_mark_loop(&cl, worker_id, q,  _terminator);
     }
   }
@@ -253,21 +263,23 @@ public:
       rp = NULL;
     }
     SCMObjToScanQueue* q = _cm->get_queue(worker_id);
+    jushort* live_data = _cm->get_liveness(worker_id);
+
     // Templates need constexprs, so we have to switch by the flags ourselves.
     if (_update_refs) {
       if (_count_live) {
-        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp);
+        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
         _cm->final_mark_loop(&cl, worker_id, q, _terminator);
       } else {
-        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, false> cl(q, rp);
+        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, false> cl(q, rp, live_data);
         _cm->final_mark_loop(&cl, worker_id, q, _terminator);
       }
     } else {
       if (_count_live) {
-        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp);
+        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
         _cm->final_mark_loop(&cl, worker_id, q, _terminator);
       } else {
-        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, false> cl(q, rp);
+        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, false> cl(q, rp, live_data);
         _cm->final_mark_loop(&cl, worker_id, q, _terminator);
       }
     }
@@ -353,6 +365,12 @@ void ShenandoahConcurrentMark::initialize(uint workers) {
   _claimed_codecache = 0;
 
   JavaThread::satb_mark_queue_set().set_buffer_size(ShenandoahSATBBufferSize);
+
+  size_t max_regions = ShenandoahHeap::heap()->max_regions();
+  _liveness_local = NEW_C_HEAP_ARRAY(jushort*, workers, mtGC);
+  for (uint worker = 0; worker < workers; worker++) {
+     _liveness_local[worker] = NEW_C_HEAP_ARRAY(jushort, max_regions, mtGC);
+  }
 }
 
 void ShenandoahConcurrentMark::mark_from_roots() {
@@ -628,11 +646,12 @@ public:
       rp = NULL;
     }
     SCMObjToScanQueue* q = scm->get_queue(_worker_id);
+    jushort* live_data = scm->get_liveness(_worker_id);
     if (sh->need_update_refs()) {
-      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp);
+      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
       scm->final_mark_loop(&cl, _worker_id, q, _terminator);
     } else {
-      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp);
+      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
       scm->final_mark_loop(&cl, _worker_id, q, _terminator);
     }
   }
@@ -985,6 +1004,10 @@ bool ShenandoahConcurrentMark::claim_codecache() {
   assert(ShenandoahConcurrentCodeRoots, "must not be called otherwise");
   jbyte old = Atomic::cmpxchg(1, &_claimed_codecache, 0);
   return old == 0;
+}
+
+jushort* ShenandoahConcurrentMark::get_liveness(uint worker_id) {
+  return _liveness_local[worker_id];
 }
 
 void ShenandoahConcurrentMark::clear_claim_codecache() {

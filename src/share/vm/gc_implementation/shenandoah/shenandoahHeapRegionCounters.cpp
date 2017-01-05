@@ -83,7 +83,7 @@ void ShenandoahHeapRegionCounters::update() {
         if (i < num_regions) {
           ShenandoahHeapRegion* r = regions->get(i);
           jlong data = (r->used() & USED_MASK) << USED_SHIFT;
-          data |= (r->get_live_data() & LIVE_MASK) << LIVE_SHIFT;
+          data |= (r->get_live_data_bytes() & LIVE_MASK) << LIVE_SHIFT;
           jlong flags = 0;
           if (r->in_collection_set()) flags |= 1 << 0;
           if (r->is_humongous()) flags |= 1 << 1;

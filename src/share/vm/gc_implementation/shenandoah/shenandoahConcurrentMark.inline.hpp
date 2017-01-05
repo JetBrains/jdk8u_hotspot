@@ -78,13 +78,22 @@ template <class T, bool CL>
 inline void ShenandoahMarkObjsClosure<T, CL>::count_liveness(oop obj) {
   if (!CL) return; // no need to count liveness!
   uint region_idx = _heap->heap_region_index_containing(obj);
-  if (region_idx == _last_region_idx) {
-    _live_data += (obj->size() + BrooksPointer::word_size()) * HeapWordSize;
+  jushort cur = _live_data[region_idx];
+  int size = obj->size() + BrooksPointer::word_size();
+  int max = (1 << (sizeof(jushort) * 8)) - 1;
+  if (size >= max) {
+    // too big, add to region data directly
+    _heap->regions()->get_fast(region_idx)->increase_live_data_words(size);
   } else {
-    ShenandoahHeapRegion* r = _heap->regions()->get(_last_region_idx);
-    r->increase_live_data(_live_data);
-    _last_region_idx = region_idx;
-    _live_data = (obj->size() + BrooksPointer::word_size()) * HeapWordSize;
+    int new_val = cur + size;
+    if (new_val >= max) {
+      // overflow, flush to region data
+      _heap->regions()->get_fast(region_idx)->increase_live_data_words(new_val);
+      _live_data[region_idx] = 0;
+    } else {
+      // still good, remember in locals
+      _live_data[region_idx] = (jushort) new_val;
+    }
   }
 }
 
