@@ -116,7 +116,7 @@ public:
 
 private:
   struct TimingData {
-    NumberSeq _ms;
+    HdrSeq _secs;
     double _start;
     size_t _count;
   };
@@ -202,7 +202,7 @@ public:
   size_t cycle_counter() const;
 
 private:
-  void print_summary_sd(outputStream* out, const char* str, const NumberSeq* seq);
+  void print_summary_sd(outputStream* out, const char* str, const HdrSeq* seq);
 };
 
 

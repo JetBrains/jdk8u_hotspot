@@ -210,7 +210,7 @@ void ShenandoahCollectorPolicy::record_workers_end(TimingPhase phase) {
   if (phase != _num_phases) {
     for (uint i = 0; i < ShenandoahPhaseTimes::GCParPhasesSentinel; i++) {
       double t = _phase_times->average(i);
-      _timing_data[phase + i]._ms.add(t * 1000.0);
+      _timing_data[phase + i]._secs.add(t);
     }
   }
 }
@@ -223,8 +223,7 @@ void ShenandoahCollectorPolicy::record_phase_start(TimingPhase phase) {
 void ShenandoahCollectorPolicy::record_phase_end(TimingPhase phase) {
   double end = os::elapsedTime();
   double elapsed = end - _timing_data[phase]._start;
-  _timing_data[phase]._ms.add(elapsed * 1000);
-
+  _timing_data[phase]._secs.add(elapsed);
 }
 
 void ShenandoahCollectorPolicy::report_concgc_cancelled() {
@@ -676,8 +675,8 @@ bool ShenandoahCollectorPolicy::unload_classes() {
 
 void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
   for (uint i = 0; i < _num_phases; i++) {
-    if (_timing_data[i]._ms.maximum() != 0) {
-      print_summary_sd(out, _phase_names[i], &(_timing_data[i]._ms));
+    if (_timing_data[i]._secs.maximum() != 0) {
+      print_summary_sd(out, _phase_names[i], &(_timing_data[i]._secs));
     }
   }
   out->print_cr("User requested GCs: "SIZE_FORMAT, _user_requested_gcs);
@@ -686,24 +685,34 @@ void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
   out->print_cr("Degenerated concurrent markings: "SIZE_FORMAT, _degenerated_cm);
 
   out->print_cr(" ");
-  double total_sum = _timing_data[init_mark_gross]._ms.sum() +
-                     _timing_data[final_mark_gross]._ms.sum();
-  double total_avg = (_timing_data[init_mark_gross]._ms.avg() +
-                      _timing_data[final_mark_gross]._ms.avg()) / 2.0;
-  double total_max = MAX2(_timing_data[init_mark_gross]._ms.maximum(),
-                          _timing_data[final_mark_gross]._ms.maximum());
+  double total_sum = _timing_data[init_mark_gross]._secs.sum() +
+                     _timing_data[final_mark_gross]._secs.sum();
+  double total_avg = (_timing_data[init_mark_gross]._secs.avg() +
+                      _timing_data[final_mark_gross]._secs.avg()) / 2.0;
+  double total_max = MAX2(_timing_data[init_mark_gross]._secs.maximum(),
+                          _timing_data[final_mark_gross]._secs.maximum());
 
   out->print_cr("%-27s = %8.2lf s, avg = %8.2lf ms, max = %8.2lf ms",
-                         "Total", total_sum / 1000.0, total_avg, total_max);
+                         "Total", total_sum, total_avg * 1000.0, total_max * 1000.0);
 
 }
 
-void ShenandoahCollectorPolicy::print_summary_sd(outputStream* out, const char* str, const NumberSeq* seq)  {
-  double sum = seq->sum();
-  out->print("%-34s = %8.2lf s (avg = %8.2lf ms)",
-                      str, sum / 1000.0, seq->avg());
-  out->print_cr("  %s = "INT32_FORMAT_W(5)", std dev = %8.2lf ms, max = %8.2lf ms)",
-                         "(num", seq->num(), seq->sd(), seq->maximum());
+void ShenandoahCollectorPolicy::print_summary_sd(outputStream* out, const char* str, const HdrSeq* seq)  {
+  out->print("%-34s = %8.2lf s (avg = %8.0lf us)",
+                      str, seq->sum(), seq->avg() * 1000000.0);
+  out->print_cr("  (num = "INT32_FORMAT_W(5)", lvls (10%% step, us) = %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, max = %8.0lf)",
+          seq->num(),
+          seq->percentile(10) * 1000000.0,
+          seq->percentile(20) * 1000000.0,
+          seq->percentile(30) * 1000000.0,
+          seq->percentile(40) * 1000000.0,
+          seq->percentile(50) * 1000000.0,
+          seq->percentile(60) * 1000000.0,
+          seq->percentile(70) * 1000000.0,
+          seq->percentile(80) * 1000000.0,
+          seq->percentile(90) * 1000000.0,
+          seq->maximum() * 1000000.0
+  );
 }
 
 void ShenandoahCollectorPolicy::increase_cycle_counter() {
