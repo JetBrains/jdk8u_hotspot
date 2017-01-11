@@ -74,47 +74,26 @@ public:
 
 class ShenandoahPretouchTask : public AbstractGangTask {
 private:
-  char* volatile _cur_addr;
-  char* const _start_addr;
-  char* const _end_addr;
+  ShenandoahHeapRegionSet* _regions;
   size_t const _page_size;
 public:
-  ShenandoahPretouchTask(char* start_address, char* end_address, size_t page_size) :
+  ShenandoahPretouchTask(ShenandoahHeapRegionSet* regions, size_t page_size) :
     AbstractGangTask("Shenandoah PreTouch"),
-    _cur_addr(start_address),
-    _start_addr(start_address),
-    _end_addr(end_address),
+    _regions(regions),
     _page_size(page_size) {
-  }
+    _regions->clear_current_index();
+  };
 
   virtual void work(uint worker_id) {
-    size_t const actual_chunk_size = MAX2(PreTouchParallelChunkSize, _page_size);
-    while (true) {
-      char* touch_addr = (char*)Atomic::add_ptr((intptr_t)actual_chunk_size, (volatile void*) &_cur_addr) - actual_chunk_size;
-      if (touch_addr < _start_addr || touch_addr >= _end_addr) {
-        break;
-      }
-      char* end_addr = touch_addr + MIN2(actual_chunk_size, pointer_delta(_end_addr, touch_addr, sizeof(char)));
-      os::pretouch_memory(touch_addr, end_addr);
+    ShenandoahHeapRegion* r = _regions->claim_next();
+    while (r != NULL) {
+      log_trace(gc, heap)("Pretouch region " SIZE_FORMAT ": " PTR_FORMAT " -> " PTR_FORMAT,
+                          r->region_number(), p2i(r->bottom()), p2i(r->end()));
+      os::pretouch_memory((char*) r->bottom(), (char*) r->end());
+      r = _regions->claim_next();
     }
   }
 };
-
-void ShenandoahHeap::pretouch_storage(char* start, char* end, WorkGang* workers) {
-  assert (ShenandoahAlwaysPreTouch, "Sanity");
-  assert (!AlwaysPreTouch, "Should have been overridden");
-
-  size_t size = (size_t)(end - start);
-  size_t page_size = UseLargePages ? (size_t)os::large_page_size() : (size_t)os::vm_page_size();
-  size_t num_chunks = MAX2((size_t)1, size / MAX2(PreTouchParallelChunkSize, page_size));
-  uint num_workers = MIN2((uint)num_chunks, workers->active_workers());
-
-  log_info(gc, heap)("Parallel pretouch with %u workers for " SIZE_FORMAT " work units pre-touching " SIZE_FORMAT " bytes.",
-                      num_workers, num_chunks, size);
-
-  ShenandoahPretouchTask cl(start, end, page_size);
-  workers->run_task(&cl, num_workers);
-}
 
 jint ShenandoahHeap::initialize() {
   CollectedHeap::pre_initialize();
@@ -139,9 +118,6 @@ jint ShenandoahHeap::initialize() {
   set_barrier_set(new ShenandoahBarrierSet(this));
   ReservedSpace pgc_rs = heap_rs.first_part(max_byte_size);
   _storage.initialize(pgc_rs, init_byte_size);
-  if (ShenandoahAlwaysPreTouch) {
-    pretouch_storage(_storage.low(), _storage.high(), _workers);
-  }
 
   _num_regions = init_byte_size / ShenandoahHeapRegion::RegionSizeBytes;
   _max_regions = max_byte_size / ShenandoahHeapRegion::RegionSizeBytes;
@@ -239,6 +215,17 @@ jint ShenandoahHeap::initialize() {
   _concurrent_gc_thread = new ShenandoahConcurrentThread();
 
   ShenandoahMarkCompact::initialize();
+
+  if (ShenandoahAlwaysPreTouch) {
+    assert (!AlwaysPreTouch, "Should have been overridden");
+
+    size_t page_size = UseLargePages ? os::large_page_size() : (size_t) os::vm_page_size();
+
+    log_info(gc, heap)("Parallel pretouch " SIZE_FORMAT " regions with " SIZE_FORMAT " byte pages",
+                       _ordered_regions->count(), page_size);
+    ShenandoahPretouchTask cl(_ordered_regions, page_size);
+    _workers->run_task(&cl);
+  }
 
   return JNI_OK;
 }

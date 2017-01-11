@@ -266,8 +266,6 @@ public:
   static address in_cset_fast_test_addr();
   static address cancelled_concgc_addr();
 
-  static void pretouch_storage(char* start, char* end, WorkGang* workers);
-
   ShenandoahCollectorPolicy *shenandoahPolicy() { return _shenandoah_policy;}
 
   inline ShenandoahHeapRegion* heap_region_containing(const void* addr) const;
