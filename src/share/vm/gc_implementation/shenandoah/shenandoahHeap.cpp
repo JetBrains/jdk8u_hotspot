@@ -377,6 +377,9 @@ bool ShenandoahHeap::is_complete_bitmap_clear_range(HeapWord* start, HeapWord* e
 void ShenandoahHeap::print_on(outputStream* st) const {
   st->print("Shenandoah Heap");
   st->print(" total = " SIZE_FORMAT " K, used " SIZE_FORMAT " K ", capacity()/ K, used() /K);
+  st->print(" [" PTR_FORMAT ", " PTR_FORMAT ") ",
+            p2i(reserved_region().start()),
+            p2i(reserved_region().end()));
   st->print("Region size = " SIZE_FORMAT "K ", ShenandoahHeapRegion::RegionSizeBytes / K);
   if (_concurrent_mark_in_progress) {
     st->print("marking ");
@@ -388,6 +391,15 @@ void ShenandoahHeap::print_on(outputStream* st) const {
     st->print("cancelled ");
   }
   st->print("\n");
+
+  // Adapted from VirtualSpace::print_on(), which is non-PRODUCT only
+  st->print   ("Virtual space:");
+  if (_storage.special()) st->print(" (pinned in memory)");
+  st->cr();
+  st->print_cr(" - committed: " SIZE_FORMAT, _storage.committed_size());
+  st->print_cr(" - reserved:  " SIZE_FORMAT, _storage.reserved_size());
+  st->print_cr(" - [low, high]:     [" INTPTR_FORMAT ", " INTPTR_FORMAT "]",  p2i(_storage.low()), p2i(_storage.high()));
+  st->print_cr(" - [low_b, high_b]: [" INTPTR_FORMAT ", " INTPTR_FORMAT "]",  p2i(_storage.low_boundary()), p2i(_storage.high_boundary()));
 
   if (Verbose) {
     print_heap_regions(st);
