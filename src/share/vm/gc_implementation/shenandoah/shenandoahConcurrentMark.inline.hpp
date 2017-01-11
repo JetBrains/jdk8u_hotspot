@@ -55,12 +55,16 @@ void ShenandoahMarkObjsClosure<T, CL>::do_object_or_array(oop obj, int from, int
     count_liveness(obj);
     if (obj->is_objArray()) {
       // Case 1: Array instance and no task bounds set. Must be the first time
-      // we visit it. Process its metadata, and submit the chunked array task
-      // with proper bounds.
-      _mark_refs.do_klass(obj->klass());
+      // we visit it.
       objArrayOop array = objArrayOop(obj);
-      if (array->length() > 0) {
-        do_array(array, 0, array->length());
+      int len = array->length();
+      if (len > 0) {
+        // Case 1a. Non-empty array. The header would be processed along with the
+        // chunk that starts at offset=0, see ObjArrayKlass::oop_oop_iterate_range.
+        do_array(array, 0, len);
+      } else {
+        // Case 1b. Empty array. Only need to care about the header.
+        _mark_refs.do_klass(obj->klass());
       }
     } else {
      // Case 2: Normal oop, process as usual.
