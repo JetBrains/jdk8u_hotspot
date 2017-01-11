@@ -1900,8 +1900,22 @@ void ShenandoahHeap::set_concurrent_mark_in_progress(bool in_progress) {
   JavaThread::satb_mark_queue_set().set_active_all_threads(in_progress, !in_progress);
 }
 
-void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
+void ShenandoahHeap::set_evacuation_in_progress_concurrently(bool in_progress) {
+  // Note: it is important to first release the _evacuation_in_progress flag here,
+  // so that Java threads can get out of oom_during_evacuation() and reach a safepoint,
+  // in case a VM task is pending.
+  set_evacuation_in_progress(in_progress);
+  MutexLocker mu(Threads_lock);
   JavaThread::set_evacuation_in_progress_all_threads(in_progress);
+}
+
+void ShenandoahHeap::set_evacuation_in_progress_at_safepoint(bool in_progress) {
+  assert(SafepointSynchronize::is_at_safepoint(), "Only call this at safepoint");
+  set_evacuation_in_progress(in_progress);
+  JavaThread::set_evacuation_in_progress_all_threads(in_progress);
+}
+
+void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
   _evacuation_in_progress = in_progress ? 1 : 0;
   OrderAccess::fence();
 }

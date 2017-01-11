@@ -71,8 +71,7 @@ void ShenandoahConcurrentThread::run() {
     } else if (heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity())) {
       service_normal_cycle();
       if (heap->is_evacuation_in_progress()) {
-        MutexLocker mu(Threads_lock);
-        heap->set_evacuation_in_progress(false);
+        heap->set_evacuation_in_progress_concurrently(false);
       }
     } else {
       Thread::current()->_ParkEvent->park(10);

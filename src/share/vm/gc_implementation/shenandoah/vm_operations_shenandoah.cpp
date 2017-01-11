@@ -114,7 +114,7 @@ void VM_ShenandoahStartEvacuation::doit() {
     sh->prepare_for_concurrent_evacuation();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::prepare_evac);
 
-    sh->set_evacuation_in_progress(true);
+    sh->set_evacuation_in_progress_at_safepoint(true);
 
     // From here on, we need to update references.
     sh->set_need_update_refs(true);
@@ -123,9 +123,6 @@ void VM_ShenandoahStartEvacuation::doit() {
     sh->evacuate_and_update_roots();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_evac);
 
-    if (sh->cancelled_concgc()) {
-      sh->set_evacuation_in_progress(false);
-    }
   } else {
     GCTraceTime time("Cancel concurrent Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
     sh->concurrentMark()->cancel();

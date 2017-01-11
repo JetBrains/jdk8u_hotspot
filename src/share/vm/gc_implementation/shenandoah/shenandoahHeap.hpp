@@ -285,8 +285,13 @@ public:
 
   void prepare_for_concurrent_evacuation();
   void evacuate_and_update_roots();
-  inline bool is_evacuation_in_progress();
+
+private:
   void set_evacuation_in_progress(bool in_progress);
+public:
+  inline bool is_evacuation_in_progress();
+  void set_evacuation_in_progress_concurrently(bool in_progress);
+  void set_evacuation_in_progress_at_safepoint(bool in_progress);
 
   void set_full_gc_in_progress(bool in_progress);
   bool is_full_gc_in_progress() const;
