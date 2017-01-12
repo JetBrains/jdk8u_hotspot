@@ -97,10 +97,9 @@ private:
   int _from, _to;
 };
 
-typedef BufferedOverflowTaskQueue<ObjArrayFromToTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
+typedef ObjArrayFromToTask SCMTask;
+typedef BufferedOverflowTaskQueue<SCMTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
 typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
-// typedef GenericTaskQueueSet<SCMObjToScanQueue, mtGC> SCMObjToScanQueueSet;
-
 
 template <class T, MEMFLAGS F>
 class ParallelClaimableQueueSet: public GenericTaskQueueSet<T, F> {

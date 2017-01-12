@@ -33,7 +33,9 @@
 #include "runtime/prefetch.inline.hpp"
 
 template <class T, bool CL>
-void ShenandoahMarkObjsClosure<T, CL>::do_object_or_array(oop obj, int from, int to) {
+void ShenandoahMarkObjsClosure<T, CL>::do_task(SCMTask* task) {
+  oop obj = task->obj();
+
   assert(obj != NULL, "expect non-null object");
 
   assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "expect forwarded obj in queue");
@@ -51,6 +53,7 @@ void ShenandoahMarkObjsClosure<T, CL>::do_object_or_array(oop obj, int from, int
   assert(_heap->is_in(obj), "referenced objects must be in the heap. No?");
   assert(_heap->is_marked_next(obj), "only marked objects on task queue");
 
+  int from = task->from();
   if (from == -1) {
     count_liveness(obj);
     if (obj->is_objArray()) {
@@ -61,7 +64,7 @@ void ShenandoahMarkObjsClosure<T, CL>::do_object_or_array(oop obj, int from, int
       if (len > 0) {
         // Case 1a. Non-empty array. The header would be processed along with the
         // chunk that starts at offset=0, see ObjArrayKlass::oop_oop_iterate_range.
-        do_array(array, 0, len);
+        do_chunked_array(array, 0, len);
       } else {
         // Case 1b. Empty array. Only need to care about the header.
         _mark_refs.do_klass(obj->klass());
@@ -74,7 +77,7 @@ void ShenandoahMarkObjsClosure<T, CL>::do_object_or_array(oop obj, int from, int
     // Case 3: Array chunk, has sensible (from, to) bounds. Process it.
     assert(obj->is_objArray(), "expect object array");
     objArrayOop array = objArrayOop(obj);
-    do_array(array, from, to);
+    do_chunked_array(array, from, task->to());
   }
 }
 
@@ -102,7 +105,7 @@ inline void ShenandoahMarkObjsClosure<T, CL>::count_liveness(oop obj) {
 }
 
 template <class T, bool CL>
-inline void ShenandoahMarkObjsClosure<T, CL>::do_array(objArrayOop array, int from, int to) {
+inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array(objArrayOop array, int from, int to) {
   assert (from < to, "sanity");
   assert (ObjArrayMarkingStride > 0, "sanity");
 
@@ -110,7 +113,7 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_array(objArrayOop array, int fr
   // "stealing" part of the queue, which will seed other workers efficiently.
   while ((to - from) > (int)ObjArrayMarkingStride) {
     int mid = from + (to - from) / 2;
-    bool pushed = _queue->push(ObjArrayFromToTask(array, mid, to));
+    bool pushed = _queue->push(SCMTask(array, mid, to));
     assert(pushed, "overflow queue should always succeed pushing");
     to = mid;
   }
@@ -119,7 +122,7 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_array(objArrayOop array, int fr
   array->oop_iterate_range(&_mark_refs, from, to);
 }
 
-inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, ObjArrayFromToTask &task) {
+inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, SCMTask &task) {
   return (q->pop_buffer(task) ||
           q->pop_local(task) ||
           q->pop_overflow(task));
@@ -147,7 +150,7 @@ public:
   }
 };
 
-inline bool ShenandoahConcurrentMark:: try_draining_satb_buffer(SCMObjToScanQueue *q, ObjArrayFromToTask &task) {
+inline bool ShenandoahConcurrentMark::try_draining_satb_buffer(SCMObjToScanQueue *q, SCMTask &task) {
   ShenandoahSATBBufferClosure cl(q);
   SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
   bool had_refs = satb_mq_set.apply_closure_to_completed_buffer(&cl);
@@ -180,7 +183,7 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
            || oopDesc::bs()->is_safe(obj),
            "we don't want to mark objects in from-space");
 
-    bool pushed = q->push(ObjArrayFromToTask(obj, -1, -1));
+    bool pushed = q->push(SCMTask(obj, -1, -1));
     assert(pushed, "overflow queue should always succeed pushing");
 
   }

@@ -28,7 +28,8 @@
 #include "utilities/workgroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 
-typedef BufferedOverflowTaskQueue<ObjArrayFromToTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
+typedef ObjArrayFromToTask SCMTask;
+typedef BufferedOverflowTaskQueue<SCMTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
 typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
 
 class ShenandoahConcurrentMark;
@@ -55,8 +56,8 @@ public:
   ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp, jushort* live_data);
   ~ShenandoahMarkObjsClosure();
 
-  inline void do_object_or_array(oop obj, int from, int to);
-  inline void do_array(objArrayOop array, int from, int to);
+  inline void do_task(SCMTask* task);
+  inline void do_chunked_array(objArrayOop array, int from, int to);
   inline void count_liveness(oop obj);
 };
 
@@ -115,12 +116,12 @@ public:
   template <class T, bool CL>
   void final_mark_loop(ShenandoahMarkObjsClosure<T, CL>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
 
-  inline bool try_queue(SCMObjToScanQueue* q, ObjArrayFromToTask &task);
+  inline bool try_queue(SCMObjToScanQueue* q, SCMTask &task);
 
   SCMObjToScanQueue* get_queue(uint worker_id);
   void clear_queue(SCMObjToScanQueue *q);
 
-  inline bool try_draining_satb_buffer(SCMObjToScanQueue *q, ObjArrayFromToTask &task);
+  inline bool try_draining_satb_buffer(SCMObjToScanQueue *q, SCMTask &task);
   void drain_satb_buffers(uint worker_id, bool remark = false);
   SCMObjToScanQueueSet* task_queues() { return _task_queues;}
 

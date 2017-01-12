@@ -928,12 +928,12 @@ void ShenandoahConcurrentMark::concurrent_mark_loop(ShenandoahMarkObjsClosure<T,
       return;
     }
 
-    ObjArrayFromToTask t;
+    SCMTask t;
     for (uint i = 0; i < stride; i++) {
       if (try_queue(q, t) ||
           try_draining_satb_buffer(q, t) ||
           queues->steal(worker_id, &seed, t)) {
-        cl->do_object_or_array(t.obj(), t.from(), t.to());
+        cl->do_task(&t);
       } else {
         if (terminator->offer_termination()) return;
       }
@@ -949,10 +949,10 @@ bool ShenandoahConcurrentMark::concurrent_process_queues(ShenandoahHeap* heap,
   while (true) {
     if (heap->cancelled_concgc()) return false;
 
-    ObjArrayFromToTask t;
+    SCMTask t;
     for (uint i = 0; i < stride; i++) {
       if (try_queue(q, t)) {
-        cl->do_object_or_array(t.obj(), t.from(), t.to());
+        cl->do_task(&t);
       } else {
         assert(q->is_empty(), "Must be empty");
         q = queues->claim_next();
@@ -973,11 +973,11 @@ void ShenandoahConcurrentMark::final_mark_loop(ShenandoahMarkObjsClosure<T, CL>*
   int seed = 17;
   SCMObjToScanQueueSet* queues = task_queues();
 
-  ObjArrayFromToTask t;
+  SCMTask t;
   while (true) {
     if (try_queue(q, t) ||
         queues->steal(worker_id, &seed, t)) {
-      cl->do_object_or_array(t.obj(), t.from(), t.to());
+      cl->do_task(&t);
     } else {
       if (terminator->offer_termination()) return;
     }
