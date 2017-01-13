@@ -39,6 +39,7 @@ const char* VM_ShenandoahInitMark::name() const {
 void VM_ShenandoahInitMark::doit() {
   ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
   GCTraceTime time("Pause Init-Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
+  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark);
 
   assert(sh->is_next_bitmap_clear(), "need clear marking bitmap");
@@ -51,6 +52,7 @@ void VM_ShenandoahInitMark::doit() {
   }
 
   sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark);
+  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
 
 }
 
@@ -105,10 +107,12 @@ void VM_ShenandoahStartEvacuation::doit() {
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   if (! sh->cancelled_concgc()) {
     GCTraceTime time("Pause Final Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
+    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark);
     sh->concurrentMark()->finish_mark_from_roots();
     sh->stop_concurrent_marking();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark);
+    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
 
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::prepare_evac);
     sh->prepare_for_concurrent_evacuation();

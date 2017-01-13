@@ -108,9 +108,11 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   {
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
     VM_ShenandoahInitMark initMark;
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
     heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark_gross);
     VMThread::execute(&initMark);
     heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark_gross);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause_gross);
   }
 
   if (check_cancellation()) return;
@@ -143,9 +145,11 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   {
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
     VM_ShenandoahStartEvacuation finishMark;
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
     heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark_gross);
     VMThread::execute(&finishMark);
     heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark_gross);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause_gross);
   }
 
   if (check_cancellation()) return;

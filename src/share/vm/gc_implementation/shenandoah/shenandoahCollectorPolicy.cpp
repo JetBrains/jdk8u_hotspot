@@ -478,77 +478,79 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _allocation_failure_gcs = 0;
   _conc_gc_aborted = false;
 
-  _phase_names[init_mark] = "Initial Mark Pauses (net)";
-  _phase_names[init_mark_gross] = "Initial Mark Pauses (gross)";
-  _phase_names[final_mark] = "Final Mark Pauses (net)";
-  _phase_names[final_mark_gross] = "Final Mark Pauses (gross)";
-  _phase_names[accumulate_stats] = "  Accumulate Stats";
-  _phase_names[make_parsable] = "  Make Parsable";
-  _phase_names[clear_liveness] = "  Clear Liveness";
-  _phase_names[scan_roots] = "  Scan Roots";
-  _phase_names[update_roots] = "  Update Roots";
-  _phase_names[drain_satb] = "  Drain SATB";
-  _phase_names[weakrefs] = "  Weak References";
-  _phase_names[class_unloading] = "  Class Unloading";
-  _phase_names[prepare_evac] = "  Prepare Evacuation";
-  _phase_names[init_evac] = "  Initial Evacuation";
+  _phase_names[total_pause]                     = "Total Pauses (net)";
+  _phase_names[total_pause_gross]               = "Total Pauses (gross)";
+  _phase_names[init_mark]                       = "Initial Mark Pauses (net)";
+  _phase_names[init_mark_gross]                 = "Initial Mark Pauses (gross)";
+  _phase_names[final_mark]                      = "Final Mark Pauses (net)";
+  _phase_names[final_mark_gross]                = "Final Mark Pauses (gross)";
+  _phase_names[accumulate_stats]                = "  Accumulate Stats";
+  _phase_names[make_parsable]                   = "  Make Parsable";
+  _phase_names[clear_liveness]                  = "  Clear Liveness";
+  _phase_names[scan_roots]                      = "  Scan Roots";
+  _phase_names[update_roots]                    = "  Update Roots";
+  _phase_names[drain_satb]                      = "  Drain SATB";
+  _phase_names[weakrefs]                        = "  Weak References";
+  _phase_names[class_unloading]                 = "  Class Unloading";
+  _phase_names[prepare_evac]                    = "  Prepare Evacuation";
+  _phase_names[init_evac]                       = "  Initial Evacuation";
 
-  _phase_names[scan_thread_roots] = "    Scan Thread Roots";
-  _phase_names[scan_code_roots] = "    Scan Code Cache Roots";
-  _phase_names[scan_string_table_roots] = "    Scan String Table  Roots";
-  _phase_names[scan_universe_roots] = "    Scan Universe  Roots";
-  _phase_names[scan_jni_roots] = "    Scan JNI  Roots";
-  _phase_names[scan_jni_weak_roots] = "    Scan JNI Weak  Roots";
-  _phase_names[scan_synchronizer_roots] = "    Scan Synchronizer  Roots";
-  _phase_names[scan_flat_profiler_roots] = "    Scan Flat Profiler Roots";
-  _phase_names[scan_management_roots] = "    Scan Management Roots";
-  _phase_names[scan_system_dictionary_roots] = "    Scan System Dictionary Roots";
-  _phase_names[scan_cldg_roots] = "    Scan CLDG  Roots";
-  _phase_names[scan_jvmti_roots] = "    Scan JVMTI Roots";
+  _phase_names[scan_thread_roots]               = "    S: Thread Roots";
+  _phase_names[scan_code_roots]                 = "    S: Code Cache Roots";
+  _phase_names[scan_string_table_roots]         = "    S: String Table Roots";
+  _phase_names[scan_universe_roots]             = "    S: Universe Roots";
+  _phase_names[scan_jni_roots]                  = "    S: JNI Roots";
+  _phase_names[scan_jni_weak_roots]             = "    S: JNI Weak Roots";
+  _phase_names[scan_synchronizer_roots]         = "    S: Synchronizer Roots";
+  _phase_names[scan_flat_profiler_roots]        = "    S: Flat Profiler Roots";
+  _phase_names[scan_management_roots]           = "    S: Management Roots";
+  _phase_names[scan_system_dictionary_roots]    = "    S: System Dict Roots";
+  _phase_names[scan_cldg_roots]                 = "    S: CLDG Roots";
+  _phase_names[scan_jvmti_roots]                = "    S: JVMTI Roots";
 
-  _phase_names[update_thread_roots] = "    Update Thread Roots";
-  _phase_names[update_code_roots] = "    Update Code Cache Roots";
-  _phase_names[update_string_table_roots] = "    Update String Table  Roots";
-  _phase_names[update_universe_roots] = "    Update Universe  Roots";
-  _phase_names[update_jni_roots] = "    Update JNI  Roots";
-  _phase_names[update_jni_weak_roots] = "    Update JNI Weak  Roots";
-  _phase_names[update_synchronizer_roots] = "    Update Synchronizer  Roots";
-  _phase_names[update_flat_profiler_roots] = "    Update Flat Profiler Roots";
-  _phase_names[update_management_roots] = "    Update Management Roots";
-  _phase_names[update_system_dictionary_roots] = "    Update System Dictionary Roots";
-  _phase_names[update_cldg_roots] = "    Update CLDG  Roots";
-  _phase_names[update_jvmti_roots] = "    Update JVMTI Roots";
+  _phase_names[update_thread_roots]             = "    U: Thread Roots";
+  _phase_names[update_code_roots]               = "    U: Code Cache Roots";
+  _phase_names[update_string_table_roots]       = "    U: String Table Roots";
+  _phase_names[update_universe_roots]           = "    U: Universe Roots";
+  _phase_names[update_jni_roots]                = "    U: JNI Roots";
+  _phase_names[update_jni_weak_roots]           = "    U: JNI Weak Roots";
+  _phase_names[update_synchronizer_roots]       = "    U: Synchronizer Roots";
+  _phase_names[update_flat_profiler_roots]      = "    U: Flat Profiler Roots";
+  _phase_names[update_management_roots]         = "    U: Management Roots";
+  _phase_names[update_system_dictionary_roots]  = "    U: System Dict Roots";
+  _phase_names[update_cldg_roots]               = "    U: CLDG Roots";
+  _phase_names[update_jvmti_roots]              = "    U: JVMTI Roots";
 
-  _phase_names[evac_thread_roots] = "    Evacuate Thread Roots";
-  _phase_names[evac_code_roots] = "    Evacuate Code Cache Roots";
-  _phase_names[evac_string_table_roots] = "    Evacuate String Table  Roots";
-  _phase_names[evac_universe_roots] = "    Evacuate Universe  Roots";
-  _phase_names[evac_jni_roots] = "    Evacuate JNI  Roots";
-  _phase_names[evac_jni_weak_roots] = "    Evacuate JNI Weak  Roots";
-  _phase_names[evac_synchronizer_roots] = "    Evacuate Synchronizer  Roots";
-  _phase_names[evac_flat_profiler_roots] = "    Evacuate Flat Profiler Roots";
-  _phase_names[evac_management_roots] = "    Evacuate Management Roots";
-  _phase_names[evac_system_dictionary_roots] = "    Evacuate System Dictionary Roots";
-  _phase_names[evac_cldg_roots] = "    Evacuate CLDG  Roots";
-  _phase_names[evac_jvmti_roots] = "    Evacuate JVMTI Roots";
+  _phase_names[evac_thread_roots]               = "    E: Thread Roots";
+  _phase_names[evac_code_roots]                 = "    E: Code Cache Roots";
+  _phase_names[evac_string_table_roots]         = "    E: String Table Roots";
+  _phase_names[evac_universe_roots]             = "    E: Universe Roots";
+  _phase_names[evac_jni_roots]                  = "    E: JNI Roots";
+  _phase_names[evac_jni_weak_roots]             = "    E: JNI Weak Roots";
+  _phase_names[evac_synchronizer_roots]         = "    E: Synchronizer Roots";
+  _phase_names[evac_flat_profiler_roots]        = "    E: Flat Profiler Roots";
+  _phase_names[evac_management_roots]           = "    E: Management Roots";
+  _phase_names[evac_system_dictionary_roots]    = "    E: System Dict Roots";
+  _phase_names[evac_cldg_roots]                 = "    E: CLDG Roots";
+  _phase_names[evac_jvmti_roots]                = "    E: JVMTI Roots";
 
-  _phase_names[recycle_regions] = "  Recycle regions";
-  _phase_names[reset_bitmaps] = "ResetBitmaps";
-  _phase_names[resize_tlabs] = "Resize TLABs";
+  _phase_names[recycle_regions]                 = "  Recycle regions";
+  _phase_names[reset_bitmaps]                   = "Reset Bitmaps";
+  _phase_names[resize_tlabs]                    = "Resize TLABs";
 
-  _phase_names[full_gc] = "Full GC Times";
-  _phase_names[full_gc_heapdumps] = "  Heap Dumps";
-  _phase_names[full_gc_prepare] = "  Prepare";
-  _phase_names[full_gc_mark] = "  Mark";
-  _phase_names[full_gc_mark_drain_queues] = "    Drain Queues";
-  _phase_names[full_gc_mark_weakrefs] = "    Weak References";
-  _phase_names[full_gc_mark_class_unloading] = "    Class Unloading";
-  _phase_names[full_gc_calculate_addresses] = "  Calculate Addresses";
-  _phase_names[full_gc_adjust_pointers] = "  Adjust Pointers";
-  _phase_names[full_gc_copy_objects] = "  Copy Objects";
+  _phase_names[full_gc]                         = "Full GC";
+  _phase_names[full_gc_heapdumps]               = "  Heap Dumps";
+  _phase_names[full_gc_prepare]                 = "  Prepare";
+  _phase_names[full_gc_mark]                    = "  Mark";
+  _phase_names[full_gc_mark_drain_queues]       = "    Drain Queues";
+  _phase_names[full_gc_mark_weakrefs]           = "    Weak References";
+  _phase_names[full_gc_mark_class_unloading]    = "    Class Unloading";
+  _phase_names[full_gc_calculate_addresses]     = "  Calculate Addresses";
+  _phase_names[full_gc_adjust_pointers]         = "  Adjust Pointers";
+  _phase_names[full_gc_copy_objects]            = "  Copy Objects";
 
-  _phase_names[conc_mark] = "Concurrent Marking Times";
-  _phase_names[conc_evac] = "Concurrent Evacuation Times";
+  _phase_names[conc_mark]                       = "Concurrent Marking";
+  _phase_names[conc_evac]                       = "Concurrent Evacuation";
 
   if (ShenandoahGCHeuristics != NULL) {
     if (strcmp(ShenandoahGCHeuristics, "aggressive") == 0) {
@@ -674,43 +676,35 @@ bool ShenandoahCollectorPolicy::unload_classes() {
 }
 
 void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
+  out->cr();
+  out->print_cr("GC STATISTICS:");
+  out->print_cr("  \"gross\" pauses include time to safepoint. \"net\" pauses are times spent in GC.");
+  out->print_cr("  \"a\" is average time for each phase, look at levels to see if average makes sense.");
+  out->print_cr("  \"lvls\" are 20%% step quantiles, the last level is 100%%, i.e. maximum.");
+  out->cr();
+
   for (uint i = 0; i < _num_phases; i++) {
     if (_timing_data[i]._secs.maximum() != 0) {
       print_summary_sd(out, _phase_names[i], &(_timing_data[i]._secs));
     }
   }
-  out->print_cr("User requested GCs: "SIZE_FORMAT, _user_requested_gcs);
-  out->print_cr("Allocation failure GCs: "SIZE_FORMAT, _allocation_failure_gcs);
-  out->print_cr("Successful concurrent markings: "SIZE_FORMAT, _successful_cm);
-  out->print_cr("Degenerated concurrent markings: "SIZE_FORMAT, _degenerated_cm);
 
-  out->print_cr(" ");
-  double total_sum = _timing_data[init_mark_gross]._secs.sum() +
-                     _timing_data[final_mark_gross]._secs.sum();
-  double total_avg = (_timing_data[init_mark_gross]._secs.avg() +
-                      _timing_data[final_mark_gross]._secs.avg()) / 2.0;
-  double total_max = MAX2(_timing_data[init_mark_gross]._secs.maximum(),
-                          _timing_data[final_mark_gross]._secs.maximum());
-
-  out->print_cr("%-27s = %8.2lf s, avg = %8.2lf ms, max = %8.2lf ms",
-                         "Total", total_sum, total_avg * 1000.0, total_max * 1000.0);
-
+  out->cr();
+  out->print_cr("" SIZE_FORMAT " allocation failure and " SIZE_FORMAT " user requested GCs", _allocation_failure_gcs, _user_requested_gcs);
+  out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated concurrent markings", _successful_cm, _degenerated_cm);
+  out->cr();
 }
 
 void ShenandoahCollectorPolicy::print_summary_sd(outputStream* out, const char* str, const HdrSeq* seq)  {
-  out->print("%-34s = %8.2lf s (avg = %8.0lf us)",
-                      str, seq->sum(), seq->avg() * 1000000.0);
-  out->print_cr("  (num = "INT32_FORMAT_W(5)", lvls (10%% step, us) = %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf, max = %8.0lf)",
+  out->print_cr("%-27s = %8.2lf s (a = %8.0lf us) (n = "INT32_FORMAT_W(5)") (lvls, us = %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf)",
+          str,
+          seq->sum(),
+          seq->avg() * 1000000.0,
           seq->num(),
-          seq->percentile(10) * 1000000.0,
           seq->percentile(20) * 1000000.0,
-          seq->percentile(30) * 1000000.0,
           seq->percentile(40) * 1000000.0,
-          seq->percentile(50) * 1000000.0,
           seq->percentile(60) * 1000000.0,
-          seq->percentile(70) * 1000000.0,
           seq->percentile(80) * 1000000.0,
-          seq->percentile(90) * 1000000.0,
           seq->maximum() * 1000000.0
   );
 }

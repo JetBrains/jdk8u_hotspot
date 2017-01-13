@@ -41,6 +41,9 @@ class ShenandoahCollectorPolicy: public CollectorPolicy {
 
 public:
   enum TimingPhase {
+    total_pause_gross,
+    total_pause,
+
     init_mark_gross,
     init_mark,
     accumulate_stats,
