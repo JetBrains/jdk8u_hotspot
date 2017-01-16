@@ -1025,12 +1025,10 @@ Node *CmpPNode::Ideal( PhaseGVN *phase, bool can_reshape ) {
   if (UseShenandoahGC) {
     Node* in1 = in(1);
     Node* in2 = in(2);
-    if (in1->bottom_type() == TypePtr::NULL_PTR ||
-        AllocateNode::Ideal_allocation(in1, phase) != NULL) {
+    if (in1->bottom_type() == TypePtr::NULL_PTR) {
       in2 = ShenandoahBarrierNode::skip_through_barrier(in2);
     }
-    if (in2->bottom_type() == TypePtr::NULL_PTR ||
-        AllocateNode::Ideal_allocation(in2, phase) != NULL) {
+    if (in2->bottom_type() == TypePtr::NULL_PTR) {
       in1 = ShenandoahBarrierNode::skip_through_barrier(in1);
     }
     PhaseIterGVN* igvn = phase->is_IterGVN();

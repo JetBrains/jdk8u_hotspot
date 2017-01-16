@@ -4360,10 +4360,7 @@ Node* GraphKit::cmp_objects(Node* a, Node* b) {
       // We know one arg is gonna be null. No need for barriers.
       return _gvn.transform(new (C) CmpPNode(b, a));
     }
-    if (AllocateNode::Ideal_allocation(a, &_gvn) != NULL || AllocateNode::Ideal_allocation(b, &_gvn) != NULL) {
-      // We know one arg is already in to-space. No need for barriers.
-      return _gvn.transform(new (C) CmpPNode(b, a));
-    }
+
     const TypePtr* a_adr_type = ShenandoahBarrierNode::brooks_pointer_type(a_type);
     const TypePtr* b_adr_type = ShenandoahBarrierNode::brooks_pointer_type(b_type);
     if ((! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, a, memory(a_adr_type), false)) &&
