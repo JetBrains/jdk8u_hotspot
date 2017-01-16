@@ -680,7 +680,7 @@ void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
   out->print_cr("GC STATISTICS:");
   out->print_cr("  \"gross\" pauses include time to safepoint. \"net\" pauses are times spent in GC.");
   out->print_cr("  \"a\" is average time for each phase, look at levels to see if average makes sense.");
-  out->print_cr("  \"lvls\" are 20%% step quantiles, the last level is 100%%, i.e. maximum.");
+  out->print_cr("  \"lvls\" are quantiles: 0%% (minimum), 25%%, 50%% (median), 75%%, 100%% (maximum).");
   out->cr();
 
   for (uint i = 0; i < _num_phases; i++) {
@@ -701,10 +701,10 @@ void ShenandoahCollectorPolicy::print_summary_sd(outputStream* out, const char* 
           seq->sum(),
           seq->avg() * 1000000.0,
           seq->num(),
-          seq->percentile(20) * 1000000.0,
-          seq->percentile(40) * 1000000.0,
-          seq->percentile(60) * 1000000.0,
-          seq->percentile(80) * 1000000.0,
+          seq->percentile(0)  * 1000000.0,
+          seq->percentile(25) * 1000000.0,
+          seq->percentile(50) * 1000000.0,
+          seq->percentile(75) * 1000000.0,
           seq->maximum() * 1000000.0
   );
 }

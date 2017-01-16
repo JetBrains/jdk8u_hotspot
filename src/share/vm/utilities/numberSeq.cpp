@@ -338,7 +338,8 @@ void HdrSeq::add(double val) {
 }
 
 double HdrSeq::percentile(double level) const {
-  int target = (int) (level * num() / 100);
+  // target should be non-zero to find the first sample
+  int target = MAX2(1, (int) (level * num() / 100));
   int cnt = 0;
   for (int mag = 0; mag < MagBuckets; mag++) {
     if (_hdr[mag] != NULL) {
