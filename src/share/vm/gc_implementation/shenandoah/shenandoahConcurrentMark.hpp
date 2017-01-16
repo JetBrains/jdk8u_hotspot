@@ -28,7 +28,7 @@
 #include "utilities/workgroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 
-typedef ObjArrayFromToTask SCMTask;
+typedef ObjArrayChunkedTask SCMTask;
 typedef BufferedOverflowTaskQueue<SCMTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
 typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
 
@@ -57,7 +57,8 @@ public:
   ~ShenandoahMarkObjsClosure();
 
   inline void do_task(SCMTask* task);
-  inline void do_chunked_array(objArrayOop array, int from, int to);
+  inline void do_chunked_array_start(objArrayOop array, int len);
+  inline void do_chunked_array(objArrayOop array, int chunk, int pow);
   inline void count_liveness(oop obj);
 };
 

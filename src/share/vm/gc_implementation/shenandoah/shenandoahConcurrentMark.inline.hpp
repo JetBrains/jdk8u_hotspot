@@ -53,31 +53,31 @@ void ShenandoahMarkObjsClosure<T, CL>::do_task(SCMTask* task) {
   assert(_heap->is_in(obj), "referenced objects must be in the heap. No?");
   assert(_heap->is_marked_next(obj), "only marked objects on task queue");
 
-  int from = task->from();
-  if (from == -1) {
+  if (task->is_not_chunked()) {
     count_liveness(obj);
-    if (obj->is_objArray()) {
-      // Case 1: Array instance and no task bounds set. Must be the first time
+    if (!obj->is_objArray()) {
+      // Case 1: Normal oop, process as usual.
+      obj->oop_iterate(&_mark_refs);
+    } else {
+      // Case 2: Array instance and no chunk is set. Must be the first time
       // we visit it.
       objArrayOop array = objArrayOop(obj);
       int len = array->length();
       if (len > 0) {
-        // Case 1a. Non-empty array. The header would be processed along with the
+        // Case 2a. Non-empty array. The header would be processed along with the
         // chunk that starts at offset=0, see ObjArrayKlass::oop_oop_iterate_range.
-        do_chunked_array(array, 0, len);
+        do_chunked_array_start(array, len);
       } else {
-        // Case 1b. Empty array. Only need to care about the header.
+        // Case 2b. Empty array. Only need to care about the header.
         _mark_refs.do_klass(obj->klass());
       }
-    } else {
-     // Case 2: Normal oop, process as usual.
-      obj->oop_iterate(&_mark_refs);
     }
   } else {
-    // Case 3: Array chunk, has sensible (from, to) bounds. Process it.
+    // Case 3: Array chunk, has sensible chunk id. Process it.
+    int chunk = task->chunk();
     assert(obj->is_objArray(), "expect object array");
     objArrayOop array = objArrayOop(obj);
-    do_chunked_array(array, from, task->to());
+    do_chunked_array(array, chunk, task->pow());
   }
 }
 
@@ -105,20 +105,87 @@ inline void ShenandoahMarkObjsClosure<T, CL>::count_liveness(oop obj) {
 }
 
 template <class T, bool CL>
-inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array(objArrayOop array, int from, int to) {
-  assert (from < to, "sanity");
+inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array_start(objArrayOop array, int len) {
+  if (len <= (int) ObjArrayMarkingStride*2) {
+    // A few slices only, process directly
+    array->oop_iterate_range(&_mark_refs, 0, len);
+  } else {
+    int bits = log2_long(len);
+    // Compensate for non-power-of-two arrays, cover the array in excess:
+    if (len != (1 << bits)) bits++;
+
+    // Only allow full chunks on the queue. This frees do_chunked_array() from checking from/to
+    // boundaries against array->length(), touching the array header on every chunk.
+    //
+    // To do this, we cut the prefix in full-sized chunks, and submit them on the queue.
+    // If the array is not divided in chunk sizes, then there would be an irregular tail,
+    // which we will process separately.
+
+    int last_idx = 0;
+
+    int chunk = 1;
+    int pow = bits;
+
+    // Handle overflow
+    if (pow >= 31) {
+      assert (pow == 31, "sanity");
+      pow--;
+      chunk = 2;
+      last_idx = (1 << pow);
+      bool pushed = _queue->push(SCMTask(array, 1, pow));
+      assert(pushed, "overflow queue should always succeed pushing");
+    }
+
+    // Split out tasks, as suggested in ObjArrayChunkedTask docs. Record the last
+    // successful right boundary to figure out the irregular tail.
+    while ((1 << pow) > (int)ObjArrayMarkingStride &&
+           (chunk*2 < SCMTask::chunk_size)) {
+      pow--;
+      int left_chunk = chunk*2 - 1;
+      int right_chunk = chunk*2;
+      int left_chunk_end = left_chunk * (1 << pow);
+      if (left_chunk_end < len) {
+        bool pushed = _queue->push(SCMTask(array, left_chunk, pow));
+        assert(pushed, "overflow queue should always succeed pushing");
+        chunk = right_chunk;
+        last_idx = left_chunk_end;
+      } else {
+        chunk = left_chunk;
+      }
+    }
+
+    // Process the irregular tail, if present
+    int from = last_idx;
+    if (from < len) {
+      array->oop_iterate_range(&_mark_refs, from, len);
+    }
+  }
+}
+
+template <class T, bool CL>
+inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array(objArrayOop array, int chunk, int pow) {
   assert (ObjArrayMarkingStride > 0, "sanity");
 
-  // Fork out tasks until we hit the leaf task. Larger tasks would go to the
-  // "stealing" part of the queue, which will seed other workers efficiently.
-  while ((to - from) > (int)ObjArrayMarkingStride) {
-    int mid = from + (to - from) / 2;
-    bool pushed = _queue->push(SCMTask(array, mid, to));
+  // Split out tasks, as suggested in ObjArrayChunkedTask docs. Avoid pushing tasks that
+  // are known to start beyond the array.
+  while ((1 << pow) > (int)ObjArrayMarkingStride && (chunk*2 < SCMTask::chunk_size)) {
+    pow--;
+    chunk *= 2;
+    bool pushed = _queue->push(SCMTask(array, chunk - 1, pow));
     assert(pushed, "overflow queue should always succeed pushing");
-    to = mid;
   }
 
-  // Execute the leaf task
+  int chunk_size = 1 << pow;
+
+  int from = (chunk - 1) * chunk_size;
+  int to = chunk * chunk_size;
+
+#ifdef ASSERT
+  int len = array->length();
+  assert (0 <= from && from < len, err_msg("from is sane: %d/%d", from, len));
+  assert (0 < to && to <= len, err_msg("to is sane: %d/%d", to, len));
+#endif
+
   array->oop_iterate_range(&_mark_refs, from, to);
 }
 
@@ -183,7 +250,7 @@ inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* hea
            || oopDesc::bs()->is_safe(obj),
            "we don't want to mark objects in from-space");
 
-    bool pushed = q->push(SCMTask(obj, -1, -1));
+    bool pushed = q->push(SCMTask(obj));
     assert(pushed, "overflow queue should always succeed pushing");
 
   }

@@ -26,7 +26,7 @@
 
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 
-typedef BufferedOverflowTaskQueue<ObjArrayFromToTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
+typedef BufferedOverflowTaskQueue<ObjArrayChunkedTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
 typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
 
 class ShenandoahHeap;

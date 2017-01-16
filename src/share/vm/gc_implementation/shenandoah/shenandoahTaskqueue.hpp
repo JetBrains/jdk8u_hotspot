@@ -61,43 +61,174 @@ private:
   E _elem;
 };
 
-class ObjArrayFromToTask
+// ObjArrayChunkedTask
+//
+// Encodes both regular oops, and the array oops plus chunking data for parallel array processing.
+// The design goal is to make the regular oop ops very fast, because that would be the prevailing
+// case. On the other hand, it should not block parallel array processing from efficiently dividing
+// the array work.
+//
+// The idea is to steal the bits from the 64-bit oop to encode array data, if needed. For the
+// proper divide-and-conquer strategies, we want to encode the "blocking" data. It turns out, the
+// most efficient way to do this is to encode the array block as (chunk * 2^pow), where it is assumed
+// that the block has the size of 2^pow. This requires for pow to have only 5 bits (2^32) to encode
+// all possible arrays.
+//
+//    |---------oop---------|-pow-|--chunk---|
+//    0                    49     54        64
+//
+// By definition, chunk == 0 means "no chunk", i.e. chunking starts from 1.
+//
+// This encoding gives a few interesting benefits:
+//
+// a) Encoding/decoding regular oops is very simple, because the upper bits are zero in that task:
+//
+//    |---------oop---------|00000|0000000000| // no chunk data
+//
+//    This helps the most ubiquitous path. The initialization amounts to putting the oop into the word
+//    with zero padding. Testing for "chunkedness" is testing for zero with chunk mask.
+//
+// b) Splitting tasks for divide-and-conquer is possible. Suppose we have chunk <C, P> that covers
+// interval [ (C-1)*2^P; C*2^P ). We can then split it into two chunks:
+//      <2*C - 1, P-1>, that covers interval [ (2*C - 2)*2^(P-1); (2*C - 1)*2^(P-1) )
+//      <2*C, P-1>,     that covers interval [ (2*C - 1)*2^(P-1);       2*C*2^(P-1) )
+//
+//    Observe that the union of these two intervals is:
+//      [ (2*C - 2)*2^(P-1); 2*C*2^(P-1) )
+//
+//    ...which is the original interval:
+//      [ (C-1)*2^P; C*2^P )
+//
+// c) The divide-and-conquer strategy could even start with chunk <1, round-log2-len(arr)>, and split
+//    down in the parallel threads, which alleviates the upfront (serial) splitting costs.
+//
+// Encoding limitations caused by current bitscales mean:
+//    10 bits for chunk: max 1024 blocks per array
+//     5 bits for power: max 2^32 array
+//    49 bits for   oop: max 512 TB of addressable space
+//
+// Stealing bits from oop trims down the addressable space. Stealing too few bits for chunk ID limits
+// potential parallelism. Stealing too few bits for pow limits the maximum array size that can be handled.
+// In future, these might be rebalanced to favor one degree of freedom against another. For example,
+// if/when Arrays 2.0 bring 2^64-sized arrays, we might need to steal another bit for power. We could regain
+// some bits back if chunks are counted in ObjArrayMarkingStride units.
+//
+// There is also a fallback version that uses plain fields, when we don't have enough space to steal the
+// bits from the native pointer. It is useful to debug the _LP64 version.
+//
+#ifdef _LP64
+class ObjArrayChunkedTask
 {
 public:
-  ObjArrayFromToTask(oop o = NULL, int from = 0, int to = 0): _obj(o), _from(from), _to(to) { }
-  ObjArrayFromToTask(oop o, size_t from, size_t to): _obj(o), _from(int(from)), _to(int(to)) {
-    assert(from <= size_t(max_jint), "too big");
-    assert(to <= size_t(max_jint), "too big");
-    assert(from < to, "sanity");
-  }
-  ObjArrayFromToTask(const ObjArrayFromToTask& t): _obj(t._obj), _from(t._from), _to(t._to) { }
+  enum {
+    chunk_bits   = 10,
+    pow_bits     = 5,
+    oop_bits     = sizeof(uintptr_t)*8 - chunk_bits - pow_bits,
+  };
+  enum {
+    chunk_size   = nth_bit(chunk_bits),
+    pow_size     = nth_bit(pow_bits),
+    oop_size     = nth_bit(oop_bits),
+  };
+  enum {
+    oop_shift    = 0,
+    pow_shift    = oop_shift + oop_bits,
+    chunk_shift  = pow_shift + pow_bits,
+  };
+  enum {
+    oop_mask     = right_n_bits(oop_bits),
+    pow_mask     = right_n_bits(pow_bits),
+    chunk_mask   = right_n_bits(chunk_bits),
+    chunk_mask_unshift = ~right_n_bits(oop_bits + pow_bits),
+  };
 
-  ObjArrayFromToTask& operator =(const ObjArrayFromToTask& t) {
+public:
+  ObjArrayChunkedTask(oop o = NULL) {
+    _obj = ((uintptr_t)(void*) o) << oop_shift;
+  }
+  ObjArrayChunkedTask(oop o, int chunk, int mult) {
+    assert(0 <= chunk && chunk < chunk_size, err_msg("chunk is sane: %d", chunk));
+    assert(0 <= mult && mult < pow_size, err_msg("pow is sane: %d", mult));
+    uintptr_t t_b = ((uintptr_t) chunk) << chunk_shift;
+    uintptr_t t_m = ((uintptr_t) mult) << pow_shift;
+    uintptr_t obj = (uintptr_t)(void*)o;
+    assert(obj < oop_size, err_msg("obj ref is sane: " PTR_FORMAT, obj));
+    intptr_t t_o = obj << oop_shift;
+    _obj = t_o | t_m | t_b;
+  }
+  ObjArrayChunkedTask(const ObjArrayChunkedTask& t): _obj(t._obj) { }
+
+  ObjArrayChunkedTask& operator =(const ObjArrayChunkedTask& t) {
     _obj = t._obj;
-    _from = t._from;
-    _to = t._to;
     return *this;
   }
-  volatile ObjArrayFromToTask&
-  operator =(const volatile ObjArrayFromToTask& t) volatile {
+  volatile ObjArrayChunkedTask&
+  operator =(const volatile ObjArrayChunkedTask& t) volatile {
+    (void)const_cast<uintptr_t&>(_obj = t._obj);
+    return *this;
+  }
+
+  inline oop obj()   const { return (oop) reinterpret_cast<void*>((_obj >> oop_shift) & oop_mask); }
+  inline int chunk() const { return (int) (_obj >> chunk_shift) & chunk_mask; }
+  inline int pow()   const { return (int) ((_obj >> pow_shift) & pow_mask); }
+  inline bool is_not_chunked() const { return (_obj & chunk_mask_unshift) == 0; }
+
+  DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
+
+private:
+  uintptr_t _obj;
+};
+#else
+class ObjArrayChunkedTask
+{
+public:
+  enum {
+    chunk_bits  = 10,
+    pow_bits    = 5,
+  };
+  enum {
+    chunk_size  = nth_bit(chunk_bits),
+    pow_size    = nth_bit(pow_bits),
+  };
+public:
+  ObjArrayChunkedTask(oop o = NULL, int chunk = 0, int pow = 0): _obj(o) {
+    assert(0 <= chunk && chunk < chunk_size, "chunk is sane: %d", chunk);
+    assert(0 <= pow && pow < pow_size, "pow is sane: %d", pow);
+    _chunk = chunk;
+    _pow = pow;
+  }
+  ObjArrayChunkedTask(const ObjArrayChunkedTask& t): _obj(t._obj), _chunk(t._chunk), _pow(t._pow) { }
+
+  ObjArrayChunkedTask& operator =(const ObjArrayChunkedTask& t) {
+    _obj = t._obj;
+    _chunk = t._chunk;
+    _pow = t._pow;
+    return *this;
+  }
+  volatile ObjArrayChunkedTask&
+  operator =(const volatile ObjArrayChunkedTask& t) volatile {
     (void)const_cast<oop&>(_obj = t._obj);
-    _from = t._from;
-    _to = t._to;
+    _chunk = t._chunk;
+    _pow = t._pow;
     return *this;
   }
 
   inline oop obj()   const { return _obj; }
-  inline int from() const { return _from; }
-  inline int to() const { return _to; }
+  inline int chunk() const { return _chunk; }
+  inline int pow()  const { return _pow; }
+
+  inline bool is_not_chunked() const { return _chunk == 0; }
 
   DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
 
 private:
   oop _obj;
-  int _from, _to;
+  int _chunk;
+  int _pow;
 };
+#endif
 
-typedef ObjArrayFromToTask SCMTask;
+typedef ObjArrayChunkedTask SCMTask;
 typedef BufferedOverflowTaskQueue<SCMTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
 typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
 

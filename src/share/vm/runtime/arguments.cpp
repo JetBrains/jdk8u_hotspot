@@ -1723,6 +1723,13 @@ void Arguments::set_shenandoah_gc_flags() {
   UNSUPPORTED_OPTION(UseShenandoahGC);
 #endif
 
+  if (MaxHeapSize >= ObjArrayChunkedTask::oop_size) {
+    jio_fprintf(defaultStream::error_stream(),
+                "Shenandoah GC cannot address more than " SIZE_FORMAT " bytes, and " SIZE_FORMAT " bytes heap requested.",
+                ObjArrayChunkedTask::oop_size, MaxHeapSize);
+    vm_exit(1);
+  }
+
   FLAG_SET_DEFAULT(ParallelGCThreads,
                    Abstract_VM_Version::parallel_worker_threads());
 
