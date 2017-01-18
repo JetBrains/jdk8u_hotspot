@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,7 @@
 #include "precompiled.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/systemDictionary.hpp"
+#include "classfile/systemDictionaryShared.hpp"
 #include "classfile/verifier.hpp"
 #include "classfile/vmSymbols.hpp"
 #include "compiler/compileBroker.hpp"
@@ -615,7 +616,11 @@ bool InstanceKlass::link_class_or_fail(TRAPS) {
 
 bool InstanceKlass::link_class_impl(
     instanceKlassHandle this_oop, bool throw_verifyerror, TRAPS) {
-  // check for error state
+  // check for error state.
+  // This is checking for the wrong state.  If the state is initialization_error,
+  // then this class *was* linked.  The CDS code does a try_link_class and uses
+  // initialization_error to mark classes to not include in the archive during
+  // DumpSharedSpaces.  This should be removed when the CDS bug is fixed.
   if (this_oop->is_in_error_state()) {
     ResourceMark rm(THREAD);
     THROW_MSG_(vmSymbols::java_lang_NoClassDefFoundError(),
@@ -706,6 +711,16 @@ bool InstanceKlass::link_class_impl(
 
         // also sets rewritten
         this_oop->rewrite_class(CHECK_false);
+      } else if (this_oop()->is_shared()) {
+        ResourceMark rm(THREAD);
+        char* message_buffer; // res-allocated by check_verification_dependencies
+        Handle loader = this_oop()->class_loader();
+        Handle pd     = this_oop()->protection_domain();
+        bool verified = SystemDictionaryShared::check_verification_dependencies(this_oop(),
+                        loader, pd, &message_buffer, THREAD);
+        if (!verified) {
+          THROW_MSG_(vmSymbols::java_lang_VerifyError(), message_buffer, false);
+        }
       }
 
       // relocate jsrs and link methods after they are all rewritten
@@ -715,7 +730,12 @@ bool InstanceKlass::link_class_impl(
       // methods have been rewritten since rewrite may
       // fabricate new Method*s.
       // also does loader constraint checking
-      if (!this_oop()->is_shared()) {
+      //
+      // Initialize_vtable and initialize_itable need to be rerun for
+      // a shared class if the class is not loaded by the NULL classloader.
+      ClassLoaderData * loader_data = this_oop->class_loader_data();
+      if (!(this_oop()->is_shared() &&
+            loader_data->is_the_null_class_loader_data())) {
         ResourceMark rm(THREAD);
         this_oop->vtable()->initialize_vtable(true, CHECK_false);
         this_oop->itable()->initialize_itable(true, CHECK_false);
@@ -785,37 +805,22 @@ void InstanceKlass::link_methods(TRAPS) {
 }
 
 // Eagerly initialize superinterfaces that declare default methods (concrete instance: any access)
-void InstanceKlass::initialize_super_interfaces(instanceKlassHandle this_oop, TRAPS) {
-  if (this_oop->has_default_methods()) {
-    for (int i = 0; i < this_oop->local_interfaces()->length(); ++i) {
-      Klass* iface = this_oop->local_interfaces()->at(i);
-      InstanceKlass* ik = InstanceKlass::cast(iface);
-      if (ik->should_be_initialized()) {
-        if (ik->has_default_methods()) {
-          ik->initialize_super_interfaces(ik, THREAD);
-        }
-        // Only initialize() interfaces that "declare" concrete methods.
-        // has_default_methods drives searching superinterfaces since it
-        // means has_default_methods in its superinterface hierarchy
-        if (!HAS_PENDING_EXCEPTION && ik->declares_default_methods()) {
-          ik->initialize(THREAD);
-        }
-        if (HAS_PENDING_EXCEPTION) {
-          Handle e(THREAD, PENDING_EXCEPTION);
-          CLEAR_PENDING_EXCEPTION;
-          {
-            EXCEPTION_MARK;
-            // Locks object, set state, and notify all waiting threads
-            this_oop->set_initialization_state_and_notify(
-                initialization_error, THREAD);
+void InstanceKlass::initialize_super_interfaces(instanceKlassHandle this_k, TRAPS) {
+  assert (this_k->has_default_methods(), "caller should have checked this");
+  for (int i = 0; i < this_k->local_interfaces()->length(); ++i) {
+    Klass* iface = this_k->local_interfaces()->at(i);
+    InstanceKlass* ik = InstanceKlass::cast(iface);
 
-            // ignore any exception thrown, superclass initialization error is
-            // thrown below
-            CLEAR_PENDING_EXCEPTION;
-          }
-          THROW_OOP(e());
-        }
-      }
+    // Initialization is depth first search ie. we start with top of the inheritance tree
+    // has_default_methods drives searching superinterfaces since it
+    // means has_default_methods in its superinterface hierarchy
+    if (ik->has_default_methods()) {
+      ik->initialize_super_interfaces(ik, CHECK);
+    }
+
+    // Only initialize() interfaces that "declare" concrete methods.
+    if (ik->should_be_initialized() && ik->declares_default_methods()) {
+      ik->initialize(CHECK);
     }
   }
 }
@@ -881,28 +886,34 @@ void InstanceKlass::initialize_impl(instanceKlassHandle this_oop, TRAPS) {
   }
 
   // Step 7
-  Klass* super_klass = this_oop->super();
-  if (super_klass != NULL && !this_oop->is_interface() && super_klass->should_be_initialized()) {
-    super_klass->initialize(THREAD);
+  // Next, if C is a class rather than an interface, initialize its super class and super
+  // interfaces.
+  if (!this_oop->is_interface()) {
+    Klass* super_klass = this_oop->super();
+    if (super_klass != NULL && super_klass->should_be_initialized()) {
+      super_klass->initialize(THREAD);
+    }
+    // If C implements any interfaces that declares a non-abstract, non-static method,
+    // the initialization of C triggers initialization of its super interfaces.
+    // Only need to recurse if has_default_methods which includes declaring and
+    // inheriting default methods
+    if (!HAS_PENDING_EXCEPTION && this_oop->has_default_methods()) {
+      this_oop->initialize_super_interfaces(this_oop, THREAD);
+    }
 
+    // If any exceptions, complete abruptly, throwing the same exception as above.
     if (HAS_PENDING_EXCEPTION) {
       Handle e(THREAD, PENDING_EXCEPTION);
       CLEAR_PENDING_EXCEPTION;
       {
         EXCEPTION_MARK;
-        this_oop->set_initialization_state_and_notify(initialization_error, THREAD); // Locks object, set state, and notify all waiting threads
-        CLEAR_PENDING_EXCEPTION;   // ignore any exception thrown, superclass initialization error is thrown below
+        // Locks object, set state, and notify all waiting threads
+        this_oop->set_initialization_state_and_notify(initialization_error, THREAD);
+        CLEAR_PENDING_EXCEPTION;
       }
       DTRACE_CLASSINIT_PROBE_WAIT(super__failed, InstanceKlass::cast(this_oop()), -1,wait);
       THROW_OOP(e());
     }
-  }
-
-  // Recursively initialize any superinterfaces that declare default methods
-  // Only need to recurse if has_default_methods which includes declaring and
-  // inheriting default methods
-  if (this_oop->has_default_methods()) {
-    this_oop->initialize_super_interfaces(this_oop, CHECK);
   }
 
   // Step 8
@@ -965,10 +976,15 @@ void InstanceKlass::set_initialization_state_and_notify(ClassState state, TRAPS)
 
 void InstanceKlass::set_initialization_state_and_notify_impl(instanceKlassHandle this_oop, ClassState state, TRAPS) {
   oop init_lock = this_oop->init_lock();
-  ObjectLocker ol(init_lock, THREAD, init_lock != NULL);
-  this_oop->set_init_state(state);
-  this_oop->fence_and_clear_init_lock();
-  ol.notify_all(CHECK);
+  if (init_lock != NULL) {
+    ObjectLocker ol(init_lock, THREAD);
+    this_oop->set_init_state(state);
+    this_oop->fence_and_clear_init_lock();
+    ol.notify_all(CHECK);
+  } else {
+    assert(init_lock != NULL, "The initialization state should never be set twice");
+    this_oop->set_init_state(state);
+  }
 }
 
 // The embedded _implementor field can only record one implementor.
