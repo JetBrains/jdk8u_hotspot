@@ -57,8 +57,8 @@ public:
   ~ShenandoahMarkObjsClosure();
 
   inline void do_task(SCMTask* task);
-  inline void do_chunked_array_start(objArrayOop array, int len);
-  inline void do_chunked_array(objArrayOop array, int chunk, int pow);
+  inline void do_chunked_array_start(oop array);
+  inline void do_chunked_array(oop array, int chunk, int pow);
   inline void count_liveness(oop obj);
 };
 

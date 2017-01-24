@@ -131,14 +131,7 @@ ShenandoahMarkObjsClosure<T, CL>::~ShenandoahMarkObjsClosure() {
   }
 }
 
-ShenandoahMarkUpdateRefsClosure::ShenandoahMarkUpdateRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
-  MetadataAwareOopClosure(rp),
-  _queue(q),
-  _heap((ShenandoahHeap*) Universe::heap())
-{
-}
-
-ShenandoahMarkRefsClosure::ShenandoahMarkRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
   MetadataAwareOopClosure(rp),
   _queue(q),
   _heap((ShenandoahHeap*) Universe::heap())
@@ -227,11 +220,21 @@ public:
       }
     }
     if (_update_refs) {
-      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
-      _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
+      if (_cm->unload_classes()) {
+        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsMetadataClosure, true> cl(q, rp, live_data);
+        _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
+      } else {
+        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
+        _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
+      }
     } else {
-      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
-      _cm->concurrent_mark_loop(&cl, worker_id, q,  _terminator);
+      if (_cm->unload_classes()) {
+        ShenandoahMarkObjsClosure<ShenandoahMarkRefsMetadataClosure, true> cl(q, rp, live_data);
+        _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
+      } else {
+        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
+        _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
+      }
     }
   }
 };
@@ -242,10 +245,11 @@ private:
   ParallelTaskTerminator* _terminator;
   bool _update_refs;
   bool _count_live;
+  bool _unload_classes;
 
 public:
-  SCMFinalMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs, bool count_live) :
-    AbstractGangTask("Shenandoah Final Marking"), _cm(cm), _terminator(terminator), _update_refs(update_refs), _count_live(count_live) {
+  SCMFinalMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs, bool count_live, bool unload_classes) :
+    AbstractGangTask("Shenandoah Final Marking"), _cm(cm), _terminator(terminator), _update_refs(update_refs), _count_live(count_live), _unload_classes(unload_classes) {
   }
 
   void work(uint worker_id) {
@@ -268,19 +272,39 @@ public:
     // Templates need constexprs, so we have to switch by the flags ourselves.
     if (_update_refs) {
       if (_count_live) {
-        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
-        _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        if (_unload_classes) {
+          ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsMetadataClosure, true> cl(q, rp, live_data);
+          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        } else {
+          ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
+          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        }
       } else {
-        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, false> cl(q, rp, live_data);
-        _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        if (_unload_classes) {
+          ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsMetadataClosure, false> cl(q, rp, live_data);
+          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        } else {
+          ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, false> cl(q, rp, live_data);
+          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        }
       }
     } else {
       if (_count_live) {
-        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
-        _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        if (_unload_classes) {
+          ShenandoahMarkObjsClosure<ShenandoahMarkRefsMetadataClosure, true> cl(q, rp, live_data);
+          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        } else {
+          ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
+          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        }
       } else {
-        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, false> cl(q, rp, live_data);
-        _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        if (_unload_classes) {
+          ShenandoahMarkObjsClosure<ShenandoahMarkRefsMetadataClosure, false> cl(q, rp, live_data);
+          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        } else {
+          ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, false> cl(q, rp, live_data);
+          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
+        }
       }
     }
 
@@ -467,12 +491,12 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
     SharedHeap::StrongRootsScope scope(sh, true);
     if (UseShenandoahOWST) {
       ShenandoahTaskTerminator terminator(nworkers, task_queues());
-      SCMFinalMarkingTask markingTask = SCMFinalMarkingTask(this, &terminator, sh->need_update_refs(), count_live);
-      sh->workers()->run_task(&markingTask);
+      SCMFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
+      sh->workers()->run_task(&task);
     } else {
       ParallelTaskTerminator terminator(nworkers, task_queues());
-      SCMFinalMarkingTask markingTask = SCMFinalMarkingTask(this, &terminator, sh->need_update_refs(), count_live);
-      sh->workers()->run_task(&markingTask);
+      SCMFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
+      sh->workers()->run_task(&task);
     }
     policy->record_phase_end(full_gc ?
                              ShenandoahCollectorPolicy::full_gc_mark_drain_queues :
@@ -648,11 +672,21 @@ public:
     SCMObjToScanQueue* q = scm->get_queue(_worker_id);
     jushort* live_data = scm->get_liveness(_worker_id);
     if (sh->need_update_refs()) {
-      ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
-      scm->final_mark_loop(&cl, _worker_id, q, _terminator);
+      if (scm->unload_classes()) {
+        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsMetadataClosure, true> cl(q, rp, live_data);
+        scm->final_mark_loop(&cl, _worker_id, q, _terminator);
+      } else {
+        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
+        scm->final_mark_loop(&cl, _worker_id, q, _terminator);
+      }
     } else {
-      ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
-      scm->final_mark_loop(&cl, _worker_id, q, _terminator);
+      if (scm->unload_classes()) {
+        ShenandoahMarkObjsClosure<ShenandoahMarkRefsMetadataClosure, true> cl(q, rp, live_data);
+        scm->final_mark_loop(&cl, _worker_id, q, _terminator);
+      } else {
+        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
+        scm->final_mark_loop(&cl, _worker_id, q, _terminator);
+      }
     }
   }
 };

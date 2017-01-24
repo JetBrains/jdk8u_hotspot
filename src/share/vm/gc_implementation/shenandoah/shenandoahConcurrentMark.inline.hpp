@@ -54,36 +54,23 @@ void ShenandoahMarkObjsClosure<T, CL>::do_task(SCMTask* task) {
   assert(_heap->is_marked_next(obj), "only marked objects on task queue");
 
   if (task->is_not_chunked()) {
-    count_liveness(obj);
+    if (CL) count_liveness(obj);
     if (!obj->is_objArray()) {
       // Case 1: Normal oop, process as usual.
       obj->oop_iterate(&_mark_refs);
     } else {
       // Case 2: Array instance and no chunk is set. Must be the first time
       // we visit it.
-      objArrayOop array = objArrayOop(obj);
-      int len = array->length();
-      if (len > 0) {
-        // Case 2a. Non-empty array. The header would be processed along with the
-        // chunk that starts at offset=0, see ObjArrayKlass::oop_oop_iterate_range.
-        do_chunked_array_start(array, len);
-      } else {
-        // Case 2b. Empty array. Only need to care about the header.
-        _mark_refs.do_klass(obj->klass());
-      }
+      do_chunked_array_start(obj);
     }
   } else {
     // Case 3: Array chunk, has sensible chunk id. Process it.
-    int chunk = task->chunk();
-    assert(obj->is_objArray(), "expect object array");
-    objArrayOop array = objArrayOop(obj);
-    do_chunked_array(array, chunk, task->pow());
+    do_chunked_array(obj, task->chunk(), task->pow());
   }
 }
 
 template <class T, bool CL>
 inline void ShenandoahMarkObjsClosure<T, CL>::count_liveness(oop obj) {
-  if (!CL) return; // no need to count liveness!
   uint region_idx = _heap->heap_region_index_containing(obj);
   jushort cur = _live_data[region_idx];
   int size = obj->size() + BrooksPointer::word_size();
@@ -105,7 +92,11 @@ inline void ShenandoahMarkObjsClosure<T, CL>::count_liveness(oop obj) {
 }
 
 template <class T, bool CL>
-inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array_start(objArrayOop array, int len) {
+inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array_start(oop obj) {
+  assert(obj->is_objArray(), "expect object array");
+  objArrayOop array = objArrayOop(obj);
+  int len = array->length();
+
   if (len <= (int) ObjArrayMarkingStride*2) {
     // A few slices only, process directly
     array->oop_iterate_range(&_mark_refs, 0, len);
@@ -163,7 +154,10 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array_start(objArrayOop
 }
 
 template <class T, bool CL>
-inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array(objArrayOop array, int chunk, int pow) {
+inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array(oop obj, int chunk, int pow) {
+  assert(obj->is_objArray(), "expect object array");
+  objArrayOop array = objArrayOop(obj);
+
   assert (ObjArrayMarkingStride > 0, "sanity");
 
   // Split out tasks, as suggested in ObjArrayChunkedTask docs. Avoid pushing tasks that
