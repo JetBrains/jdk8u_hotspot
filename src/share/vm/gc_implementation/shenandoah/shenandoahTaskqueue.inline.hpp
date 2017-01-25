@@ -14,8 +14,10 @@ inline bool BufferedOverflowTaskQueue<E, F, N>::push(E t)
   if (_buf_empty) {
     _elem = t;
     _buf_empty = false;
-    return true;
   } else {
-    return taskqueue_t::push(t);
+    bool pushed = taskqueue_t::push(_elem);
+    assert(pushed, "overflow queue should always succeed pushing");
+    _elem = t;
   }
+  return true;
 }
