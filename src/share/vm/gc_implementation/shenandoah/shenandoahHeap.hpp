@@ -328,7 +328,6 @@ public:
   void clear_cancelled_concgc();
 
   ShenandoahHeapRegionSet* regions() { return _ordered_regions;}
-  ShenandoahHeapRegionSet* sorted_regions() { return _sorted_regions;}
   ShenandoahFreeSet* free_regions();
   void clear_free_regions();
   void add_free_region(ShenandoahHeapRegion* r);

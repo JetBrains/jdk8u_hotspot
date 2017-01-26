@@ -125,7 +125,6 @@ jint ShenandoahHeap::initialize() {
   size_t regionSizeWords = ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize;
   assert(init_byte_size == _initialSize, "tautology");
   _ordered_regions = new ShenandoahHeapRegionSet(_max_regions);
-  _sorted_regions = new ShenandoahHeapRegionSet(_max_regions);
   _collection_set = new ShenandoahCollectionSet(_max_regions);
   _free_regions = new ShenandoahFreeSet(_max_regions);
 
@@ -162,7 +161,6 @@ jint ShenandoahHeap::initialize() {
                                       regionSizeWords * i, regionSizeWords, i);
       _free_regions->add_region(current);
       _ordered_regions->add_region(current);
-      _sorted_regions->add_region(current);
     }
   }
   assert(((size_t) _ordered_regions->active_regions()) == _num_regions, "");
@@ -1980,7 +1978,6 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
 
     assert(_ordered_regions->active_regions() == new_region->region_number(), "must match");
     _ordered_regions->add_region(new_region);
-    _sorted_regions->add_region(new_region);
     _in_cset_fast_test_base[new_region_index] = false; // Not in cset
     _next_top_at_mark_starts_base[new_region_index] = new_region->bottom();
     _complete_top_at_mark_starts_base[new_region_index] = new_region->bottom();

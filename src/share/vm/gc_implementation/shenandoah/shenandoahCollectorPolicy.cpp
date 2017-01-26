@@ -96,9 +96,24 @@ public:
     return cycle % ShenandoahUnloadClassesFrequency == 0;
   }
 
-private:
-  static int compare_heap_regions_by_garbage(ShenandoahHeapRegion* a, ShenandoahHeapRegion* b);
+  virtual bool needs_regions_sorted_by_garbage() {
+    // Most of them do not.
+    return false;
+  }
 
+public:
+  typedef struct {
+    size_t region_number;
+    size_t garbage;
+  } RegionGarbage;
+
+  static int compare_by_garbage(RegionGarbage a, RegionGarbage b) {
+    if (a.garbage > b.garbage)
+      return -1;
+    else if (b.garbage < a.garbage)
+      return 1;
+    else return 0;
+  }
 };
 
 ShenandoahHeuristics::ShenandoahHeuristics() :
@@ -111,41 +126,23 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
 {
 }
 
-int ShenandoahHeuristics::compare_heap_regions_by_garbage(ShenandoahHeapRegion* a, ShenandoahHeapRegion* b) {
-  if (a == NULL) {
-    if (b == NULL) {
-      return 0;
-    } else {
-      return 1;
-    }
-  } else if (b == NULL) {
-    return -1;
-  }
-
-  size_t garbage_a = a->garbage();
-  size_t garbage_b = b->garbage();
-
-  if (garbage_a > garbage_b)
-    return -1;
-  else if (garbage_a < garbage_b)
-    return 1;
-  else return 0;
-}
-
 void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collection_set) {
-  ShenandoahHeapRegionSet* sorted_regions = ShenandoahHeap::heap()->sorted_regions();
-  sorted_regions->sort(compare_heap_regions_by_garbage);
-
   start_choose_collection_set();
 
-  size_t i = 0;
-  size_t end = sorted_regions->active_regions();
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  size_t total_garbage = heap->garbage();
+
+  // Step 1. Build up the region candidates we care about, rejecting losers and accepting winners right away.
+
+  ShenandoahHeapRegionSet* regions = heap->regions();
+  size_t end = regions->active_regions();
+
+  RegionGarbage candidates[end];
+  size_t cand_idx = 0;
+
   size_t immediate_garbage = 0;
   size_t immediate_regions = 0;
   for (size_t i = 0; i < end; i++) {
-    ShenandoahHeapRegion* region = sorted_regions->get(i);
+    ShenandoahHeapRegion* region = regions->get(i);
 
     if (! region->is_humongous() && ! region->is_pinned()) {
       if ((! region->is_empty()) && ! region->has_live()) {
@@ -157,12 +154,11 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
         log_develop_trace(gc)("Choose region " SIZE_FORMAT " for immediate reclaim with garbage = " SIZE_FORMAT
                               " and live = " SIZE_FORMAT "\n",
                               region->region_number(), region->garbage(), region->get_live_data_bytes());
-      } else if (region_in_collection_set(region, immediate_garbage)) {
-        log_develop_trace(gc)("Choose region " SIZE_FORMAT " with garbage = " SIZE_FORMAT
-                              " and live = " SIZE_FORMAT "\n",
-                              region->region_number(), region->garbage(), region->get_live_data_bytes());
-        collection_set->add_region(region);
-        region->set_in_collection_set(true);
+      } else {
+        // This is our candidate for later consideration.
+        candidates[cand_idx].region_number = region->region_number();
+        candidates[cand_idx].garbage = region->garbage();
+        cand_idx++;
       }
     } else {
       assert(region->has_live() || region->is_empty() || region->is_pinned() || region->is_humongous(), "check rejected");
@@ -172,8 +168,28 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
     }
   }
 
+  // Step 2. Process the remanining candidates, if any.
+
+  if (cand_idx > 0) {
+    if (needs_regions_sorted_by_garbage()) {
+      QuickSort::sort<RegionGarbage>(candidates, cand_idx, compare_by_garbage, false);
+    }
+
+    for (size_t i = 0; i < cand_idx; i++) {
+      ShenandoahHeapRegion *region = regions->get_fast(candidates[i].region_number);
+      if (region_in_collection_set(region, immediate_garbage)) {
+        log_develop_trace(gc)("Choose region " SIZE_FORMAT " with garbage = " SIZE_FORMAT
+                                      " and live = " SIZE_FORMAT "\n",
+                              region->region_number(), region->garbage(), region->get_live_data_bytes());
+        collection_set->add_region(region);
+        region->set_in_collection_set(true);
+      }
+    }
+  }
+
   end_choose_collection_set();
 
+  size_t total_garbage = heap->garbage();
   log_debug(gc)("Total Garbage: "SIZE_FORMAT, total_garbage);
   log_debug(gc)("Immediate Garbage: "SIZE_FORMAT, immediate_garbage);
   log_debug(gc)("Immediate Garbage regions: "SIZE_FORMAT, immediate_regions);
@@ -430,6 +446,9 @@ public:
     }
   }
 
+  virtual bool needs_regions_sorted_by_garbage() {
+    return true;
+  }
 };
 
 class RatioHeuristics : public DynamicHeuristics {
@@ -458,6 +477,10 @@ public:
     } else {
       return false;
     }
+  }
+
+  virtual bool needs_regions_sorted_by_garbage() {
+    return true;
   }
 };
 
