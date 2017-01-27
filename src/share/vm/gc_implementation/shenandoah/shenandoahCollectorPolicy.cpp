@@ -92,8 +92,11 @@ public:
   virtual bool unload_classes() {
     if (ShenandoahUnloadClassesFrequency == 0) return false;
     size_t cycle = ShenandoahHeap::heap()->shenandoahPolicy()->cycle_counter();
-    // Process references every Nth GC cycle.
-    return cycle % ShenandoahUnloadClassesFrequency == 0;
+    // Unload classes every Nth GC cycle.
+    // This should not happen in the same cycle as process_references to amortize costs.
+    // Offsetting by one is enough to break the rendezvous when periods are equal.
+    // When periods are not equal, offsetting by one is just as good as any other guess.
+    return (cycle + 1) % ShenandoahUnloadClassesFrequency == 0;
   }
 
   virtual bool needs_regions_sorted_by_garbage() {
