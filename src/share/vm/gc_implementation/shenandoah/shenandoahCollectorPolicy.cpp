@@ -44,6 +44,8 @@ protected:
   uint _cancelled_cm_cycles_in_a_row;
   uint _successful_cm_cycles_in_a_row;
 
+  size_t _bytes_in_cset;
+
 public:
 
   ShenandoahHeuristics();
@@ -70,6 +72,10 @@ public:
   virtual void record_cm_success() {
     _cancelled_cm_cycles_in_a_row = 0;
     _successful_cm_cycles_in_a_row++;
+  }
+
+  virtual void record_full_gc() {
+    _bytes_in_cset = 0;
   }
 
   virtual void start_choose_collection_set() {
@@ -124,6 +130,7 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   _bytes_reclaimed_this_cycle(0),
   _bytes_allocated_start_CM(0),
   _bytes_allocated_during_CM(0),
+  _bytes_in_cset(0),
   _cancelled_cm_cycles_in_a_row(0),
   _successful_cm_cycles_in_a_row(0)
 {
@@ -141,6 +148,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 
   RegionGarbage candidates[end];
   size_t cand_idx = 0;
+  _bytes_in_cset = 0;
 
   size_t immediate_garbage = 0;
   size_t immediate_regions = 0;
@@ -186,6 +194,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
                               region->region_number(), region->garbage(), region->get_live_data_bytes());
         collection_set->add_region(region);
         region->set_in_collection_set(true);
+        _bytes_in_cset += region->used();
       }
     }
   }
@@ -339,9 +348,10 @@ public:
     size_t free_capacity = heap->free_regions()->capacity();
     size_t free_used = heap->free_regions()->used();
     assert(free_used <= free_capacity, "must use less than capacity");
-    size_t available =  free_capacity - free_used;
-    uintx factor = heap->need_update_refs() ? ShenandoahFreeThreshold : ShenandoahInitialFreeThreshold;
-    size_t targetStartMarking = (capacity * factor) / 100;
+    size_t cset = MIN2(_bytes_in_cset, (ShenandoahCSetThreshold * capacity) / 100);
+    size_t available =  free_capacity - free_used + cset;
+    uintx threshold = ShenandoahFreeThreshold + ShenandoahCSetThreshold;
+    size_t targetStartMarking = (capacity * threshold) / 100;
 
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
     if (available < targetStartMarking &&
@@ -404,8 +414,9 @@ public:
     size_t free_capacity = heap->free_regions()->capacity();
     size_t free_used = heap->free_regions()->used();
     assert(free_used <= free_capacity, "must use less than capacity");
-    size_t available =  free_capacity - free_used;
-    uintx factor = _free_threshold;
+    size_t cset = MIN2(_bytes_in_cset, (ShenandoahCSetThreshold * capacity) / 100);
+    size_t available =  free_capacity - free_used + cset;
+    uintx factor = _free_threshold + ShenandoahCSetThreshold;
     size_t targetStartMarking = (capacity * factor) / 100;
 
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
@@ -682,6 +693,10 @@ void ShenandoahCollectorPolicy::record_cm_degenerated() {
 
 void ShenandoahCollectorPolicy::record_cm_cancelled() {
   _heuristics->record_cm_cancelled();
+}
+
+void ShenandoahCollectorPolicy::record_full_gc() {
+  _heuristics->record_full_gc();
 }
 
 void ShenandoahCollectorPolicy::choose_collection_set(ShenandoahCollectionSet* collection_set) {

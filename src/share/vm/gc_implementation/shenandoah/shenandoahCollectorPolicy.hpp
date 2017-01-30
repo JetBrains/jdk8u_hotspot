@@ -185,6 +185,7 @@ public:
   void record_cm_cancelled();
   void record_cm_success();
   void record_cm_degenerated();
+  void record_full_gc();
 
   void choose_collection_set(ShenandoahCollectionSet* collection_set);
   void choose_free_set(ShenandoahFreeSet* free_set);

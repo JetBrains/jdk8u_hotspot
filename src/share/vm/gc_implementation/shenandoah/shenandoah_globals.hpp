@@ -103,18 +103,14 @@
           "Shenandoah GC dynamic Heuristic mode only (ignored otherwise). " \
           "Defaults to 60%.")                                               \
                                                                             \
-  product_rw(uintx, ShenandoahFreeThreshold, 25,                            \
+  product_rw(uintx, ShenandoahFreeThreshold, 10,                            \
           "Set the percentage of free heap at which a GC cycle is started. " \
           "Applies to Shenandoah GC dynamic Heuristic mode only "           \
-          "(ignored otherwise). Defaults to 25%.")                          \
+          "(ignored otherwise). Defaults to 10%.")                          \
                                                                             \
-  product_rw(uintx, ShenandoahInitialFreeThreshold, 50,                     \
-          "Set the percentage of free heap at which an initial GC cycle "   \
-          "is started. An initial GC cycle is the first one after VM "      \
-          "start or after a full GC."                                       \
-          "Applies to Shenandoah GC dynamic Heuristic mode only "           \
-          "(ignored otherwise). Defaults to 50%.")                          \
-                                                                            \
+  product_rw(uintx, ShenandoahCSetThreshold, 40,                            \
+          "Set the approximate target percentage of the heap for the"       \
+          "collection set. Defaults to 40%.")                               \
   product_rw(uintx, ShenandoahAllocationThreshold, 0,                       \
           "Set percentage of memory allocated since last GC cycle before "  \
           "a new GC cycle is started. "                                     \
@@ -124,10 +120,10 @@
   experimental(uintx, ShenandoahInitFreeThreshold, 10,                      \
                "Initial remaininig free threshold for adaptive heuristics") \
                                                                             \
-  experimental(uintx, ShenandoahMinFreeThreshold, 3,                        \
+  experimental(uintx, ShenandoahMinFreeThreshold, 5,                        \
                "Minimum remaininig free threshold for adaptive heuristics") \
                                                                             \
-  experimental(uintx, ShenandoahMaxFreeThreshold, 30,                       \
+  experimental(uintx, ShenandoahMaxFreeThreshold, 70,                       \
                "Maximum remaininig free threshold for adaptive heuristics") \
                                                                             \
   experimental(uintx, ShenandoahHappyCyclesThreshold, 5,                    \
