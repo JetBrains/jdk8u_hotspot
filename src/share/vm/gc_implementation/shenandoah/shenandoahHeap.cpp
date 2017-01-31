@@ -303,7 +303,7 @@ public:
       HeapWord* bottom = region->bottom();
       HeapWord* top = heap->next_top_at_mark_start(region->bottom());
       if (top > bottom) {
-        heap->next_mark_bit_map()->clearRange(MemRegion(bottom, top));
+        heap->next_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
       }
       region = _regions->claim_next();
     }
@@ -335,7 +335,7 @@ public:
       HeapWord* bottom = region->bottom();
       HeapWord* top = heap->complete_top_at_mark_start(region->bottom());
       if (top > bottom) {
-        heap->complete_mark_bit_map()->clearRange(MemRegion(bottom, top));
+        heap->complete_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
       }
       region = _regions->claim_next();
     }
