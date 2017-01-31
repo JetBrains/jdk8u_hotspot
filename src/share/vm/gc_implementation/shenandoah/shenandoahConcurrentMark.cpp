@@ -161,6 +161,19 @@ public:
     CLDToOopClosure cldCl(&mark_cl);
     MarkingCodeBlobClosure blobsCl(&mark_cl, ! CodeBlobToOopClosure::FixRelocations);
 
+    // The rationale for selecting the roots to scan is as follows:
+    //   a. With unload_classes = true, we only want to scan the actual strong roots from the
+    //      code cache. This will allow us to identify the dead classes, unload them, *and*
+    //      invalidate the relevant code cache blobs. This could be only done together with
+    //      class unloading.
+    //   b. With unload_classes = false, we have to nominally retain all the references from code
+    //      cache, because there could be the case of embedded class/oop in the generated code,
+    //      which we will never visit during mark. Without code cache invalidation, as in (a),
+    //      we risk executing that code cache blob, and crashing.
+    //   c. With ShenandoahConcurrentCodeRoots, we avoid scanning the entire code cache here,
+    //      and instead do that in concurrent phase under the relevant lock. This saves init mark
+    //      pause time.
+
     ResourceMark m;
     if (heap->concurrentMark()->unload_classes()) {
       _rp->process_strong_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, &blobsCl, worker_id);

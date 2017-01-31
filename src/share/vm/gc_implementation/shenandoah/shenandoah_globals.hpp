@@ -133,7 +133,7 @@
   experimental(uint, ShenandoahMarkLoopStride, 1000,                        \
           "How many items are processed during one marking step")           \
                                                                             \
-  experimental(bool, ShenandoahConcurrentCodeRoots, false,                  \
+  experimental(bool, ShenandoahConcurrentCodeRoots, true,                   \
           "Scan code roots concurrently, instead of during a pause")        \
                                                                             \
   experimental(bool, ShenandoahNoBarriersForConst, true,                    \
