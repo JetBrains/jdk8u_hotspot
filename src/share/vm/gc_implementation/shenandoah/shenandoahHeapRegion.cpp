@@ -63,6 +63,14 @@ void ShenandoahHeapRegion::clear_live_data() {
   _live_data = 0;
 }
 
+void ShenandoahHeapRegion::set_recently_allocated(bool value) {
+  _recycled = value;
+}
+
+bool ShenandoahHeapRegion::is_recently_allocated() const {
+  return _recycled && used() > 0;
+}
+
 void ShenandoahHeapRegion::set_live_data(size_t s) {
   assert(Thread::current()->is_VM_thread(), "by VM thread");
   _live_data = (jint) (s / HeapWordSize);
@@ -261,6 +269,7 @@ void ShenandoahHeapRegion::recycle() {
   clear_live_data();
   _humongous_start = false;
   _humongous_continuation = false;
+  _recycled = true;
   set_in_collection_set(false);
   // Reset C-TAMS pointer to ensure size-based iteration, everything
   // in that regions is going to be new objects.
@@ -364,7 +373,7 @@ void ShenandoahHeapRegion::unpin() {
 }
 
 bool ShenandoahHeapRegion::is_pinned() {
-  assert(_critical_pins >= 0, "sanity");
-  assert(SafepointSynchronize::is_at_safepoint(), "only at safepoints");
-  return _critical_pins > 0;
+  jint v = OrderAccess::load_acquire(&_critical_pins);
+  assert(v >= 0, "sanity");
+  return v > 0;
 }

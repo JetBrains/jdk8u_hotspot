@@ -46,6 +46,8 @@ private:
   bool _humongous_start;
   bool _humongous_continuation;
 
+  bool _recycled;
+
   HeapWord* _new_top;
 
   volatile jint _critical_pins;
@@ -69,6 +71,9 @@ public:
   void clear_live_data();
   void set_live_data(size_t s);
   inline void increase_live_data_words(jint s);
+
+  void set_recently_allocated(bool value);
+  bool is_recently_allocated() const;
 
   bool has_live() const;
   size_t get_live_data_bytes() const;

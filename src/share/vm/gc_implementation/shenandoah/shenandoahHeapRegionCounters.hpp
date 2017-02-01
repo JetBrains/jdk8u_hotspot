@@ -30,8 +30,9 @@
  * This provides the following in JVMStat:
  *
  * constants:
+ * - sun.gc.shenandoah.regions.timestamp    the timestamp for this sample
  * - sun.gc.shenandoah.regions.max_regions  maximum number of regions
- * - sun.gc.shenandoah.regions.region_size  size per region, in bytes
+ * - sun.gc.shenandoah.regions.region_size  size per region, in kilobytes
  *
  * variables:
  * - sun.gc.shenandoah.regions.status       current GC status:
@@ -43,26 +44,29 @@
  * where $ is the region number from 0 <= i < $max_regions
  *
  * in the following format:
- * - bits 0-29   used memory in bytes
- * - bits 30-59  live memory in bytes
- * - bits 60-63  status
- *      - bit 60 set when region in collection set
- *      - bit 61 set when region is humongous
- *      - bit 62 set when region is not used yet
+ * - bits 0-28   used memory in kilobytes
+ * - bits 29-58  live memory in kilobytes
+ * - bits 58-63  status
+ *      - bit 58 set when region is not used yet
+ *      - bit 59 set when region in collection set
+ *      - bit 60 set when region is humongous
+ *      - bit 61 set when region is recently allocated
+ *      - bit 62 set when region is pinned
  */
 class ShenandoahHeapRegionCounters : public CHeapObj<mtGC>  {
 private:
-  static const jlong USED_MASK = 0x3fffffff; // bits 0-29
-  static const jlong USED_SHIFT = 0;
+  static const jlong USED_MASK   = 0x1fffffff; // bits 0-28
+  static const jlong USED_SHIFT  = 0;
 
-  static const jlong LIVE_MASK = 0x3fffffff; // bits 30-59
-  static const jlong LIVE_SHIFT = 30;
+  static const jlong LIVE_MASK   = 0x1fffffff; // bits 29-58
+  static const jlong LIVE_SHIFT  = 29;
 
-  static const jlong FLAGS_MASK = 0xf;   // bits 60-63
-  static const jlong FLAGS_SHIFT = 60;   // bits 60-63
+  static const jlong FLAGS_MASK  = 0x3f;       // bits 58-63
+  static const jlong FLAGS_SHIFT = 58;         // bits 58-63
 
   char* _name_space;
   PerfLongVariable** _regions_data;
+  PerfLongVariable* _timestamp;
   PerfLongVariable* _status;
   jlong _last_sample_millis;
 

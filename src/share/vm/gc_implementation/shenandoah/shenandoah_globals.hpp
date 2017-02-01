@@ -155,7 +155,7 @@
   experimental(size_t, ShenandoahSATBBufferSize, 1 * K,                     \
           "Number of entries in an SATB log buffer.")                       \
                                                                             \
-  product_rw(int, ShenandoahRegionSamplingRate, 100,                        \
+  product_rw(int, ShenandoahRegionSamplingRate, 40,                         \
           "Sampling rate for heap region sampling. "                        \
           "Number of milliseconds between samples")                         \
                                                                             \
