@@ -57,10 +57,9 @@ private:
 #endif
 
 public:
+  ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t regionSize, size_t index);
+
   static void setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size);
-
-  jint initialize_heap_region(ShenandoahHeap* heap, HeapWord* start, size_t regionSize, size_t index);
-
 
   size_t region_number() const;
 

@@ -36,17 +36,22 @@ Monitor ShenandoahHeapRegion::_mem_protect_lock(Mutex::special, "ShenandoahMemPr
 size_t ShenandoahHeapRegion::RegionSizeShift = 0;
 size_t ShenandoahHeapRegion::RegionSizeBytes = 0;
 
-jint ShenandoahHeapRegion::initialize_heap_region(ShenandoahHeap* heap, HeapWord* start,
-                                                  size_t regionSizeWords, size_t index) {
-  _heap = heap;
-  reserved = MemRegion(start, regionSizeWords);
-  ContiguousSpace::initialize(reserved, true, false);
-  _live_data = 0;
-  _region_number = index;
+ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
+                                           size_t regionSizeWords, size_t index) :
 #ifdef ASSERT
-  _mem_protection_level = 1; // Off, level 1.
+  _mem_protection_level(0),
 #endif
-  return JNI_OK;
+  _heap(heap),
+  _region_number(index),
+  _live_data(0),
+  reserved(MemRegion(start, regionSizeWords)),
+  _humongous_start(false),
+  _humongous_continuation(false),
+  _recycled(true),
+  _new_top(NULL),
+  _critical_pins(0) {
+
+  ContiguousSpace::initialize(reserved, true, false);
 }
 
 size_t ShenandoahHeapRegion::region_number() const {

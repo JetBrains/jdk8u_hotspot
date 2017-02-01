@@ -156,9 +156,8 @@ jint ShenandoahHeap::initialize() {
   {
     ShenandoahHeapLock lock(this);
     for (i = 0; i < _num_regions; i++) {
-      ShenandoahHeapRegion* current = new ShenandoahHeapRegion();
-      current->initialize_heap_region(this, (HeapWord*) pgc_rs.base() +
-                                      regionSizeWords * i, regionSizeWords, i);
+      ShenandoahHeapRegion* current = new ShenandoahHeapRegion(this, (HeapWord*) pgc_rs.base() +
+                                                               regionSizeWords * i, regionSizeWords, i);
       _free_regions->add_region(current);
       _ordered_regions->add_region(current);
     }
@@ -1964,10 +1963,9 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
   size_t base = _num_regions;
   ensure_new_regions(num_regions);
   for (size_t i = 0; i < num_regions; i++) {
-    ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion();
     size_t new_region_index = i + base;
     HeapWord* start = _first_region_bottom + (ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize) * new_region_index;
-    new_region->initialize_heap_region(this, start, ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize, new_region_index);
+    ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion(this, start, ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize, new_region_index);
 
     if (ShenandoahLogTrace) {
       ResourceMark rm;
