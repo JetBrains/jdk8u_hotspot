@@ -75,11 +75,19 @@ public:
 class ShenandoahPretouchTask : public AbstractGangTask {
 private:
   ShenandoahHeapRegionSet* _regions;
-  size_t const _page_size;
+  const size_t _bitmap_size;
+  const size_t _page_size;
+  char* _bitmap0_base;
+  char* _bitmap1_base;
 public:
-  ShenandoahPretouchTask(ShenandoahHeapRegionSet* regions, size_t page_size) :
+  ShenandoahPretouchTask(ShenandoahHeapRegionSet* regions,
+                         char* bitmap0_base, char* bitmap1_base, size_t bitmap_size,
+                         size_t page_size) :
     AbstractGangTask("Shenandoah PreTouch"),
+    _bitmap0_base(bitmap0_base),
+    _bitmap1_base(bitmap1_base),
     _regions(regions),
+    _bitmap_size(bitmap_size),
     _page_size(page_size) {
     _regions->clear_current_index();
   };
@@ -90,6 +98,19 @@ public:
       log_trace(gc, heap)("Pretouch region " SIZE_FORMAT ": " PTR_FORMAT " -> " PTR_FORMAT,
                           r->region_number(), p2i(r->bottom()), p2i(r->end()));
       os::pretouch_memory((char*) r->bottom(), (char*) r->end());
+
+      size_t start = r->region_number()       * ShenandoahHeapRegion::RegionSizeBytes / CMBitMap::mark_distance();
+      size_t end   = (r->region_number() + 1) * ShenandoahHeapRegion::RegionSizeBytes / CMBitMap::mark_distance();
+      assert (end <= _bitmap_size, err_msg("end is sane: " SIZE_FORMAT " < " SIZE_FORMAT, end, _bitmap_size));
+
+      log_trace(gc, heap)("Pretouch bitmap under region " SIZE_FORMAT ": " PTR_FORMAT " -> " PTR_FORMAT,
+                          r->region_number(), p2i(_bitmap0_base + start), p2i(_bitmap0_base + end));
+      os::pretouch_memory(_bitmap0_base + start, _bitmap0_base + end);
+
+      log_trace(gc, heap)("Pretouch bitmap under region " SIZE_FORMAT ": " PTR_FORMAT " -> " PTR_FORMAT,
+                          r->region_number(), p2i(_bitmap1_base + start), p2i(_bitmap1_base + end));
+      os::pretouch_memory(_bitmap1_base + start, _bitmap1_base + end);
+
       r = _regions->claim_next();
     }
   }
@@ -197,13 +218,28 @@ jint ShenandoahHeap::initialize() {
   os::commit_memory_or_exit(bitmap0.base(), bitmap0.size(), false, "couldn't allocate mark bitmap");
   MemTracker::record_virtual_memory_type(bitmap0.base(), mtGC);
   MemRegion bitmap_region0 = MemRegion((HeapWord*) bitmap0.base(), bitmap0.size() / HeapWordSize);
-  _mark_bit_map0.initialize(heap_region, bitmap_region0);
-  _complete_mark_bit_map = &_mark_bit_map0;
 
   ReservedSpace bitmap1(bitmap_size, page_size);
   os::commit_memory_or_exit(bitmap1.base(), bitmap1.size(), false, "couldn't allocate mark bitmap");
   MemTracker::record_virtual_memory_type(bitmap1.base(), mtGC);
   MemRegion bitmap_region1 = MemRegion((HeapWord*) bitmap1.base(), bitmap1.size() / HeapWordSize);
+
+  if (ShenandoahAlwaysPreTouch) {
+    assert (!AlwaysPreTouch, "Should have been overridden");
+
+    // For NUMA, it is important to pre-touch the storage under bitmaps with worker threads,
+    // before initialize() below zeroes it with initializing thread. For any given region,
+    // we touch the region and the corresponding bitmaps from the same thread.
+
+    log_info(gc, heap)("Parallel pretouch " SIZE_FORMAT " regions with " SIZE_FORMAT " byte pages",
+                       _ordered_regions->count(), page_size);
+    ShenandoahPretouchTask cl(_ordered_regions, bitmap0.base(), bitmap1.base(), bitmap_size, page_size);
+    _workers->run_task(&cl);
+  }
+
+  _mark_bit_map0.initialize(heap_region, bitmap_region0);
+  _complete_mark_bit_map = &_mark_bit_map0;
+
   _mark_bit_map1.initialize(heap_region, bitmap_region1);
   _next_mark_bit_map = &_mark_bit_map1;
 
@@ -212,17 +248,6 @@ jint ShenandoahHeap::initialize() {
   _concurrent_gc_thread = new ShenandoahConcurrentThread();
 
   ShenandoahMarkCompact::initialize();
-
-  if (ShenandoahAlwaysPreTouch) {
-    assert (!AlwaysPreTouch, "Should have been overridden");
-
-    size_t page_size = UseLargePages ? os::large_page_size() : (size_t) os::vm_page_size();
-
-    log_info(gc, heap)("Parallel pretouch " SIZE_FORMAT " regions with " SIZE_FORMAT " byte pages",
-                       _ordered_regions->count(), page_size);
-    ShenandoahPretouchTask cl(_ordered_regions, page_size);
-    _workers->run_task(&cl);
-  }
 
   return JNI_OK;
 }
