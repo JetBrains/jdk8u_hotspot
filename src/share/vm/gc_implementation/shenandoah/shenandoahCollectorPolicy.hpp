@@ -38,6 +38,8 @@ class STWGCTimer;
 class ConcurrentGCTimer;
 
 class ShenandoahCollectorPolicy: public CollectorPolicy {
+private:
+  static const float ShenandoahGCWorkerPerJavaThread = 0.5f;
 
 public:
   enum TimingPhase {
@@ -205,7 +207,34 @@ public:
   void increase_cycle_counter();
   size_t cycle_counter() const;
 
+
+  static uint calc_workers_for_init_marking(uint total_workers,
+                                            uint active_workers,
+                                            uint application_workers);
+
+  static uint calc_workers_for_conc_marking(uint total_workers,
+                                            uint active_workers,
+                                            uint application_workers);
+
+  static uint calc_workers_for_final_marking(uint total_workers,
+                                            uint active_workers,
+                                            uint application_workers);
+
+  static uint calc_workers_for_evacuation(uint total_workers,
+                                            uint active_workers,
+                                            uint application_workers);
+
 private:
+  static uint calc_workers_for_java_threads(uint application_workers);
+  static uint calc_workers_for_live_set(size_t live_data);
+
+  static uint calc_default_active_workers(uint total_workers,
+                                    uint min_workers,
+                                    uint active_workers,
+                                    uint application_workers,
+                                    uint workers_by_java_threads,
+                                    uint workers_by_liveset);
+
   void print_summary_sd(outputStream* out, const char* str, const HdrSeq* seq);
 };
 

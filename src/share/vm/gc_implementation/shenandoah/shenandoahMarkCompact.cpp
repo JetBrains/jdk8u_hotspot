@@ -160,11 +160,23 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
   _heap->set_need_update_refs(true);
 
+
+  // Setup workers for phase 1
+  FlexibleWorkGang* workers = _heap->workers();
+  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
+    workers->total_workers(), workers->active_workers(), Threads::number_of_non_daemon_threads());
+  workers->set_active_workers(nworkers);
+
   OrderAccess::fence();
 
   policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_mark);
   phase1_mark_heap();
   policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_mark);
+
+  // Setup workers for the rest
+  nworkers = ShenandoahCollectorPolicy::calc_workers_for_evacuation(
+    workers->total_workers(), workers->active_workers(), Threads::number_of_non_daemon_threads());
+  workers->set_active_workers(nworkers);
 
   OrderAccess::fence();
 
@@ -278,7 +290,7 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
   // enable ("weak") refs discovery
   rp->enable_discovery(true /*verify_no_refs*/, true);
   rp->setup_policy(true); // snapshot the soft ref policy to be used in this cycle
-  rp->set_active_mt_degree(_heap->max_parallel_workers());
+  rp->set_active_mt_degree(_heap->workers()->active_workers());
 
   COMPILER2_PRESENT(DerivedPointerTable::clear());
   cm->update_roots();
@@ -562,18 +574,21 @@ void ShenandoahMarkCompact::phase3_update_references() {
   // Need cleared claim bits for the roots processing
   ClassLoaderDataGraph::clear_claimed_marks();
 
+  WorkGang* workers = heap->workers();
+  uint nworkers = workers->active_workers();
   {
     COMPILER2_PRESENT(DerivedPointerTable::clear());
-    ShenandoahRootProcessor rp(heap, heap->max_parallel_workers());
+
+    ShenandoahRootProcessor rp(heap, nworkers);
     ShenandoahAdjustRootPointersTask task(&rp);
-    heap->workers()->run_task(&task);
+    workers->run_task(&task);
     COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
   }
 
   ShenandoahHeapRegionSet* regions = heap->regions();
   regions->clear_current_index();
   ShenandoahAdjustPointersTask adjust_pointers_task(regions);
-  heap->workers()->run_task(&adjust_pointers_task);
+  workers->run_task(&adjust_pointers_task);
 }
 
 class ShenandoahCompactObjectsClosure : public ObjectClosure {

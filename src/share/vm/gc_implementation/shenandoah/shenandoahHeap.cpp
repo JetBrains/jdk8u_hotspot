@@ -295,10 +295,10 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
 
   // This is odd.  They are concurrent gc threads, but they are also task threads.
   // Framework doesn't allow both.
-  _workers = new WorkGang("Parallel GC Threads", ParallelGCThreads,
+  _workers = new FlexibleWorkGang("Parallel GC Threads", ParallelGCThreads,
                             /* are_GC_task_threads */true,
                             /* are_ConcurrentGC_threads */false);
-  _conc_workers = new WorkGang("Concurrent GC Threads", ConcGCThreads,
+  _conc_workers = new FlexibleWorkGang("Concurrent GC Threads", ConcGCThreads,
                             /* are_GC_task_threads */true,
                             /* are_ConcurrentGC_threads */false);
   if ((_workers == NULL) || (_conc_workers == NULL)) {
@@ -1319,7 +1319,15 @@ void ShenandoahHeap::parallel_evacuate() {
 
   ParallelEvacuationTask evacuationTask = ParallelEvacuationTask(this, _collection_set);
 
+  // Setup workers for concurrent evacuation
+  WorkGang* workers = conc_workers();
+  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_evacuation(
+    workers->total_workers(), workers->active_workers(), Threads::number_of_non_daemon_threads());
+
+  uint old_num_workers = conc_workers()->active_workers();
+  conc_workers()->set_active_workers(nworkers);
   conc_workers()->run_task(&evacuationTask);
+  conc_workers()->set_active_workers(old_num_workers);
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;

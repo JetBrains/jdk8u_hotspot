@@ -132,8 +132,8 @@ private:
   uint _max_conc_workers;
   uint _max_workers;
 
-  WorkGang* _conc_workers;
-  WorkGang* _workers;
+  FlexibleWorkGang* _conc_workers;
+  FlexibleWorkGang* _workers;
 
 
   volatile size_t _used;
@@ -374,8 +374,8 @@ public:
 
   ReferenceProcessor* ref_processor() { return _ref_processor;}
 
-  WorkGang* conc_workers() const { return _conc_workers;}
-  WorkGang* workers() const { return _workers;}
+  FlexibleWorkGang* conc_workers() const { return _conc_workers;}
+  FlexibleWorkGang* workers() const { return _workers;}
 
   uint max_conc_workers();
   uint max_workers();
