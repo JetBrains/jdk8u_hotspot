@@ -356,6 +356,9 @@ public:
   template <class T>
   inline oop update_oop_ref_not_null(T* p, oop obj);
 
+  template <class T>
+  inline oop maybe_update_oop_ref_not_null(T* p, oop obj);
+
   void print_heap_regions(outputStream* st = tty) const;
   void print_all_refs(const char* prefix);
   void print_heap_locations(HeapWord* start, HeapWord* end);
@@ -429,9 +432,6 @@ private:
   inline bool mark_next_no_checks(oop obj) const;
 
   void parallel_evacuate();
-
-  template <class T>
-  inline oop maybe_update_oop_ref_not_null(T* p, oop obj);
 
   inline oop atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c);
   inline oop atomic_compare_exchange_oop(oop n, oop* addr, oop c);

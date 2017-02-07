@@ -41,38 +41,21 @@
 #include "utilities/taskqueue.hpp"
 
 class ShenandoahInitMarkRootsClosure : public OopClosure {
+private:
   SCMObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 
+  template <class T>
+  inline void do_oop_nv(T* p) {
+    ShenandoahConcurrentMark::mark_through_ref<T, RESOLVE>(p, _heap, _queue);
+  }
+
 public:
   ShenandoahInitMarkRootsClosure(SCMObjToScanQueue* q) :
-    _queue(q),
-    _heap((ShenandoahHeap*) Universe::heap())
-  {
-  }
+    _queue(q), _heap(ShenandoahHeap::heap()) {};
 
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-      assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)),
-             "expect forwarded oop");
-      ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
-    }
-  }
-
-public:
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
-  inline void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-
+  void do_oop(narrowOop* p) { do_oop_nv(p); }
+  void do_oop(oop* p)       { do_oop_nv(p); }
 };
 
 class SCMUpdateRefsClosure: public OopClosure {
@@ -742,92 +725,40 @@ public:
 };
 
 
-class ShenandoahCMKeepAliveClosure: public OopClosure {
+class ShenandoahCMKeepAliveClosure : public OopClosure {
+private:
   SCMObjToScanQueue* _queue;
-  ShenandoahHeap* _sh;
+  ShenandoahHeap* _heap;
+
+  template <class T>
+  inline void do_oop_nv(T* p) {
+    ShenandoahConcurrentMark::mark_through_ref<T, NONE>(p, _heap, _queue);
+  }
 
 public:
   ShenandoahCMKeepAliveClosure(SCMObjToScanQueue* q) :
-    _queue(q) {
-    _sh = (ShenandoahHeap*) Universe::heap();
-  }
+    _queue(q), _heap(ShenandoahHeap::heap()) {};
 
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      assert(oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj)), "only get updated oops in weak ref processing");
-
-#ifdef ASSERT
-      if (ShenandoahLogTrace) {
-        ResourceMark rm;
-        outputStream* out = gclog_or_tty;
-        out->print("\twe're looking at location "
-                   "*"PTR_FORMAT" = "PTR_FORMAT,
-                   p2i(p), p2i((void*) obj));
-        obj->print_on(out);
-      }
-#endif
-      ShenandoahConcurrentMark::mark_and_push(obj, _sh, _queue);
-    }
-  }
-
-public:
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
-
-  void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-
+  void do_oop(narrowOop* p) { do_oop_nv(p); }
+  void do_oop(oop* p)       { do_oop_nv(p); }
 };
 
-class ShenandoahCMKeepAliveUpdateClosure: public OopClosure {
+class ShenandoahCMKeepAliveUpdateClosure : public OopClosure {
+private:
   SCMObjToScanQueue* _queue;
-  ShenandoahHeap* _sh;
+  ShenandoahHeap* _heap;
+
+  template <class T>
+  inline void do_oop_nv(T* p) {
+    ShenandoahConcurrentMark::mark_through_ref<T, SIMPLE>(p, _heap, _queue);
+  }
 
 public:
   ShenandoahCMKeepAliveUpdateClosure(SCMObjToScanQueue* q) :
-    _queue(q) {
-    _sh = (ShenandoahHeap*) Universe::heap();
-  }
+    _queue(q), _heap(ShenandoahHeap::heap()) {};
 
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      obj = _sh->update_oop_ref_not_null(p, obj);
-      assert(oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj)), "only get updated oops in weak ref processing");
-#ifdef ASSERT
-      if (ShenandoahLogTrace) {
-        ResourceMark rm;
-        outputStream* out = gclog_or_tty;
-        out->print("\twe're looking at location "
-                   "*"PTR_FORMAT" = "PTR_FORMAT,
-                   p2i(p), p2i((void*) obj));
-        obj->print_on(out);
-      }
-#endif
-      ShenandoahConcurrentMark::mark_and_push(obj, _sh, _queue);
-    }
-  }
-
-public:
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
-  void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-
+  void do_oop(narrowOop* p) { do_oop_nv(p); }
+  void do_oop(oop* p)       { do_oop_nv(p); }
 };
 
 class ShenandoahRefProcTaskProxy : public AbstractGangTask {

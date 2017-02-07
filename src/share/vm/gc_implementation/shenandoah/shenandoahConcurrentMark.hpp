@@ -96,7 +96,8 @@ public:
   bool claim_codecache();
   void clear_claim_codecache();
 
-  static inline void mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q);
+  template<class T, UpdateRefsMode UPDATE_REFS>
+  static inline void mark_through_ref(T* p, ShenandoahHeap* heap, SCMObjToScanQueue* q);
 
   void mark_from_roots();
 

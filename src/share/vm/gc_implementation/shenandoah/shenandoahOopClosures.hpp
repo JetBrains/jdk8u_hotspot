@@ -31,6 +31,13 @@ typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
 
 class ShenandoahHeap;
 
+enum UpdateRefsMode {
+  NONE,       // No reference updating
+  RESOLVE,    // Only a read-barrier (no reference updating)
+  SIMPLE,     // Reference updating using simple store
+  CONCURRENT  // Reference updating using CAS
+};
+
 class ShenandoahMarkRefsSuperClosure : public MetadataAwareOopClosure {
 private:
   SCMObjToScanQueue* _queue;
@@ -38,7 +45,7 @@ private:
 public:
   ShenandoahMarkRefsSuperClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp);
 
-  template <class T, bool UPDATE_REFS>
+  template <class T, UpdateRefsMode UPDATE_MODE>
   void work(T *p);
 };
 
@@ -48,7 +55,7 @@ public:
           ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
-  inline void do_oop_nv(T* p)       { work<T, true>(p); }
+  inline void do_oop_nv(T* p)       { work<T, CONCURRENT>(p); }
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
   virtual void do_oop(oop* p)       { do_oop_nv(p); }
   inline bool do_metadata_nv()      { return false; }
@@ -61,7 +68,7 @@ public:
           ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
-  inline void do_oop_nv(T* p)       { work<T, true>(p); }
+  inline void do_oop_nv(T* p)       { work<T, CONCURRENT>(p); }
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
   virtual void do_oop(oop* p)       { do_oop_nv(p); }
   inline bool do_metadata_nv()      { return true; }
@@ -74,7 +81,7 @@ public:
     ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
-  inline void do_oop_nv(T* p)       { work<T, false>(p); }
+  inline void do_oop_nv(T* p)       { work<T, CONCURRENT>(p); }
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
   virtual void do_oop(oop* p)       { do_oop_nv(p); }
   inline bool do_metadata_nv()      { return false; }
@@ -87,7 +94,7 @@ public:
     ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
-  inline void do_oop_nv(T* p)       { work<T, false>(p); }
+  inline void do_oop_nv(T* p)       { work<T, CONCURRENT>(p); }
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
   virtual void do_oop(oop* p)       { do_oop_nv(p); }
   inline bool do_metadata_nv()      { return true; }

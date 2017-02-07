@@ -27,19 +27,9 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 
-template<class T, bool UPDATE_REFS>
+template<class T, UpdateRefsMode UPDATE_REFS>
 inline void ShenandoahMarkRefsSuperClosure::work(T *p) {
-  oop obj;
-  if (UPDATE_REFS) {
-    // We piggy-back reference updating to the marking tasks.
-    obj = _heap->maybe_update_oop_ref(p);
-  } else {
-    obj = oopDesc::load_decode_heap_oop(p);
-  }
-  assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "need to-space object here");
-  if (! oopDesc::is_null(obj)) {
-    ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
-  }
+  ShenandoahConcurrentMark::mark_through_ref<T, UPDATE_REFS>(p, _heap, _queue);
 }
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_INLINE_HPP

@@ -201,12 +201,8 @@ public:
 
   void do_buffer(void** buffer, size_t size) {
     for (size_t i = 0; i < size; ++i) {
-      void* entry = buffer[i];
-      oop obj = oop(entry);
-      if (!oopDesc::is_null(obj)) {
-        obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-        ShenandoahConcurrentMark::mark_and_push(obj, _heap, _queue);
-      }
+      oop* p = (oop*) &buffer[i];
+      ShenandoahConcurrentMark::mark_through_ref<oop, RESOLVE>(p, _heap, _queue);
     }
   }
 };
@@ -218,42 +214,72 @@ inline bool ShenandoahConcurrentMark::try_draining_satb_buffer(SCMObjToScanQueue
   return had_refs && try_queue(q, task);
 }
 
-inline void ShenandoahConcurrentMark::mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q) {
-#ifdef ASSERT
-  if (! oopDesc::bs()->is_safe(obj)) {
-    tty->print_cr("obj in cset: %s, obj: "PTR_FORMAT", forw: "PTR_FORMAT,
-                  BOOL_TO_STR(heap->in_collection_set(obj)),
-                  p2i(obj),
-                  p2i(ShenandoahBarrierSet::resolve_oop_static_not_null(obj)));
-    heap->heap_region_containing((HeapWord*) obj)->print();
-  }
-#endif
-  assert(oopDesc::bs()->is_safe(obj), "no ref in cset");
-  assert(Universe::heap()->is_in(obj), err_msg("We shouldn't be calling this on objects not in the heap: "PTR_FORMAT, p2i(obj)));
-  if (heap->mark_next(obj)) {
-#ifdef ASSERT
-    log_develop_trace(gc, marking)("marked obj: "PTR_FORMAT, p2i((HeapWord*) obj));
-
-    if (! oopDesc::bs()->is_safe(obj)) {
-       tty->print_cr("trying to mark obj: "PTR_FORMAT" (%s) in dirty region: ", p2i((HeapWord*) obj), BOOL_TO_STR(heap->is_marked_next(obj)));
-      //      _heap->heap_region_containing(obj)->print();
-      //      _heap->print_heap_regions();
+template<class T, UpdateRefsMode UPDATE_REFS>
+inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* heap, SCMObjToScanQueue* q) {
+  T o = oopDesc::load_heap_oop(p);
+  if (! oopDesc::is_null(o)) {
+    oop obj = oopDesc::decode_heap_oop_not_null(o);
+    switch (UPDATE_REFS) {
+    case NONE:
+      break;
+    case RESOLVE:
+      obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
+      break;
+    case SIMPLE:
+      // We piggy-back reference updating to the marking tasks.
+      obj = heap->update_oop_ref_not_null(p, obj);
+      break;
+    case CONCURRENT:
+      obj = heap->maybe_update_oop_ref_not_null(p, obj);
+      break;
+    default:
+      ShouldNotReachHere();
     }
-#endif
-    assert(heap->cancelled_concgc()
-           || oopDesc::bs()->is_safe(obj),
-           "we don't want to mark objects in from-space");
+    assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static(obj)), "need to-space object here");
 
-    bool pushed = q->push(SCMTask(obj));
-    assert(pushed, "overflow queue should always succeed pushing");
+    // Note: Only when concurrently updating references can obj become NULL here.
+    // It happens when a mutator thread beats us by writing another value. In that
+    // case we don't need to do anything else.
+    if (UPDATE_REFS != CONCURRENT || ! oopDesc::is_null(obj)) {
 
-  }
+      assert(! oopDesc::is_null(obj), "must not be null here");
 #ifdef ASSERT
-  else {
-    log_develop_trace(gc, marking)("failed to mark obj (already marked): "PTR_FORMAT, p2i((HeapWord*) obj));
-    assert(heap->is_marked_next(obj), "make sure object is marked");
-  }
+      if (! oopDesc::bs()->is_safe(obj)) {
+        tty->print_cr("obj in cset: %s, obj: "PTR_FORMAT", forw: "PTR_FORMAT,
+                      BOOL_TO_STR(heap->in_collection_set(obj)),
+                      p2i(obj),
+                      p2i(ShenandoahBarrierSet::resolve_oop_static_not_null(obj)));
+        heap->heap_region_containing((HeapWord*) obj)->print();
+      }
 #endif
+      assert(oopDesc::bs()->is_safe(obj), "no ref in cset");
+      assert(Universe::heap()->is_in(obj), err_msg("We shouldn't be calling this on objects not in the heap: "PTR_FORMAT, p2i(obj)));
+      if (heap->mark_next(obj)) {
+#ifdef ASSERT
+        log_develop_trace(gc, marking)("marked obj: "PTR_FORMAT, p2i((HeapWord*) obj));
+
+        if (! oopDesc::bs()->is_safe(obj)) {
+          tty->print_cr("trying to mark obj: "PTR_FORMAT" (%s) in dirty region: ", p2i((HeapWord*) obj), BOOL_TO_STR(heap->is_marked_next(obj)));
+          //      _heap->heap_region_containing(obj)->print();
+          //      _heap->print_heap_regions();
+        }
+#endif
+        assert(heap->cancelled_concgc()
+               || oopDesc::bs()->is_safe(obj),
+               "we don't want to mark objects in from-space");
+
+        bool pushed = q->push(SCMTask(obj));
+        assert(pushed, "overflow queue should always succeed pushing");
+
+      }
+#ifdef ASSERT
+      else {
+        log_develop_trace(gc, marking)("failed to mark obj (already marked): "PTR_FORMAT, p2i((HeapWord*) obj));
+        assert(heap->is_marked_next(obj), "make sure object is marked");
+      }
+#endif
+    }
+  }
 }
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTMARK_INLINE_HPP
