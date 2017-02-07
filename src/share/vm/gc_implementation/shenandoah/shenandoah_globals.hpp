@@ -60,10 +60,10 @@
           "regions, based on ShenandoahMinRegionSize and "                  \
           "ShenandoahMaxRegionSizeSize. ")                                  \
                                                                             \
-  product(ccstr, ShenandoahGCHeuristics, "dynamic",                         \
+  product(ccstr, ShenandoahGCHeuristics, "adaptive",                        \
           "The heuristics to use in Shenandoah GC. Possible values: "       \
           "dynamic, adaptive, aggressive."                                  \
-          "Defauls to dynamic")                                             \
+          "Defaults to adaptive")                                            \
                                                                             \
   product(uintx, ShenandoahRefProcFrequency, 5,                             \
           "How often should (weak, soft, etc) references be processed. "    \
