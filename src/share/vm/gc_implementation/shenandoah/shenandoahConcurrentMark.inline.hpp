@@ -63,8 +63,10 @@ void ShenandoahMarkObjsClosure<T, CL>::do_task(SCMTask* task) {
       // time we visit it, start the chunked processing.
       do_chunked_array_start(obj);
     } else {
-      // Case 3: Primitive array. Do nothing, no oops there. Metadata was
-      // handled in Universe roots.
+      // Case 3: Primitive array. Do nothing, no oops there. We use the same
+      // performance tweak TypeArrayKlass::oop_oop_iterate_impl is using:
+      // We skip iterating over the klass pointer since we know that
+      // Universe::TypeArrayKlass never moves.
       assert (obj->is_typeArray(), "should be type array");
     }
   } else {
