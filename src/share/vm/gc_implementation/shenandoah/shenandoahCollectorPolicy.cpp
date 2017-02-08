@@ -378,13 +378,21 @@ public:
 class AdaptiveHeuristics : public ShenandoahHeuristics {
 private:
   uintx _free_threshold;
+  TruncatedSeq* _cset_history;
+
 public:
   AdaptiveHeuristics() :
     ShenandoahHeuristics(),
-    _free_threshold(ShenandoahInitFreeThreshold) {
+    _free_threshold(ShenandoahInitFreeThreshold),
+    _cset_history(new TruncatedSeq(ShenandoahHappyCyclesThreshold)) {
+
+    _cset_history->add((double) ShenandoahCSetThreshold);
+    _cset_history->add((double) ShenandoahCSetThreshold);
   }
 
-  virtual ~AdaptiveHeuristics() {}
+  virtual ~AdaptiveHeuristics() {
+    delete _cset_history;
+  }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
     size_t threshold = ShenandoahHeapRegion::RegionSizeBytes * ShenandoahGarbageThreshold / 100;
@@ -395,7 +403,7 @@ public:
     ShenandoahHeuristics::record_cm_cancelled();
     if (_free_threshold < ShenandoahMaxFreeThreshold) {
       _free_threshold++;
-      log_debug(gc,ergo)("increasing free threshold to: "UINTX_FORMAT, _free_threshold);
+      log_info(gc,ergo)("increasing free threshold to: "UINTX_FORMAT, _free_threshold);
     }
   }
 
@@ -404,7 +412,7 @@ public:
     if (_successful_cm_cycles_in_a_row > ShenandoahHappyCyclesThreshold &&
         _free_threshold > ShenandoahMinFreeThreshold) {
       _free_threshold--;
-      log_debug(gc,ergo)("reducing free threshold to: "UINTX_FORMAT, _free_threshold);
+      log_info(gc,ergo)("reducing free threshold to: "UINTX_FORMAT, _free_threshold);
       _successful_cm_cycles_in_a_row = 0;
     }
   }
@@ -416,9 +424,11 @@ public:
     size_t free_capacity = heap->free_regions()->capacity();
     size_t free_used = heap->free_regions()->used();
     assert(free_used <= free_capacity, "must use less than capacity");
-    size_t cset = MIN2(_bytes_in_cset, (ShenandoahCSetThreshold * capacity) / 100);
+    // size_t cset_threshold = (size_t) _cset_history->maximum();
+    size_t cset_threshold = (size_t) _cset_history->davg();
+    size_t cset = MIN2(_bytes_in_cset, (cset_threshold * capacity) / 100);
     size_t available =  free_capacity - free_used + cset;
-    uintx factor = _free_threshold + ShenandoahCSetThreshold;
+    uintx factor = _free_threshold + cset_threshold;
     size_t targetStartMarking = (capacity * factor) / 100;
 
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
@@ -430,6 +440,11 @@ public:
       shouldStartConcurrentMark = true;
     }
 
+    if (shouldStartConcurrentMark) {
+      log_info(gc,ergo)("predicted cset threshold: "SIZE_FORMAT, cset_threshold);
+      log_info(gc,ergo)("Starting concurrent mark at "SIZE_FORMAT"K CSet ("SIZE_FORMAT"%%)", _bytes_in_cset / K, _bytes_in_cset * 100 / capacity);
+      _cset_history->add((double) (_bytes_in_cset * 100 / capacity));
+    }
     return shouldStartConcurrentMark;
   }
 

@@ -120,7 +120,7 @@
   experimental(uintx, ShenandoahInitFreeThreshold, 10,                      \
                "Initial remaininig free threshold for adaptive heuristics") \
                                                                             \
-  experimental(uintx, ShenandoahMinFreeThreshold, 5,                        \
+  experimental(uintx, ShenandoahMinFreeThreshold, 3,                        \
                "Minimum remaininig free threshold for adaptive heuristics") \
                                                                             \
   experimental(uintx, ShenandoahMaxFreeThreshold, 70,                       \
