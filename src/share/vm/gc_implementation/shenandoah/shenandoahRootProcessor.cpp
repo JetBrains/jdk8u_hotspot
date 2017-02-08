@@ -116,6 +116,15 @@ void ShenandoahRootProcessor::process_vm_roots(OopClosure* strong_roots,
   if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_Universe_oops_do)) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::UniverseRoots, worker_id);
     Universe::oops_do(strong_roots);
+    KlassToOopClosure kcl(strong_roots);
+    kcl.do_klass(Universe::boolArrayKlassObj());
+    kcl.do_klass(Universe::byteArrayKlassObj());
+    kcl.do_klass(Universe::charArrayKlassObj());
+    kcl.do_klass(Universe::intArrayKlassObj());
+    kcl.do_klass(Universe::shortArrayKlassObj());
+    kcl.do_klass(Universe::longArrayKlassObj());
+    kcl.do_klass(Universe::singleArrayKlassObj());
+    kcl.do_klass(Universe::doubleArrayKlassObj());
   }
 
   if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_JNIHandles_oops_do)) {

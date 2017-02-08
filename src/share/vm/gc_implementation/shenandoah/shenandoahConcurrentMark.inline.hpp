@@ -55,16 +55,20 @@ void ShenandoahMarkObjsClosure<T, CL>::do_task(SCMTask* task) {
 
   if (task->is_not_chunked()) {
     if (CL) count_liveness(obj);
-    if (!obj->is_objArray()) {
+    if (obj->is_instance()) {
       // Case 1: Normal oop, process as usual.
       obj->oop_iterate(&_mark_refs);
-    } else {
-      // Case 2: Array instance and no chunk is set. Must be the first time
-      // we visit it.
+    } else if (obj->is_objArray()) {
+      // Case 2: Object array instance and no chunk is set. Must be the first
+      // time we visit it, start the chunked processing.
       do_chunked_array_start(obj);
+    } else {
+      // Case 3: Primitive array. Do nothing, no oops there. Metadata was
+      // handled in Universe roots.
+      assert (obj->is_typeArray(), "should be type array");
     }
   } else {
-    // Case 3: Array chunk, has sensible chunk id. Process it.
+    // Case 4: Array chunk, has sensible chunk id. Process it.
     do_chunked_array(obj, task->chunk(), task->pow());
   }
 }
