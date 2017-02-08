@@ -810,7 +810,7 @@ uint ShenandoahCollectorPolicy::calc_default_active_workers(
   if (UseNUMA) {
     uint numa_groups = (uint)os::numa_get_groups_num();
     assert(numa_groups <= total_workers, "Not enough workers to cover all numa groups");
-    new_active_workers = MAX2(max_active_workers, numa_groups);
+    new_active_workers = MAX2(new_active_workers, numa_groups);
   }
 
   // Check once more that the number of workers is within the limits.
