@@ -32,8 +32,8 @@
 #include "oops/oop.inline.hpp"
 #include "runtime/prefetch.inline.hpp"
 
-template <class T, bool CL>
-void ShenandoahMarkObjsClosure<T, CL>::do_task(SCMTask* task) {
+template <class T, bool COUNT_LIVENESS>
+void ShenandoahConcurrentMark::do_task(SCMObjToScanQueue* q, T* cl, jushort* live_data, SCMTask* task) {
   oop obj = task->obj();
 
   assert(obj != NULL, "expect non-null object");
@@ -54,14 +54,14 @@ void ShenandoahMarkObjsClosure<T, CL>::do_task(SCMTask* task) {
   assert(_heap->is_marked_next(obj), "only marked objects on task queue");
 
   if (task->is_not_chunked()) {
-    if (CL) count_liveness(obj);
+    if (COUNT_LIVENESS) count_liveness(live_data, obj);
     if (obj->is_instance()) {
       // Case 1: Normal oop, process as usual.
-      obj->oop_iterate(&_mark_refs);
+      obj->oop_iterate(cl);
     } else if (obj->is_objArray()) {
       // Case 2: Object array instance and no chunk is set. Must be the first
       // time we visit it, start the chunked processing.
-      do_chunked_array_start(obj);
+      do_chunked_array_start<T>(q, cl, obj);
     } else {
       // Case 3: Primitive array. Do nothing, no oops there. We use the same
       // performance tweak TypeArrayKlass::oop_oop_iterate_impl is using:
@@ -71,14 +71,13 @@ void ShenandoahMarkObjsClosure<T, CL>::do_task(SCMTask* task) {
     }
   } else {
     // Case 4: Array chunk, has sensible chunk id. Process it.
-    do_chunked_array(obj, task->chunk(), task->pow());
+    do_chunked_array<T>(q, cl, obj, task->chunk(), task->pow());
   }
 }
 
-template <class T, bool CL>
-inline void ShenandoahMarkObjsClosure<T, CL>::count_liveness(oop obj) {
+inline void ShenandoahConcurrentMark::count_liveness(jushort* live_data, oop obj) {
   uint region_idx = _heap->heap_region_index_containing(obj);
-  jushort cur = _live_data[region_idx];
+  jushort cur = live_data[region_idx];
   int size = obj->size() + BrooksPointer::word_size();
   int max = (1 << (sizeof(jushort) * 8)) - 1;
   if (size >= max) {
@@ -89,23 +88,23 @@ inline void ShenandoahMarkObjsClosure<T, CL>::count_liveness(oop obj) {
     if (new_val >= max) {
       // overflow, flush to region data
       _heap->regions()->get_fast(region_idx)->increase_live_data_words(new_val);
-      _live_data[region_idx] = 0;
+      live_data[region_idx] = 0;
     } else {
       // still good, remember in locals
-      _live_data[region_idx] = (jushort) new_val;
+      live_data[region_idx] = (jushort) new_val;
     }
   }
 }
 
-template <class T, bool CL>
-inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array_start(oop obj) {
+template <class T>
+inline void ShenandoahConcurrentMark::do_chunked_array_start(SCMObjToScanQueue* q, T* cl, oop obj) {
   assert(obj->is_objArray(), "expect object array");
   objArrayOop array = objArrayOop(obj);
   int len = array->length();
 
   if (len <= (int) ObjArrayMarkingStride*2) {
     // A few slices only, process directly
-    array->oop_iterate_range(&_mark_refs, 0, len);
+    array->oop_iterate_range(cl, 0, len);
   } else {
     int bits = log2_long(len);
     // Compensate for non-power-of-two arrays, cover the array in excess:
@@ -129,7 +128,7 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array_start(oop obj) {
       pow--;
       chunk = 2;
       last_idx = (1 << pow);
-      bool pushed = _queue->push(SCMTask(array, 1, pow));
+      bool pushed = q->push(SCMTask(array, 1, pow));
       assert(pushed, "overflow queue should always succeed pushing");
     }
 
@@ -142,7 +141,7 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array_start(oop obj) {
       int right_chunk = chunk*2;
       int left_chunk_end = left_chunk * (1 << pow);
       if (left_chunk_end < len) {
-        bool pushed = _queue->push(SCMTask(array, left_chunk, pow));
+        bool pushed = q->push(SCMTask(array, left_chunk, pow));
         assert(pushed, "overflow queue should always succeed pushing");
         chunk = right_chunk;
         last_idx = left_chunk_end;
@@ -154,13 +153,13 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array_start(oop obj) {
     // Process the irregular tail, if present
     int from = last_idx;
     if (from < len) {
-      array->oop_iterate_range(&_mark_refs, from, len);
+      array->oop_iterate_range(cl, from, len);
     }
   }
 }
 
-template <class T, bool CL>
-inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array(oop obj, int chunk, int pow) {
+template <class T>
+inline void ShenandoahConcurrentMark::do_chunked_array(SCMObjToScanQueue* q, T* cl, oop obj, int chunk, int pow) {
   assert(obj->is_objArray(), "expect object array");
   objArrayOop array = objArrayOop(obj);
 
@@ -171,7 +170,7 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array(oop obj, int chun
   while ((1 << pow) > (int)ObjArrayMarkingStride && (chunk*2 < SCMTask::chunk_size)) {
     pow--;
     chunk *= 2;
-    bool pushed = _queue->push(SCMTask(array, chunk - 1, pow));
+    bool pushed = q->push(SCMTask(array, chunk - 1, pow));
     assert(pushed, "overflow queue should always succeed pushing");
   }
 
@@ -186,7 +185,7 @@ inline void ShenandoahMarkObjsClosure<T, CL>::do_chunked_array(oop obj, int chun
   assert (0 < to && to <= len, err_msg("to is sane: %d/%d", to, len));
 #endif
 
-  array->oop_iterate_range(&_mark_refs, from, to);
+  array->oop_iterate_range(cl, from, to);
 }
 
 inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, SCMTask &task) {

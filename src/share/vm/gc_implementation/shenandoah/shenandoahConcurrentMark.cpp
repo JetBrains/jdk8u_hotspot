@@ -86,34 +86,6 @@ public:
   }
 };
 
-// Mark the object and add it to the queue to be scanned
-template <class T, bool CL>
-ShenandoahMarkObjsClosure<T, CL>::ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp, jushort* live_data) :
-  _heap((ShenandoahHeap*)(Universe::heap())),
-  _queue(q),
-  _mark_refs(T(q, rp)),
-  _live_data(live_data)
-{
-  if (CL) {
-    Copy::fill_to_bytes(_live_data, _heap->max_regions() * sizeof(jushort));
-  }
-}
-
-template <class T, bool CL>
-ShenandoahMarkObjsClosure<T, CL>::~ShenandoahMarkObjsClosure() {
-  if (CL) {
-    for (uint i = 0; i < _heap->max_regions(); i++) {
-      ShenandoahHeapRegion* r = _heap->regions()->get(i);
-      if (r != NULL) {
-        jushort live = _live_data[i];
-        if (live > 0) {
-          r->increase_live_data_words(live);
-        }
-      }
-    }
-  }
-}
-
 ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
   MetadataAwareOopClosure(rp),
   _queue(q),
@@ -215,23 +187,13 @@ public:
         CodeCache::blobs_do(&blobs);
       }
     }
-    if (_update_refs) {
-      if (_cm->unload_classes()) {
-        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsMetadataClosure, true> cl(q, rp, live_data);
-        _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
-      } else {
-        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
-        _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
-      }
-    } else {
-      if (_cm->unload_classes()) {
-        ShenandoahMarkObjsClosure<ShenandoahMarkRefsMetadataClosure, true> cl(q, rp, live_data);
-        _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
-      } else {
-        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
-        _cm->concurrent_mark_loop(&cl, worker_id, q, _terminator);
-      }
-    }
+
+    _cm->mark_loop(worker_id, _terminator, rp,
+                   true, // cancellable
+                   true, // drain SATBs as we go
+                   true, // count liveness
+                   _cm->unload_classes(),
+                   _update_refs);
   }
 };
 
@@ -262,47 +224,13 @@ public:
     } else {
       rp = NULL;
     }
-    SCMObjToScanQueue* q = _cm->get_queue(worker_id);
-    jushort* live_data = _cm->get_liveness(worker_id);
 
-    // Templates need constexprs, so we have to switch by the flags ourselves.
-    if (_update_refs) {
-      if (_count_live) {
-        if (_unload_classes) {
-          ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsMetadataClosure, true> cl(q, rp, live_data);
-          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
-        } else {
-          ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
-          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
-        }
-      } else {
-        if (_unload_classes) {
-          ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsMetadataClosure, false> cl(q, rp, live_data);
-          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
-        } else {
-          ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, false> cl(q, rp, live_data);
-          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
-        }
-      }
-    } else {
-      if (_count_live) {
-        if (_unload_classes) {
-          ShenandoahMarkObjsClosure<ShenandoahMarkRefsMetadataClosure, true> cl(q, rp, live_data);
-          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
-        } else {
-          ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
-          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
-        }
-      } else {
-        if (_unload_classes) {
-          ShenandoahMarkObjsClosure<ShenandoahMarkRefsMetadataClosure, false> cl(q, rp, live_data);
-          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
-        } else {
-          ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, false> cl(q, rp, live_data);
-          _cm->final_mark_loop(&cl, worker_id, q, _terminator);
-        }
-      }
-    }
+    _cm->mark_loop(worker_id, _terminator, rp,
+                   false, // not cancellable
+                   false, // do not drain SATBs, already drained
+                   _count_live,
+                   _unload_classes,
+                   _update_refs);
 
     assert(_cm->task_queues()->is_empty(), "Should be empty");
   }
@@ -378,6 +306,8 @@ void ShenandoahConcurrentMark::final_update_roots() {
 
 
 void ShenandoahConcurrentMark::initialize(uint workers) {
+  _heap = ShenandoahHeap::heap();
+
   uint num_queues = MAX2(workers, 1U);
 
   _task_queues = new SCMObjToScanQueueSet((int) num_queues);
@@ -702,25 +632,13 @@ public:
     } else {
       rp = NULL;
     }
-    SCMObjToScanQueue* q = scm->get_queue(_worker_id);
-    jushort* live_data = scm->get_liveness(_worker_id);
-    if (sh->need_update_refs()) {
-      if (scm->unload_classes()) {
-        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsMetadataClosure, true> cl(q, rp, live_data);
-        scm->final_mark_loop(&cl, _worker_id, q, _terminator);
-      } else {
-        ShenandoahMarkObjsClosure<ShenandoahMarkUpdateRefsClosure, true> cl(q, rp, live_data);
-        scm->final_mark_loop(&cl, _worker_id, q, _terminator);
-      }
-    } else {
-      if (scm->unload_classes()) {
-        ShenandoahMarkObjsClosure<ShenandoahMarkRefsMetadataClosure, true> cl(q, rp, live_data);
-        scm->final_mark_loop(&cl, _worker_id, q, _terminator);
-      } else {
-        ShenandoahMarkObjsClosure<ShenandoahMarkRefsClosure, true> cl(q, rp, live_data);
-        scm->final_mark_loop(&cl, _worker_id, q, _terminator);
-      }
-    }
+
+    scm->mark_loop(_worker_id, _terminator, rp,
+                   false, // not cancellable
+                   false, // do not drain SATBs
+                   true,  // count liveness
+                   scm->unload_classes(),
+                   sh->need_update_refs());
   }
 };
 
@@ -922,104 +840,107 @@ void ShenandoahConcurrentMark::clear_queue(SCMObjToScanQueue *q) {
   q->clear_buffer();
 }
 
-template <class T, bool CL>
-void ShenandoahConcurrentMark::concurrent_mark_loop(ShenandoahMarkObjsClosure<T, CL>* cl,
-                                                    uint worker_id,
-                                                    SCMObjToScanQueue* q,
-                                                    ParallelTaskTerminator* terminator) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  int seed = 17;
-  uint stride = ShenandoahMarkLoopStride;
-  SCMObjToScanQueueSet* queues = task_queues();
+template <bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS, bool CLASS_UNLOAD, bool UPDATE_REFS>
+void ShenandoahConcurrentMark::mark_loop_prework(uint w, ParallelTaskTerminator *t, ReferenceProcessor *rp) {
+  SCMObjToScanQueue* q = get_queue(w);
 
-  // Drain outstanding queues first
-  if (!concurrent_process_queues(heap, q, cl)) {
-    ShenandoahCancelledTerminatorTerminator tt;
-    while (! terminator->offer_termination(&tt));
-    return;
+  jushort* ld;
+  if (COUNT_LIVENESS) {
+    ld = get_liveness(w);
+    Copy::fill_to_bytes(ld, _heap->max_regions() * sizeof(jushort));
+  } else {
+    ld = NULL;
   }
 
-  // Normal loop
-  while (true) {
-    if (heap->cancelled_concgc()) {
-      ShenandoahCancelledTerminatorTerminator tt;
-      while (! terminator->offer_termination(&tt));
-      return;
+  // TODO: We can clean up this if we figure out how to do templated oop closures that
+  // play nice with specialized_oop_iterators.
+  if (CLASS_UNLOAD) {
+    if (UPDATE_REFS) {
+      ShenandoahMarkUpdateRefsMetadataClosure cl(q, rp);
+      mark_loop_work<ShenandoahMarkUpdateRefsMetadataClosure, CANCELLABLE, DRAIN_SATB, COUNT_LIVENESS>(&cl, ld, w, t);
+    } else {
+      ShenandoahMarkRefsMetadataClosure cl(q, rp);
+      mark_loop_work<ShenandoahMarkRefsMetadataClosure, CANCELLABLE, DRAIN_SATB, COUNT_LIVENESS>(&cl, ld, w, t);
     }
-
-    SCMTask t;
-    for (uint i = 0; i < stride; i++) {
-      if (try_queue(q, t) ||
-          try_draining_satb_buffer(q, t) ||
-          queues->steal(worker_id, &seed, t)) {
-        cl->do_task(&t);
-      } else {
-        if (terminator->offer_termination()) return;
-      }
+  } else {
+    if (UPDATE_REFS) {
+      ShenandoahMarkUpdateRefsClosure cl(q, rp);
+      mark_loop_work<ShenandoahMarkUpdateRefsClosure, CANCELLABLE, DRAIN_SATB, COUNT_LIVENESS>(&cl, ld, w, t);
+    } else {
+      ShenandoahMarkRefsClosure cl(q, rp);
+      mark_loop_work<ShenandoahMarkRefsClosure, CANCELLABLE, DRAIN_SATB, COUNT_LIVENESS>(&cl, ld, w, t);
     }
   }
-}
 
-template <class T, bool CL>
-bool ShenandoahConcurrentMark::concurrent_process_queues(ShenandoahHeap* heap,
-  SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T, CL>* cl) {
-  SCMObjToScanQueueSet* queues = task_queues();
-  uint stride = ShenandoahMarkLoopStride;
-  while (true) {
-    if (heap->cancelled_concgc()) return false;
-
-    SCMTask t;
-    for (uint i = 0; i < stride; i++) {
-      if (try_queue(q, t)) {
-        cl->do_task(&t);
-      } else {
-        assert(q->is_empty(), "Must be empty");
-        q = queues->claim_next();
-        if (q == NULL) {
-          return true;
+  if (COUNT_LIVENESS) {
+    for (uint i = 0; i < _heap->max_regions(); i++) {
+      ShenandoahHeapRegion *r = _heap->regions()->get(i);
+      if (r != NULL) {
+        jushort live = ld[i];
+        if (live > 0) {
+          r->increase_live_data_words(live);
         }
       }
     }
   }
 }
 
-
-template <class T, bool CL>
-void ShenandoahConcurrentMark::final_mark_loop(ShenandoahMarkObjsClosure<T, CL>* cl,
-                                               uint worker_id,
-                                               SCMObjToScanQueue* q,
-                                               ParallelTaskTerminator* terminator) {
+template <class T, bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS>
+void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint worker_id, ParallelTaskTerminator *terminator) {
   int seed = 17;
-  assert(q != NULL, "Sanity");
+  uint stride = CANCELLABLE ? ShenandoahMarkLoopStride : 1;
+
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
   SCMObjToScanQueueSet* queues = task_queues();
-  SCMObjToScanQueue*    worker_queue = q;
+  SCMObjToScanQueue* q;
   SCMTask t;
 
   /*
-   * There can be more queues than workers.
-   * To deal with the imbalance, we claim extra queues first,
-   * since marking can push new tasks into the queue associated
-   * with this worker id, and we come back to process this
-   * queue at the end.
+   * Process outstanding queues, if any.
+   *
+   * There can be more queues than workers. To deal with the imbalance, we claim
+   * extra queues first. Since marking can push new tasks into the queue associated
+   * with this worker id, we come back to process this queue in the normal loop.
    */
   q = queues->claim_next();
-  if (q == NULL) {
-    q = worker_queue;
+  while (q != NULL) {
+    if (CANCELLABLE && heap->cancelled_concgc()) {
+      ShenandoahCancelledTerminatorTerminator tt;
+      while (!terminator->offer_termination(&tt));
+      return;
+    }
+
+    for (uint i = 0; i < stride; i++) {
+      if (try_queue(q, t)) {
+        do_task<T, COUNT_LIVENESS>(q, cl, live_data, &t);
+      } else {
+        assert(q->is_empty(), "Must be empty");
+        q = queues->claim_next();
+        break;
+      }
+    }
   }
 
+  q = get_queue(worker_id);
+
+  /*
+   * Normal marking loop:
+   */
   while (true) {
-    if (try_queue(q, t) ||
-       (q == worker_queue && queues->steal(worker_id, &seed, t))) {
-      cl->do_task(&t);
-    } else {
-      if (q != worker_queue) {
-        q = queues->claim_next();
-        if (q == NULL) {
-          q = worker_queue;
-        }
-        continue;
+    if (CANCELLABLE && heap->cancelled_concgc()) {
+      ShenandoahCancelledTerminatorTerminator tt;
+      while (!terminator->offer_termination(&tt));
+      return;
+    }
+
+    for (uint i = 0; i < stride; i++) {
+      if (try_queue(q, t) ||
+              (DRAIN_SATB && try_draining_satb_buffer(q, t)) ||
+              queues->steal(worker_id, &seed, t)) {
+        do_task<T, COUNT_LIVENESS>(q, cl, live_data, &t);
+      } else {
+        if (terminator->offer_termination()) return;
       }
-      if (terminator->offer_termination()) return;
     }
   }
 }

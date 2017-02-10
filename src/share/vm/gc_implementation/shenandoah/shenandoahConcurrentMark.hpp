@@ -46,25 +46,11 @@ public:
 };
 #endif
 
-template <class T, bool CL>
-class ShenandoahMarkObjsClosure {
-  ShenandoahHeap* _heap;
-  T _mark_refs;
-  SCMObjToScanQueue* _queue;
-  jushort* _live_data;
-public:
-  ShenandoahMarkObjsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp, jushort* live_data);
-  ~ShenandoahMarkObjsClosure();
-
-  inline void do_task(SCMTask* task);
-  inline void do_chunked_array_start(oop array);
-  inline void do_chunked_array(oop array, int chunk, int pow);
-  inline void count_liveness(oop obj);
-};
-
 class ShenandoahConcurrentMark: public CHeapObj<mtGC> {
 
 private:
+  ShenandoahHeap* _heap;
+
   // The per-worker-thread work queues
   SCMObjToScanQueueSet* _task_queues;
 
@@ -82,6 +68,65 @@ private:
   // into cache pressure (which is already high during marking), and
   // too many atomic updates. size_t/jint is too large, jbyte is too small.
   jushort** _liveness_local;
+
+private:
+  template <class T, bool COUNT_LIVENESS>
+  inline void do_task(SCMObjToScanQueue* q, T* cl, jushort* live_data, SCMTask* task);
+
+  template <class T>
+  inline void do_chunked_array_start(SCMObjToScanQueue* q, T* cl, oop array);
+
+  template <class T>
+  inline void do_chunked_array(SCMObjToScanQueue* q, T* cl, oop array, int chunk, int pow);
+
+  inline void count_liveness(jushort* live_data, oop obj);
+
+  // Actual mark loop with closures set up
+  template <class T, bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS>
+  void mark_loop_work(T* cl, jushort* live_data, uint worker_id, ParallelTaskTerminator *t);
+
+  template <bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS, bool CLASS_UNLOAD, bool UPDATE_REFS>
+  void mark_loop_prework(uint worker_id, ParallelTaskTerminator *terminator, ReferenceProcessor *rp);
+
+  // ------------------------ Currying dynamic arguments to template args ----------------------------
+
+  template <bool B1, bool B2, bool B3, bool B4>
+  void mark_loop_4(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp, bool b5) {
+    if (b5) {
+      mark_loop_prework<B1, B2, B3, B4, true>(w, t, rp);
+    } else {
+      mark_loop_prework<B1, B2, B3, B4, false>(w, t, rp);
+    }
+  };
+
+  template <bool B1, bool B2, bool B3>
+  void mark_loop_3(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp, bool b4, bool b5) {
+    if (b4) {
+      mark_loop_4<B1, B2, B3, true>(w, t, rp, b5);
+    } else {
+      mark_loop_4<B1, B2, B3, false>(w, t, rp, b5);
+    }
+  };
+
+  template <bool B1, bool B2>
+  void mark_loop_2(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp, bool b3, bool b4, bool b5) {
+    if (b3) {
+      mark_loop_3<B1, B2, true>(w, t, rp, b4, b5);
+    } else {
+      mark_loop_3<B1, B2, false>(w, t, rp, b4, b5);
+    }
+  };
+
+  template <bool B1>
+  void mark_loop_1(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp, bool b2, bool b3, bool b4, bool b5) {
+    if (b2) {
+      mark_loop_2<B1, true>(w, t, rp, b3, b4, b5);
+    } else {
+      mark_loop_2<B1, false>(w, t, rp, b3, b4, b5);
+    }
+  };
+
+  // ------------------------ END: Currying dynamic arguments to template args ----------------------------
 
 public:
   // We need to do this later when the heap is already created.
@@ -112,11 +157,16 @@ public:
   void finish_mark_from_roots();
   // Those are only needed public because they're called from closures.
 
-  template <class T, bool CL>
-  void concurrent_mark_loop(ShenandoahMarkObjsClosure<T, CL>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
-
-  template <class T, bool CL>
-  void final_mark_loop(ShenandoahMarkObjsClosure<T, CL>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
+  // Mark loop entry.
+  // Translates dynamic arguments to template parameters with progressive currying.
+  void mark_loop(uint worker_id, ParallelTaskTerminator* terminator, ReferenceProcessor *rp,
+                 bool cancellable, bool drain_satb, bool count_liveness, bool class_unload, bool update_refs) {
+    if (cancellable) {
+      mark_loop_1<true>(worker_id, terminator, rp, drain_satb, count_liveness, class_unload, update_refs);
+    } else {
+      mark_loop_1<false>(worker_id, terminator, rp, drain_satb, count_liveness, class_unload, update_refs);
+    }
+  }
 
   inline bool try_queue(SCMObjToScanQueue* q, SCMTask &task);
 
@@ -138,13 +188,6 @@ private:
 #endif
 
   void weak_refs_work();
-
-  /**
-   * Process assigned queue and others if there are any to be claimed.
-   * Return false if the process is terminated by concurrent gc cancellation.
-   */
-  template <class T, bool CL>
-  bool concurrent_process_queues(ShenandoahHeap* heap, SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T, CL>* cl);
 
 #if TASKQUEUE_STATS
   static void print_taskqueue_stats_hdr(outputStream* const st = tty);
