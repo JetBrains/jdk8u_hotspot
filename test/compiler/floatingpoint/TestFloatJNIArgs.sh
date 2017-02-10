@@ -25,29 +25,30 @@
 
 ##
 ## @test
-## @bug 8148353
-## @summary gcc on sparc expects clean 32 bit int in 64 bit register on function entry
-## @run shell/timeout=30 TestDirtyInt.sh
+## @bug 8165673
+## @summary regression test for passing float args to a jni function.
+## @run shell/timeout=30 TestFloatJNIArgs.sh
 ##
 
-if [ -z "${TESTSRC}" ]; then
-    TESTSRC="${PWD}"
-    echo "TESTSRC not set.  Using "${TESTSRC}" as default"
+if [ "${TESTSRC}" = "" ]
+then
+  TESTSRC=${PWD}
+  echo "TESTSRC not set.  Using "${TESTSRC}" as default"
 fi
 echo "TESTSRC=${TESTSRC}"
 ## Adding common setup Variables for running shell tests.
 . ${TESTSRC}/../../test_env.sh
 
 # set platform-dependent variables
-if [ "$VM_OS" = "linux" -a "$VM_CPU" = "sparcv9" ]; then
-    echo "Testing on linux-sparc"
+if [ $VM_OS == "linux" -a $VM_CPU == "aarch64" ]; then
+    echo "Testing on linux-aarch64"
     gcc_cmd=`which gcc`
-    if [ -z "$gcc_cmd" ]; then
+    if [ "x$gcc_cmd" == "x" ]; then
         echo "WARNING: gcc not found. Cannot execute test." 2>&1
         exit 0;
     fi
 else
-    echo "Test passed; only valid for linux-sparc"
+    echo "Test passed; only valid for linux-aarch64"
     exit 0;
 fi
 
@@ -57,22 +58,47 @@ cp ${TESTSRC}${FS}*.java ${THIS_DIR}
 ${TESTJAVA}${FS}bin${FS}javac *.java
 
 $gcc_cmd -O1 -DLINUX -fPIC -shared \
-    -o ${TESTSRC}${FS}libTestDirtyInt.so \
+    -o ${THIS_DIR}${FS}libTestFloatJNIArgs.so \
     -I${TESTJAVA}${FS}include \
     -I${TESTJAVA}${FS}include${FS}linux \
-    ${TESTSRC}${FS}libTestDirtyInt.c
+    ${TESTSRC}${FS}libTestFloatJNIArgs.c
 
 # run the java test in the background
-cmd="${TESTJAVA}${FS}bin${FS}java \
-    -Djava.library.path=${TESTSRC}${FS} TestDirtyInt"
+cmd="${TESTJAVA}${FS}bin${FS}java -Xint \
+    -Djava.library.path=${THIS_DIR}${FS} TestFloatJNIArgs"
 
 echo "$cmd"
 eval $cmd
 
-if [ $? = 0 ]; then
-    echo "Test Passed"
-    exit 0
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
 fi
 
-echo "Test Failed"
-exit 1
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+TieredCompilation -Xcomp \
+    -Djava.library.path=${THIS_DIR}${FS} TestFloatJNIArgs"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:-TieredCompilation -Xcomp \
+    -Djava.library.path=${THIS_DIR}${FS} TestFloatJNIArgs"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
+echo "Test Passed"
+exit 0

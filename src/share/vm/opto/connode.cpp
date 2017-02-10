@@ -436,7 +436,9 @@ uint CastIINode::size_of() const {
 }
 
 uint CastIINode::cmp(const Node &n) const {
-  return TypeNode::cmp(n) && ((CastIINode&)n)._carry_dependency == _carry_dependency;
+  return TypeNode::cmp(n) &&
+         ((CastIINode&)n)._carry_dependency == _carry_dependency &&
+         ((CastIINode&)n)._range_check_dependency == _range_check_dependency;
 }
 
 Node *CastIINode::Identity(PhaseTransform *phase) {
@@ -510,6 +512,13 @@ const Type *CastIINode::Value(PhaseTransform *phase) const {
     }
   }
   return res;
+}
+
+Node *CastIINode::Ideal_DU_postCCP(PhaseCCP *ccp) {
+  if (_carry_dependency || _range_check_dependency) {
+    return NULL;
+  }
+  return ConstraintCastNode::Ideal_DU_postCCP(ccp);
 }
 
 #ifndef PRODUCT

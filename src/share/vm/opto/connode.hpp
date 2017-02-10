@@ -235,6 +235,7 @@ public:
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape);
   virtual int Opcode() const;
   virtual uint ideal_reg() const = 0;
+  virtual Node *Ideal_DU_postCCP( PhaseCCP * );
 };
 
 //------------------------------CastIINode-------------------------------------
@@ -259,6 +260,7 @@ public:
   virtual uint ideal_reg() const { return Op_RegI; }
   virtual Node *Identity( PhaseTransform *phase );
   virtual const Type *Value( PhaseTransform *phase ) const;
+  virtual Node *Ideal_DU_postCCP( PhaseCCP * );
   const bool has_range_check() {
  #ifdef _LP64
      return _range_check_dependency;
