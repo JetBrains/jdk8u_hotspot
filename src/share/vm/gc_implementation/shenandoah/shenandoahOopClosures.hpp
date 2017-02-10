@@ -81,7 +81,7 @@ public:
     ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
-  inline void do_oop_nv(T* p)       { work<T, CONCURRENT>(p); }
+  inline void do_oop_nv(T* p)       { work<T, NONE>(p); }
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
   virtual void do_oop(oop* p)       { do_oop_nv(p); }
   inline bool do_metadata_nv()      { return false; }
@@ -94,7 +94,7 @@ public:
     ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
-  inline void do_oop_nv(T* p)       { work<T, CONCURRENT>(p); }
+  inline void do_oop_nv(T* p)       { work<T, NONE>(p); }
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
   virtual void do_oop(oop* p)       { do_oop_nv(p); }
   inline bool do_metadata_nv()      { return true; }
