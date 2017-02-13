@@ -1266,7 +1266,8 @@ void ShenandoahHeap::evacuate_and_update_roots() {
   ClassLoaderDataGraph::clear_claimed_marks();
 
   {
-    ShenandoahRootEvacuator rp(this, _max_parallel_workers, ShenandoahCollectorPolicy::evac_thread_roots);
+    uint nworkers = _workers->active_workers();
+    ShenandoahRootEvacuator rp(this, nworkers, ShenandoahCollectorPolicy::evac_thread_roots);
     ShenandoahEvacuateUpdateRootsTask roots_task(&rp);
     workers()->run_task(&roots_task);
   }
