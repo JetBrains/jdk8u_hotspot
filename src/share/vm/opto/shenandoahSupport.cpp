@@ -2768,18 +2768,24 @@ void PhaseIdealLoop::shenandoah_collect_memory_nodes_helper(Node* n, int alias, 
     DEBUG_ONLY(if (trace) { tty->print("YYY phi post: other"); other->dump(); })
     if (other != mem) {
       if (other->is_Phi() && other->in(0) == r && mem->is_Phi() && mem->in(0) == r) {
+        bool identical = true;
         for (uint i = 1; i < mem->req(); i++) {
+          if (mem->in(i) != other->in(i)) {
+            identical = false;
+          }
           assert(mem->in(i) == other->in(i) ||
                  (C->get_alias_index(mem->adr_type()) == alias && mem->in(i) == memory_for(get_ctrl(other->in(i)), phis)), "");
         }
-        if (mem->adr_type() == TypePtr::BOTTOM || C->get_alias_index(other->adr_type()) == alias) {
+        if (mem->adr_type() == TypePtr::BOTTOM || C->get_alias_index(other->adr_type()) == alias || !identical) {
           assert(mem->adr_type() != TypePtr::BOTTOM || mem == n, "");
           DEBUG_ONLY(if (trace) { tty->print("YYY phi post: replacing other with"); mem->dump(); })
           if (phis[other->_idx] != mem) {
             phis.map(other->_idx, mem);
             push_uses(C, other, wq, alias);
           }
-          lazy_replace(other, mem);
+          if (mem->adr_type() == TypePtr::BOTTOM || C->get_alias_index(other->adr_type()) == alias) {
+            lazy_replace(other, mem);
+          }
           wq.remove(other);
           phis.map(r->_idx, mem);
           cur_mem = mem;
