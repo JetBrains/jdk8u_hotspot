@@ -144,72 +144,76 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   oopDesc::set_bs(&bs);
 
   policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_prepare);
-
   {
     GCTraceTime time("Pause Full", ShenandoahLogInfo, true, _gc_timer, _heap->tracer()->gc_id());
 
-  if (UseTLAB) {
-    _heap->ensure_parsability(true);
-  }
+    if (UseTLAB) {
+      _heap->ensure_parsability(true);
+    }
 
-  CodeCache::gc_prologue();
+    CodeCache::gc_prologue();
 
-  // We should save the marks of the currently locked biased monitors.
-  // The marking doesn't preserve the marks of biased objects.
-  //BiasedLocking::preserve_marks();
+    // We should save the marks of the currently locked biased monitors.
+    // The marking doesn't preserve the marks of biased objects.
+    //BiasedLocking::preserve_marks();
 
-  _heap->set_need_update_refs(true);
+    _heap->set_need_update_refs(true);
+    FlexibleWorkGang* workers = _heap->workers();
 
+    // Setup workers for phase 1
+    {
+      uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
+	workers->active_workers(), Threads::number_of_non_daemon_threads());
+      workers->set_active_workers(nworkers);
+      ShenandoahWorkerScope scope(workers, nworkers);
 
-  // Setup workers for phase 1
-  FlexibleWorkGang* workers = _heap->workers();
-  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
-    workers->total_workers(), workers->active_workers(), Threads::number_of_non_daemon_threads());
-  workers->set_active_workers(nworkers);
+      OrderAccess::fence();
 
-  OrderAccess::fence();
+      policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_mark);
+      phase1_mark_heap();
+      policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_mark);
+    }
 
-  policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_mark);
-  phase1_mark_heap();
-  policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_mark);
+    // Setup workers for the rest
+    {
+      uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_parallel_evacuation(
+        workers->active_workers(), Threads::number_of_non_daemon_threads());
 
-  // Setup workers for the rest
-  nworkers = ShenandoahCollectorPolicy::calc_workers_for_evacuation(
-    workers->total_workers(), workers->active_workers(), Threads::number_of_non_daemon_threads());
-  workers->set_active_workers(nworkers);
+      ShenandoahWorkerScope scope(workers, nworkers);
 
-  OrderAccess::fence();
+      OrderAccess::fence();
 
-  policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
-  ShenandoahHeapRegionSet* copy_queues[_heap->max_parallel_workers()];
-  phase2_calculate_target_addresses(copy_queues);
-  policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
+      policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
+      ShenandoahHeapRegionSet* copy_queues[_heap->max_workers()];
+      phase2_calculate_target_addresses(copy_queues);
+      policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
 
-  OrderAccess::fence();
+      OrderAccess::fence();
 
-  policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_adjust_pointers);
-  phase3_update_references();
-  policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_adjust_pointers);
+      policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_adjust_pointers);
+      phase3_update_references();
+      policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_adjust_pointers);
 
-  policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_copy_objects);
-  phase4_compact_objects(copy_queues);
-  policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_copy_objects);
+      policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_copy_objects);
+      phase4_compact_objects(copy_queues);
+      policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_copy_objects);
 
-  CodeCache::gc_epilogue();
-  JvmtiExport::gc_epilogue();
+      CodeCache::gc_epilogue();
+      JvmtiExport::gc_epilogue();
+    }
 
-  // refs processing: clean slate
-  // rp.enqueue_discovered_references();
+    // refs processing: clean slate
+    // rp.enqueue_discovered_references();
 
-  if (ShenandoahVerify) {
-    _heap->verify_heap_after_evacuation();
-  }
+    if (ShenandoahVerify) {
+      _heap->verify_heap_after_evacuation();
+    }
 
-  _heap->set_bytes_allocated_since_cm(0);
+    _heap->set_bytes_allocated_since_cm(0);
 
-  _heap->set_need_update_refs(false);
+    _heap->set_need_update_refs(false);
 
-  _heap->set_full_gc_in_progress(false);
+    _heap->set_full_gc_in_progress(false);
   }
 
   _gc_timer->register_gc_end();
@@ -467,7 +471,7 @@ void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegi
   heap->heap_region_iterate(&cl);
 
   // Initialize copy queues.
-  for (uint i = 0; i < heap->max_parallel_workers(); i++) {
+  for (uint i = 0; i < heap->max_workers(); i++) {
     copy_queues[i] = new ShenandoahHeapRegionSet(heap->max_regions());
   }
 
@@ -694,7 +698,7 @@ void ShenandoahMarkCompact::phase4_compact_objects(ShenandoahHeapRegionSet** cop
   // Also clear the next bitmap in preparation for next marking.
   heap->reset_next_mark_bitmap(heap->workers());
 
-  for (uint i = 0; i < heap->max_parallel_workers(); i++) {
+  for (uint i = 0; i < heap->max_workers(); i++) {
     delete copy_queues[i];
   }
 

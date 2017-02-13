@@ -25,8 +25,9 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
-#include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
+#include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 VM_Operation::VMOp_Type VM_ShenandoahInitMark::type() const {
   return VMOp_ShenandoahInitMark;
@@ -38,6 +39,14 @@ const char* VM_ShenandoahInitMark::name() const {
 
 void VM_ShenandoahInitMark::doit() {
   ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
+  FlexibleWorkGang*       workers = sh->workers();
+
+  // Calculate workers for initial marking
+  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
+    workers->active_workers(), Threads::number_of_non_daemon_threads());
+
+  ShenandoahWorkerScope scope(workers, nworkers);
+
   GCTraceTime time("Pause Init-Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark);
@@ -105,6 +114,12 @@ void VM_ShenandoahStartEvacuation::doit() {
   // evacuate roots right after finishing marking, so that we don't
   // get unmarked objects in the roots.
   ShenandoahHeap *sh = ShenandoahHeap::heap();
+  // Setup workers for final marking
+  FlexibleWorkGang* workers = sh->workers();
+  uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_final_marking(workers->active_workers(),
+    Threads::number_of_non_daemon_threads());
+  ShenandoahWorkerScope scope(workers, n_workers);
+
   if (! sh->cancelled_concgc()) {
     GCTraceTime time("Pause Final Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);

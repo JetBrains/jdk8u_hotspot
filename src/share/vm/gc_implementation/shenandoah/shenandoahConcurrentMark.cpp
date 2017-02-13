@@ -308,14 +308,6 @@ void ShenandoahConcurrentMark::init_mark_roots() {
   set_process_references(policy->process_references());
   set_unload_classes(policy->unload_classes());
 
-  // Set up parallel workers for initial marking
-  FlexibleWorkGang* workers = heap->workers();
-  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
-    workers->total_workers(), workers->active_workers(),
-    Threads::number_of_non_daemon_threads());
-
-  workers->set_active_workers(nworkers);
-
   mark_roots();
 }
 
@@ -370,19 +362,12 @@ void ShenandoahConcurrentMark::initialize(uint workers) {
 
 void ShenandoahConcurrentMark::mark_from_roots() {
   ShenandoahHeap* sh = (ShenandoahHeap *) Universe::heap();
+  WorkGang* workers = sh->workers();
+  uint nworkers = workers->active_workers();
 
   bool update_refs = sh->need_update_refs();
 
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::conc_mark);
-
-  // Concurrent marking, uses concurrent workers
-  // Setup workers for concurrent marking
-  FlexibleWorkGang* workers = sh->conc_workers();
-  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_conc_marking(
-    workers->total_workers(), workers->active_workers(),
-    Threads::number_of_non_daemon_threads());
-
-  workers->set_active_workers(nworkers);
 
   if (process_references()) {
     ReferenceProcessor* rp = sh->ref_processor();
@@ -421,12 +406,6 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
   IsGCActiveMark is_active;
 
   ShenandoahHeap* sh = (ShenandoahHeap *) Universe::heap();
-
-  // Setup workers for final marking
-  FlexibleWorkGang* workers = sh->workers();
-  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_final_marking(
-    workers->total_workers(), workers->active_workers(), Threads::number_of_non_daemon_threads());
-  workers->set_active_workers(nworkers);
 
   TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
 
@@ -940,6 +919,9 @@ void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint wo
    * extra queues first. Since marking can push new tasks into the queue associated
    * with this worker id, we come back to process this queue in the normal loop.
    */
+  assert(queues->get_reserved() == heap->workers()->active_workers(),
+    "Need to reserve proper number of queues");
+
   q = queues->claim_next();
   while (q != NULL) {
     if (CANCELLABLE && heap->cancelled_concgc()) {

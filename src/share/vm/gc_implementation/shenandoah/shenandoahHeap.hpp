@@ -25,6 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP
 
 #include "gc_implementation/g1/concurrentMark.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 
 class ConcurrentGCTimer;
 
@@ -128,11 +129,8 @@ private:
 #ifndef NDEBUG
   uint _numAllocs;
 #endif
-  uint _max_parallel_workers;
-  uint _max_conc_workers;
   uint _max_workers;
 
-  FlexibleWorkGang* _conc_workers;
   FlexibleWorkGang* _workers;
 
 
@@ -377,12 +375,9 @@ public:
 
   ReferenceProcessor* ref_processor() { return _ref_processor;}
 
-  FlexibleWorkGang* conc_workers() const { return _conc_workers;}
   FlexibleWorkGang* workers() const { return _workers;}
 
-  uint max_conc_workers();
   uint max_workers();
-  uint max_parallel_workers();
 
   void do_evacuation();
   ShenandoahHeapRegion* next_compaction_region(const ShenandoahHeapRegion* r);

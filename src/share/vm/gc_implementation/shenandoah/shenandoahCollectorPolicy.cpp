@@ -847,82 +847,101 @@ uint ShenandoahCollectorPolicy::calc_default_active_workers(
  * Initial marking phase also update references of live objects from previous concurrent GC cycle,
  * so we take Java threads and live set into account.
  */
-uint ShenandoahCollectorPolicy::calc_workers_for_init_marking(uint total_workers,
-                                            uint active_workers,
+uint ShenandoahCollectorPolicy::calc_workers_for_init_marking(uint active_workers,
                                             uint application_workers) {
 
   if (!UseDynamicNumberOfGCThreads ||
      (!FLAG_IS_DEFAULT(ParallelGCThreads) && !ForceDynamicNumberOfGCThreads)) {
-    assert(total_workers > 0, "Always need at least 1");
-    return total_workers;
+    assert(ParallelGCThreads > 0, "Always need at least 1");
+    return ParallelGCThreads;
   } else {
     ShenandoahCollectorPolicy* policy = (ShenandoahCollectorPolicy*)ShenandoahHeap::heap()->collector_policy();
     size_t live_data = policy->_heuristics->bytes_in_cset();
 
-    return calc_default_active_workers(total_workers, (total_workers > 1) ? 2 : 1,
+    return calc_default_active_workers(ParallelGCThreads, (ParallelGCThreads > 1) ? 2 : 1,
       active_workers, application_workers,
       calc_workers_for_java_threads(application_workers),
       calc_workers_for_live_set(live_data));
   }
 }
 
-uint ShenandoahCollectorPolicy::calc_workers_for_conc_marking(uint total_workers,
-                                            uint active_workers,
+uint ShenandoahCollectorPolicy::calc_workers_for_conc_marking(uint active_workers,
                                             uint application_workers) {
 
   if (!UseDynamicNumberOfGCThreads ||
-     (!FLAG_IS_DEFAULT(ParallelGCThreads) && !ForceDynamicNumberOfGCThreads)) {
-    assert(total_workers > 0, "Always need at least 1");
-    return total_workers;
+     (!FLAG_IS_DEFAULT(ConcGCThreads) && !ForceDynamicNumberOfGCThreads)) {
+    assert(ConcGCThreads > 0, "Always need at least 1");
+    return ConcGCThreads;
   } else {
-    return calc_default_active_workers(total_workers,
-      (total_workers > 1 ? 2 : 1), active_workers,
+    return calc_default_active_workers(ConcGCThreads,
+      (ConcGCThreads > 1 ? 2 : 1), active_workers,
       application_workers, calc_workers_for_java_threads(application_workers), 0);
   }
 }
 
-uint ShenandoahCollectorPolicy::calc_workers_for_final_marking(uint total_workers,
-                                            uint active_workers,
+uint ShenandoahCollectorPolicy::calc_workers_for_final_marking(uint active_workers,
                                             uint application_workers) {
 
   if (!UseDynamicNumberOfGCThreads ||
      (!FLAG_IS_DEFAULT(ParallelGCThreads) && !ForceDynamicNumberOfGCThreads)) {
-    assert(total_workers > 0, "Always need at least 1");
-    return total_workers;
+    assert(ParallelGCThreads > 0, "Always need at least 1");
+    return ParallelGCThreads;
   } else {
-    return calc_default_active_workers(total_workers,
-      (total_workers > 1 ? 2 : 1), active_workers,
+    return calc_default_active_workers(ParallelGCThreads,
+      (ParallelGCThreads > 1 ? 2 : 1), active_workers,
       application_workers, calc_workers_for_java_threads(application_workers), 0);
   }
 }
 
-uint ShenandoahCollectorPolicy::calc_workers_for_evacuation(uint total_workers,
+  // Calculate workers for concurrent evacuation (concurrent GC)
+uint ShenandoahCollectorPolicy::calc_workers_for_conc_evacuation(uint active_workers,
+                                            uint application_workers) {
+  if (!UseDynamicNumberOfGCThreads ||
+     (!FLAG_IS_DEFAULT(ConcGCThreads) && !ForceDynamicNumberOfGCThreads)) {
+    assert(ConcGCThreads > 0, "Always need at least 1");
+    return ConcGCThreads;
+  } else {
+    return calc_workers_for_evacuation(false, // not a full GC
+      ConcGCThreads, active_workers, application_workers);
+  }
+}
+
+  // Calculate workers for parallel evaculation (full GC)
+uint ShenandoahCollectorPolicy::calc_workers_for_parallel_evacuation(uint active_workers,
+                                            uint application_workers) {
+  if (!UseDynamicNumberOfGCThreads ||
+     (!FLAG_IS_DEFAULT(ParallelGCThreads) && !ForceDynamicNumberOfGCThreads)) {
+    assert(ParallelGCThreads > 0, "Always need at least 1");
+    return ParallelGCThreads;
+  } else {
+    return calc_workers_for_evacuation(true, // a full GC
+      ParallelGCThreads, active_workers, application_workers);
+  }
+}
+
+
+uint ShenandoahCollectorPolicy::calc_workers_for_evacuation(bool full_gc,
+                                            uint total_workers,
                                             uint active_workers,
                                             uint application_workers) {
 
-  if (!UseDynamicNumberOfGCThreads ||
-     (!FLAG_IS_DEFAULT(ParallelGCThreads) && !ForceDynamicNumberOfGCThreads)) {
-    assert(total_workers > 0, "Always need at least 1");
-    return total_workers;
-  } else {
-    // Calculation based on live set
-    size_t live_data = 0;
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
-    if (heap->is_full_gc_in_progress()) {
-      ShenandoahHeapRegionSet* regions = heap->regions();
-      for (size_t index = 0; index < regions->active_regions(); index ++) {
-        live_data += regions->get_fast(index)->get_live_data_bytes();
-      }
-    } else {
-      ShenandoahCollectorPolicy* policy = (ShenandoahCollectorPolicy*)ShenandoahHeap::heap()->collector_policy();
-      live_data = policy->_heuristics->bytes_in_cset();
+  // Calculation based on live set
+  size_t live_data = 0;
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  if (full_gc) {
+    ShenandoahHeapRegionSet* regions = heap->regions();
+    for (size_t index = 0; index < regions->active_regions(); index ++) {
+      live_data += regions->get_fast(index)->get_live_data_bytes();
     }
+  } else {
+    ShenandoahCollectorPolicy* policy = (ShenandoahCollectorPolicy*)heap->collector_policy();
+    live_data = policy->_heuristics->bytes_in_cset();
+  }
 
-    uint active_workers_by_liveset = calc_workers_for_live_set(live_data);
-    return calc_default_active_workers(total_workers,
+  uint active_workers_by_liveset = calc_workers_for_live_set(live_data);
+  return calc_default_active_workers(total_workers,
       (total_workers > 1 ? 2 : 1), active_workers,
       application_workers, 0, active_workers_by_liveset);
-  }
 }
 
 

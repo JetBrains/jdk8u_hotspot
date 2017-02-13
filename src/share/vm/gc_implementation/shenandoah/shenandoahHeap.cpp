@@ -265,8 +265,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _max_allocated_gc(0),
   _allocated_last_gc(0),
   _used_start_gc(0),
-  _max_conc_workers((int) MAX2((uint) ConcGCThreads, 1U)),
-  _max_parallel_workers((int) MAX2((uint) ParallelGCThreads, 1U)),
+  _max_workers(MAX2(ConcGCThreads, ParallelGCThreads)),
   _ref_processor(NULL),
   _in_cset_fast_test(NULL),
   _in_cset_fast_test_base(NULL),
@@ -293,19 +292,14 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _scm = new ShenandoahConcurrentMark();
   _used = 0;
 
-  // This is odd.  They are concurrent gc threads, but they are also task threads.
-  // Framework doesn't allow both.
-  _workers = new FlexibleWorkGang("Parallel GC Threads", ParallelGCThreads,
+  _max_workers = MAX2(_max_workers, 1U);
+  _workers = new FlexibleWorkGang("Shenandoah GC Threads", _max_workers,
                             /* are_GC_task_threads */true,
                             /* are_ConcurrentGC_threads */false);
-  _conc_workers = new FlexibleWorkGang("Concurrent GC Threads", ConcGCThreads,
-                            /* are_GC_task_threads */true,
-                            /* are_ConcurrentGC_threads */false);
-  if ((_workers == NULL) || (_conc_workers == NULL)) {
+  if (_workers == NULL) {
     vm_exit_during_initialization("Failed necessary allocation.");
   } else {
     _workers->initialize_workers();
-    _conc_workers->initialize_workers();
   }
 }
 
@@ -434,7 +428,6 @@ void ShenandoahHeap::post_initialize() {
     }
   }
 
-  _max_workers = MAX(_max_parallel_workers, _max_conc_workers);
   _scm->initialize(_max_workers);
 
   ref_processing_init();
@@ -1266,8 +1259,7 @@ void ShenandoahHeap::evacuate_and_update_roots() {
   ClassLoaderDataGraph::clear_claimed_marks();
 
   {
-    uint nworkers = _workers->active_workers();
-    ShenandoahRootEvacuator rp(this, nworkers, ShenandoahCollectorPolicy::evac_thread_roots);
+    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::evac_thread_roots);
     ShenandoahEvacuateUpdateRootsTask roots_task(&rp);
     workers()->run_task(&roots_task);
   }
@@ -1320,15 +1312,7 @@ void ShenandoahHeap::parallel_evacuate() {
 
   ParallelEvacuationTask evacuationTask = ParallelEvacuationTask(this, _collection_set);
 
-  // Setup workers for concurrent evacuation
-  WorkGang* workers = conc_workers();
-  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_evacuation(
-    workers->total_workers(), workers->active_workers(), Threads::number_of_non_daemon_threads());
-
-  uint old_num_workers = conc_workers()->active_workers();
-  conc_workers()->set_active_workers(nworkers);
-  conc_workers()->run_task(&evacuationTask);
-  conc_workers()->set_active_workers(old_num_workers);
+  workers()->run_task(&evacuationTask);
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
@@ -1540,12 +1524,10 @@ void ShenandoahHeap::prepare_for_verify() {
 
 void ShenandoahHeap::print_gc_threads_on(outputStream* st) const {
   workers()->print_worker_threads_on(st);
-  conc_workers()->print_worker_threads_on(st);
 }
 
 void ShenandoahHeap::gc_threads_do(ThreadClosure* tcl) const {
   workers()->threads_do(tcl);
-  conc_workers()->threads_do(tcl);
 }
 
 void ShenandoahHeap::print_tracing_info() const {
@@ -2144,13 +2126,6 @@ void ShenandoahHeap::clear_cancelled_concgc() {
 
 uint ShenandoahHeap::max_workers() {
   return _max_workers;
-}
-
-uint ShenandoahHeap::max_parallel_workers() {
-  return _max_parallel_workers;
-}
-uint ShenandoahHeap::max_conc_workers() {
-  return _max_conc_workers;
 }
 
 void ShenandoahHeap::stop() {

@@ -106,6 +106,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   // Start initial mark under STW:
   {
+    // Workers are setup by VM_ShenandoahInitMark
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
     VM_ShenandoahInitMark initMark;
     heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
@@ -119,6 +120,12 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   // Continue concurrent mark:
   {
+    // Setup workers for concurrent marking phase
+    FlexibleWorkGang* workers = heap->workers();
+    uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_marking(workers->active_workers(),
+      Threads::number_of_non_daemon_threads());
+    ShenandoahWorkerScope scope(workers, n_workers);
+
     // GCTraceTime time("Concurrent marking", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
     TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
     ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
@@ -143,6 +150,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   // Proceed to complete marking under STW, and start evacuation:
   {
+    // Workers are setup by VM_ShenandoahStartEvacuation
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
     VM_ShenandoahStartEvacuation finishMark;
     heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
@@ -161,6 +169,12 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   // Continue concurrent evacuation:
   {
+    // Setup workers for concurrent evacuation phase
+    FlexibleWorkGang* workers = heap->workers();
+    uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_evacuation(workers->active_workers(),
+      Threads::number_of_non_daemon_threads());
+    ShenandoahWorkerScope scope(workers, n_workers);
+
     // GCTraceTime time("Concurrent evacuation ", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
     TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
     heap->do_evacuation();
@@ -170,7 +184,9 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   if (check_cancellation()) return;
 
   heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
-  heap->reset_next_mark_bitmap(heap->conc_workers());
+  FlexibleWorkGang* workers = heap->workers();
+  ShenandoahPushWorkerScope scope(workers, heap->max_workers());
+  heap->reset_next_mark_bitmap(workers);
   heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
 
   gc_timer->register_gc_end();
