@@ -88,6 +88,19 @@ public:
   virtual bool do_metadata()        { return false; }
 };
 
+class ShenandoahMarkResolveRefsClosure : public ShenandoahMarkRefsSuperClosure {
+public:
+  ShenandoahMarkResolveRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+    ShenandoahMarkRefsSuperClosure(q, rp) {};
+
+  template <class T>
+  inline void do_oop_nv(T* p)       { work<T, RESOLVE>(p); }
+  virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
+  virtual void do_oop(oop* p)       { do_oop_nv(p); }
+  inline bool do_metadata_nv()      { return false; }
+  virtual bool do_metadata()        { return false; }
+};
+
 class ShenandoahMarkRefsMetadataClosure : public ShenandoahMarkRefsSuperClosure {
 public:
   ShenandoahMarkRefsMetadataClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :

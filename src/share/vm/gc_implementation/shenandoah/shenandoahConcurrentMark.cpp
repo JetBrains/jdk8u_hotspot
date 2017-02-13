@@ -181,7 +181,7 @@ public:
     }
     if (ShenandoahConcurrentCodeRoots && _cm->claim_codecache()) {
       if (! _cm->unload_classes()) {
-        ShenandoahMarkRefsClosure cl(q, rp);
+        ShenandoahMarkResolveRefsClosure cl(q, rp);
         CodeBlobToOopClosure blobs(&cl, ! CodeBlobToOopClosure::FixRelocations);
         MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
         CodeCache::blobs_do(&blobs);
