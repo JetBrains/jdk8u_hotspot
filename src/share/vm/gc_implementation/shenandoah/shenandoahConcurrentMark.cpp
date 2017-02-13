@@ -40,6 +40,23 @@
 #include "oops/oop.inline.hpp"
 #include "utilities/taskqueue.hpp"
 
+#ifdef ASSERT
+class AssertToSpaceClosure : public OopClosure {
+private:
+  template <class T>
+  inline void do_oop_nv(T* p) {
+    T o = oopDesc::load_heap_oop(p);
+    if (! oopDesc::is_null(o)) {
+      oop obj = oopDesc::decode_heap_oop_not_null(o);
+      assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "need to-space object here");
+    }
+  }
+public:
+  void do_oop(narrowOop* p) { do_oop_nv(p); }
+  void do_oop(oop* p)       { do_oop_nv(p); }
+};
+#endif
+
 class ShenandoahInitMarkRootsClosure : public OopClosure {
 private:
   SCMObjToScanQueue* _queue;
@@ -133,7 +150,20 @@ public:
     if (heap->concurrentMark()->unload_classes()) {
       _rp->process_strong_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, &blobsCl, worker_id);
     } else {
-      _rp->process_all_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, ShenandoahConcurrentCodeRoots ? NULL : &blobsCl, worker_id);
+      if (ShenandoahConcurrentCodeRoots) {
+        CodeBlobClosure* code_blobs;
+#ifdef ASSERT
+        AssertToSpaceClosure assert_to_space_oops;
+        CodeBlobToOopClosure assert_to_space(&assert_to_space_oops,
+                                             !CodeBlobToOopClosure::FixRelocations);
+        code_blobs = &assert_to_space;
+#else
+        code_blobs = NULL;
+#endif
+        _rp->process_all_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, code_blobs, worker_id);
+      } else {
+        _rp->process_all_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, &blobsCl, worker_id);
+      }
     }
   }
 };
@@ -154,7 +184,15 @@ public:
     SCMUpdateRefsClosure cl;
     CLDToOopClosure cldCl(&cl);
 
-    _rp->process_all_roots(&cl, &cl, &cldCl, NULL, worker_id);
+    CodeBlobClosure* code_blobs;
+#ifdef ASSERT
+    AssertToSpaceClosure assert_to_space_oops;
+    CodeBlobToOopClosure assert_to_space(&assert_to_space_oops, !CodeBlobToOopClosure::FixRelocations);
+    code_blobs = &assert_to_space;
+#else
+    code_blobs = NULL;
+#endif
+    _rp->process_all_roots(&cl, &cl, &cldCl, code_blobs, worker_id);
   }
 };
 
