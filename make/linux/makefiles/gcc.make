@@ -261,6 +261,9 @@ else
   endif
 endif
 
+# Need extra inlining to collapse all the templated closures into the hot loop
+OPT_CFLAGS/shenandoahConcurrentMark.o += $(OPT_CFLAGS) --param inline-unit-growth=1000
+
 # Flags for generating make dependency flags.
 DEPFLAGS = -MMD -MP -MF $(DEP_DIR)/$(@:%=%.d)
 ifeq ($(USE_CLANG),)

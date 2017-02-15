@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
 #include "memory/iterator.inline.hpp"
 #include "oops/oop.inline.hpp"
