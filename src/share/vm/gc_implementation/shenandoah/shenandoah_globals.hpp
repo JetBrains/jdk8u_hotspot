@@ -45,14 +45,14 @@
           "code that manipulates final fields."                             \
           "Defaults to true. ")                                        \
                                                                             \
-  product(size_t, ShenandoahHeapRegionSize, 0,                              \
+  product(uintx, ShenandoahHeapRegionSize, 0,                               \
           "Size of the Shenandoah regions. "                                \
           "Determined automatically by default.")                           \
                                                                             \
-  experimental(size_t, ShenandoahMinRegionSize, 1 * M,                      \
+  experimental(uintx, ShenandoahMinRegionSize, 1 * M,                       \
           "Minimum heap region size. ")                                     \
                                                                             \
-  experimental(size_t, ShenandoahMaxRegionSize, 32 * M,                     \
+  experimental(uintx, ShenandoahMaxRegionSize, 32 * M,                      \
           "Maximum heap region size. ")                                     \
                                                                             \
   experimental(size_t, ShenandoahTargetNumRegions, 2048,                    \

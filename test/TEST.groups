@@ -136,8 +136,6 @@ hotspot_gc = \
   -gc/g1/TestGreyReclaimedHumongousObjects.java
 
 hotspot_gc_shenandoah = \
-  gc/stress/TestGCOldWithShenandoah.java \
-  gc/stress/gcbasher/TestGCBasherWithShenandoah.java \
   gc/shenandoah/
 
 hotspot_fast_gc_shenandoah = \
