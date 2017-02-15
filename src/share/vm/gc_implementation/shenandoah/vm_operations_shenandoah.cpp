@@ -29,14 +29,6 @@
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
-VM_Operation::VMOp_Type VM_ShenandoahInitMark::type() const {
-  return VMOp_ShenandoahInitMark;
-}
-
-const char* VM_ShenandoahInitMark::name() const {
-  return "Shenandoah Initial Marking";
-}
-
 void VM_ShenandoahInitMark::doit() {
   ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
   FlexibleWorkGang*       workers = sh->workers();
@@ -65,14 +57,6 @@ void VM_ShenandoahInitMark::doit() {
 
 }
 
-VM_Operation::VMOp_Type VM_ShenandoahFullGC::type() const {
-  return VMOp_ShenandoahFullGC;
-}
-
-VM_ShenandoahFullGC::VM_ShenandoahFullGC(GCCause::Cause gc_cause) :
-  _gc_cause(gc_cause) {
-}
-
 void VM_ShenandoahFullGC::doit() {
 
   ShenandoahMarkCompact::do_mark_compact(_gc_cause);
@@ -83,11 +67,6 @@ void VM_ShenandoahFullGC::doit() {
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::resize_tlabs);
   }
 }
-
-const char* VM_ShenandoahFullGC::name() const {
-  return "Shenandoah Full GC";
-}
-
 
 bool VM_ShenandoahReferenceOperation::doit_prologue() {
   if (Thread::current()->is_Java_thread()) {
@@ -147,22 +126,6 @@ void VM_ShenandoahStartEvacuation::doit() {
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
   }
-}
-
-VM_Operation::VMOp_Type VM_ShenandoahStartEvacuation::type() const {
-  return VMOp_ShenandoahStartEvacuation;
-}
-
-const char* VM_ShenandoahStartEvacuation::name() const {
-  return "Start shenandoah evacuation";
-}
-
-VM_Operation::VMOp_Type VM_ShenandoahVerifyHeapAfterEvacuation::type() const {
-  return VMOp_ShenandoahVerifyHeapAfterEvacuation;
-}
-
-const char* VM_ShenandoahVerifyHeapAfterEvacuation::name() const {
-  return "Shenandoah verify heap after evacuation";
 }
 
 void VM_ShenandoahVerifyHeapAfterEvacuation::doit() {
