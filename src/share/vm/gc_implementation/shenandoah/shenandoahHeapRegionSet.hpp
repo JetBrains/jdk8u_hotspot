@@ -78,6 +78,7 @@ public:
   }
 
   virtual void add_region(ShenandoahHeapRegion* r);
+  virtual void add_region_check_for_duplicates(ShenandoahHeapRegion* r);
 
   // Advance the iteration pointer to the next region.
   void next();
@@ -99,10 +100,10 @@ public:
   size_t current_index()   { return _current_index;}
   void clear_current_index() {_current_index = 0; }
 
+  bool contains(ShenandoahHeapRegion* r);
   ShenandoahHeapRegion* current() const;
 
 protected:
-  bool contains(ShenandoahHeapRegion* r);
 
   void active_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
                            bool skip_dirty_regions = false,

@@ -189,7 +189,7 @@ public:
   void record_cm_degenerated();
   void record_full_gc();
 
-  void choose_collection_set(ShenandoahCollectionSet* collection_set);
+  void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections=NULL);
   void choose_free_set(ShenandoahFreeSet* free_set);
 
   bool process_references();

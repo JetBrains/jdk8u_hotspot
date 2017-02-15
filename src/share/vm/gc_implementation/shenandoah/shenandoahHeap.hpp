@@ -361,6 +361,9 @@ public:
   void print_all_refs(const char* prefix);
   void print_heap_locations(HeapWord* start, HeapWord* end);
 
+  void calculate_matrix(int* connections);
+  void print_matrix(int* connections);
+
   size_t bytes_allocated_since_cm();
   void set_bytes_allocated_since_cm(size_t bytes);
 

@@ -86,8 +86,7 @@ public:
   }
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) = 0;
 
-  void choose_collection_set(ShenandoahCollectionSet* collection_set);
-
+  virtual void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections=NULL);
   virtual void choose_free_set(ShenandoahFreeSet* free_set);
 
   virtual bool process_references() {
@@ -138,7 +137,7 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
 {
 }
 
-void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collection_set) {
+void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections) {
   start_choose_collection_set();
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
@@ -515,6 +514,106 @@ public:
   }
 };
 
+class ConnectionHeuristics : public ShenandoahHeuristics {
+private:
+  size_t _max_live_data;
+  double _used_threshold_factor;
+  double _garbage_threshold_factor;
+  double _allocation_threshold_factor;
+
+  uintx _used_threshold;
+  uintx _garbage_threshold;
+  uintx _allocation_threshold;
+
+public:
+  ConnectionHeuristics() : ShenandoahHeuristics() {
+    _max_live_data = 0;
+
+    _used_threshold = 0;
+    _garbage_threshold = 0;
+    _allocation_threshold = 0;
+
+    _used_threshold_factor = 0.;
+    _garbage_threshold_factor = 0.1;
+    _allocation_threshold_factor = 0.;
+  }
+
+  virtual ~ConnectionHeuristics() {}
+
+  virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
+    size_t half_gig = 64 * 1024 * 1024;
+    size_t bytes_alloc = ShenandoahHeap::heap()->bytes_allocated_since_cm();
+    bool result =  bytes_alloc > half_gig;
+    if (result) tty->print("Starting a concurrent mark");
+    return result;
+  }
+
+  bool maybe_add_heap_region(ShenandoahHeapRegion* hr, ShenandoahCollectionSet* collection_set) {
+    if (!hr->is_humongous() && hr->has_live() && !collection_set->contains(hr)) {
+      collection_set->add_region_check_for_duplicates(hr);
+      hr->set_in_collection_set(true);
+      return true;
+    }
+    return false;
+  }
+
+  virtual void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections) {
+    ShenandoahHeapRegionSet* regions = ShenandoahHeap::heap()->regions();
+    size_t end = regions->active_regions();
+    RegionGarbage sorted_by_garbage[end];
+    for (size_t i = 0; i < end; i++) {
+      ShenandoahHeapRegion* r = regions->get_fast(i);
+      sorted_by_garbage[i].region_number = r->region_number();
+      sorted_by_garbage[i].garbage = r->garbage();
+    }
+
+    QuickSort::sort<RegionGarbage>(sorted_by_garbage, end, compare_by_garbage, false);
+
+    int num = ShenandoahHeap::heap()->num_regions();
+    // simulate write heuristics by picking best region.
+    int r = 0;
+    ShenandoahHeapRegion* choosenOne = regions->get(sorted_by_garbage[0].region_number);
+
+    while (! maybe_add_heap_region(choosenOne, collection_set)) {
+      choosenOne = regions->get(sorted_by_garbage[++r].region_number);
+    }
+
+    int region_number = choosenOne->region_number();
+    log_develop_trace(gc)("Adding choosen region %d\n", region_number);
+
+    // Add all the regions which point to this region.
+    for (int i = 0; i < num; i++) {
+      if (connections[i * num + region_number] > 0) {
+        ShenandoahHeapRegion* candidate = regions->get(sorted_by_garbage[i].region_number);
+        if (maybe_add_heap_region(candidate, collection_set))
+          log_develop_trace(gc)("Adding region %d which points to the choosen region\n", i);
+      }
+    }
+
+    // Add all the regions they point to.
+    for (size_t ci = 0; ci < collection_set->active_regions(); ci++) {
+      ShenandoahHeapRegion* cs_heap_region = collection_set->get(ci);
+      int cs_heap_region_number = cs_heap_region->region_number();
+      for (int i = 0; i < num; i++) {
+        if (connections[i * num + cs_heap_region_number] > 0) {
+          ShenandoahHeapRegion* candidate = regions->get(sorted_by_garbage[i].region_number);
+          if (maybe_add_heap_region(candidate, collection_set)) {
+            log_develop_trace(gc)
+              ("Adding region %d which is pointed to by region %d\n", i, cs_heap_region_number);
+          }
+        }
+      }
+    }
+    _max_live_data = MAX2(_max_live_data, collection_set->live_data());
+    collection_set->print();
+  }
+
+  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
+    assert(false, "Shouldn't get here");
+    return false;
+  }
+};
+
 ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _cycle_counter(0),
   _successful_cm(0),
@@ -625,6 +724,9 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
     } else if (strcmp(ShenandoahGCHeuristics, "passive") == 0) {
       log_info(gc, init)("Shenandoah heuristics: passive");
       _heuristics = new PassiveHeuristics();
+    } else if (strcmp(ShenandoahGCHeuristics, "connections") == 0) {
+      log_info(gc, init)("Shenandoah heuristics: connections");
+      _heuristics = new ConnectionHeuristics();
     } else {
       vm_exit_during_initialization("Unknown -XX:ShenandoahGCHeuristics option");
     }
@@ -716,8 +818,8 @@ void ShenandoahCollectorPolicy::record_full_gc() {
   _heuristics->record_full_gc();
 }
 
-void ShenandoahCollectorPolicy::choose_collection_set(ShenandoahCollectionSet* collection_set) {
-  _heuristics->choose_collection_set(collection_set);
+void ShenandoahCollectorPolicy::choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections) {
+  _heuristics->choose_collection_set(collection_set, connections);
 }
 
 void ShenandoahCollectorPolicy::choose_free_set(ShenandoahFreeSet* free_set) {

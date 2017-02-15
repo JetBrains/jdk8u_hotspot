@@ -71,6 +71,14 @@ void ShenandoahHeapRegionSet::add_region(ShenandoahHeapRegion* r) {
   }
 }
 
+void ShenandoahHeapRegionSet::add_region_check_for_duplicates(ShenandoahHeapRegion* r) {
+  // FIXME There's a bug where the zeroth region is not checked, so check it here
+  if (_active_end < _reserved_end && !contains(r) && _regions[0] != r) {
+    _regions[_active_end] = r;
+    _active_end++;
+  }
+}
+
 // Apply blk->doHeapRegion() on all committed regions in address order,
 // terminating the iteration early if doHeapRegion() returns true.
 void ShenandoahHeapRegionSet::active_heap_region_iterate(ShenandoahHeapRegionClosure* blk,

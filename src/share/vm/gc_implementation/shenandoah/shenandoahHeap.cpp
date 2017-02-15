@@ -1138,15 +1138,23 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
       _ordered_regions->heap_region_iterate(&ccsc);
 #endif
 
-      _shenandoah_policy->choose_collection_set(_collection_set);
+      if (UseShenandoahMatrix) {
+        int num = num_regions();
+        int *connections = NEW_C_HEAP_ARRAY(int, num * num, mtGC);
+        calculate_matrix(connections);
+        print_matrix(connections);
+        _shenandoah_policy->choose_collection_set(_collection_set, connections);
+        FREE_C_HEAP_ARRAY(int,connections,mtGC);
+      } else {
+        _shenandoah_policy->choose_collection_set(_collection_set);
+      }
 
       _shenandoah_policy->choose_free_set(_free_regions);
     }
 
-    /*
-    tty->print("Sorted free regions\n");
-    _free_regions->print();
-    */
+    if (UseShenandoahMatrix) {
+      _collection_set->print();
+    }
 
     _bytes_allocated_since_cm = 0;
 
@@ -2301,6 +2309,115 @@ void ShenandoahHeap::unpin_object(oop o) {
 
 GCTimer* ShenandoahHeap::gc_timer() const {
   return _gc_timer;
+}
+
+class RecordAllRefsOopClosure: public ExtendedOopClosure {
+private:
+  int _x;
+  int *_matrix;
+  int _num_regions;
+  oop _p;
+
+public:
+  RecordAllRefsOopClosure(int *matrix, int x, size_t num_regions, oop p) :
+          _matrix(matrix), _x(x), _num_regions(num_regions), _p(p) {}
+
+  template <class T>
+  void do_oop_work(T* p) {
+    oop o = oopDesc::load_decode_heap_oop(p);
+    if (o != NULL) {
+      if (ShenandoahHeap::heap()->is_in(o) && o->is_oop() ) {
+        int y = ShenandoahHeap::heap()->heap_region_containing(o)->region_number();
+        _matrix[_x * _num_regions + y]++;
+      }
+    }
+  }
+  void do_oop(oop* p) {
+    do_oop_work(p);
+  }
+
+  void do_oop(narrowOop* p) {
+    do_oop_work(p);
+  }
+
+};
+
+class RecordAllRefsObjectClosure : public ObjectClosure {
+  int *_matrix;
+  size_t _num_regions;
+
+public:
+  RecordAllRefsObjectClosure(int *matrix, size_t num_regions) :
+          _matrix(matrix), _num_regions(num_regions) {}
+
+  void do_object(oop p) {
+    if (ShenandoahHeap::heap()->is_in(p) && ShenandoahHeap::heap()->is_marked_next(p)  && p->is_oop()) {
+      int x = ShenandoahHeap::heap()->heap_region_containing(p)->region_number();
+      RecordAllRefsOopClosure cl(_matrix, x, _num_regions, p);
+      p->oop_iterate(&cl);
+    }
+  }
+};
+void ShenandoahHeap::calculate_matrix(int* connections) {
+  log_develop_trace(gc)("calculating matrix");
+  ensure_parsability(false);
+  int num = num_regions();
+
+  for (int i = 0; i < num; i++) {
+    for (int j = 0; j < num; j++) {
+      connections[i * num + j] = 0;
+    }
+  }
+
+  RecordAllRefsOopClosure cl(connections, 0, num, NULL);
+  roots_iterate(&cl);
+
+  RecordAllRefsObjectClosure cl2(connections, num);
+  object_iterate(&cl2);
+
+}
+
+void ShenandoahHeap::print_matrix(int* connections) {
+  int num = num_regions();
+  int cs_regions = 0;
+  int referenced = 0;
+
+  for (int i = 0; i < num; i++) {
+    size_t liveData = ShenandoahHeap::heap()->regions()->get(i)->get_live_data_bytes();
+
+    int numReferencedRegions = 0;
+    int numReferencedByRegions = 0;
+
+    for (int j = 0; j < num; j++) {
+      if (connections[i * num + j] > 0)
+        numReferencedRegions++;
+
+      if (connections [j * num + i] > 0)
+        numReferencedByRegions++;
+
+      cs_regions++;
+      referenced += numReferencedByRegions;
+    }
+
+    if (ShenandoahHeap::heap()->regions()->get(i)->has_live()) {
+      tty->print("Region %d is referenced by %d regions {",
+                 i, numReferencedByRegions);
+      int col_count = 0;
+      for (int j = 0; j < num; j++) {
+        int foo = connections[j * num + i];
+        if (foo > 0) {
+          col_count++;
+          if ((col_count % 10) == 0)
+            tty->print("\n");
+          tty->print("%d(%d), ", j,foo);
+        }
+      }
+      tty->print("} \n");
+    }
+  }
+
+  double avg = (double)referenced / (double) cs_regions;
+  tty->print("Average Number of regions scanned / region = %lf\n", avg);
 }
 
 class ShenandoahCountGarbageClosure : public ShenandoahHeapRegionClosure {
