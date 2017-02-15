@@ -329,8 +329,6 @@ public:
 };
 
 void ShenandoahHeap::reset_next_mark_bitmap(WorkGang* workers) {
-  // GCTraceTime time("Concurrent reset bitmaps", ShenandoahLogInfo, true, gc_timer(), tracer()->gc_id());
-
   ResetNextBitmapTask task = ResetNextBitmapTask(_ordered_regions);
   workers->run_task(&task);
 }
@@ -361,8 +359,6 @@ public:
 };
 
 void ShenandoahHeap::reset_complete_mark_bitmap(WorkGang* workers) {
-  GCTraceTime time("Concurrent reset bitmaps", ShenandoahLogInfo, true, gc_timer(), tracer()->gc_id());
-
   ResetCompleteBitmapTask task = ResetCompleteBitmapTask(_ordered_regions);
   workers->run_task(&task);
 }
@@ -1259,9 +1255,11 @@ void ShenandoahHeap::evacuate_and_update_roots() {
 
   COMPILER2_PRESENT(DerivedPointerTable::clear());
 
+#ifdef ASSERT
   if (ShenandoahVerifyReadsToFromSpace) {
     set_from_region_protection(false);
   }
+#endif
 
   assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
   ClassLoaderDataGraph::clear_claimed_marks();
@@ -1272,9 +1270,11 @@ void ShenandoahHeap::evacuate_and_update_roots() {
     workers()->run_task(&roots_task);
   }
 
+#ifdef ASSERT
   if (ShenandoahVerifyReadsToFromSpace) {
     set_from_region_protection(true);
   }
+#endif
 
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
 

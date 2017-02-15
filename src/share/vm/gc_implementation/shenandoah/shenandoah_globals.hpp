@@ -92,9 +92,6 @@
   product(bool, ShenandoahLogWarning, false,                                \
           "Turns on logging in Shenandoah at warning level. ")              \
                                                                             \
-  product(size_t, PreTouchParallelChunkSize, 1 * G,                         \
-          "Per-thread chunk size for parallel memory pre-touch.")           \
-                                                                            \
   product_rw(uintx, ShenandoahFullGCThreshold, 3,                           \
           "How many cycles in a row to do degenerated marking on "          \
           "cancelled GC before triggering a full-gc"                        \

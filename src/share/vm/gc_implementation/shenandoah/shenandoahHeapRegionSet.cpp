@@ -105,6 +105,8 @@ void ShenandoahHeapRegionSet::unclaimed_heap_region_iterate(ShenandoahHeapRegion
                                                   bool skip_dirty_regions,
                                                   bool skip_humongous_continuation) const {
   size_t i;
+
+  // There's a bug here where the zeroth region is missed  --chf
   for (i = _current_index + 1; i < _active_end; i++) {
     ShenandoahHeapRegion* current = _regions[i];
     assert(current->region_number() <= _reserved_end, "Tautology");

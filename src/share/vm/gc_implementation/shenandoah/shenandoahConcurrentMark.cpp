@@ -987,11 +987,11 @@ bool ShenandoahConcurrentMark::claim_codecache() {
   return old == 0;
 }
 
-jushort* ShenandoahConcurrentMark::get_liveness(uint worker_id) {
-  return _liveness_local[worker_id];
-}
-
 void ShenandoahConcurrentMark::clear_claim_codecache() {
   assert(ShenandoahConcurrentCodeRoots, "must not be called otherwise");
   _claimed_codecache = 0;
+}
+
+jushort* ShenandoahConcurrentMark::get_liveness(uint worker_id) {
+  return _liveness_local[worker_id];
 }
