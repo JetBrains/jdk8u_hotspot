@@ -2379,7 +2379,16 @@ inline Node* LibraryCallKit::make_unsafe_address(Node* base, Node* offset, bool 
   } else {
     if (UseShenandoahGC) {
       if (kind == Type::OopPtr) {
-        base = cast_not_null(base, false);
+        // A cast without a null check should be sufficient here (we
+        // know base is an oop with a low offset so it can't be null)
+        // but if there's a dominating null check with both branches
+        // taken and the cast is pushed in both branches, the cast
+        // will become top in the null branch but the control flow
+        // won't go away. Use a null check instead. Worst case, the
+        // null check becomes an implicit null check with the follow
+        // barrier and is essentially free.
+        Node* ctrl = top();
+        base = null_check_oop(base, &ctrl, true);
         if (is_store) {
           base = shenandoah_write_barrier(base);
         } else {
