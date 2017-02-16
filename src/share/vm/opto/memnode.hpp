@@ -250,6 +250,14 @@ public:
   // Helper function to allow a raw load without control edge for some cases
   static bool is_immutable_value(Node* adr);
 #endif
+
+  virtual bool is_g1_marking_load() const {
+    const int marking_offset = in_bytes(JavaThread::satb_mark_queue_offset() + PtrQueue::byte_offset_of_active());
+    return in(2)->is_AddP() && in(2)->in(2)->Opcode() == Op_ThreadLocal
+      && in(2)->in(3)->is_Con()
+      && in(2)->in(3)->bottom_type()->is_intptr_t()->get_con() == marking_offset;
+  }
+
 protected:
   const Type* load_array_final_field(const TypeKlassPtr *tkls,
                                      ciKlass* klass) const;
@@ -291,13 +299,6 @@ public:
   virtual const Type *Value(PhaseTransform *phase) const;
   virtual int store_Opcode() const { return Op_StoreB; }
   virtual BasicType memory_type() const { return T_BYTE; }
-
-  virtual bool is_g1_marking_load() const {
-    const int marking_offset = in_bytes(JavaThread::satb_mark_queue_offset() + PtrQueue::byte_offset_of_active());
-    return in(2)->is_AddP() && in(2)->in(2)->Opcode() == Op_ThreadLocal
-      && in(2)->in(3)->is_Con()
-      && in(2)->in(3)->bottom_type()->is_intptr_t()->get_con() == marking_offset;
-  }
 };
 
 //------------------------------LoadUSNode-------------------------------------
