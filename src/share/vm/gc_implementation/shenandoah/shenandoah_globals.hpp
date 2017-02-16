@@ -149,6 +149,9 @@
   experimental(bool, ShenandoahWriteBarrierToIR, true,                      \
           "Convert write barrier to IR instead of using assembly blob")     \
                                                                             \
+  experimental(bool, ShenandoahWriteBarrierCsetTestInIR, true,              \
+          "Perform cset test in IR rather than in the stub")                \
+                                                                            \
   experimental(bool, UseShenandoahOWST, true,                               \
           "Use Shenandoah work stealing termination protocol")              \
                                                                             \

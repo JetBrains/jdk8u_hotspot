@@ -562,21 +562,23 @@ class StubGenerator: public StubCodeGenerator {
   //
   // Trash rscratch1, rscratch2.  Preserve everything else.
 
-  address generate_shenandoah_wb(bool c_abi) {
+  address generate_shenandoah_wb(bool c_abi, bool do_cset_test) {
     StubCodeMark mark(this, "StubRoutines", "shenandoah_wb");
 
     __ align(6);
     address start = __ pc();
 
-    Label work, slow_case, lose, not_an_instance, is_array;
+    Label slow_case, lose, not_an_instance, is_array;
 
-    __ mov(rscratch2, ShenandoahHeap::in_cset_fast_test_addr());
-    __ lsr(rscratch1, r0, ShenandoahHeapRegion::RegionSizeShift);
-    __ ldrb(rscratch2, Address(rscratch2, rscratch1));
-    __ tbnz(rscratch2, 0, work);
-    __ ret(lr);
-
-    __ bind(work);
+    if (do_cset_test) {
+      Label work;
+      __ mov(rscratch2, ShenandoahHeap::in_cset_fast_test_addr());
+      __ lsr(rscratch1, r0, ShenandoahHeapRegion::RegionSizeShift);
+      __ ldrb(rscratch2, Address(rscratch2, rscratch1));
+      __ tbnz(rscratch2, 0, work);
+      __ ret(lr);
+      __ bind(work);
+    }
 
     RegSet saved = RegSet::range(r1, r4);
     if (!c_abi) {
@@ -4485,8 +4487,8 @@ class StubGenerator: public StubCodeGenerator {
 
   void generate_barriers() {
     if (UseShenandoahGC) {
-      StubRoutines::aarch64::_shenandoah_wb = generate_shenandoah_wb(false);
-      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true);
+      StubRoutines::aarch64::_shenandoah_wb = generate_shenandoah_wb(false, true);
+      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
     }
   }
 

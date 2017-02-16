@@ -756,7 +756,7 @@ class StubGenerator: public StubCodeGenerator {
     return start;
   }
 
-  address generate_shenandoah_wb(bool c_abi) {
+  address generate_shenandoah_wb(bool c_abi, bool do_cset_test) {
     StubCodeMark mark(this, "StubRoutines", "shenandoah_wb");
     address start = __ pc();
 
@@ -781,22 +781,24 @@ class StubGenerator: public StubCodeGenerator {
     } else {
       __ mov(rax, rdi);
     }
-    __ shrptr(rdi, ShenandoahHeapRegion::RegionSizeShift);
-    // live: r8
-    __ movptr(r8, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
-    __ movbool(r8, Address(r8, rdi, Address::times_1));
-    // unlive: rdi
-    __ testbool(r8);
-    // unlive: r8
-    __ jccb(Assembler::notZero, not_done);
+    if (do_cset_test) {
+      __ shrptr(rdi, ShenandoahHeapRegion::RegionSizeShift);
+      // live: r8
+      __ movptr(r8, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
+      __ movbool(r8, Address(r8, rdi, Address::times_1));
+      // unlive: rdi
+      __ testbool(r8);
+      // unlive: r8
+      __ jccb(Assembler::notZero, not_done);
 
-    if (!c_abi) {
-      __ pop(r8);
-      __ pop(rdi);
+      if (!c_abi) {
+        __ pop(r8);
+        __ pop(rdi);
+      }
+      __ ret(0);
+
+      __ bind(not_done);
     }
-    __ ret(0);
-
-    __ bind(not_done);
 
     if (!c_abi) {
       __ push(rcx);
@@ -4292,8 +4294,8 @@ class StubGenerator: public StubCodeGenerator {
 
   void generate_barriers() {
     if (UseShenandoahGC) {
-      StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb(false);
-      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true);
+      StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb(false, true);
+      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
     }
   }
 

@@ -1087,8 +1087,24 @@ private:
   void shenandoah_follow_barrier_uses(Node* n, Node* ctrl, Unique_Node_List& uses);
   bool shenandoah_already_has_better_phi(Node* region, int alias, Node* m, Node* m_ctrl);
   void shenandoah_collect_memory_nodes(int alias, Node_List& memory_nodes, Node_List& phis);
-  void shenandoah_collect_memory_nodes_helper(Node* n, int alias, GrowableArray<Node*>& inputs, int adj, Node_List& memory_nodes, Node_List& phis, Node*& cur_mem, Unique_Node_List& wq);
-  void shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_mem, Node* raw_mem_phi, Node_List& memory_nodes, Node_List& memory_phis, Unique_Node_List& uses);
+  void shenandoah_collect_memory_nodes_helper(Node* n, int alias, GrowableArray<Node*>& inputs, int adj,
+                                              Node_List& memory_nodes, Node_List& phis, Node*& cur_mem,
+                                              Unique_Node_List& wq);
+  void shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_mem, Node* raw_mem_phi, Node_List& memory_nodes,
+                              Node_List& memory_phis, Unique_Node_List& uses);
+  void shenandoah_test_evacuation_in_progress(Node* ctrl, int alias, Node*& raw_mem, Node*& wb_mem,
+                                              IfNode*& evacuation_iff, Node*& evac_in_progress,
+                                              Node*& evac_not_in_progress);
+  void shenandoah_evacuation_not_in_progress(Node* c, Node* v, Node* unc_ctrl, Node* raw_mem, Node* wb_mem, Node* region,
+                                             Node* val_phi, Node* mem_phi, Node* raw_mem_phi, Node*& unc_region);
+  void shenandoah_evacuation_in_progress(Node* c, Node* val, Node* evacuation_iff, Node* unc, Node* unc_ctrl,
+                                         Node* raw_mem, Node* wb_mem, Node* region, Node* val_phi, Node* mem_phi,
+                                         Node* raw_mem_phi, Node* unc_region, int alias, Unique_Node_List& uses);
+  void shenandoah_evacuation_not_in_progress_null_check(Node*& c, Node*& val, Node* unc_ctrl, Node*& unc_region);
+  void shenandoah_evacuation_in_progress_null_check(Node*& c, Node*& val, Node* evacuation_iff, Node* unc, Node* unc_ctrl,
+                                                    Node* unc_region, Unique_Node_List& uses);
+  void shenandoah_in_cset_fast_test(Node*& c, Node* rbtrue, Node* raw_mem, Node* wb_mem, Node* region, Node* val_phi,
+                                    Node* mem_phi, Node* raw_mem_phi);
 
   bool _created_loop_node;
 public:
