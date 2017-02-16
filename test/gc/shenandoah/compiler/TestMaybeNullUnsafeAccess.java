@@ -23,19 +23,20 @@
 
 /**
  * @test
- * @summary 
- * @modules java.base/jdk.internal.misc:+open
+ * @summary cast on before unsafe access moved in dominating null check null path causes crash
  *
+ * @library /testlibrary
  * @run main/othervm -XX:-UseOnStackReplacement -XX:-BackgroundCompilation -XX:-TieredCompilation TestMaybeNullUnsafeAccess
  *      
  */
 
-import jdk.internal.misc.Unsafe;
+import sun.misc.Unsafe;
 import java.lang.reflect.Field;
+import com.oracle.java.testlibrary.*;
 
 public class TestMaybeNullUnsafeAccess {
 
-    static final jdk.internal.misc.Unsafe UNSAFE = Unsafe.getUnsafe();
+    static final sun.misc.Unsafe UNSAFE = Utils.getUnsafe();
     static final long F_OFFSET;
 
     static class A {
