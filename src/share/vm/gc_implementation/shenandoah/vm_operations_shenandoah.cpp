@@ -21,7 +21,7 @@
  *
  */
 
-#include "gc_implementation/shared/gcTraceTime.hpp"
+#include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
@@ -39,7 +39,7 @@ void VM_ShenandoahInitMark::doit() {
 
   ShenandoahWorkerScope scope(workers, nworkers);
 
-  GCTraceTime time("Pause Init-Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
+  GCTraceTime time("Pause Init Mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark);
 
@@ -100,7 +100,7 @@ void VM_ShenandoahStartEvacuation::doit() {
   ShenandoahWorkerScope scope(workers, n_workers);
 
   if (! sh->cancelled_concgc()) {
-    GCTraceTime time("Pause Final Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
+    GCTraceTime time("Pause Final Mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id(), true);
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark);
     sh->concurrentMark()->finish_mark_from_roots();
@@ -122,7 +122,7 @@ void VM_ShenandoahStartEvacuation::doit() {
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_evac);
 
   } else {
-    GCTraceTime time("Cancel concurrent Mark", ShenandoahLogInfo, true, sh->gc_timer(), sh->tracer()->gc_id());
+    GCTraceTime time("Cancel concurrent mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
   }

@@ -24,7 +24,7 @@
 #include "memory/allocation.hpp"
 
 #include "gc_implementation/shared/gcTimer.hpp"
-#include "gc_implementation/shared/gcTraceTime.hpp"
+#include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shared/parallelCleaning.hpp"
 
 #include "gc_implementation/shenandoah/brooksPointer.hpp"

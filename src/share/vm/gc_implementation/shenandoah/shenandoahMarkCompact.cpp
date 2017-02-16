@@ -22,7 +22,7 @@
  */
 
 #include "code/codeCache.hpp"
-#include "gc_implementation/shared/gcTraceTime.hpp"
+#include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shared/isGCActiveMark.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
@@ -92,6 +92,11 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   ShenandoahCollectorPolicy* policy = _heap->shenandoahPolicy();
 
   _gc_timer->register_gc_start();
+  GCTracer* _gc_tracer = _heap->tracer();
+  if (_gc_tracer->has_reported_gc_start()) {
+    _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());
+  }
+  _gc_tracer->report_gc_start(gc_cause, _gc_timer->gc_start());
 
   _heap->set_full_gc_in_progress(true);
 
@@ -145,7 +150,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
   policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_prepare);
   {
-    GCTraceTime time("Pause Full", ShenandoahLogInfo, true, _gc_timer, _heap->tracer()->gc_id());
+    GCTraceTime time("Pause Full", ShenandoahLogInfo, _gc_timer, _gc_tracer->gc_id(), true);
 
     if (UseTLAB) {
       _heap->ensure_parsability(true);
@@ -217,6 +222,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   }
 
   _gc_timer->register_gc_end();
+  _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());
 
   policy->record_full_gc();
 
@@ -283,7 +289,7 @@ class ShenandoahMCVerifyAfterMarkingRegionClosure : public ShenandoahHeapRegionC
 
 void ShenandoahMarkCompact::phase1_mark_heap() {
   ShenandoahHeap* _heap = ShenandoahHeap::heap();
-  GCTraceTime time("Phase 1: Mark live objects", ShenandoahLogInfo, true, _gc_timer, _heap->tracer()->gc_id());
+  GCTraceTime time("Phase 1: Mark live objects", ShenandoahLogDebug, _gc_timer, _heap->tracer()->gc_id());
 
   ShenandoahConcurrentMark* cm = _heap->concurrentMark();
 
@@ -465,7 +471,7 @@ public:
 
 void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegionSet** copy_queues) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  GCTraceTime time("Phase 2: Compute new object addresses", ShenandoahLogInfo, true, _gc_timer, heap->tracer()->gc_id());
+  GCTraceTime time("Phase 2: Compute new object addresses", ShenandoahLogDebug, _gc_timer, heap->tracer()->gc_id());
 
   ShenandoahMCReclaimHumongousRegionClosure cl;
   heap->heap_region_iterate(&cl);
@@ -573,7 +579,7 @@ public:
 
 void ShenandoahMarkCompact::phase3_update_references() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  GCTraceTime time("Phase 2: Adjust pointers", ShenandoahLogInfo, true, _gc_timer, heap->tracer()->gc_id());
+  GCTraceTime time("Phase 2: Adjust pointers", ShenandoahLogDebug, _gc_timer, heap->tracer()->gc_id());
 
   // Need cleared claim bits for the roots processing
   ClassLoaderDataGraph::clear_claimed_marks();
@@ -674,7 +680,7 @@ public:
 
 void ShenandoahMarkCompact::phase4_compact_objects(ShenandoahHeapRegionSet** copy_queues) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  GCTraceTime time("Phase 4: Move objects", ShenandoahLogInfo, true, _gc_timer, heap->tracer()->gc_id());
+  GCTraceTime time("Phase 4: Move objects", ShenandoahLogDebug, _gc_timer, heap->tracer()->gc_id());
   ShenandoahCompactObjectsTask compact_task(copy_queues);
   heap->workers()->run_task(&compact_task);
 

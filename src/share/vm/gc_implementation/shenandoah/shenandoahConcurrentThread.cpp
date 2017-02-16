@@ -22,7 +22,7 @@
  */
 
 #include "gc_implementation/shared/gcTimer.hpp"
-#include "gc_implementation/shared/gcTraceTime.hpp"
+#include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
@@ -98,6 +98,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   GCTracer* gc_tracer = heap->tracer();
 
   gc_timer->register_gc_start();
+  gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
 
   heap->shenandoahPolicy()->increase_cycle_counter();
 
@@ -126,7 +127,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
       Threads::number_of_non_daemon_threads());
     ShenandoahWorkerScope scope(workers, n_workers);
 
-    // GCTraceTime time("Concurrent marking", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
+    GCTraceTime time("Concurrent marking", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
     TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
     ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
   }
@@ -175,7 +176,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
       Threads::number_of_non_daemon_threads());
     ShenandoahWorkerScope scope(workers, n_workers);
 
-    // GCTraceTime time("Concurrent evacuation ", ShenandoahLogInfo, true, gc_timer, gc_tracer->gc_id());
+    GCTraceTime time("Concurrent evacuation", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
     TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
     heap->do_evacuation();
   }
@@ -183,13 +184,17 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   // Prepare for the next normal cycle:
   if (check_cancellation()) return;
 
-  heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
-  FlexibleWorkGang* workers = heap->workers();
-  ShenandoahPushWorkerScope scope(workers, heap->max_workers());
-  heap->reset_next_mark_bitmap(workers);
-  heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
+  {
+    GCTraceTime time("Concurrent reset bitmaps", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id());
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
+    FlexibleWorkGang* workers = heap->workers();
+    ShenandoahPushWorkerScope scope(workers, heap->max_workers());
+    heap->reset_next_mark_bitmap(workers);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
+  }
 
   gc_timer->register_gc_end();
+  gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
 bool ShenandoahConcurrentThread::check_cancellation() {
