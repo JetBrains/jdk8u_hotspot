@@ -2553,22 +2553,22 @@ Node* PhaseIdealLoop::shenandoah_find_raw_mem(Node* ctrl, Node* n, const Node_Li
   assert(n == NULL || ctrl_or_self(n) == ctrl, "");
   Node* raw_mem = memory_for(memory_nodes[ctrl->_idx], phis);
   Node* c = ctrl;
-  while (raw_mem == NULL || (strict && get_ctrl(raw_mem) != c && (!c->is_CatchProj() || c->in(0)->in(0)->in(0) != get_ctrl(raw_mem)))) {
+  while (raw_mem == NULL || (strict && shenandoah_get_ctrl(raw_mem) != c && (!c->is_CatchProj() || c->in(0)->in(0)->in(0) != shenandoah_get_ctrl(raw_mem)))) {
     c = idom(c);
     raw_mem = memory_for(memory_nodes[c->_idx], phis);
   }
-  if (n != NULL && get_ctrl(raw_mem) == ctrl) {
+  if (n != NULL && shenandoah_get_ctrl(raw_mem) == ctrl) {
     while (!shenandoah_is_dominator_same_ctrl(c, raw_mem, n) && ctrl_or_self(raw_mem) == ctrl) {
       raw_mem = shenandoah_next_mem(raw_mem, Compile::AliasIdxRaw);
     }
     if (raw_mem->is_MergeMem()) {
       raw_mem = raw_mem->as_MergeMem()->memory_at(Compile::AliasIdxRaw);
     }
-    if (get_ctrl(raw_mem) != ctrl) {
+    if (shenandoah_get_ctrl(raw_mem) != ctrl) {
       do {
         c = idom(c);
         raw_mem = memory_for(memory_nodes[c->_idx], phis);
-      } while (raw_mem == NULL || (strict && get_ctrl(raw_mem) != c  && (!c->is_CatchProj() || c->in(0)->in(0)->in(0) != get_ctrl(raw_mem))));
+      } while (raw_mem == NULL || (strict && shenandoah_get_ctrl(raw_mem) != c  && (!c->is_CatchProj() || c->in(0)->in(0)->in(0) != shenandoah_get_ctrl(raw_mem))));
     }
   }
   assert(raw_mem->bottom_type() == Type::MEMORY, "");
@@ -2825,14 +2825,35 @@ void PhaseIdealLoop::shenandoah_collect_memory_nodes_helper(Node* n, int alias, 
   }
   if (other == other2) {
     memory_nodes.map(r->_idx, memory_for(phis[r->_idx], phis));
-  } else if (get_ctrl(other) != get_ctrl(other2)) {
+  } else if (other == NULL || get_ctrl(other) != get_ctrl(other2)) {
+    if (other == NULL) {
+      other = mem;
+    }
     assert(shenandoah_is_dominator(get_ctrl(other), get_ctrl(other2), other, other2) && !shenandoah_is_dominator(get_ctrl(other2), get_ctrl(other), other2, other), "");
-    memory_nodes.map(r->_idx, memory_for(phis[r->_idx], phis));
+    memory_nodes.map(r->_idx, other2);
   } else {
     assert(ctrl_or_self(other2) == r && shenandoah_is_dominator_same_ctrl(r, other, other2) && !shenandoah_is_dominator_same_ctrl(r, other2, other), "");
   }
 }
 
+Node* PhaseIdealLoop::shenandoah_get_ctrl(Node* n) {
+  Node* c = get_ctrl(n);
+  if (n->is_Proj() && n->in(0)->is_Call()) {
+    assert(c == n->in(0), "");
+    CallNode* call = c->as_Call();
+    CallProjections projs;
+    call->extract_projections(&projs, true, false);
+    if (projs.catchall_memproj != NULL) {
+      if (projs.fallthrough_memproj == n) {
+        c = projs.fallthrough_catchproj;
+      } else {
+        assert(projs.catchall_memproj == n, "");
+        c = projs.catchall_catchproj;
+      }
+    }
+  }
+  return c;
+}
 
 void PhaseIdealLoop::shenandoah_collect_memory_nodes(int alias, Node_List& memory_nodes, Node_List& phis) {
   const bool trace = false;
@@ -2942,24 +2963,10 @@ void PhaseIdealLoop::shenandoah_collect_memory_nodes(int alias, Node_List& memor
       } else if (!n->is_Root()) {
         cur_mem = n;
         DEBUG_ONLY(if (trace) { tty->print("YYY setting cur_mem %d", __LINE__); cur_mem->dump(); })
-        Node* c = get_ctrl(n);
+        Node* c = shenandoah_get_ctrl(n);
         Node* mem = memory_for(memory_nodes[c->_idx], phis);
         DEBUG_ONLY(if (trace) { tty->print("YYY post"); n->dump(); })
-        if (n->is_Proj() && n->in(0)->is_Call()) {
-          assert(c == n->in(0), "");
-          CallNode* call = c->as_Call();
-          CallProjections projs;
-          call->extract_projections(&projs, true, false);
-          if (projs.catchall_memproj != NULL) {
-            if (projs.fallthrough_memproj == n) {
-              c = projs.fallthrough_catchproj;
-            } else {
-              assert(projs.catchall_memproj == n, "");
-              c = projs.catchall_catchproj;
-            }
-          }
-        }
-        assert(mem == NULL || mem == n || shenandoah_is_dominator_same_ctrl(c, mem, n) && !shenandoah_is_dominator_same_ctrl(c, n, mem), "");
+        assert(mem == NULL || mem == n || shenandoah_is_dominator(get_ctrl(mem), get_ctrl(n), mem, n) && !shenandoah_is_dominator(get_ctrl(n), get_ctrl(mem), n, mem), "");
         memory_nodes.map(c->_idx, n);
       }
       stack.pop();
@@ -3001,13 +3008,14 @@ void PhaseIdealLoop::shenandoah_collect_memory_nodes(int alias, Node_List& memor
 #endif
 }
 
-void PhaseIdealLoop::shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_mem, Node* raw_mem_phi, Node_List& memory_nodes, Node_List& memory_phis, Unique_Node_List& uses) {
+void PhaseIdealLoop::shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_mem, Node* raw_mem_for_ctrl, Node* raw_mem_phi,
+                                            Node_List& memory_nodes, Node_List& memory_phis, Unique_Node_List& uses) {
   const bool trace = false;
   DEBUG_ONLY(if (trace) { tty->print("ZZZ control is"); ctrl->dump(); });
   DEBUG_ONLY(if (trace) { tty->print("ZZZ mem is"); raw_mem->dump(); });
   GrowableArray<Node*> phis;
-  Node* old = shenandoah_find_raw_mem(ctrl, NULL, memory_nodes, memory_phis, true);
-  if (old != raw_mem) {
+  if (raw_mem_for_ctrl != raw_mem) {
+    Node* old = raw_mem_for_ctrl;
     Node* prev = NULL;
     while (old != raw_mem) {
       assert(old->is_Store() || old->is_LoadStore() || old->is_ClearArray(), "");
@@ -3016,7 +3024,7 @@ void PhaseIdealLoop::shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_
     }
     assert(prev != NULL, "");
     memory_nodes.map(ctrl->_idx, raw_mem);
-    memory_nodes.map(region->_idx, old);
+    memory_nodes.map(region->_idx, raw_mem_for_ctrl);
     _igvn.replace_input_of(prev, MemNode::Memory, raw_mem_phi);
   } else {
     memory_nodes.map(region->_idx, raw_mem_phi);
@@ -3195,27 +3203,29 @@ void PhaseIdealLoop::shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_
           }
         } else if (u->is_Phi()) {
           assert(u->bottom_type() == Type::MEMORY, "what else?");
-          Node* region = u->in(0);
-          bool replaced = false;
-          for (uint j = 1; j < u->req(); j++) {
-            if (u->in(j) == raw_mem) {
-              Node* m = shenandoah_find_raw_mem(region->in(j), NULL, memory_nodes, memory_phis, true);
-              Node* nnew = m;
-              if (m != raw_mem) {
-                if (u->adr_type() == TypePtr::BOTTOM) {
-                  if (mm == NULL || 1) {
-                    mm = shenandoah_allocate_merge_mem(raw_mem, alias, m, ctrl_or_self(m));
+          if (u->adr_type() == TypeRawPtr::BOTTOM || u->adr_type() == TypePtr::BOTTOM) {
+            Node* region = u->in(0);
+            bool replaced = false;
+            for (uint j = 1; j < u->req(); j++) {
+              if (u->in(j) == raw_mem) {
+                Node* m = shenandoah_find_raw_mem(region->in(j), NULL, memory_nodes, memory_phis, true);
+                Node* nnew = m;
+                if (m != raw_mem) {
+                  if (u->adr_type() == TypePtr::BOTTOM) {
+                    if (mm == NULL || 1) {
+                      mm = shenandoah_allocate_merge_mem(raw_mem, alias, m, ctrl_or_self(m));
+                    }
+                    nnew = mm;
                   }
-                  nnew = mm;
+                  DEBUG_ONLY(if (trace) { tty->print("ZZZ setting memory of phi %d", j); u->dump(); })
+                    _igvn.replace_input_of(u, j, nnew);
+                  replaced = true;
                 }
-                DEBUG_ONLY(if (trace) { tty->print("ZZZ setting memory of phi %d", j); u->dump(); })
-                  _igvn.replace_input_of(u, j, nnew);
-                replaced = true;
               }
             }
-          }
-          if (replaced) {
-            --i;
+            if (replaced) {
+              --i;
+            }
           }
         } else if (u->adr_type() == TypePtr::BOTTOM ||
                    u->adr_type() == NULL) {
@@ -3456,7 +3466,7 @@ void PhaseIdealLoop::shenandoah_evacuation_in_progress(Node* c, Node* val, Node*
   shenandoah_evacuation_in_progress_null_check(c, val, evacuation_iff, unc, unc_ctrl, unc_region, uses);
 
   IdealLoopTree *loop = get_loop(c);
-  Node* rbtrue = new (C) ShenandoahReadBarrierNode(c, raw_mem, val);
+  Node* rbtrue = new (C) ShenandoahReadBarrierNode(c, wb_mem, val);
   register_new_node(rbtrue, c);
 
   Node* in_cset_fast_test_failure = NULL;
@@ -3548,6 +3558,7 @@ void PhaseIdealLoop::shenandoah_pin_and_expand_barriers() {
 
     Node* raw_mem = shenandoah_find_raw_mem(ctrl, wb, memory_nodes, memory_phis, true);
     Node* init_raw_mem = raw_mem;
+    Node* raw_mem_for_ctrl = shenandoah_find_raw_mem(ctrl, NULL, memory_nodes, memory_phis, true);
     int alias = C->get_alias_index(wb->adr_type());
     Node* wb_mem =  wb->in(ShenandoahBarrierNode::Memory);
 
@@ -3682,7 +3693,7 @@ void PhaseIdealLoop::shenandoah_pin_and_expand_barriers() {
     // region and at enclosing loop heads. Use the memory state
     // collected in memory_nodes to fix the memory graph. Update that
     // memory state as we go.
-    shenandoah_fix_raw_mem(ctrl ,region, init_raw_mem, raw_mem_phi, memory_nodes, memory_phis, uses);
+    shenandoah_fix_raw_mem(ctrl,region, init_raw_mem, raw_mem_for_ctrl, raw_mem_phi, memory_nodes, memory_phis, uses);
     assert(C->shenandoah_barriers_count() == cnt - 1, "not replaced");
   }
 

@@ -1090,7 +1090,8 @@ private:
   void shenandoah_collect_memory_nodes_helper(Node* n, int alias, GrowableArray<Node*>& inputs, int adj,
                                               Node_List& memory_nodes, Node_List& phis, Node*& cur_mem,
                                               Unique_Node_List& wq);
-  void shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_mem, Node* raw_mem_phi, Node_List& memory_nodes,
+  void shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_mem, Node* raw_mem_for_ctrl,
+                              Node* raw_mem_phi, Node_List& memory_nodes,
                               Node_List& memory_phis, Unique_Node_List& uses);
   void shenandoah_test_evacuation_in_progress(Node* ctrl, int alias, Node*& raw_mem, Node*& wb_mem,
                                               IfNode*& evacuation_iff, Node*& evac_in_progress,
@@ -1105,6 +1106,7 @@ private:
                                                     Node* unc_region, Unique_Node_List& uses);
   void shenandoah_in_cset_fast_test(Node*& c, Node* rbtrue, Node* raw_mem, Node* wb_mem, Node* region, Node* val_phi,
                                     Node* mem_phi, Node* raw_mem_phi);
+  Node* shenandoah_get_ctrl(Node* n);
 
   bool _created_loop_node;
 public:
