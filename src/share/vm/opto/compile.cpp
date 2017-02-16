@@ -411,6 +411,11 @@ void Compile::remove_useless_nodes(Unique_Node_List &useful) {
     if (n->outcnt() == 1 && n->has_special_unique_user()) {
       record_for_igvn(n->unique_out());
     }
+    if (n->Opcode() == Op_AddP && CallLeafNode::has_only_g1_wb_pre_uses(n)) {
+      for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
+        record_for_igvn(n->fast_out(i));
+      }
+    }
   }
   // Remove useless macro and predicate opaq nodes
   for (int i = C->macro_count()-1; i >= 0; i--) {
@@ -2753,6 +2758,15 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
   case Op_CallLeafNoFP: {
     assert( n->is_Call(), "" );
     CallNode *call = n->as_Call();
+    if (UseShenandoahGC && call->is_g1_wb_pre_call()) {
+      uint cnt = OptoRuntime::g1_wb_pre_Type()->domain()->cnt();
+      if (call->req() > cnt) {
+        assert(call->req() == cnt+1, "only one extra input");
+        Node* addp = call->in(cnt);
+        assert(!CallLeafNode::has_only_g1_wb_pre_uses(addp), "useless address computation?");
+        call->del_req(cnt);
+      }
+    }
     // Count call sites where the FP mode bit would have to be flipped.
     // Do not count uncommon runtime calls:
     // uncommon_trap, _complete_monitor_locking, _complete_monitor_unlocking,

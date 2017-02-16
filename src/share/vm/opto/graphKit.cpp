@@ -3869,6 +3869,15 @@ void GraphKit::write_barrier_post(Node* oop_store,
   final_sync(ideal);
 }
 
+static void g1_write_barrier_pre_helper(const GraphKit& kit, Node* adr) {
+  if (UseShenandoahGC && adr != NULL) {
+    Node* c = kit.control();
+    Node* call = c->in(1)->in(1)->in(1)->in(0);
+    assert(call->is_g1_wb_pre_call(), "g1_wb_pre call expected");
+    call->add_req(adr);
+  }
+}
+
 // G1 pre/post barriers
 void GraphKit::g1_write_barrier_pre(bool do_load,
                                     Node* obj,
@@ -3967,6 +3976,7 @@ void GraphKit::g1_write_barrier_pre(bool do_load,
 
   // Final sync IdealKit and GraphKit.
   final_sync(ideal);
+  g1_write_barrier_pre_helper(*this, adr);
 }
 
 //

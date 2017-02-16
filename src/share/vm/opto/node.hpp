@@ -900,6 +900,8 @@ public:
   bool dominates(Node* sub, Node_List &nlist);
 
   virtual bool is_g1_marking_load() const { return false; }
+  virtual bool is_g1_marking_if(PhaseTransform *phase) const { return false; }
+  virtual bool is_g1_wb_pre_call() const { return false; }
 
 protected:
   bool remove_dead_region(PhaseGVN *phase, bool can_reshape);

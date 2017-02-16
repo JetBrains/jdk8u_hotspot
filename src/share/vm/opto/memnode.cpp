@@ -924,7 +924,6 @@ Node *LoadNode::Identity( PhaseTransform *phase ) {
       if (!phase->type(value)->higher_equal(phase->type(this)))
         return this;
     }
-    Node* value_no_barrier = ShenandoahBarrierNode::skip_through_barrier(value);
     PhaseIterGVN* igvn = phase->is_IterGVN();
     if (UseShenandoahGC &&
         igvn != NULL &&
@@ -945,7 +944,21 @@ Node *LoadNode::Identity( PhaseTransform *phase ) {
     }
     // (This works even when value is a Con, but LoadNode::Value
     // usually runs first, producing the singleton type of the Con.)
-    return ShenandoahBarrierNode::skip_through_barrier(value);
+    if (UseShenandoahGC) {
+      Node* value_no_barrier = ShenandoahBarrierNode::skip_through_barrier(value->Opcode() == Op_EncodeP ? value->in(1) : value);
+      if (value->Opcode() == Op_EncodeP) {
+        if (value_no_barrier != value->in(1)) {
+          Node* encode = value->clone();
+          encode->set_req(1, value_no_barrier);
+          encode = phase->transform(encode);
+          return encode;
+        }
+      } else {
+        return value_no_barrier;
+      }
+    }
+
+    return value;
   }
 
   // Search for an existing data phi which was generated before for the same

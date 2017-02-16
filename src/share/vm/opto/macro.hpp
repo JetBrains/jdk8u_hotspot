@@ -95,6 +95,7 @@ private:
   void process_users_of_allocation(CallNode *alloc);
 
   void eliminate_card_mark(Node *cm);
+  void eliminate_g1_wb_pre(Node *n);
   void mark_eliminated_box(Node* box, Node* obj);
   void mark_eliminated_locking_nodes(AbstractLockNode *alock);
   bool eliminate_locking_node(AbstractLockNode *alock);

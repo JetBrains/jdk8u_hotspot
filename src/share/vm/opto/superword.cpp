@@ -2314,19 +2314,21 @@ SWPointer::SWPointer(MemNode* mem, SuperWord* slp) :
   // Detect a Shenandoah write barrier between the pre and main loop
   // (which could break loop alignment code)
   CountedLoopNode *main_head = slp->lp()->as_CountedLoop();
-  Node* c = main_head->in(LoopNode::EntryControl)->in(0)->in(0)->in(0);
-  if (!c->is_CountedLoopEnd()) {
-    // in case of a reserve copy
-    c = c->in(0)->in(0);
-    assert(c->is_CountedLoopEnd(), "where's the pre loop?");
-  }
-  CountedLoopEndNode* pre_end = c->as_CountedLoopEnd();
-  CountedLoopNode* pre_loop = pre_end->loopnode();
-  assert(pre_loop->is_pre_loop(), "where's the pre loop?");
+  if (main_head->is_main_loop()) {
+    Node* c = main_head->in(LoopNode::EntryControl)->in(0)->in(0)->in(0);
+    if (!c->is_CountedLoopEnd()) {
+      // in case of a reserve copy
+      c = c->in(0)->in(0);
+      assert(c->is_CountedLoopEnd(), "where's the pre loop?");
+    }
+    CountedLoopEndNode* pre_end = c->as_CountedLoopEnd();
+    CountedLoopNode* pre_loop = pre_end->loopnode();
+    assert(pre_loop->is_pre_loop(), "where's the pre loop?");
 
-  Node* base_c = phase()->get_ctrl(base);
-  if (!phase()->is_dominator(base_c, pre_loop)) {
-    return;
+    Node* base_c = phase()->get_ctrl(base);
+    if (!phase()->is_dominator(base_c, pre_loop)) {
+      return;
+    }
   }
   for (int i = 0; i < 3; i++) {
     if (!scaled_iv_plus_offset(adr->in(AddPNode::Offset))) {

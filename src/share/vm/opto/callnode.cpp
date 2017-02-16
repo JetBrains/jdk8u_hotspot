@@ -1019,6 +1019,34 @@ void CallLeafNode::dump_spec(outputStream *st) const {
 }
 #endif
 
+Node *CallLeafNode::Ideal(PhaseGVN *phase, bool can_reshape) {
+  if (is_g1_wb_pre_call()) {
+    uint cnt = OptoRuntime::g1_wb_pre_Type()->domain()->cnt();
+    if (req() > cnt) {
+      Node* addp = in(cnt);
+      if (has_only_g1_wb_pre_uses(addp)) {
+        del_req(cnt);
+        if (can_reshape) {
+          phase->is_IterGVN()->_worklist.push(addp);
+        }
+        return this;
+      }
+    }
+  }
+
+  return CallNode::Ideal(phase, can_reshape);
+}
+
+bool CallLeafNode::has_only_g1_wb_pre_uses(Node* n) {
+  for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
+    Node* u = n->fast_out(i);
+    if (!u->is_g1_wb_pre_call()) {
+      return false;
+    }
+  }
+  return n->outcnt() > 0;
+}
+
 //=============================================================================
 
 void SafePointNode::set_local(JVMState* jvms, uint idx, Node *c) {
