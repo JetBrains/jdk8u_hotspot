@@ -1723,6 +1723,24 @@ void Arguments::set_shenandoah_gc_flags() {
   UNSUPPORTED_OPTION(UseShenandoahGC);
 #endif
 
+  if (!FLAG_IS_DEFAULT(ShenandoahGarbageThreshold)) {
+    if (0 > ShenandoahGarbageThreshold || ShenandoahGarbageThreshold > 100) {
+      vm_exit_during_initialization("The flag -XX:ShenandoahGarbageThreshold is out of range", NULL);
+    }
+  }
+
+  if (!FLAG_IS_DEFAULT(ShenandoahAllocationThreshold)) {
+    if (0 > ShenandoahAllocationThreshold || ShenandoahAllocationThreshold > 100) {
+      vm_exit_during_initialization("The flag -XX:ShenandoahAllocationThreshold is out of range", NULL);
+    }
+  }
+
+  if (!FLAG_IS_DEFAULT(ShenandoahFreeThreshold)) {
+    if (0 > ShenandoahFreeThreshold || ShenandoahFreeThreshold > 100) {
+      vm_exit_during_initialization("The flag -XX:ShenandoahFreeThreshold is out of range", NULL);
+    }
+  }
+
   if (MaxHeapSize >= ObjArrayChunkedTask::oop_size) {
     jio_fprintf(defaultStream::error_stream(),
                 "Shenandoah GC cannot address more than " SIZE_FORMAT " bytes, and " SIZE_FORMAT " bytes heap requested.",
