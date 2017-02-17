@@ -58,7 +58,7 @@ enum Shenandoah_process_roots_tasks {
 };
 
 class ShenandoahRootProcessor : public StackObj {
-  SubTasksDone _process_strong_tasks;
+  SubTasksDone* _process_strong_tasks;
   SharedHeap::StrongRootsScope _srs;
   ShenandoahCollectorPolicy::TimingPhase _phase;
   ParallelCLDRootIterator   _cld_iterator;
@@ -98,7 +98,7 @@ public:
 };
 
 class ShenandoahRootEvacuator : public StackObj {
-  SubTasksDone _process_strong_tasks;
+  SubTasksDone* _process_strong_tasks;
   SharedHeap::StrongRootsScope _srs;
   ShenandoahCollectorPolicy::TimingPhase _phase;
 

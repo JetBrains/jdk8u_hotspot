@@ -2217,7 +2217,7 @@ void ShenandoahHeap::clear_cset_fast_test() {
 }
 
 size_t ShenandoahHeap::conservative_max_heap_alignment() {
-  return 32 * M;
+  return ShenandoahMaxRegionSize;
 }
 
 size_t ShenandoahHeap::bytes_allocated_since_cm() {

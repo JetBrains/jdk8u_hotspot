@@ -37,18 +37,19 @@
 
 ShenandoahRootProcessor::ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_workers,
                                                  ShenandoahCollectorPolicy::TimingPhase phase) :
-  _process_strong_tasks(SHENANDOAH_RP_PS_NumElements),
+  _process_strong_tasks(new SubTasksDone(SHENANDOAH_RP_PS_NumElements)),
   _srs(heap, true),
   _phase(phase),
   _cld_iterator(ClassLoaderDataGraph::parallel_cld_root_iterator()) ,
   _om_iterator(ObjectSynchronizer::parallel_iterator())
 {
   heap->shenandoahPolicy()->record_workers_start(_phase);
-  _process_strong_tasks.set_n_threads(n_workers);
+  _process_strong_tasks->set_n_threads(n_workers);
   heap->set_par_threads(n_workers);
 }
 
 ShenandoahRootProcessor::~ShenandoahRootProcessor() {
+  delete _process_strong_tasks;
   ShenandoahHeap::heap()->shenandoahPolicy()->record_workers_end(_phase);
 }
 
@@ -61,7 +62,7 @@ void ShenandoahRootProcessor::process_strong_roots(OopClosure* oops,
   process_java_roots(oops, clds, clds, NULL, blobs, worker_id);
   process_vm_roots(oops, NULL, weak_oops, worker_id);
 
-  _process_strong_tasks.all_tasks_completed();
+  _process_strong_tasks->all_tasks_completed();
 }
 
 void ShenandoahRootProcessor::process_all_roots(OopClosure* oops,
@@ -76,12 +77,12 @@ void ShenandoahRootProcessor::process_all_roots(OopClosure* oops,
 
   if (blobs != NULL) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::CodeCacheRoots, worker_id);
-    if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_CodeCache_oops_do)) {
+    if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_CodeCache_oops_do)) {
       CodeCache::blobs_do(blobs);
     }
   }
 
-  _process_strong_tasks.all_tasks_completed();
+  _process_strong_tasks->all_tasks_completed();
 }
 
 void ShenandoahRootProcessor::process_java_roots(OopClosure* strong_roots,
@@ -113,34 +114,34 @@ void ShenandoahRootProcessor::process_vm_roots(OopClosure* strong_roots,
                                                uint worker_id)
 {
   ShenandoahPhaseTimes* phase_times = ShenandoahHeap::heap()->shenandoahPolicy()->phase_times();
-  if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_Universe_oops_do)) {
+  if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_Universe_oops_do)) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::UniverseRoots, worker_id);
     Universe::oops_do(strong_roots);
   }
 
-  if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_JNIHandles_oops_do)) {
+  if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_JNIHandles_oops_do)) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::JNIRoots, worker_id);
     JNIHandles::oops_do(strong_roots);
   }
 
-  if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_FlatProfiler_oops_do)) {
+  if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_FlatProfiler_oops_do)) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::FlatProfilerRoots, worker_id);
     FlatProfiler::oops_do(strong_roots);
   }
-  if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_Management_oops_do)) {
+  if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_Management_oops_do)) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::ManagementRoots, worker_id);
     Management::oops_do(strong_roots);
   }
-  if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_jvmti_oops_do)) {
+  if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_jvmti_oops_do)) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::JVMTIRoots, worker_id);
     JvmtiExport::oops_do(strong_roots);
   }
-  if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_SystemDictionary_oops_do)) {
+  if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_SystemDictionary_oops_do)) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::SystemDictionaryRoots, worker_id);
     SystemDictionary::roots_oops_do(strong_roots, weak_roots);
   }
   if (jni_weak_roots != NULL) {
-    if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_JNIHandles_weak_oops_do)) {
+    if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_JNIHandles_weak_oops_do)) {
       ShenandoahAlwaysTrueClosure always_true;
       ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::JNIWeakRoots, worker_id);
       JNIHandles::weak_oops_do(&always_true, jni_weak_roots);
@@ -160,16 +161,17 @@ void ShenandoahRootProcessor::process_vm_roots(OopClosure* strong_roots,
 }
 
 ShenandoahRootEvacuator::ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers, ShenandoahCollectorPolicy::TimingPhase phase) :
-  _process_strong_tasks(SHENANDOAH_RP_PS_NumElements),
+  _process_strong_tasks(new SubTasksDone(SHENANDOAH_RP_PS_NumElements)),
   _srs(heap, true),
   _phase(phase)
 {
-  _process_strong_tasks.set_n_threads(n_workers);
+  _process_strong_tasks->set_n_threads(n_workers);
   heap->set_par_threads(n_workers);
   heap->shenandoahPolicy()->record_workers_start(_phase);
 }
 
 ShenandoahRootEvacuator::~ShenandoahRootEvacuator() {
+  delete _process_strong_tasks;
   ShenandoahHeap::heap()->shenandoahPolicy()->record_workers_end(_phase);
 }
 
@@ -186,12 +188,12 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
 
   {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::CodeCacheRoots, worker_id);
-    if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_CodeCache_oops_do)) {
+    if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_CodeCache_oops_do)) {
       CodeCache::blobs_do(blobs);
     }
   }
 
-  if (!_process_strong_tasks.is_task_claimed(SHENANDOAH_RP_PS_ReferenceProcessor_oops_do)) {
+  if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_ReferenceProcessor_oops_do)) {
     // Evacuate the PLL here so that the SurrogateLockerThread doesn't
     // have to. If the SLT runs into OOM during evacuation, the
     // ShenandoahConcurrentThread cannot get back from VMThread::execute()
@@ -199,5 +201,5 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
     oop pll = java_lang_ref_Reference::pending_list_lock();
     oopDesc::bs()->write_barrier(pll);
   }
-  _process_strong_tasks.all_tasks_completed();
+  _process_strong_tasks->all_tasks_completed();
 }
