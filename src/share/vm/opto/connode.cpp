@@ -432,21 +432,13 @@ Node *ConstraintCastNode::Ideal(PhaseGVN *phase, bool can_reshape){
 }
 
 //------------------------------Ideal_DU_postCCP-------------------------------
-
 // Throw away cast after constant propagation
-
 Node *ConstraintCastNode::Ideal_DU_postCCP( PhaseCCP *ccp ) {
-
   const Type *t = ccp->type(in(1));
-
   ccp->hash_delete(this);
-
   set_type(t);                   // Turn into ID function
-
   ccp->hash_insert(this);
-
   return this;
-
 }
 
 uint CastIINode::size_of() const {
