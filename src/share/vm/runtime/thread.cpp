@@ -1244,6 +1244,13 @@ WatcherThread::WatcherThread() : Thread(), _crash_protection(NULL) {
   if (os::create_thread(this, os::watcher_thread)) {
     _watcher_thread = this;
 
+    // WatcherThread needs GCLAB for cases when it writes to Java heap,
+    // and needs the space to evacuate. Have to initialize here, because
+    // WatcherThread is initialized before the Universe.
+    if (UseShenandoahGC && UseTLAB) {
+      gclab().initialize(true);
+    }
+
     // Set the watcher thread to the highest OS priority which should not be
     // used, unless a Java thread with priority java.lang.Thread.MAX_PRIORITY
     // is created. The only normal thread using this priority is the reference
