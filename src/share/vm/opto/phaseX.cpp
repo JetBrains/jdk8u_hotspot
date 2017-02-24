@@ -35,6 +35,7 @@
 #include "opto/phaseX.hpp"
 #include "opto/regalloc.hpp"
 #include "opto/rootnode.hpp"
+#include "opto/shenandoahSupport.hpp"
 
 //=============================================================================
 #define NODE_HASH_MINIMUM_SIZE    255
@@ -805,9 +806,7 @@ Node *PhaseGVN::transform_no_reclaim( Node *n ) {
 
   if( t->singleton() && !k->is_Con() ) {
     NOT_PRODUCT( set_progress(); )
-    if (t == Type::TOP || k->Opcode() != Op_ShenandoahWriteBarrier) {
-      return makecon(t);          // Turn into a constant
-    }
+    return makecon(t);          // Turn into a constant
   }
 
   // Now check for Identities
@@ -1212,9 +1211,7 @@ Node *PhaseIterGVN::transform_old( Node *n ) {
     NOT_PRODUCT( set_progress(); )
     Node *con = makecon(t);     // Make a constant
     add_users_to_worklist( k );
-    if (k->Opcode() != Op_ShenandoahWriteBarrier || t == Type::TOP) {
-      subsume_node( k, con );     // Everybody using k now uses con
-    }
+    subsume_node( k, con );     // Everybody using k now uses con
     return con;
   }
 
@@ -1296,6 +1293,11 @@ void PhaseIterGVN::remove_globally_dead_node( Node *dead ) {
                 }
                 assert(!(i < imax), "sanity");
               }
+            } else if (dead->Opcode() == Op_ShenandoahWBMemProj) {
+              assert(i == 0 && in->Opcode() == Op_ShenandoahWriteBarrier, "broken graph");
+              _worklist.push(in);
+            } else if (in->Opcode() == Op_AddP && CallLeafNode::has_only_g1_wb_pre_uses(in)) {
+              add_users_to_worklist(in);
             }
             if (ReduceFieldZeroing && dead->is_Load() && i == MemNode::Memory &&
                 in->is_Proj() && in->in(0) != NULL && in->in(0)->is_Initialize()) {
@@ -1342,6 +1344,9 @@ void PhaseIterGVN::remove_globally_dead_node( Node *dead ) {
       }
       if (dead->is_expensive()) {
         C->remove_expensive_node(dead);
+      }
+      if (dead->is_ShenandoahBarrier()) {
+        C->remove_shenandoah_barrier(dead->as_ShenandoahBarrier());
       }
       CastIINode* cast = dead->isa_CastII();
       if (cast != NULL && cast->has_range_check()) {
@@ -1525,6 +1530,13 @@ void PhaseIterGVN::add_users_to_worklist( Node *n ) {
       Node* imem = use->as_Initialize()->proj_out(TypeFunc::Memory);
       if (imem != NULL)  add_users_to_worklist0(imem);
     }
+
+    if (use->is_ShenandoahBarrier()) {
+      Node* cmp = use->find_out_with(Op_CmpP);
+      if (cmp != NULL) {
+        _worklist.push(cmp);
+      }
+    }
   }
 }
 
@@ -1649,6 +1661,16 @@ void PhaseCCP::analyze() {
             }
           }
         }
+        if (m->is_ShenandoahBarrier()) {
+          for (DUIterator_Fast i2max, i2 = m->fast_outs(i2max); i2 < i2max; i2++) {
+            Node* p = m->fast_out(i2);
+            if (p->Opcode() == Op_CmpP) {
+              if(p->bottom_type() != type(p)) {
+                worklist.push(p);
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -1741,11 +1763,6 @@ Node *PhaseCCP::transform_once( Node *n ) {
     _worklist.push(n);          // n re-enters the hash table via the worklist
   }
 
-  // Idealize graph using DU info.  Must clone() into new-space.
-  // DU info is generally used to show profitability, progress or safety
-  // (but generally not needed for correctness).
-  Node *nn = n->Ideal_DU_postCCP(this);
-
   // TEMPORARY fix to ensure that 2nd GVN pass eliminates NULL checks
   switch( n->Opcode() ) {
   case Op_FastLock:      // Revisit FastLocks for lock coarsening
@@ -1761,12 +1778,6 @@ Node *PhaseCCP::transform_once( Node *n ) {
     break;
   default:
     break;
-  }
-  if( nn ) {
-    _worklist.push(n);
-    // Put users of 'n' onto worklist for second igvn transform
-    add_users_to_worklist(n);
-    return nn;
   }
 
   return  n;
@@ -1919,6 +1930,9 @@ void Node::set_req_X( uint i, Node *n, PhaseIterGVN *igvn ) {
       break;
     default:
       break;
+    }
+    if (old->Opcode() == Op_AddP && CallLeafNode::has_only_g1_wb_pre_uses(old)) {
+      igvn->add_users_to_worklist(old);
     }
   }
 

@@ -24,15 +24,17 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP
 
+#include "gc_implementation/g1/concurrentMark.inline.hpp"
 #include "memory/threadLocalAllocBuffer.inline.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.inline.hpp"
-#include "gc_implementation/g1/concurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.inline.hpp"
 #include "oops/oop.inline.hpp"
-#include "runtime/atomic.inline.hpp"
+#include "runtime/atomic.hpp"
+#include "runtime/prefetch.hpp"
+#include "runtime/prefetch.inline.hpp"
 #include "utilities/copy.hpp"
 
 /*
@@ -40,7 +42,7 @@
  * been marked by this thread. Returns false if the object has already been marked,
  * or if a competing thread succeeded in marking this object.
  */
-inline bool ShenandoahHeap::mark_current(oop obj) const {
+inline bool ShenandoahHeap::mark_next(oop obj) const {
 #ifdef ASSERT
   if (! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj))) {
     tty->print_cr("heap region containing obj:");
@@ -53,32 +55,22 @@ inline bool ShenandoahHeap::mark_current(oop obj) const {
 #endif
 
   assert(oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj)), "only mark forwarded copy of objects");
-  return mark_current_no_checks(obj);
+  return mark_next_no_checks(obj);
 }
 
-inline bool ShenandoahHeap::mark_current_no_checks(oop obj) const {
+inline bool ShenandoahHeap::mark_next_no_checks(oop obj) const {
   HeapWord* addr = (HeapWord*) obj;
-  return (! allocated_after_mark_start(addr)) && _next_mark_bit_map->parMark(addr);
+  return (! allocated_after_next_mark_start(addr)) && _next_mark_bit_map->parMark(addr);
 }
 
-inline bool ShenandoahHeap::is_marked_current(oop obj) const {
+inline bool ShenandoahHeap::is_marked_next(oop obj) const {
   HeapWord* addr = (HeapWord*) obj;
-  return allocated_after_mark_start(addr) || _next_mark_bit_map->isMarked(addr);
+  return allocated_after_next_mark_start(addr) || _next_mark_bit_map->isMarked(addr);
 }
 
-inline bool ShenandoahHeap::is_marked_current(oop obj, ShenandoahHeapRegion* r) const {
+inline bool ShenandoahHeap::is_marked_complete(oop obj) const {
   HeapWord* addr = (HeapWord*) obj;
-  return _next_mark_bit_map->isMarked(addr) || r->allocated_after_mark_start(addr);
-}
-
-inline bool ShenandoahHeap::is_marked_prev(oop obj) const {
-  ShenandoahHeapRegion* r = heap_region_containing((void*) obj);
-  return is_marked_prev(obj, r);
-}
-
-inline bool ShenandoahHeap::is_marked_prev(oop obj, const ShenandoahHeapRegion* r) const {
-  HeapWord* addr = (HeapWord*) obj;
-  return _prev_mark_bit_map->isMarked(addr) || r->allocated_after_prev_mark_start(addr);
+  return allocated_after_complete_mark_start(addr) || _complete_mark_bit_map->isMarked(addr);
 }
 
 inline bool ShenandoahHeap::need_update_refs() const {
@@ -90,7 +82,12 @@ inline uint ShenandoahHeap::heap_region_index_containing(const void* addr) const
   uintptr_t index = (region_start - (uintptr_t) _first_region_bottom) >> ShenandoahHeapRegion::RegionSizeShift;
 #ifdef ASSERT
   if (!(index < _num_regions)) {
-    tty->print_cr("heap region does not contain address, first_region_bottom: "PTR_FORMAT", real bottom of first region: "PTR_FORMAT", num_regions: "SIZE_FORMAT", region_size: "SIZE_FORMAT, p2i(_first_region_bottom), p2i(_ordered_regions->get(0)->bottom()), _num_regions, ShenandoahHeapRegion::RegionSizeBytes);
+    tty->print_cr("heap region does not contain address, first_region_bottom: "PTR_FORMAT \
+                  ", real bottom of first region: "PTR_FORMAT", num_regions: "SIZE_FORMAT", region_size: "SIZE_FORMAT,
+                  p2i(_first_region_bottom),
+                  p2i(_ordered_regions->get(0)->bottom()),
+                  _num_regions,
+                  ShenandoahHeapRegion::RegionSizeBytes);
   }
 #endif
   assert(index < _num_regions, "heap region index must be in range");
@@ -102,20 +99,24 @@ inline ShenandoahHeapRegion* ShenandoahHeap::heap_region_containing(const void* 
   ShenandoahHeapRegion* result = _ordered_regions->get(index);
 #ifdef ASSERT
   if (!(addr >= result->bottom() && addr < result->end())) {
-    tty->print_cr("heap region does not contain address, first_region_bottom: "PTR_FORMAT", real bottom of first region: "PTR_FORMAT", num_regions: "SIZE_FORMAT, p2i(_first_region_bottom), p2i(_ordered_regions->get(0)->bottom()), _num_regions);
+    tty->print_cr("heap region does not contain address, first_region_bottom: "PTR_FORMAT \
+                  ", real bottom of first region: "PTR_FORMAT", num_regions: "SIZE_FORMAT,
+                  p2i(_first_region_bottom),
+                  p2i(_ordered_regions->get(0)->bottom()),
+                  _num_regions);
   }
 #endif
   assert(addr >= result->bottom() && addr < result->end(), "address must be in found region");
   return result;
 }
 
-inline oop ShenandoahHeap::update_oop_ref_not_null(oop* p, oop obj) {
-  if (in_cset_fast_test((HeapWord*) obj)) {
+template <class T>
+inline oop ShenandoahHeap::update_oop_ref_not_null(T* p, oop obj) {
+  if (in_collection_set(obj)) {
     oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
     assert(! oopDesc::unsafe_equals(forw, obj) || is_full_gc_in_progress(), "expect forwarded object");
     obj = forw;
-    assert(obj->is_oop(), "sanity");
-    oopDesc::store_heap_oop(p, obj);
+    oopDesc::encode_store_heap_oop(p, obj);
   }
 #ifdef ASSERT
   else {
@@ -125,18 +126,31 @@ inline oop ShenandoahHeap::update_oop_ref_not_null(oop* p, oop obj) {
   return obj;
 }
 
-inline oop ShenandoahHeap::maybe_update_oop_ref(oop* p) {
-  oop obj = oopDesc::load_heap_oop(p);
-  if (! oopDesc::is_null(obj)) {
+template <class T>
+inline oop ShenandoahHeap::maybe_update_oop_ref(T* p) {
+  T o = oopDesc::load_heap_oop(p);
+  if (! oopDesc::is_null(o)) {
+    oop obj = oopDesc::decode_heap_oop_not_null(o);
     return maybe_update_oop_ref_not_null(p, obj);
   } else {
-    return obj;
+    return NULL;
   }
 }
 
-inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
+inline oop ShenandoahHeap::atomic_compare_exchange_oop(oop n, oop* addr, oop c) {
+  return (oop) Atomic::cmpxchg_ptr(n, addr, c);
+}
 
-  assert((! is_in(p)) || (! heap_region_containing(p)->is_in_collection_set())
+inline oop ShenandoahHeap::atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c) {
+  narrowOop cmp = oopDesc::encode_heap_oop(c);
+  narrowOop val = oopDesc::encode_heap_oop(n);
+  return oopDesc::decode_heap_oop((narrowOop) Atomic::cmpxchg(val, addr, cmp));
+}
+
+template <class T>
+inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(T* p, oop heap_oop) {
+
+  assert((! is_in(p)) || (! in_collection_set(p))
          || is_full_gc_in_progress(),
          "never update refs in from-space, unless evacuation has been cancelled");
 
@@ -148,16 +162,19 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
   }
 #endif
   assert(is_in(heap_oop), "only ever call this on objects in the heap");
-  if (in_cset_fast_test((HeapWord*) heap_oop)) {
+  if (in_collection_set(heap_oop)) {
     oop forwarded_oop = ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop); // read brooks ptr
     assert(! oopDesc::unsafe_equals(forwarded_oop, heap_oop) || is_full_gc_in_progress(), "expect forwarded object");
-    // tty->print_cr("updating old ref: "PTR_FORMAT" pointing to "PTR_FORMAT" to new ref: "PTR_FORMAT, p2i(p), p2i(heap_oop), p2i(forwarded_oop));
+
+    log_develop_trace(gc)("Updating old ref: "PTR_FORMAT" pointing to "PTR_FORMAT" to new ref: "PTR_FORMAT,
+                          p2i(p), p2i(heap_oop), p2i(forwarded_oop));
+
     assert(forwarded_oop->is_oop(), "oop required");
     assert(is_in(forwarded_oop), "forwardee must be in heap");
     assert(oopDesc::bs()->is_safe(forwarded_oop), "forwardee must not be in collection set");
     // If this fails, another thread wrote to p before us, it will be logged in SATB and the
     // reference be updated later.
-    oop result = (oop) Atomic::cmpxchg_ptr(forwarded_oop, p, heap_oop);
+    oop result = atomic_compare_exchange_oop(forwarded_oop, p, heap_oop);
 
     if (oopDesc::unsafe_equals(result, heap_oop)) { // CAS successful.
       return forwarded_oop;
@@ -165,14 +182,22 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(oop* p, oop heap_oop) {
       return NULL;
     }
   } else {
-    assert(oopDesc::unsafe_equals(heap_oop, ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop)), "expect not forwarded");
+    assert(oopDesc::unsafe_equals(heap_oop, ShenandoahBarrierSet::resolve_oop_static_not_null(heap_oop)),
+           "expect not forwarded");
     return heap_oop;
   }
 }
 
 inline bool ShenandoahHeap::cancelled_concgc() const {
-  bool cancelled = _cancelled_concgc;
-  return cancelled;
+  return (jbyte) OrderAccess::load_acquire((jbyte*) &_cancelled_concgc);
+}
+
+inline bool ShenandoahHeap::try_cancel_concgc() const {
+  return Atomic::cmpxchg(true, (jbyte*) &_cancelled_concgc, false) == false;
+}
+
+inline void ShenandoahHeap::set_cancelled_concgc(bool v) {
+  OrderAccess::release_store_fence((jbyte*) &_cancelled_concgc, (jbyte) v);
 }
 
 inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size) {
@@ -188,52 +213,37 @@ inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size
   }
 }
 
-inline void ShenandoahHeap::initialize_brooks_ptr(oop p) {
-  BrooksPointer brooks_ptr = BrooksPointer::get(p);
-  brooks_ptr.set_forwardee(p);
-}
-
 inline void ShenandoahHeap::copy_object(oop p, HeapWord* s, size_t words) {
-  HeapWord* filler = s;
   assert(s != NULL, "allocation of brooks pointer must not fail");
-  HeapWord* copy = s + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+  HeapWord* copy = s + BrooksPointer::word_size();
 
   guarantee(copy != NULL, "allocation of copy object must not fail");
   Copy::aligned_disjoint_words((HeapWord*) p, copy, words);
-  initialize_brooks_ptr(oop(copy));
+  BrooksPointer::initialize(oop(copy));
 
-#ifdef ASSERT
-  if (ShenandoahTraceEvacuations) {
-    tty->print_cr("copy object from "PTR_FORMAT" to: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy));
-  }
-#endif
+  log_develop_trace(gc, compaction)("copy object from "PTR_FORMAT" to: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy));
 }
 
 inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
   size_t required;
 
 #ifdef ASSERT
-  ShenandoahHeapRegion* hr;
+  ShenandoahHeapRegion* hr = NULL;
   if (ShenandoahVerifyReadsToFromSpace) {
     hr = heap_region_containing(p);
     {
       hr->memProtectionOff();
-      required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
+      required  = BrooksPointer::word_size() + p->size();
       hr->memProtectionOn();
     }
   } else {
-    required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
+    required  = BrooksPointer::word_size() + p->size();
   }
 #else
-    required  = BrooksPointer::BROOKS_POINTER_OBJ_SIZE + p->size();
+    required  = BrooksPointer::word_size() + p->size();
 #endif
 
   assert(! heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
-
-  // Don't even attempt to evacuate anything if evacuation has been cancelled.
-  if (_cancelled_concgc) {
-    return ShenandoahBarrierSet::resolve_oop_static(p);
-  }
 
   bool alloc_from_gclab = true;
   HeapWord* filler = allocate_from_gclab(thread, required);
@@ -241,6 +251,14 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
     filler = allocate_memory(required, true);
     alloc_from_gclab = false;
   }
+
+#ifdef ASSERT
+  // Checking that current Java thread does not hold Threads_lock when we get here.
+  // If that ever be the case, we'd deadlock in oom_during_evacuation.
+  if ((! Thread::current()->is_GC_task_thread()) && (! Thread::current()->is_ConcurrentGC_thread())) {
+    assert(! Threads_lock->owned_by_self(), "must not hold Threads_lock here");
+  }
+#endif
 
   if (filler == NULL) {
     oom_during_evacuation();
@@ -251,73 +269,178 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
     return resolved;
   }
 
-  HeapWord* copy = filler + BrooksPointer::BROOKS_POINTER_OBJ_SIZE;
+  HeapWord* copy = filler + BrooksPointer::word_size();
 
 #ifdef ASSERT
   if (ShenandoahVerifyReadsToFromSpace) {
     hr->memProtectionOff();
-    copy_object(p, filler, required - BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+    copy_object(p, filler, required - BrooksPointer::word_size());
     hr->memProtectionOn();
   } else {
-    copy_object(p, filler, required - BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+    copy_object(p, filler, required - BrooksPointer::word_size());
   }
 #else
-    copy_object(p, filler, required - BrooksPointer::BROOKS_POINTER_OBJ_SIZE);
+    copy_object(p, filler, required - BrooksPointer::word_size());
 #endif
 
-  HeapWord* result = BrooksPointer::get(p).cas_forwardee((HeapWord*) p, copy);
+  oop copy_val = oop(copy);
+  oop result = BrooksPointer::try_update_forwardee(p, copy_val);
 
   oop return_val;
-  if (result == (HeapWord*) p) {
-    return_val = oop(copy);
+  if (oopDesc::unsafe_equals(result, p)) {
+    return_val = copy_val;
+
+    log_develop_trace(gc, compaction)("Copy of "PTR_FORMAT" to "PTR_FORMAT" succeeded \n",
+                                      p2i((HeapWord*) p), p2i(copy));
 
 #ifdef ASSERT
-    if (ShenandoahTraceEvacuations) {
-      tty->print("Copy of "PTR_FORMAT" to "PTR_FORMAT" succeeded \n", p2i((HeapWord*) p), p2i(copy));
-    }
     assert(return_val->is_oop(), "expect oop");
-    assert(p->klass() == return_val->klass(), err_msg("Should have the same class p: "PTR_FORMAT", copy: "PTR_FORMAT, p2i((HeapWord*) p), p2i((HeapWord*) copy)));
+    assert(p->klass() == return_val->klass(), err_msg("Should have the same class p: "PTR_FORMAT", copy: "PTR_FORMAT,
+						      p2i((HeapWord*) p), p2i((HeapWord*) copy)));
 #endif
   }  else {
     if (alloc_from_gclab) {
       thread->gclab().rollback(required);
     }
-#ifdef ASSERT
-    if (ShenandoahTraceEvacuations) {
-      tty->print_cr("Copy of "PTR_FORMAT" to "PTR_FORMAT" failed, use other: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy), p2i((HeapWord*) result));
-    }
-#endif
-    return_val = (oopDesc*) result;
+    log_develop_trace(gc, compaction)("Copy of "PTR_FORMAT" to "PTR_FORMAT" failed, use other: "PTR_FORMAT,
+                                      p2i((HeapWord*) p), p2i(copy), p2i((HeapWord*) result));
+    return_val = result;
   }
 
   return return_val;
 }
 
 inline bool ShenandoahHeap::requires_marking(const void* entry) const {
-  return ! is_marked_current(oop(entry));
+  return ! is_marked_next(oop(entry));
+}
+
+bool ShenandoahHeap::region_in_collection_set(size_t region_index) const {
+  return _in_cset_fast_test_base[region_index];
+}
+
+bool ShenandoahHeap::in_collection_set(ShenandoahHeapRegion* r) const {
+  return region_in_collection_set(r->region_number());
+}
+
+template <class T>
+inline bool ShenandoahHeap::in_collection_set(T p) const {
+  HeapWord* obj = (HeapWord*) p;
+  assert(_in_cset_fast_test != NULL, "sanity");
+  assert(is_in(obj), "should be in heap");
+
+  // no need to subtract the bottom of the heap from obj,
+  // _in_cset_fast_test is biased
+  uintx index = ((uintx) obj) >> ShenandoahHeapRegion::RegionSizeShift;
+  return _in_cset_fast_test[index];
 }
 
 inline bool ShenandoahHeap::concurrent_mark_in_progress() {
-  return _concurrent_mark_in_progress;
+  return _concurrent_mark_in_progress != 0;
 }
+
 inline address ShenandoahHeap::concurrent_mark_in_progress_addr() {
   return (address) &(ShenandoahHeap::heap()->_concurrent_mark_in_progress);
 }
 
-
-
 inline bool ShenandoahHeap::is_evacuation_in_progress() {
-  return _evacuation_in_progress;
+  return _evacuation_in_progress != 0;
 }
 
-inline bool ShenandoahHeap::allocated_after_mark_start(HeapWord* addr) const {
+inline bool ShenandoahHeap::allocated_after_next_mark_start(HeapWord* addr) const {
   uintx index = ((uintx) addr) >> ShenandoahHeapRegion::RegionSizeShift;
-  HeapWord* top_at_mark_start = _top_at_mark_starts[index];
+  HeapWord* top_at_mark_start = _next_top_at_mark_starts[index];
   bool alloc_after_mark_start = addr >= top_at_mark_start;
-#ifdef ASSERT
-  ShenandoahHeapRegion* r = heap_region_containing(addr);
-  assert(alloc_after_mark_start == r->allocated_after_mark_start(addr), "sanity");
-#endif
   return alloc_after_mark_start;
 }
+
+inline bool ShenandoahHeap::allocated_after_complete_mark_start(HeapWord* addr) const {
+  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::RegionSizeShift;
+  HeapWord* top_at_mark_start = _complete_top_at_mark_starts[index];
+  bool alloc_after_mark_start = addr >= top_at_mark_start;
+  return alloc_after_mark_start;
+}
+
+template<class T>
+inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, T* cl) {
+  assert(BrooksPointer::word_offset() < 0, "skip_delta calculation below assumes the forwarding ptr is before obj");
+
+  CMBitMap* mark_bit_map = _complete_mark_bit_map;
+  HeapWord* top_at_mark_start = complete_top_at_mark_start(region->bottom());
+
+  size_t skip_bitmap_delta = BrooksPointer::word_size() + 1;
+  size_t skip_objsize_delta = BrooksPointer::word_size() /* + actual obj.size() below */;
+  HeapWord* start = region->bottom() + BrooksPointer::word_size();
+
+  HeapWord* limit = region->top();
+  HeapWord* end = MIN2(top_at_mark_start + BrooksPointer::word_size(), _ordered_regions->end());
+  HeapWord* addr = mark_bit_map->getNextMarkedWordAddress(start, end);
+
+  intx dist = ShenandoahMarkScanPrefetch;
+  if (dist > 0) {
+    // Batched scan that prefetches the oop data, anticipating the access to
+    // either header, oop field, or forwarding pointer. Not that we cannot
+    // touch anything in oop, while it still being prefetched to get enough
+    // time for prefetch to work. This is why we try to scan the bitmap linearly,
+    // disregarding the object size. However, since we know forwarding pointer
+    // preceeds the object, we can skip over it. Once we cannot trust the bitmap,
+    // there is no point for prefetching the oop contents, as oop->size() will
+    // touch it prematurely.
+
+    oop slots[dist];
+    bool aborting = false;
+    int avail;
+    do {
+      avail = 0;
+      for (int c = 0; (c < dist) && (addr < limit); c++) {
+        Prefetch::read(addr, 1);
+        oop obj = oop(addr);
+        slots[avail++] = obj;
+        if (addr < top_at_mark_start) {
+          addr += skip_bitmap_delta;
+          addr = mark_bit_map->getNextMarkedWordAddress(addr, end);
+        } else {
+          // cannot trust mark bitmap anymore, finish the current stride,
+          // and switch to accurate traversal
+          addr += obj->size() + skip_objsize_delta;
+          aborting = true;
+        }
+      }
+
+      for (int c = 0; c < avail; c++) {
+        do_marked_object(mark_bit_map, cl, slots[c]);
+      }
+    } while (avail > 0 && !aborting);
+
+    // accurate traversal
+    while (addr < limit) {
+      oop obj = oop(addr);
+      int size = obj->size();
+      do_marked_object(mark_bit_map, cl, obj);
+      addr += size + skip_objsize_delta;
+    }
+  } else {
+    while (addr < limit) {
+      oop obj = oop(addr);
+      int size = obj->size();
+      do_marked_object(mark_bit_map, cl, obj);
+      addr += size + skip_objsize_delta;
+      if (addr < top_at_mark_start) {
+        addr = mark_bit_map->getNextMarkedWordAddress(addr, end);
+      }
+    }
+  }
+}
+
+template<class T>
+inline void ShenandoahHeap::do_marked_object(CMBitMap* bitmap, T* cl, oop obj) {
+#ifdef ASSERT
+  assert(!oopDesc::is_null(obj), "sanity");
+  assert(obj->is_oop(), "sanity");
+  assert(is_in(obj), "sanity");
+  assert(bitmap == _complete_mark_bit_map, "only iterate completed mark bitmap");
+  assert(is_marked_complete(obj), "object expected to be marked");
+#endif
+  cl->do_object(obj);
+}
+
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

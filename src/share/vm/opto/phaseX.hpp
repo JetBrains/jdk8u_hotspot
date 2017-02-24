@@ -206,8 +206,6 @@ public:
   }
 
 public:
-  virtual PhaseIterGVN *is_IterGVN() { return 0; }
-
   // Get a previously recorded type for the node n.
   // This type must already have been recorded.
   // If you want the type of a very new (untransformed) node,
@@ -329,8 +327,7 @@ public:
                                const Type* limit_type) const
   { ShouldNotCallThis(); return NULL; }
 
-  // Delayed node rehash if this is an IGVN phase
-  virtual void igvn_rehash_node_delayed(Node* n) {}
+  virtual PhaseIterGVN *is_IterGVN() { return 0; }
 
 #ifndef PRODUCT
   void dump_old2new_map() const;
@@ -496,10 +493,6 @@ public:
   void rehash_node_delayed(Node* n) {
     hash_delete(n);
     _worklist.push(n);
-  }
-
-  void igvn_rehash_node_delayed(Node* n) {
-    rehash_node_delayed(n);
   }
 
   // Replace ith edge of "n" with "in"

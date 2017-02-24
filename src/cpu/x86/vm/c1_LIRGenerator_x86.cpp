@@ -766,7 +766,7 @@ void LIRGenerator::do_CompareAndSwap(Intrinsic* x, ValueType* type) {
   LIR_Address* a;
 
   LIR_Opr obj_op = obj.result();
-  obj_op = shenandoah_write_barrier(obj_op, NULL, false);
+  obj_op = shenandoah_write_barrier(obj_op, NULL, true);
 
   if(offset.result()->is_constant()) {
 #ifdef _LP64
@@ -916,8 +916,10 @@ void LIRGenerator::do_ArrayCopy(Intrinsic* x) {
   LIRItem dst_pos(x->argument_at(3), this);
   LIRItem length(x->argument_at(4), this);
 
+  dst.load_item();
   LIR_Opr dst_op = dst.result();
   dst_op = shenandoah_write_barrier(dst_op, info, x->arg_needs_null_check(2));
+  src.load_item();
   LIR_Opr src_op = src.result();
   src_op = shenandoah_read_barrier(src_op, info, x->arg_needs_null_check(0));
 
@@ -1486,7 +1488,7 @@ void LIRGenerator::do_UnsafeGetAndSetObject(UnsafeGetAndSetObject* x) {
   assert (type == T_INT || (!x->is_add() && is_obj) LP64_ONLY( || type == T_LONG ), "unexpected type");
 
   LIR_Opr src_op = src.result();
-  src_op = shenandoah_write_barrier(src_op, NULL, false);
+  src_op = shenandoah_write_barrier(src_op, NULL, true);
   if (is_obj) {
     data = shenandoah_read_barrier(data, NULL, true);
   }

@@ -27,16 +27,29 @@
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "memory/allocation.hpp"
 #include "opto/addnode.hpp"
+#include "opto/machnode.hpp"
 #include "opto/memnode.hpp"
 #include "opto/multnode.hpp"
 #include "opto/node.hpp"
 
-class PhaseTransform;
+class PhaseGVN;
 
 
 class ShenandoahBarrierNode : public TypeNode {
 private:
   bool _allow_fromspace;
+
+#ifdef ASSERT
+  enum verify_type {
+    ShenandoahLoad,
+    ShenandoahStore,
+    ShenandoahValue,
+    ShenandoahNone,
+  };
+
+  static bool verify_helper(Node* in, Node_Stack& phis, VectorSet& visited, verify_type t, bool trace, Unique_Node_List& barriers_used);
+#endif
+
 public:
 
 public:
@@ -58,9 +71,17 @@ public:
 
   static Node* skip_through_barrier(Node* n);
 
-  virtual const class TypePtr* adr_type() const {
-    const TypePtr* adr_type = bottom_type()->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
-    assert(adr_type->offset() == BrooksPointer::BYTE_OFFSET, "sane offset");
+  static const TypeOopPtr* brooks_pointer_type(const Type* t) {
+    return t->is_oopptr()->cast_to_nonconst()->add_offset(BrooksPointer::byte_offset())->is_oopptr();
+  }
+
+  virtual const TypePtr* adr_type() const {
+    if (bottom_type() == Type::TOP) {
+      return NULL;
+    }
+    //const TypePtr* adr_type = in(MemNode::Address)->bottom_type()->is_ptr();
+    const TypePtr* adr_type = brooks_pointer_type(bottom_type());
+    assert(adr_type->offset() == BrooksPointer::byte_offset(), "sane offset");
     assert(Compile::current()->alias_type(adr_type)->is_rewritable(), "brooks ptr must be rewritable");
     return adr_type;
   }
@@ -70,24 +91,24 @@ public:
     return idx >= ValueIn;
   }
 
-  virtual Node* Identity(PhaseTransform* phase);
   Node* Identity_impl(PhaseTransform* phase);
-
-  virtual Node *Ideal_DU_postCCP( PhaseCCP * );
 
   virtual const Type* Value(PhaseTransform* phase) const;
   virtual bool depends_only_on_test() const {
     return true;
   };
-#ifdef ASSERT
-  void check_invariants();
-  uint num_mem_projs();
-#endif
 
   static bool needs_barrier(PhaseTransform* phase, ShenandoahBarrierNode* orig, Node* n, Node* rb_mem, bool allow_fromspace);
 
-  static bool has_barrier_users(Node* n, Unique_Node_List &visited);
+  static void verify(RootNode* root);
+#ifdef ASSERT
+  static void verify_raw_mem(RootNode* root);
+#endif
+#ifndef PRODUCT
+  virtual void dump_spec(outputStream *st) const;
+#endif
 
+protected:
   uint hash() const;
   uint cmp(const Node& n) const;
   uint size_of() const;
@@ -96,9 +117,8 @@ private:
   static bool needs_barrier_impl(PhaseTransform* phase, ShenandoahBarrierNode* orig, Node* n, Node* rb_mem, bool allow_fromspace, Unique_Node_List &visited);
 
 
-  bool dominates_control(PhaseTransform* phase, Node* c1, Node* c2);
-  bool dominates_memory(PhaseTransform* phase, Node* b1, Node* b2);
-  bool dominates_memory_impl(PhaseTransform* phase, Node* b1, Node* b2, Node* current, Unique_Node_List &visisted);
+  static bool dominates_memory(PhaseTransform* phase, Node* b1, Node* b2, bool linear);
+  static bool dominates_memory_impl(PhaseTransform* phase, Node* b1, Node* b2, Node* current, bool linear);
 };
 
 class ShenandoahReadBarrierNode : public ShenandoahBarrierNode {
@@ -114,20 +134,31 @@ public:
   virtual Node* Identity(PhaseTransform* phase);
   virtual int Opcode() const;
 
+  bool is_independent(Node* mem);
+
 private:
-  bool is_independent(const Type* in_type, const Type* this_type) const;
-  bool dominates_memory_rb(PhaseTransform* phase, Node* b1, Node* b2);
-  bool dominates_memory_rb_impl(PhaseTransform* phase, Node* b1, Node* b2, Node* current, Unique_Node_List &visited);
+  static bool is_independent(const Type* in_type, const Type* this_type);
+  static bool dominates_memory_rb(PhaseTransform* phase, Node* b1, Node* b2, bool linear);
+  static bool dominates_memory_rb_impl(PhaseTransform* phase, Node* b1, Node* b2, Node* current, bool linear);
 };
 
 class ShenandoahWriteBarrierNode : public ShenandoahBarrierNode {
 public:
-  ShenandoahWriteBarrierNode(Node* ctrl, Node* mem, Node* obj)
-    : ShenandoahBarrierNode(ctrl, mem, obj, true) {
+  ShenandoahWriteBarrierNode(Compile* C, Node* ctrl, Node* mem, Node* obj)
+    : ShenandoahBarrierNode(ctrl, mem, obj, false) {
+    C->add_shenandoah_barrier(this);
+    //tty->print("new wb: "); dump();
   }
 
   virtual int Opcode() const;
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape);
+  virtual Node* Identity(PhaseTransform* phase);
+  virtual bool depends_only_on_test() const { return false; }
+
+  // virtual void set_req( uint i, Node *n ) {
+  //   if (i == MemNode::Memory) { assert(n == Compiler::current()->immutable_memory(), "set only immutable mem on wb"); }
+  //   Node::set_req(i, n);
+  // }
 };
 
 class ShenandoahWBMemProjNode : public ProjNode {
@@ -135,9 +166,6 @@ public:
   enum {SWBMEMPROJCON = (uint)-3};
   ShenandoahWBMemProjNode(Node *src) : ProjNode( src, SWBMEMPROJCON) {
     assert(src->Opcode() == Op_ShenandoahWriteBarrier || src->is_Mach(), "epxect wb");
-#ifdef ASSERT
-    in(0)->as_ShenandoahBarrier()->check_invariants();
-#endif
   }
   virtual Node* Identity(PhaseTransform* phase);
 
@@ -145,14 +173,14 @@ public:
   virtual bool      is_CFG() const  { return false; }
   virtual const Type *bottom_type() const {return Type::MEMORY;}
   virtual const TypePtr *adr_type() const {
-    Node* ctrl = in(0);
-    if (ctrl == NULL)  return NULL; // node is dead
-    assert(ctrl->Opcode() == Op_ShenandoahWriteBarrier || ctrl->is_Mach(), "expect wb");
-    return ctrl->adr_type();
+    Node* wb = in(0);
+    if (wb == NULL || wb->is_top())  return NULL; // node is dead
+    assert(wb->Opcode() == Op_ShenandoahWriteBarrier || (wb->is_Mach() && wb->as_Mach()->ideal_Opcode() == Op_ShenandoahWriteBarrier), "expect wb");
+    return ShenandoahBarrierNode::brooks_pointer_type(wb->bottom_type());
   }
 
   virtual uint ideal_reg() const { return 0;} // memory projections don't have a register
-  virtual const Type *Value( PhaseTransform *phase ) const {
+  virtual const Type *Value(PhaseTransform* phase ) const {
     return bottom_type();
   }
 #ifndef PRODUCT

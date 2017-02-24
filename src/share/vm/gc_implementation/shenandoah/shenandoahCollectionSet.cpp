@@ -23,6 +23,7 @@
 
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 
 ShenandoahCollectionSet::ShenandoahCollectionSet(size_t max_regions) :
   ShenandoahHeapRegionSet(max_regions),
@@ -35,7 +36,7 @@ ShenandoahCollectionSet::~ShenandoahCollectionSet() {
 void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
   ShenandoahHeapRegionSet::add_region(r);
   _garbage += r->garbage();
-  _live_data += r->getLiveData();
+  _live_data += r->get_live_data_bytes();
 }
 
 size_t ShenandoahCollectionSet::garbage() {
@@ -48,9 +49,6 @@ size_t ShenandoahCollectionSet::live_data() {
 
 void ShenandoahCollectionSet::clear() {
   size_t end = _active_end;
-  for (size_t i = 0; i < end; i++) {
-    get(i)->set_is_in_collection_set(false);
-  }
   ShenandoahHeapRegionSet::clear();
   ShenandoahHeap::heap()->clear_cset_fast_test();
   _garbage = 0;

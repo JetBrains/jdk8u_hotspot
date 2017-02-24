@@ -165,7 +165,6 @@ Handle ThreadService::get_current_contended_monitor(JavaThread* thread) {
     // If obj == NULL, then ObjectMonitor is raw which doesn't count.
   }
 
-  obj = oopDesc::bs()->write_barrier(obj);
   Handle h(obj);
   return h;
 }

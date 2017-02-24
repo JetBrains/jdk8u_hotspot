@@ -24,14 +24,14 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHBARRIERSET_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHBARRIERSET_HPP
 
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "memory/barrierSet.hpp"
+
+class ShenandoahHeap;
 
 class ShenandoahBarrierSet: public BarrierSet {
 private:
 
   ShenandoahHeap* _heap;
-  static inline oop get_shenandoah_forwardee_helper(oop p);
 
 public:
 
@@ -66,7 +66,8 @@ public:
   void write_prim_array(MemRegion mr);
   void write_prim_field(HeapWord* hw, size_t s , juint x, juint y);
   bool write_prim_needs_barrier(HeapWord* hw, size_t s, juint x, juint y);
-  void write_ref_array_work(MemRegion mr);
+  void write_ref_array(HeapWord* start, size_t count);
+  void write_ref_array_work(MemRegion r);
 
   template <class T> void
   write_ref_array_pre_work(T* dst, int count);
@@ -96,9 +97,6 @@ public:
 
   static inline oop resolve_oop_static(oop p);
 
-  static inline oop resolve_oop_static_no_check(oop p);
-
-
   oop resolve_and_maybe_copy_oopHelper(oop src);
   oop resolve_and_maybe_copy_oop_work(oop src);
   oop resolve_and_maybe_copy_oop_work2(oop src);
@@ -110,11 +108,10 @@ public:
 #ifdef ASSERT
   virtual bool is_safe(oop o);
   virtual bool is_safe(narrowOop o);
+  virtual void verify_safe_oop(oop p);
 #endif
 
   static oopDesc* write_barrier_c2(oopDesc* src);
-  static oopDesc* write_barrier_interp(oopDesc* src);
-  static oopDesc* write_barrier_c1(JavaThread* thread, oopDesc* src);
 
 private:
   bool need_update_refs_barrier();

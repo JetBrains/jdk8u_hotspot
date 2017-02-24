@@ -26,6 +26,7 @@
 #include "gc_implementation/shared/generationCounters.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegionCounters.hpp"
 
 class DummyGenerationCounters : public GenerationCounters {
 public:
@@ -49,18 +50,20 @@ _full_collection_counters(NULL)
   // We report young gen as unused.
   _heap_counters = new GenerationCounters("heap", 0, 1, heap->storage());
   _space_counters = new HSpaceCounters("heap", 0, heap->max_capacity(), heap->min_capacity(), _heap_counters);
+
+  _heap_region_counters = new ShenandoahHeapRegionCounters();
 }
 
 CollectorCounters* ShenandoahMonitoringSupport::stw_collection_counters() {
   return _stw_collection_counters;
 }
 
-CollectorCounters* ShenandoahMonitoringSupport::concurrent_collection_counters() {
-  return _concurrent_collection_counters;
-}
-
 CollectorCounters* ShenandoahMonitoringSupport::full_collection_counters() {
   return _full_collection_counters;
+}
+
+CollectorCounters* ShenandoahMonitoringSupport::concurrent_collection_counters() {
+  return _concurrent_collection_counters;
 }
 
 void ShenandoahMonitoringSupport::update_counters() {
@@ -73,5 +76,6 @@ void ShenandoahMonitoringSupport::update_counters() {
     size_t capacity = heap->capacity();
     _heap_counters->update_all();
     _space_counters->update_all(capacity, used);
+    _heap_region_counters->update();
   }
 }

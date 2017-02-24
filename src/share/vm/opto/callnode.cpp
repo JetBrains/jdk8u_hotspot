@@ -37,6 +37,7 @@
 #include "opto/regmask.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/runtime.hpp"
+#include "opto/shenandoahSupport.hpp"
 
 // Portions of code courtesy of Clifford Click
 
@@ -807,7 +808,7 @@ Node *CallNode::result_cast() {
 }
 
 
-void CallNode::extract_projections(CallProjections* projs, bool separate_io_proj) {
+void CallNode::extract_projections(CallProjections* projs, bool separate_io_proj, bool do_asserts) {
   projs->fallthrough_proj      = NULL;
   projs->fallthrough_catchproj = NULL;
   projs->fallthrough_ioproj    = NULL;
@@ -870,17 +871,18 @@ void CallNode::extract_projections(CallProjections* projs, bool separate_io_proj
     }
   }
 
-  // The resproj may not exist because the result couuld be ignored
+  // The resproj may not exist because the result could be ignored
   // and the exception object may not exist if an exception handler
   // swallows the exception but all the other must exist and be found.
   assert(projs->fallthrough_proj      != NULL, "must be found");
-  assert(Compile::current()->inlining_incrementally() || projs->fallthrough_catchproj != NULL, "must be found");
-  assert(Compile::current()->inlining_incrementally() || projs->fallthrough_memproj   != NULL, "must be found");
-  assert(Compile::current()->inlining_incrementally() || projs->fallthrough_ioproj    != NULL, "must be found");
-  assert(Compile::current()->inlining_incrementally() || projs->catchall_catchproj    != NULL, "must be found");
+  do_asserts = do_asserts && !Compile::current()->inlining_incrementally();
+  assert(!do_asserts || projs->fallthrough_catchproj != NULL, "must be found");
+  assert(!do_asserts || projs->fallthrough_memproj   != NULL, "must be found");
+  assert(!do_asserts || projs->fallthrough_ioproj    != NULL, "must be found");
+  assert(!do_asserts || projs->catchall_catchproj    != NULL, "must be found");
   if (separate_io_proj) {
-    assert(Compile::current()->inlining_incrementally() || projs->catchall_memproj    != NULL, "must be found");
-    assert(Compile::current()->inlining_incrementally() || projs->catchall_ioproj     != NULL, "must be found");
+    assert(!do_asserts || projs->catchall_memproj    != NULL, "must be found");
+    assert(!do_asserts || projs->catchall_ioproj     != NULL, "must be found");
   }
 }
 
@@ -905,7 +907,6 @@ Node *CallNode::Ideal(PhaseGVN *phase, bool can_reshape) {
   }
   return SafePointNode::Ideal(phase, can_reshape);
 }
-
 
 //=============================================================================
 uint CallJavaNode::size_of() const { return sizeof(*this); }
@@ -998,6 +999,13 @@ void CallRuntimeNode::calling_convention( BasicType* sig_bt, VMRegPair *parm_reg
   Matcher::c_calling_convention( sig_bt, parm_regs, argcnt );
 }
 
+bool CallRuntimeNode::is_call_to_arraycopystub() const {
+  if (_name != NULL && strstr(_name, "arraycopy") != 0) {
+    return true;
+  }
+  return false;
+}
+
 //=============================================================================
 //------------------------------calling_convention-----------------------------
 
@@ -1010,6 +1018,34 @@ void CallLeafNode::dump_spec(outputStream *st) const {
   CallNode::dump_spec(st);
 }
 #endif
+
+Node *CallLeafNode::Ideal(PhaseGVN *phase, bool can_reshape) {
+  if (is_g1_wb_pre_call()) {
+    uint cnt = OptoRuntime::g1_wb_pre_Type()->domain()->cnt();
+    if (req() > cnt) {
+      Node* addp = in(cnt);
+      if (has_only_g1_wb_pre_uses(addp)) {
+        del_req(cnt);
+        if (can_reshape) {
+          phase->is_IterGVN()->_worklist.push(addp);
+        }
+        return this;
+      }
+    }
+  }
+
+  return CallNode::Ideal(phase, can_reshape);
+}
+
+bool CallLeafNode::has_only_g1_wb_pre_uses(Node* n) {
+  for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
+    Node* u = n->fast_out(i);
+    if (!u->is_g1_wb_pre_call()) {
+      return false;
+    }
+  }
+  return n->outcnt() > 0;
+}
 
 //=============================================================================
 

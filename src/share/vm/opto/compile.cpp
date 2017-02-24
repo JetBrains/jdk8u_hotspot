@@ -411,6 +411,11 @@ void Compile::remove_useless_nodes(Unique_Node_List &useful) {
     if (n->outcnt() == 1 && n->has_special_unique_user()) {
       record_for_igvn(n->unique_out());
     }
+    if (n->Opcode() == Op_AddP && CallLeafNode::has_only_g1_wb_pre_uses(n)) {
+      for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
+        record_for_igvn(n->fast_out(i));
+      }
+    }
   }
   // Remove useless macro and predicate opaq nodes
   for (int i = C->macro_count()-1; i >= 0; i--) {
@@ -431,6 +436,12 @@ void Compile::remove_useless_nodes(Unique_Node_List &useful) {
     Node* n = C->expensive_node(i);
     if (!useful.member(n)) {
       remove_expensive_node(n);
+    }
+  }
+  for (int i = C->shenandoah_barriers_count()-1; i >= 0; i--) {
+    Node* n = C->shenandoah_barrier(i);
+    if (!useful.member(n)) {
+      remove_shenandoah_barrier(n->as_ShenandoahBarrier());
     }
   }
   // clean up the late inline lists
@@ -1200,6 +1211,7 @@ void Compile::Init(int aliaslevel) {
   _predicate_opaqs = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   _expensive_nodes = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
   _range_check_casts = new(comp_arena()) GrowableArray<Node*>(comp_arena(), 8,  0, NULL);
+  _shenandoah_barriers = new(comp_arena()) GrowableArray<ShenandoahBarrierNode*>(comp_arena(), 8,  0, NULL);
   register_library_intrinsics();
 }
 
@@ -1444,7 +1456,7 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
         tj = TypeInstPtr::MARK;
         ta = TypeAryPtr::RANGE; // generic ignored junk
         ptr = TypePtr::BotPTR;
-      } else if (offset == BrooksPointer::BYTE_OFFSET && UseShenandoahGC) {
+      } else if (offset == BrooksPointer::byte_offset() && UseShenandoahGC) {
         // Need to distinguish brooks ptr as is.
         tj = ta = TypeAryPtr::make(ptr,ta->ary(),ta->klass(),false,offset);
       } else {                  // Random constant offset into array body
@@ -1511,7 +1523,7 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
       if (!is_known_inst) { // Do it only for non-instance types
         tj = to = TypeInstPtr::make(TypePtr::BotPTR, env()->Object_klass(), false, NULL, offset);
       }
-    } else if ((offset != BrooksPointer::BYTE_OFFSET || !UseShenandoahGC) && (offset < 0 || offset >= k->size_helper() * wordSize)) {
+    } else if ((offset != BrooksPointer::byte_offset() || !UseShenandoahGC) && (offset < 0 || offset >= k->size_helper() * wordSize)) {
       // Static fields are in the space above the normal instance
       // fields in the java.lang.Class instance.
       if (to->klass() != ciEnv::current()->Class_klass()) {
@@ -1610,7 +1622,7 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
           (offset == oopDesc::mark_offset_in_bytes() && tj->base() == Type::AryPtr) ||
           (offset == oopDesc::klass_offset_in_bytes() && tj->base() == Type::AryPtr) ||
           (offset == arrayOopDesc::length_offset_in_bytes() && tj->base() == Type::AryPtr) ||
-          (offset == BrooksPointer::BYTE_OFFSET && tj->base() == Type::AryPtr && UseShenandoahGC),
+          (offset == BrooksPointer::byte_offset() && tj->base() == Type::AryPtr && UseShenandoahGC),
           "For oops, klasses, raw offset must be constant; for arrays the offset is never known" );
   assert( tj->ptr() != TypePtr::TopPTR &&
           tj->ptr() != TypePtr::AnyNull &&
@@ -2296,12 +2308,30 @@ void Compile::Optimize() {
     igvn.optimize();
   }
 
+  if (UseShenandoahGC && ShenandoahVerifyOptoBarriers) {
+    ShenandoahBarrierNode::verify(C->root());
+  }
+
   {
     NOT_PRODUCT( TracePhase t2("macroExpand", &_t_macroExpand, TimeCompiler); )
     PhaseMacroExpand  mex(igvn);
     if (mex.expand_macro_nodes()) {
       assert(failing(), "must bail out w/ explicit message");
       return;
+    }
+  }
+
+  if (ShenandoahWriteBarrierToIR) {
+    if (shenandoah_barriers_count() > 0) {
+      C->clear_major_progress();
+      PhaseIdealLoop ideal_loop(igvn, false, true);
+      if (failing()) return;
+      PhaseIdealLoop::verify(igvn);
+#ifdef ASSERT
+      if (UseShenandoahGC) {
+        ShenandoahBarrierNode::verify_raw_mem(C->root());
+      }
+#endif
     }
   }
 
@@ -2728,6 +2758,15 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
   case Op_CallLeafNoFP: {
     assert( n->is_Call(), "" );
     CallNode *call = n->as_Call();
+    if (UseShenandoahGC && call->is_g1_wb_pre_call()) {
+      uint cnt = OptoRuntime::g1_wb_pre_Type()->domain()->cnt();
+      if (call->req() > cnt) {
+        assert(call->req() == cnt+1, "only one extra input");
+        Node* addp = call->in(cnt);
+        assert(!CallLeafNode::has_only_g1_wb_pre_uses(addp), "useless address computation?");
+        call->del_req(cnt);
+      }
+    }
     // Count call sites where the FP mode bit would have to be flipped.
     // Do not count uncommon runtime calls:
     // uncommon_trap, _complete_monitor_locking, _complete_monitor_unlocking,
@@ -2871,9 +2910,38 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
     break;
   }
 
-#ifdef _LP64
-  case Op_CastPP:
-    if (n->in(1)->is_DecodeN() && Matcher::gen_narrow_oop_implicit_null_checks()) {
+  case Op_CastPP: {
+    // Remove CastPP nodes to gain more freedom during scheduling but
+    // keep the dependency they encode as control or precedence edges
+    // (if control is set already) on memory operations. Some CastPP
+    // nodes don't have a control (don't carry a dependency): skip
+    // those.
+    if (n->in(0) != NULL) {
+      ResourceMark rm;
+      Unique_Node_List wq;
+      wq.push(n);
+      for (uint next = 0; next < wq.size(); ++next) {
+        Node *m = wq.at(next);
+        for (DUIterator_Fast imax, i = m->fast_outs(imax); i < imax; i++) {
+          Node* use = m->fast_out(i);
+          if (use->is_Mem() || use->is_EncodeNarrowPtr() || use->is_ShenandoahBarrier()) {
+            use->ensure_control_or_add_prec(n->in(0));
+          } else if (use->in(0) == NULL) {
+            switch(use->Opcode()) {
+            case Op_AddP:
+            case Op_DecodeN:
+            case Op_DecodeNKlass:
+            case Op_CheckCastPP:
+            case Op_CastPP:
+              wq.push(use);
+              break;
+            }
+          }
+        }
+      }
+    }
+    const bool is_LP64 = LP64_ONLY(true) NOT_LP64(false);
+    if (is_LP64 && n->in(1)->is_DecodeN() && Matcher::gen_narrow_oop_implicit_null_checks()) {
       Node* in1 = n->in(1);
       const Type* t = n->bottom_type();
       Node* new_in1 = in1->clone();
@@ -2906,9 +2974,15 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
       if (in1->outcnt() == 0) {
         in1->disconnect_inputs(NULL, this);
       }
+    } else {
+      n->subsume_by(n->in(1), this);
+      if (n->outcnt() == 0) {
+        n->disconnect_inputs(NULL, this);
+      }
     }
     break;
-
+  }
+#ifdef _LP64
   case Op_CmpP:
     // Do this transformation here to preserve CmpPNode::sub() and
     // other TypePtr related Ideal optimizations (for example, ptr nullness).
@@ -3177,7 +3251,7 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
   case Op_ShenandoahReadBarrier:
     break;
   case Op_ShenandoahWriteBarrier:
-    n->set_req(ShenandoahBarrierNode::Memory, immutable_memory());
+    assert(!ShenandoahWriteBarrierToIR, "should have been expanded already");
     break;
   default:
     assert( !n->is_Call(), "" );
@@ -3580,9 +3654,7 @@ void Compile::verify_barriers() {
             if (cmp->Opcode() == Op_CmpI && cmp->in(2)->is_Con() && cmp->in(2)->bottom_type()->is_int()->get_con() == 0
                 && cmp->in(1)->is_Load()) {
               LoadNode* load = cmp->in(1)->as_Load();
-              if (load->Opcode() == Op_LoadB && load->in(2)->is_AddP() && load->in(2)->in(2)->Opcode() == Op_ThreadLocal
-                  && load->in(2)->in(3)->is_Con()
-                  && load->in(2)->in(3)->bottom_type()->is_intptr_t()->get_con() == marking_offset) {
+              if (load->is_g1_marking_load()) {
 
                 Node* if_ctrl = iff->in(0);
                 Node* load_ctrl = load->in(0);
@@ -4074,7 +4146,7 @@ void Compile::remove_speculative_types(PhaseIterGVN &igvn) {
         const Type* t_no_spec = t->remove_speculative();
         if (t_no_spec != t) {
           bool in_hash = igvn.hash_delete(n);
-          assert(in_hash, "node should be in igvn hash table");
+          assert(in_hash || n->hash() == Node::NO_HASH, "node should be in igvn hash table");
           tn->set_type(t_no_spec);
           igvn.hash_insert(n);
           igvn._worklist.push(n); // give it a chance to go away

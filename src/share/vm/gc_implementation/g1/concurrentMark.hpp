@@ -154,6 +154,8 @@ class CMBitMap : public CMBitMapRO {
   void parMarkRange(MemRegion mr);
   void clearRange(MemRegion mr);
 
+  void clear_range_large(MemRegion mr);
+
   // Starting at the bit corresponding to "addr" (inclusive), find the next
   // "1" bit, if any.  This bit starts some run of consecutive "1"'s; find
   // the end of this run (stopping at "end_addr").  Return the MemRegion

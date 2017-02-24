@@ -26,6 +26,7 @@
 #define SHARE_VM_GC_IMPLEMENTATION_SHARED_MARKSWEEP_INLINE_HPP
 
 #include "gc_implementation/shared/markSweep.hpp"
+#include "memory/barrierSet.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "utilities/stack.inline.hpp"
 #include "utilities/macros.hpp"

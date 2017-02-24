@@ -24,7 +24,11 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHROOTPROCESSOR_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHROOTPROCESSOR_HPP
 
+#include "classfile/classLoaderData.hpp"
+#include "code/codeCache.hpp"
 #include "memory/sharedHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "memory/allocation.hpp"
 #include "runtime/mutex.hpp"
 
@@ -37,29 +41,31 @@ class Monitor;
 class OopClosure;
 class SubTasksDone;
 
+enum Shenandoah_process_roots_tasks {
+  SHENANDOAH_RP_PS_Universe_oops_do,
+  SHENANDOAH_RP_PS_JNIHandles_oops_do,
+  SHENANDOAH_RP_PS_JNIHandles_weak_oops_do,
+  SHENANDOAH_RP_PS_ObjectSynchronizer_oops_do,
+  SHENANDOAH_RP_PS_FlatProfiler_oops_do,
+  SHENANDOAH_RP_PS_Management_oops_do,
+  SHENANDOAH_RP_PS_SystemDictionary_oops_do,
+  SHENANDOAH_RP_PS_ClassLoaderDataGraph_oops_do,
+  SHENANDOAH_RP_PS_jvmti_oops_do,
+  SHENANDOAH_RP_PS_CodeCache_oops_do,
+  SHENANDOAH_RP_PS_ReferenceProcessor_oops_do,
+  // Leave this one last.
+  SHENANDOAH_RP_PS_NumElements
+};
+
 class ShenandoahRootProcessor : public StackObj {
   SubTasksDone* _process_strong_tasks;
   SharedHeap::StrongRootsScope _srs;
-
-  enum Shenandoah_process_roots_tasks {
-    SHENANDOAH_RP_PS_Universe_oops_do,
-    SHENANDOAH_RP_PS_JNIHandles_oops_do,
-    SHENANDOAH_RP_PS_JNIHandles_weak_oops_do,
-    SHENANDOAH_RP_PS_ObjectSynchronizer_oops_do,
-    SHENANDOAH_RP_PS_FlatProfiler_oops_do,
-    SHENANDOAH_RP_PS_Management_oops_do,
-    SHENANDOAH_RP_PS_SystemDictionary_oops_do,
-    SHENANDOAH_RP_PS_ClassLoaderDataGraph_oops_do,
-    SHENANDOAH_RP_PS_jvmti_oops_do,
-    SHENANDOAH_RP_PS_CodeCache_oops_do,
-    SHENANDOAH_RP_PS_filter_satb_buffers,
-    SHENANDOAH_RP_PS_refProcessor_oops_do,
-    // Leave this one last.
-    SHENANDOAH_RP_PS_NumElements
-  };
+  ShenandoahCollectorPolicy::TimingPhase _phase;
+  ParallelCLDRootIterator   _cld_iterator;
+  ParallelObjectSynchronizerIterator _om_iterator;
 
   void process_java_roots(OopClosure* scan_non_heap_roots,
-                          CLDClosure* thread_stack_clds,
+                          CLDClosure* thread_clds,
                           CLDClosure* scan_strong_clds,
                           CLDClosure* scan_weak_clds,
                           CodeBlobClosure* scan_strong_code,
@@ -67,30 +73,45 @@ class ShenandoahRootProcessor : public StackObj {
 
   void process_vm_roots(OopClosure* scan_non_heap_roots,
                         OopClosure* scan_non_heap_weak_roots,
+                        OopClosure* weak_jni_roots,
                         uint worker_i);
 
 public:
-  ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_workers);
+  ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_workers,
+                          ShenandoahCollectorPolicy::TimingPhase phase = ShenandoahCollectorPolicy::_num_phases);
   ~ShenandoahRootProcessor();
 
-  void process_roots(OopClosure* strong_oops,
-                     OopClosure* weak_oops,
-                     CLDClosure* strong_clds,
-                     CLDClosure* weak_clds,
-                     CLDClosure* thread_stack_clds,
-                     CodeBlobClosure* strong_code,
-                     CodeBlobClosure* weak_code);
-
   // Apply oops, clds and blobs to all strongly reachable roots in the system
-  void process_strong_roots(OopClosure* oops,
+  void process_strong_roots(OopClosure* oops, OopClosure* weak_oops,
                             CLDClosure* clds,
-                            CodeBlobClosure* blobs);
+                            CodeBlobClosure* blobs,
+                              uint worker_id);
 
   // Apply oops, clds and blobs to strongly and weakly reachable roots in the system
-  void process_all_roots(OopClosure* oops,
+  void process_all_roots(OopClosure* oops, OopClosure* weak_oops,
                          CLDClosure* clds,
-                         CodeBlobClosure* blobs);
+                         CodeBlobClosure* blobs,
+                         uint worker_id);
 
+  // Number of worker threads used by the root processor.
+  uint n_workers() const;
 };
 
+class ShenandoahRootEvacuator : public StackObj {
+  SubTasksDone* _process_strong_tasks;
+  SharedHeap::StrongRootsScope _srs;
+  ShenandoahCollectorPolicy::TimingPhase _phase;
+
+public:
+  ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers,
+                          ShenandoahCollectorPolicy::TimingPhase phase = ShenandoahCollectorPolicy::_num_phases);
+  ~ShenandoahRootEvacuator();
+
+  void process_evacuate_roots(OopClosure* oops,
+                              CodeBlobClosure* blobs,
+                              uint worker_id);
+
+  // Number of worker threads used by the root processor.
+  uint n_workers() const;
+};
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHROOTPROCESSOR_HPP

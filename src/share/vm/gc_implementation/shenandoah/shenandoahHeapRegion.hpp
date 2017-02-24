@@ -25,39 +25,41 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
 
 #include "memory/space.hpp"
-#include "memory/universe.hpp"
-#include "utilities/sizes.hpp"
 
 class ShenandoahHeapRegion : public ContiguousSpace {
+private:
+  static const size_t MIN_REGION_SIZE = 256*K;
+  static const size_t MIN_NUM_REGIONS = 10;
+
+  static Monitor _mem_protect_lock;
 
 public:
   static size_t RegionSizeBytes;
   static size_t RegionSizeShift;
 
 private:
+  ShenandoahHeap* _heap;
   size_t _region_number;
-  volatile size_t liveData;
+  volatile jint _live_data;
   MemRegion reserved;
-  bool _is_in_collection_set;
 
   bool _humongous_start;
   bool _humongous_continuation;
 
-  HeapWord* _top_at_mark_start;
-  HeapWord* _top_at_prev_mark_start;
-  HeapWord* _top_prev_mark_bitmap;
+  bool _recycled;
 
   HeapWord* _new_top;
+
+  volatile jint _critical_pins;
 
 #ifdef ASSERT
   int _mem_protection_level;
 #endif
 
 public:
+  ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t regionSize, size_t index);
+
   static void setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size);
-
-  jint initialize_heap_region(HeapWord* start, size_t regionSize, int index);
-
 
   size_t region_number() const;
 
@@ -65,22 +67,24 @@ public:
   // Returns TRUE when successful, FALSE if not successful or not supported.
   bool rollback_allocation(uint size);
 
-  void clearLiveData();
-  void setLiveData(size_t s);
-  inline void increase_live_data(size_t s);
+  void clear_live_data();
+  void set_live_data(size_t s);
+  inline void increase_live_data_words(jint s);
 
-  size_t getLiveData() const;
+  void set_recently_allocated(bool value);
+  bool is_recently_allocated() const;
+
+  bool has_live() const;
+  size_t get_live_data_bytes() const;
+  size_t get_live_data_words() const;
 
   void print_on(outputStream* st) const;
 
   size_t garbage() const;
 
   void recycle();
-  void reset();
 
   void oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects);
-
-  void marked_object_iterate(ObjectClosure* blk);
 
   void object_iterate_interruptible(ObjectClosure* blk, bool allow_cancel);
 
@@ -91,9 +95,9 @@ public:
   // Just before GC we need to fill the current region.
   void fill_region();
 
-  bool is_in_collection_set() const;
+  bool in_collection_set() const;
 
-  void set_is_in_collection_set(bool b);
+  void set_in_collection_set(bool b);
 
   void set_humongous_start(bool start);
   void set_humongous_continuation(bool continuation);
@@ -107,31 +111,18 @@ public:
   void memProtectionOff();
 #endif
 
-  static ByteSize is_in_collection_set_offset();
   // The following are for humongous regions.  We need to save the
   markOop saved_mark_word;
   void save_mark_word(oop obj) {saved_mark_word = obj->mark();}
   markOop mark_word() {return saved_mark_word;}
 
-
-  void init_top_at_mark_start();
-  void set_top_at_mark_start(HeapWord* top);
-  HeapWord* top_at_mark_start();
-  void reset_top_at_prev_mark_start();
-  HeapWord* top_at_prev_mark_start();
-  HeapWord* top_prev_mark_bitmap();
-
-  void set_top_prev_mark_bitmap(HeapWord* top);
-  void swap_top_at_mark_start();
-
-  inline bool allocated_after_mark_start(HeapWord* addr);
-  bool allocated_after_prev_mark_start(HeapWord* addr) const;
-
   void set_new_top(HeapWord* new_top) { _new_top = new_top; }
   HeapWord* new_top() const { return _new_top; }
 
-private:
-  void do_reset();
+  void pin();
+  void unpin();
+
+  bool is_pinned();
 
 };
 

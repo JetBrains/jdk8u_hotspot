@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2015, Red Hat, Inc. and/or its affiliates.
+ * Copyright (c) 2016 Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,13 +21,15 @@
  *
  */
 
-#include "memory/universe.hpp"
-#include "gc_interface/collectedHeap.hpp"
-#include "gc_implementation/shenandoah/brooksPointer.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include <jni.h>
+#include <string.h>
 
-BrooksPointer::BrooksPointer(HeapWord** hw) : _heap_word(hw) {}
-
-bool BrooksPointer::check_forwardee_is_in_heap(oop forwardee) {
-   return Universe::heap()->is_in(forwardee);
+JNIEXPORT void JNICALL
+Java_ShenandoahJNICritical_copyAtoB(JNIEnv *env, jclass unused, jintArray a, jintArray b) {
+  jint len = (*env)->GetArrayLength(env, a);
+  jint* aa = (*env)->GetPrimitiveArrayCritical(env, a, 0);
+  jint* bb = (*env)->GetPrimitiveArrayCritical(env, b, 0);
+  memcpy(bb, aa, len * sizeof(jint));
+  (*env)->ReleasePrimitiveArrayCritical(env, b, bb, 0);
+  (*env)->ReleasePrimitiveArrayCritical(env, a, aa, 0);
 }

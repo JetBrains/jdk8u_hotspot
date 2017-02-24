@@ -28,52 +28,59 @@
 #include "gc_implementation/shared/vmGCOperations.hpp"
 
 // VM_operations for the Shenandoah Collector.
-// For now we are just doing two pauses.  The initial marking pause, and the final finish up marking and perform evacuation pause.
-//    VM_ShenandoahInitMark
-//    VM_ShenandoahFinishMark
+//
+// VM_ShenandoahOperation
+//   - VM_ShenandoahInitMark: initiate concurrent marking
+//   - VM_ShenandoahReferenceOperation:
+//       - VM_ShenandoahStartEvacuation: finish up concurrent marking, and start evacuation
+//       - VM_ShenandoahFullGC: do full GC
 
-class VM_ShenandoahInitMark: public VM_Operation {
-
+class VM_ShenandoahOperation : public VM_Operation {
 public:
-  virtual VMOp_Type type() const;
-  virtual void doit();
-
-  virtual const char* name() const;
+  VM_ShenandoahOperation() {};
 };
 
-class VM_ShenandoahReferenceOperation : public VM_Operation {
+class VM_ShenandoahReferenceOperation : public VM_ShenandoahOperation {
 private:
   BasicLock _pending_list_basic_lock;
 public:
+  VM_ShenandoahReferenceOperation() : VM_ShenandoahOperation() {};
   bool doit_prologue();
   void doit_epilogue();
+};
 
+class VM_ShenandoahInitMark: public VM_ShenandoahOperation {
+public:
+  VM_ShenandoahInitMark() : VM_ShenandoahOperation() {};
+  VM_Operation::VMOp_Type type() const { return VMOp_ShenandoahInitMark; }
+  const char* name()             const { return "Shenandoah Initial Marking"; }
+  virtual void doit();
 };
 
 class VM_ShenandoahStartEvacuation: public VM_ShenandoahReferenceOperation {
-
- public:
-  VMOp_Type type() const;
-  void doit();
-  const char* name() const;
-
+public:
+  VM_ShenandoahStartEvacuation() : VM_ShenandoahReferenceOperation() {};
+  VM_Operation::VMOp_Type type() const { return VMOp_ShenandoahStartEvacuation; }
+  const char* name()             const { return "Start Shenandoah evacuation"; }
+  virtual  void doit();
 };
 
 class VM_ShenandoahFullGC : public VM_ShenandoahReferenceOperation {
- public:
-  VMOp_Type type() const;
-  void doit();
-  const char* name() const;
+private:
+  GCCause::Cause _gc_cause;
+public:
+  VM_ShenandoahFullGC(GCCause::Cause gc_cause) : VM_ShenandoahReferenceOperation(), _gc_cause(gc_cause) {};
+  VM_Operation::VMOp_Type type() const { return VMOp_ShenandoahFullGC; }
+  const char* name()             const { return "Shenandoah Full GC"; }
+  virtual void doit();
 };
 
-class VM_ShenandoahVerifyHeapAfterEvacuation: public VM_Operation {
-
- public:
-  virtual VMOp_Type type() const;
+class VM_ShenandoahVerifyHeapAfterEvacuation: public VM_ShenandoahOperation {
+public:
+  VM_ShenandoahVerifyHeapAfterEvacuation() : VM_ShenandoahOperation() {};
+  VM_Operation::VMOp_Type type() const { return VMOp_ShenandoahVerifyHeapAfterEvacuation; }
+  const char* name()             const { return "Shenandoah verify heap after evacuation"; }
   virtual void doit();
-
-  virtual const char* name() const;
-
 };
 
 #endif //SHARE_VM_GC_SHENANDOAH_VM_OPERATIONS_SHENANDOAH_HPP

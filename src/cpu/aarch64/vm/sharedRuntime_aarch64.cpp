@@ -523,6 +523,10 @@ static void gen_i2c_adapter(MacroAssembler *masm,
       range_check(masm, rax, r11,
                   StubRoutines::code2()->code_begin(), StubRoutines::code2()->code_end(),
                   L_ok);
+    if (StubRoutines::code3() != NULL)
+      range_check(masm, rax, r11,
+                  StubRoutines::code3()->code_begin(), StubRoutines::code3()->code_end(),
+                  L_ok);
     const char* msg = "i2c adapter must return to an interpreter frame";
     __ block_comment(msg);
     __ stop(msg);
@@ -1842,6 +1846,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     }
 
     // Load (object->mark() | 1) into swap_reg r0
+    __ shenandoah_store_addr_check(obj_reg); // Access mark word
     __ ldr(rscratch1, Address(obj_reg, 0));
     __ orr(swap_reg, rscratch1, 1);
 
@@ -2004,10 +2009,11 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
 
     // Get locked oop from the handle we passed to jni
     __ ldr(obj_reg, Address(oop_handle_reg, 0));
+    oopDesc::bs()->interpreter_write_barrier(masm, obj_reg);
 
     Label done;
 
-    __ shenandoah_store_check(obj_reg);
+    __ shenandoah_store_addr_check(obj_reg);
 
     if (UseBiasedLocking) {
       __ biased_locking_exit(obj_reg, old_hdr, done);

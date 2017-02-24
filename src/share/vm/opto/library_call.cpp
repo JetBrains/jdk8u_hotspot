@@ -226,7 +226,7 @@ class LibraryCallKit : public GraphKit {
   Node* generate_min_max(vmIntrinsics::ID id, Node* x, Node* y);
   // This returns Type::AnyPtr, RawPtr, or OopPtr.
   int classify_unsafe_addr(Node* &base, Node* &offset);
-  Node* make_unsafe_address(Node* base, Node* offset);
+  Node* make_unsafe_address(Node* base, Node* offset, bool is_store);
   // Helper for inline_unsafe_access.
   // Generates the guards that check whether the result of
   // Unsafe.getObject should be recorded in an SATB log buffer.
@@ -1244,6 +1244,7 @@ bool LibraryCallKit::inline_string_compareTo() {
   if (stopped()) {
     return true;
   }
+
   set_result(make_string_method_node(Op_StrComp, receiver, arg));
   return true;
 }
@@ -1251,19 +1252,9 @@ bool LibraryCallKit::inline_string_compareTo() {
 //------------------------------inline_string_equals------------------------
 bool LibraryCallKit::inline_string_equals() {
   Node* receiver = null_check_receiver();
-
-  if (ShenandoahVerifyReadsToFromSpace) {
-    receiver = shenandoah_read_barrier(receiver);
-  }
-
   // NOTE: Do not null check argument for String.equals() because spec
   // allows to specify NULL as argument.
   Node* argument = this->argument(1);
-
-  if (ShenandoahVerifyReadsToFromSpace) {
-    argument = shenandoah_read_barrier(argument);
-  }
-
   if (stopped()) {
     return true;
   }
@@ -1273,7 +1264,7 @@ bool LibraryCallKit::inline_string_equals() {
   Node* phi = new (C) PhiNode(region, TypeInt::BOOL);
 
   // does source == target string?
-  Node* cmp = _gvn.transform(new (C) CmpPNode(receiver, argument));
+  Node* cmp = cmp_objects(receiver, argument);
   Node* bol = _gvn.transform(new (C) BoolNode(cmp, BoolTest::eq));
 
   Node* if_eq = generate_slow_guard(bol, NULL);
@@ -1320,11 +1311,6 @@ bool LibraryCallKit::inline_string_equals() {
 
     // Get start addr of argument
     Node* argument_val    = load_String_value(no_ctrl, argument);
-
-    if (ShenandoahVerifyReadsToFromSpace) {
-      argument_val = shenandoah_read_barrier(argument_val);
-    }
-
     Node* argument_offset = load_String_offset(no_ctrl, argument);
     Node* argument_start = array_element_address(argument_val, argument_offset, T_CHAR);
 
@@ -1362,10 +1348,8 @@ bool LibraryCallKit::inline_array_equals() {
   Node* arg1 = argument(0);
   Node* arg2 = argument(1);
 
-  if (! ShenandoahOptimizeFinals) {
-    arg1 = shenandoah_read_barrier(arg1);
-    arg2 = shenandoah_read_barrier(arg2);
-  }
+  arg1 = shenandoah_read_barrier(arg1);
+  arg2 = shenandoah_read_barrier(arg2);
 
   set_result(_gvn.transform(new (C) AryEqNode(control(), memory(TypeAryPtr::CHARS), arg1, arg2)));
   return true;
@@ -1622,6 +1606,7 @@ bool LibraryCallKit::inline_string_indexOf() {
     }
 
     receiver = null_check(receiver, T_OBJECT);
+    receiver = shenandoah_read_barrier(receiver);
     // NOTE: No null check on the argument is needed since it's a constant String oop.
     if (stopped()) {
       return true;
@@ -2387,11 +2372,42 @@ LibraryCallKit::classify_unsafe_addr(Node* &base, Node* &offset) {
   }
 }
 
-inline Node* LibraryCallKit::make_unsafe_address(Node* base, Node* offset) {
+inline Node* LibraryCallKit::make_unsafe_address(Node* base, Node* offset, bool is_store) {
   int kind = classify_unsafe_addr(base, offset);
   if (kind == Type::RawPtr) {
     return basic_plus_adr(top(), base, offset);
   } else {
+    if (UseShenandoahGC) {
+      if (kind == Type::OopPtr) {
+        // A cast without a null check should be sufficient here (we
+        // know base is an oop with a low offset so it can't be null)
+        // but if there's a dominating null check with both branches
+        // taken and the cast is pushed in both branches, the cast
+        // will become top in the null branch but the control flow
+        // won't go away. Use a null check instead. Worst case, the
+        // null check becomes an implicit null check with the follow
+        // barrier and is essentially free.
+        Node* ctrl = top();
+        base = null_check_oop(base, &ctrl, true);
+        if (is_store) {
+          base = shenandoah_write_barrier(base);
+        } else {
+          base = shenandoah_read_barrier(base);
+        }
+      } else if (kind == Type::AnyPtr) {
+        if (UseShenandoahGC &&
+            _gvn.type(base)->isa_aryptr()) {
+          Node* ctrl = top();
+          base = null_check_oop(base, &ctrl, true);
+        }
+
+        if (is_store) {
+          base = shenandoah_write_barrier(base);
+        } else {
+          base = shenandoah_read_barrier(base);
+        }
+      }
+    }
     return basic_plus_adr(base, offset);
   }
 }
@@ -2632,11 +2648,6 @@ bool LibraryCallKit::inline_unsafe_access(bool is_native_ptr, bool is_store, Bas
   if (!is_native_ptr) {
     // The base is either a Java object or a value produced by Unsafe.staticFieldBase
     Node* base = argument(1);  // type: oop
-    if (is_store) {
-      base = shenandoah_write_barrier(base);
-    } else {
-      base = shenandoah_read_barrier(base);
-    }
     // The offset is a value produced by Unsafe.staticFieldOffset or Unsafe.objectFieldOffset
     offset = argument(2);  // type: long
     // We currently rely on the cookies produced by Unsafe.xxxFieldOffset
@@ -2646,13 +2657,13 @@ bool LibraryCallKit::inline_unsafe_access(bool is_native_ptr, bool is_store, Bas
            "fieldOffset must be byte-scaled");
     // 32-bit machines ignore the high half!
     offset = ConvL2X(offset);
-    adr = make_unsafe_address(base, offset);
+    adr = make_unsafe_address(base, offset, is_store);
     heap_base_oop = base;
     val = is_store ? argument(4) : NULL;
   } else {
     Node* ptr = argument(1);  // type: long
     ptr = ConvL2X(ptr);  // adjust Java long to machine word
-    adr = make_unsafe_address(NULL, ptr);
+    adr = make_unsafe_address(NULL, ptr, is_store);
     val = is_store ? argument(3) : NULL;
   }
 
@@ -2660,6 +2671,18 @@ bool LibraryCallKit::inline_unsafe_access(bool is_native_ptr, bool is_store, Bas
 
   // First guess at the value type.
   const Type *value_type = Type::get_const_basic_type(type);
+
+  if (UseShenandoahGC && adr->is_AddP() &&
+      adr->in(AddPNode::Base) == adr->in(AddPNode::Address)) {
+    Node* base = ShenandoahBarrierNode::skip_through_barrier(adr->in(AddPNode::Base));
+    const TypeInstPtr* base_t = _gvn.type(base)->isa_instptr();
+    if (base_t != NULL &&
+        base_t->const_oop() != NULL &&
+        base_t->klass() == ciEnv::current()->Class_klass() &&
+        adr_type->is_instptr()->offset() >= base_t->klass()->as_instance_klass()->size_helper() * wordSize) {
+      adr_type = base_t->add_offset(adr_type->is_instptr()->offset());
+    }
+  }
 
   // Try to categorize the address.  If it comes up as TypeJavaPtr::BOTTOM,
   // there was not enough information to nail it down.
@@ -2776,10 +2799,10 @@ bool LibraryCallKit::inline_unsafe_access(bool is_native_ptr, bool is_store, Bas
     if (type != T_OBJECT ) {
       (void) store_to_memory(control(), adr, val, type, adr_type, mo, is_volatile);
     } else {
-      val = shenandoah_read_barrier_nomem(val);
       // Possibly an oop being stored to Java heap or native memory
       if (!TypePtr::NULL_PTR->higher_equal(_gvn.type(heap_base_oop))) {
         // oop to Java heap.
+        val = shenandoah_read_barrier_storeval(val);
         (void) store_oop_to_unknown(control(), heap_base_oop, adr, adr_type, val, type, mo);
       } else {
         // We can't tell at compile time if we are storing in the Java heap or outside
@@ -2792,7 +2815,8 @@ bool LibraryCallKit::inline_unsafe_access(bool is_native_ptr, bool is_store, Bas
         __ if_then(heap_base_oop, BoolTest::ne, null(), PROB_UNLIKELY(0.999)); {
           // Sync IdealKit and graphKit.
           sync_kit(ideal);
-          Node* st = store_oop_to_unknown(control(), heap_base_oop, adr, adr_type, val, type, mo);
+          Node* rb = shenandoah_read_barrier_storeval(val);
+          Node* st = store_oop_to_unknown(control(), heap_base_oop, adr, adr_type, rb, type, mo);
           // Update IdealKit memory.
           __ sync_kit(this);
         } __ else_(); {
@@ -2867,11 +2891,11 @@ bool LibraryCallKit::inline_unsafe_prefetch(bool is_native_ptr, bool is_store, b
            "fieldOffset must be byte-scaled");
     // 32-bit machines ignore the high half!
     offset = ConvL2X(offset);
-    adr = make_unsafe_address(base, offset);
+    adr = make_unsafe_address(base, offset, false);
   } else {
     Node* ptr = argument(idx + 0);  // type: long
     ptr = ConvL2X(ptr);  // adjust Java long to machine word
-    adr = make_unsafe_address(NULL, ptr);
+    adr = make_unsafe_address(NULL, ptr, false);
   }
 
   // Generate the read or write prefetch
@@ -2973,8 +2997,6 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
     return true;
   }
 
-  base = shenandoah_write_barrier(base);
-
   // Build field offset expression.
   // We currently rely on the cookies produced by Unsafe.xxxFieldOffset
   // to be plain byte offsets, which are also the same as those accepted
@@ -2982,7 +3004,7 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
   assert(Unsafe_field_offset_to_byte_offset(11) == 11, "fieldOffset must be byte-scaled");
   // 32-bit machines ignore the high half of long offsets
   offset = ConvL2X(offset);
-  Node* adr = make_unsafe_address(base, offset);
+  Node* adr = make_unsafe_address(base, offset, true);
   const TypePtr *adr_type = _gvn.type(adr)->isa_ptr();
 
   // For CAS, unlike inline_unsafe_access, there seems no point in
@@ -3046,7 +3068,7 @@ bool LibraryCallKit::inline_unsafe_load_store(BasicType type, LoadStoreKind kind
     if (_gvn.type(newval) == TypePtr::NULL_PTR)
       newval = _gvn.makecon(TypePtr::NULL_PTR);
 
-    newval = shenandoah_read_barrier_nomem(newval);
+    newval = shenandoah_read_barrier_storeval(newval);
 
     // Reference stores need a store barrier.
     if (kind == LS_xchg) {
@@ -3172,13 +3194,11 @@ bool LibraryCallKit::inline_unsafe_ordered_store(BasicType type) {
     return true;
   }
 
-  base = shenandoah_write_barrier(base);
-
   // Build field offset expression.
   assert(Unsafe_field_offset_to_byte_offset(11) == 11, "fieldOffset must be byte-scaled");
   // 32-bit machines ignore the high half of long offsets
   offset = ConvL2X(offset);
-  Node* adr = make_unsafe_address(base, offset);
+  Node* adr = make_unsafe_address(base, offset, true);
   const TypePtr *adr_type = _gvn.type(adr)->isa_ptr();
   const Type *value_type = Type::get_const_basic_type(type);
   Compile::AliasType* alias_type = C->alias_type(adr_type);
@@ -3189,10 +3209,9 @@ bool LibraryCallKit::inline_unsafe_ordered_store(BasicType type) {
   const bool require_atomic_access = true;
   Node* store;
   if (type == T_OBJECT) { // reference stores need a store barrier.
-    val = shenandoah_read_barrier_nomem(val);
+    val = shenandoah_read_barrier_storeval(val);
     store = store_oop_to_unknown(control(), base, adr, adr_type, val, type, MemNode::release);
-  }
-  else {
+  } else {
     store = store_to_memory(control(), adr, val, type, adr_type, MemNode::release, require_atomic_access);
   }
   insert_mem_bar(Op_MemBarCPUOrder);
@@ -3370,7 +3389,7 @@ bool LibraryCallKit::inline_native_isInterrupted() {
   Node* rec_thr = argument(0);
   Node* tls_ptr = NULL;
   Node* cur_thr = generate_current_thread(tls_ptr);
-  Node* cmp_thr = _gvn.transform(new (C) CmpPNode(cur_thr, rec_thr));
+  Node* cmp_thr = cmp_objects(cur_thr, rec_thr);
   Node* bol_thr = _gvn.transform(new (C) BoolNode(cmp_thr, BoolTest::ne));
 
   generate_slow_guard(bol_thr, slow_region);
@@ -3723,7 +3742,9 @@ bool LibraryCallKit::inline_native_subtype_check() {
 
   RegionNode* region = new (C) RegionNode(PATH_LIMIT);
   Node*       phi    = new (C) PhiNode(region, TypeInt::BOOL);
+  Node*       mem_phi= new (C) PhiNode(region, Type::MEMORY, TypePtr::BOTTOM);
   record_for_igvn(region);
+  Node* init_mem = map()->memory();
 
   const TypePtr* adr_type = TypeRawPtr::BOTTOM;   // memory type of loads
   const TypeKlassPtr* kls_type = TypeKlassPtr::OBJECT_OR_NULL;
@@ -3741,6 +3762,12 @@ bool LibraryCallKit::inline_native_subtype_check() {
     Node* kls = LoadKlassNode::make(_gvn, NULL, immutable_memory(), p, adr_type, kls_type);
     klasses[which_arg] = _gvn.transform(kls);
   }
+
+  if (ShenandoahVerifyOptoBarriers) {
+    args[0] = shenandoah_write_barrier(args[0]);
+    args[1] = shenandoah_write_barrier(args[1]);
+  }
+
 
   // Having loaded both klasses, test each for null.
   bool never_see_null = !too_many_traps(Deoptimization::Reason_null_check);
@@ -3769,8 +3796,7 @@ bool LibraryCallKit::inline_native_subtype_check() {
   set_control(region->in(_prim_0_path)); // go back to first null check
   if (!stopped()) {
     // Since superc is primitive, make a guard for the superc==subc case.
-    shenandoah_acmp_barrier(args[0], args[1]);
-    Node* cmp_eq = _gvn.transform(new (C) CmpPNode(args[0], args[1]));
+    Node* cmp_eq = cmp_objects(args[0], args[1]);
     Node* bol_eq = _gvn.transform(new (C) BoolNode(cmp_eq, BoolTest::eq));
     generate_guard(bol_eq, region, PROB_FAIR);
     if (region->req() == PATH_LIMIT+1) {
@@ -3787,18 +3813,24 @@ bool LibraryCallKit::inline_native_subtype_check() {
 
   // pull together the cases:
   assert(region->req() == PATH_LIMIT, "sane region");
+  Node* cur_mem = reset_memory();
   for (uint i = 1; i < region->req(); i++) {
     Node* ctl = region->in(i);
     if (ctl == NULL || ctl == top()) {
       region->set_req(i, top());
       phi   ->set_req(i, top());
-    } else if (phi->in(i) == NULL) {
+      mem_phi->set_req(i, top());
+    } else {
+      if (phi->in(i) == NULL) {
       phi->set_req(i, intcon(0)); // all other paths produce 'false'
+    }
+      mem_phi->set_req(i, (i == _prim_0_path || i == _prim_same_path) ?  cur_mem : init_mem);
     }
   }
 
   set_control(_gvn.transform(region));
   set_result(_gvn.transform(phi));
+  set_all_memory(_gvn.transform(mem_phi));
   return true;
 }
 
@@ -4466,11 +4498,8 @@ bool LibraryCallKit::inline_unsafe_copyMemory() {
   assert(Unsafe_field_offset_to_byte_offset(11) == 11,
          "fieldOffset must be byte-scaled");
 
-  src_ptr = shenandoah_read_barrier(src_ptr);
-  dst_ptr = shenandoah_write_barrier(dst_ptr);
-
-  Node* src = make_unsafe_address(src_ptr, src_off);
-  Node* dst = make_unsafe_address(dst_ptr, dst_off);
+  Node* src = make_unsafe_address(src_ptr, src_off, false);
+  Node* dst = make_unsafe_address(dst_ptr, dst_off, true);
 
   // Conservatively insert a memory barrier on all memory slices.
   // Do not let writes of the copy source or destination float below the copy.
@@ -4888,6 +4917,9 @@ bool LibraryCallKit::inline_arraycopy() {
     // Do not let writes into the source float below the arraycopy.
     insert_mem_bar(Op_MemBarCPUOrder);
 
+    src = shenandoah_read_barrier(src);
+    dest = shenandoah_write_barrier(dest);
+
     // Call StubRoutines::generic_arraycopy stub.
     generate_arraycopy(TypeRawPtr::BOTTOM, T_CONFLICT,
                        src, src_offset, dest, dest_offset, length);
@@ -4912,6 +4944,10 @@ bool LibraryCallKit::inline_arraycopy() {
   if (src_elem != dest_elem || dest_elem == T_VOID) {
     // The component types are not the same or are not recognized.  Punt.
     // (But, avoid the native method wrapper to JVM_ArrayCopy.)
+
+    src = shenandoah_read_barrier(src);
+    dest = shenandoah_write_barrier(dest);
+
     generate_slow_arraycopy(TypePtr::BOTTOM,
                             src, src_offset, dest, dest_offset, length,
                             /*dest_uninitialized*/false);
@@ -4977,6 +5013,9 @@ bool LibraryCallKit::inline_arraycopy() {
   src  = null_check(src,  T_ARRAY);
   dest = null_check(dest, T_ARRAY);
 
+  src = shenandoah_read_barrier(src);
+  dest = shenandoah_write_barrier(dest);
+
   // (4) src_offset must not be negative.
   generate_negative_guard(src_offset, slow_region);
 
@@ -4998,9 +5037,6 @@ bool LibraryCallKit::inline_arraycopy() {
 
   // (9) each element of an oop array must be assignable
   // The generate_arraycopy subroutine checks this.
-
-  src = shenandoah_read_barrier(src);
-  dest = shenandoah_write_barrier(dest);
 
   // This is where the memory effects are placed:
   const TypePtr* adr_type = TypeAryPtr::get_array_body_type(dest_elem);
@@ -5828,6 +5864,9 @@ bool LibraryCallKit::inline_encodeISOArray() {
   Node *dst_offset  = argument(3);
   Node *length      = argument(4);
 
+  src = cast_not_null(src, false);
+  dst = cast_not_null(dst, false);
+
   src = shenandoah_read_barrier(src);
   dst = shenandoah_write_barrier(dst);
 
@@ -5880,7 +5919,9 @@ bool LibraryCallKit::inline_multiplyToLen() {
   Node* ylen = argument(3);
   Node* z    = argument(4);
 
+  x = cast_not_null(x, false);
   x = shenandoah_read_barrier(x);
+  y = cast_not_null(y, false);
   y = shenandoah_read_barrier(y);
   z = shenandoah_write_barrier(z);
 
@@ -5929,7 +5970,12 @@ bool LibraryCallKit::inline_multiplyToLen() {
      } __ else_(); {
        // Update graphKit memory and control from IdealKit.
        sync_kit(ideal);
-       Node* zlen_arg = load_array_length(z);
+       Node *cast = new (C) CastPPNode(z, TypePtr::NOTNULL);
+       cast->init_req(0, control());
+       _gvn.set_type(cast, cast->bottom_type());
+       C->record_for_igvn(cast);
+
+       Node* zlen_arg = load_array_length(cast);
        // Update IdealKit memory and control from graphKit.
        __ sync_kit(this);
        __ if_then(zlen_arg, BoolTest::lt, zlen); {
@@ -5984,6 +6030,11 @@ bool LibraryCallKit::inline_squareToLen() {
   Node* z    = argument(2);
   Node* zlen = argument(3);
 
+  x = cast_not_null(x, false);
+  x = shenandoah_read_barrier(x);
+  z = cast_not_null(z, false);
+  z = shenandoah_write_barrier(z);
+
   const Type* x_type = x->Value(&_gvn);
   const Type* z_type = z->Value(&_gvn);
   const TypeAryPtr* top_x = x_type->isa_aryptr();
@@ -6031,6 +6082,10 @@ bool LibraryCallKit::inline_mulAdd() {
   Node* len      = argument(3);
   Node* k        = argument(4);
 
+  in = shenandoah_read_barrier(in);
+  out = cast_not_null(out, false);
+  out = shenandoah_write_barrier(out);
+
   const Type* out_type = out->Value(&_gvn);
   const Type* in_type = in->Value(&_gvn);
   const TypeAryPtr* top_out = out_type->isa_aryptr();
@@ -6069,7 +6124,7 @@ bool LibraryCallKit::inline_montgomeryMultiply() {
   }
 
   assert(UseMontgomeryMultiplyIntrinsic, "not implemented on this platform");
-  const char* stubName = "montgomery_square";
+  const char* stubName = "montgomery_multiply";
 
   assert(callee()->signature()->size() == 7, "montgomeryMultiply has 7 parameters");
 
@@ -6079,6 +6134,11 @@ bool LibraryCallKit::inline_montgomeryMultiply() {
   Node* len  = argument(3);
   Node* inv  = argument(4);
   Node* m    = argument(6);
+
+  a = shenandoah_read_barrier(a);
+  b = shenandoah_read_barrier(b);
+  n = shenandoah_read_barrier(n);
+  m = shenandoah_write_barrier(m);
 
   const Type* a_type = a->Value(&_gvn);
   const TypeAryPtr* top_a = a_type->isa_aryptr();
@@ -6138,6 +6198,10 @@ bool LibraryCallKit::inline_montgomerySquare() {
   Node* len  = argument(2);
   Node* inv  = argument(3);
   Node* m    = argument(5);
+
+  a = shenandoah_read_barrier(a);
+  n = shenandoah_read_barrier(n);
+  m = shenandoah_write_barrier(m);
 
   const Type* a_type = a->Value(&_gvn);
   const TypeAryPtr* top_a = a_type->isa_aryptr();
@@ -6239,6 +6303,8 @@ bool LibraryCallKit::inline_updateBytesCRC32() {
   }
 
   // 'src_start' points to src array + scaled offset
+  src = cast_not_null(src, false);
+  src = shenandoah_read_barrier(src);
   src = shenandoah_read_barrier(src);
   Node* src_start = array_element_address(src, offset, src_elem);
 
@@ -6341,7 +6407,9 @@ Node * LibraryCallKit::load_field_from_object(Node * fromObj, const char * field
   if (field == NULL) return (Node *) NULL;
   assert (field != NULL, "undefined field");
 
-  fromObj = shenandoah_read_barrier(fromObj);
+  if (! ShenandoahOptimizeFinals || (! field->is_final() && ! field->is_stable())) {
+    fromObj = shenandoah_read_barrier(fromObj);
+  }
 
   // Next code  copied from Parse::do_get_xxx():
 
@@ -6475,7 +6543,11 @@ bool LibraryCallKit::inline_cipherBlockChaining_AESCrypt(vmIntrinsics::ID id) {
   Node* dest                       = argument(4);
   Node* dest_offset                = argument(5);
 
-  // Resolve src and dest arrays for ShenandoahGC.
+
+  // inline_cipherBlockChaining_AESCrypt_predicate() has its own
+  // barrier. This one should optimize away.
+  src = cast_not_null(src, false);
+  dest = cast_not_null(dest, false);
   src = shenandoah_read_barrier(src);
   dest = shenandoah_write_barrier(dest);
 
@@ -6574,6 +6646,8 @@ Node * LibraryCallKit::get_original_key_start_from_aescrypt_object(Node *aescryp
   assert (objAESCryptKey != NULL, "wrong version of com.sun.crypto.provider.AESCrypt");
   if (objAESCryptKey == NULL) return (Node *) NULL;
 
+  objAESCryptKey = shenandoah_read_barrier(objAESCryptKey);
+
   // now have the array, need to get the start address of the lastKey array
   Node* original_k_start = array_element_address(objAESCryptKey, intcon(0), T_BYTE);
   return original_k_start;
@@ -6591,6 +6665,9 @@ Node * LibraryCallKit::get_original_key_start_from_aescrypt_object(Node *aescryp
 Node* LibraryCallKit::inline_cipherBlockChaining_AESCrypt_predicate(bool decrypting) {
   // The receiver was checked for NULL already.
   Node* objCBC = argument(0);
+
+  Node* src = argument(1);
+  Node* dest = argument(4);
 
   // Load embeddedCipher field of CipherBlockChaining object.
   Node* embeddedCipherObj = load_field_from_object(objCBC, "embeddedCipher", "Lcom/sun/crypto/provider/SymmetricCipher;", /*is_exact*/ false);
@@ -6610,6 +6687,15 @@ Node* LibraryCallKit::inline_cipherBlockChaining_AESCrypt_predicate(bool decrypt
     set_control(top()); // no regular fast path
     return ctrl;
   }
+
+  // Resolve src and dest arrays for ShenandoahGC.  Here because new
+  // memory state is not handled by predicate logic in
+  // inline_cipherBlockChaining_AESCrypt itself
+  src = cast_not_null(src, false);
+  dest = cast_not_null(dest, false);
+  src = shenandoah_write_barrier(src);
+  dest = shenandoah_write_barrier(dest);
+
   ciInstanceKlass* instklass_AESCrypt = klass_AESCrypt->as_instance_klass();
 
   Node* instof = gen_instanceof(embeddedCipherObj, makecon(TypeKlassPtr::make(instklass_AESCrypt)));
@@ -6627,9 +6713,8 @@ Node* LibraryCallKit::inline_cipherBlockChaining_AESCrypt_predicate(bool decrypt
   // see the original java code for why.
   RegionNode* region = new(C) RegionNode(3);
   region->init_req(1, instof_false);
-  Node* src = argument(1);
-  Node* dest = argument(4);
-  Node* cmp_src_dest = _gvn.transform(new (C) CmpPNode(src, dest));
+
+  Node* cmp_src_dest = cmp_objects(src, dest);
   Node* bool_src_dest = _gvn.transform(new (C) BoolNode(cmp_src_dest, BoolTest::eq));
   Node* src_dest_conjoint = generate_guard(bool_src_dest, NULL, PROB_MIN);
   region->init_req(2, src_dest_conjoint);
@@ -6668,6 +6753,7 @@ bool LibraryCallKit::inline_sha_implCompress(vmIntrinsics::ID id) {
     return false;
   }
   // 'src_start' points to src array + offset
+  src = cast_not_null(src, false);
   src = shenandoah_read_barrier(src);
   Node* src_start = array_element_address(src, ofs, src_elem);
   Node* state = NULL;
@@ -6735,6 +6821,7 @@ bool LibraryCallKit::inline_digestBase_implCompressMB(int predicate) {
     return false;
   }
   // 'src_start' points to src array + offset
+  src = cast_not_null(src, false);
   src = shenandoah_read_barrier(src);
   Node* src_start = array_element_address(src, ofs, src_elem);
 
@@ -6903,6 +6990,7 @@ bool LibraryCallKit::inline_profileBoolean() {
   Node* counts = argument(1);
   const TypeAryPtr* ary = NULL;
   ciArray* aobj = NULL;
+  assert(!(ShenandoahBarrierNode::skip_through_barrier(counts)->is_Con() && !counts->is_Con()), "barrier prevents optimization");
   if (counts->is_Con()
       && (ary = counts->bottom_type()->isa_aryptr()) != NULL
       && (aobj = ary->const_oop()->as_array()) != NULL

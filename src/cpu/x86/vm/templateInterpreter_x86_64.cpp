@@ -549,6 +549,7 @@ void InterpreterGenerator::lock_method(void) {
   __ subptr(rsp, entry_size); // add space for a monitor entry
   __ movptr(monitor_block_top, rsp);  // set new monitor block top
   // store object
+  __ shenandoah_store_addr_check(rax);
   __ movptr(Address(rsp, BasicObjectLock::obj_offset_in_bytes()), rax);
   __ movptr(c_rarg1, rsp); // object address
   __ lock_object(c_rarg1);
@@ -1360,6 +1361,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
       __ lea(c_rarg1, monitor); // address of first monitor
 
       __ movptr(t, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
+      __ shenandoah_store_addr_check(t); // Invariant
       __ testptr(t, t);
       __ jcc(Assembler::notZero, unlock);
 

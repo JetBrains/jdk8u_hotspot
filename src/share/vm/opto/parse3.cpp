@@ -245,10 +245,10 @@ void Parse::do_get_xxx(Node* obj, ciField* field, bool is_field) {
   if (UseShenandoahGC && ShenandoahOptimizeFinals && UseImplicitStableValues) {
     if (field->holder()->name() == ciSymbol::java_lang_String() &&
         field->offset() == java_lang_String::value_offset_in_bytes()) {
-      const TypeAryPtr*  value_type = TypeAryPtr::make(TypePtr::NotNull,
-                                                       TypeAry::make(TypeInt::CHAR,TypeInt::POS),
-                                                       ciTypeArrayKlass::make(T_CHAR), true, 0);
-        ld = cast_array_to_stable(ld, value_type);
+      const TypeAryPtr* value_type = TypeAryPtr::make(TypePtr::NotNull,
+                                                      TypeAry::make(TypeInt::CHAR, TypeInt::POS),
+                                                      ciTypeArrayKlass::make(T_CHAR), true, 0);
+      ld = cast_array_to_stable(ld, value_type);
     }
   }
   // Adjust Java stack
@@ -332,7 +332,7 @@ void Parse::do_put_xxx(Node* obj, ciField* field, bool is_field) {
       field_type = TypeOopPtr::make_from_klass(field->type()->as_klass());
     }
 
-    val = shenandoah_read_barrier_nomem(val);
+    val = shenandoah_read_barrier_storeval(val);
 
     store = store_oop_to_object(control(), obj, adr, adr_type, val, field_type, bt, mo);
   } else {

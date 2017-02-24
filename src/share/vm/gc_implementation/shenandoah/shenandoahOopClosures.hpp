@@ -24,41 +24,94 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_HPP
 
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
+
+typedef BufferedOverflowTaskQueue<ObjArrayChunkedTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
+typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
+
 class ShenandoahHeap;
-class QHolder;
 
-class ShenandoahMarkUpdateRefsClosure : public MetadataAwareOopClosure {
-  QHolder* _queue;
-  ShenandoahHeap* _heap;
-
-public:
-  ShenandoahMarkUpdateRefsClosure(QHolder* q);
-
-  void do_oop_nv(narrowOop* p) {
-    Unimplemented();
-  }
-  void do_oop_nv(oop* p);
-
-  virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
-  virtual void do_oop(oop* p) { do_oop_nv(p); }
-
+enum UpdateRefsMode {
+  NONE,       // No reference updating
+  RESOLVE,    // Only a read-barrier (no reference updating)
+  SIMPLE,     // Reference updating using simple store
+  CONCURRENT  // Reference updating using CAS
 };
 
-class ShenandoahMarkRefsClosure : public MetadataAwareOopClosure {
-  QHolder* _queue;
+class ShenandoahMarkRefsSuperClosure : public MetadataAwareOopClosure {
+private:
+  SCMObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
-
 public:
-  ShenandoahMarkRefsClosure(QHolder* q);
+  ShenandoahMarkRefsSuperClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp);
 
-  void do_oop_nv(narrowOop* p) {
-    Unimplemented();
-  }
-  void do_oop_nv(oop* p);
+  template <class T, UpdateRefsMode UPDATE_MODE>
+  void work(T *p);
+};
 
+class ShenandoahMarkUpdateRefsClosure : public ShenandoahMarkRefsSuperClosure {
+public:
+  ShenandoahMarkUpdateRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+          ShenandoahMarkRefsSuperClosure(q, rp) {};
+
+  template <class T>
+  inline void do_oop_nv(T* p)       { work<T, CONCURRENT>(p); }
   virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
-  virtual void do_oop(oop* p) { do_oop_nv(p); }
+  virtual void do_oop(oop* p)       { do_oop_nv(p); }
+  inline bool do_metadata_nv()      { return false; }
+  virtual bool do_metadata()        { return false; }
+};
 
+class ShenandoahMarkUpdateRefsMetadataClosure : public ShenandoahMarkRefsSuperClosure {
+public:
+  ShenandoahMarkUpdateRefsMetadataClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+          ShenandoahMarkRefsSuperClosure(q, rp) {};
+
+  template <class T>
+  inline void do_oop_nv(T* p)       { work<T, CONCURRENT>(p); }
+  virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
+  virtual void do_oop(oop* p)       { do_oop_nv(p); }
+  inline bool do_metadata_nv()      { return true; }
+  virtual bool do_metadata()        { return true; }
+};
+
+class ShenandoahMarkRefsClosure : public ShenandoahMarkRefsSuperClosure {
+public:
+  ShenandoahMarkRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+    ShenandoahMarkRefsSuperClosure(q, rp) {};
+
+  template <class T>
+  inline void do_oop_nv(T* p)       { work<T, NONE>(p); }
+  virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
+  virtual void do_oop(oop* p)       { do_oop_nv(p); }
+  inline bool do_metadata_nv()      { return false; }
+  virtual bool do_metadata()        { return false; }
+};
+
+class ShenandoahMarkResolveRefsClosure : public ShenandoahMarkRefsSuperClosure {
+public:
+  ShenandoahMarkResolveRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+    ShenandoahMarkRefsSuperClosure(q, rp) {};
+
+  template <class T>
+  inline void do_oop_nv(T* p)       { work<T, RESOLVE>(p); }
+  virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
+  virtual void do_oop(oop* p)       { do_oop_nv(p); }
+  inline bool do_metadata_nv()      { return false; }
+  virtual bool do_metadata()        { return false; }
+};
+
+class ShenandoahMarkRefsMetadataClosure : public ShenandoahMarkRefsSuperClosure {
+public:
+  ShenandoahMarkRefsMetadataClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+    ShenandoahMarkRefsSuperClosure(q, rp) {};
+
+  template <class T>
+  inline void do_oop_nv(T* p)       { work<T, NONE>(p); }
+  virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
+  virtual void do_oop(oop* p)       { do_oop_nv(p); }
+  inline bool do_metadata_nv()      { return true; }
+  virtual bool do_metadata()        { return true; }
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_HPP

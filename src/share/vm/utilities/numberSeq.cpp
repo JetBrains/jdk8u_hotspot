@@ -260,3 +260,97 @@ void TruncatedSeq::dump_on(outputStream* s) {
   }
   s->cr();
 }
+
+HdrSeq::HdrSeq() {
+  _hdr = NEW_C_HEAP_ARRAY(int*, MagBuckets, mtInternal);
+  for (int c = 0; c < MagBuckets; c++) {
+    _hdr[c] = NULL;
+  }
+}
+
+HdrSeq::~HdrSeq() {
+  for (int c = 0; c < MagBuckets; c++) {
+    int* sub = _hdr[c];
+    if (sub != NULL) {
+      FREE_C_HEAP_ARRAY(int, sub, mtInternal);
+    }
+  }
+  FREE_C_HEAP_ARRAY(int*, _hdr, mtInternal);
+}
+
+void HdrSeq::add(double val) {
+  if (val < 0) {
+    assert (false, err_msg("value (%8.2f) is not negative", val));
+    val = 0;
+  }
+
+  NumberSeq::add(val);
+
+  double v = val;
+  int mag;
+  if (v > 0) {
+    mag = 0;
+    while (v > 1) {
+      mag++;
+      v /= 10;
+    }
+    while (v < 0.1) {
+      mag--;
+      v *= 10;
+    }
+  } else {
+    mag = MagMinimum;
+  }
+
+  int bucket = -MagMinimum + mag;
+  int sub_bucket = (int) (v * ValBuckets);
+
+  // Defensively saturate for product bits:
+  if (bucket < 0) {
+    assert (false, err_msg("bucket index (%d) underflow for value (%8.2f)", bucket, val));
+    bucket = 0;
+  }
+
+  if (bucket >= MagBuckets) {
+    assert (false, err_msg("bucket index (%d) overflow for value (%8.2f)", bucket, val));
+    bucket = MagBuckets - 1;
+  }
+
+  if (sub_bucket < 0) {
+    assert (false, err_msg("sub-bucket index (%d) underflow for value (%8.2f)", sub_bucket, val));
+    sub_bucket = 0;
+  }
+
+  if (sub_bucket >= ValBuckets) {
+    assert (false, err_msg("sub-bucket index (%d) overflow for value (%8.2f)", sub_bucket, val));
+    sub_bucket = ValBuckets - 1;
+  }
+
+  int* b = _hdr[bucket];
+  if (b == NULL) {
+    b = NEW_C_HEAP_ARRAY(int, ValBuckets, mtInternal);
+    for (int c = 0; c < ValBuckets; c++) {
+      b[c] = 0;
+    }
+    _hdr[bucket] = b;
+  }
+  b[sub_bucket]++;
+}
+
+double HdrSeq::percentile(double level) const {
+  // target should be non-zero to find the first sample
+  int target = MAX2(1, (int) (level * num() / 100));
+  int cnt = 0;
+  for (int mag = 0; mag < MagBuckets; mag++) {
+    if (_hdr[mag] != NULL) {
+      for (int val = 0; val < ValBuckets; val++) {
+        cnt += _hdr[mag][val];
+        if (cnt >= target) {
+          return pow(10.0, MagMinimum + mag) * val / ValBuckets;
+        }
+      }
+    }
+  }
+  return maximum();
+}
+

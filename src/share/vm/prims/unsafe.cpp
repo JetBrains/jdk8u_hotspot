@@ -375,8 +375,8 @@ UNSAFE_ENTRY(jlong, Unsafe_GetLongVolatile(JNIEnv *env, jobject unsafe, jobject 
       return v;
     }
     else {
-      Handle p (THREAD, oopDesc::bs()->read_barrier(JNIHandles::resolve(obj)));
-      jlong* addr = (jlong*)(index_oop_from_field_offset_long(p(), offset));
+      Handle p (THREAD, JNIHandles::resolve(obj));
+      jlong* addr = (jlong*)(index_oop_from_field_offset_long(oopDesc::bs()->read_barrier(p()), offset));
       MutexLockerEx mu(UnsafeJlong_lock, Mutex::_no_safepoint_check_flag);
       jlong value = Atomic::load(addr);
       return value;
@@ -391,8 +391,8 @@ UNSAFE_ENTRY(void, Unsafe_SetLongVolatile(JNIEnv *env, jobject unsafe, jobject o
       SET_FIELD_VOLATILE(obj, offset, jlong, x);
     }
     else {
-      Handle p (THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve(obj)));
-      jlong* addr = (jlong*)(index_oop_from_field_offset_long(p(), offset));
+      Handle p (THREAD, JNIHandles::resolve(obj));
+      jlong* addr = (jlong*)(index_oop_from_field_offset_long(oopDesc::bs()->write_barrier(p()), offset));
       MutexLockerEx mu(UnsafeJlong_lock, Mutex::_no_safepoint_check_flag);
       Atomic::store(x, addr);
     }
@@ -503,8 +503,8 @@ UNSAFE_ENTRY(void, Unsafe_SetOrderedLong(JNIEnv *env, jobject unsafe, jobject ob
       SET_FIELD_VOLATILE(obj, offset, jlong, x);
     }
     else {
-      Handle p (THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve(obj)));
-      jlong* addr = (jlong*)(index_oop_from_field_offset_long(p(), offset));
+      Handle p (THREAD, JNIHandles::resolve(obj));
+      jlong* addr = (jlong*)(index_oop_from_field_offset_long(oopDesc::bs()->write_barrier(p()), offset));
       MutexLockerEx mu(UnsafeJlong_lock, Mutex::_no_safepoint_check_flag);
       Atomic::store(x, addr);
     }
@@ -1193,7 +1193,7 @@ UNSAFE_ENTRY(void, Unsafe_MonitorEnter(JNIEnv *env, jobject unsafe, jobject jobj
     if (jobj == NULL) {
       THROW(vmSymbols::java_lang_NullPointerException());
     }
-    Handle obj(thread, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
+    Handle obj(thread, JNIHandles::resolve_non_null(jobj));
     ObjectSynchronizer::jni_enter(obj, CHECK);
   }
 UNSAFE_END
@@ -1205,7 +1205,7 @@ UNSAFE_ENTRY(jboolean, Unsafe_TryMonitorEnter(JNIEnv *env, jobject unsafe, jobje
     if (jobj == NULL) {
       THROW_(vmSymbols::java_lang_NullPointerException(), JNI_FALSE);
     }
-    Handle obj(thread, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
+    Handle obj(thread, JNIHandles::resolve_non_null(jobj));
     bool res = ObjectSynchronizer::jni_try_enter(obj, CHECK_0);
     return (res ? JNI_TRUE : JNI_FALSE);
   }
@@ -1218,7 +1218,7 @@ UNSAFE_ENTRY(void, Unsafe_MonitorExit(JNIEnv *env, jobject unsafe, jobject jobj)
     if (jobj == NULL) {
       THROW(vmSymbols::java_lang_NullPointerException());
     }
-    Handle obj(THREAD, oopDesc::bs()->write_barrier(JNIHandles::resolve_non_null(jobj)));
+    Handle obj(THREAD, JNIHandles::resolve_non_null(jobj));
     ObjectSynchronizer::jni_exit(obj(), CHECK);
   }
 UNSAFE_END
@@ -1236,26 +1236,32 @@ UNSAFE_END
 
 UNSAFE_ENTRY(jboolean, Unsafe_CompareAndSwapObject(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jobject e_h, jobject x_h))
   UnsafeWrapper("Unsafe_CompareAndSwapObject");
-  // We are about to write to this entry so check to see if we need to copy it.
-  oop p = oopDesc::bs()->write_barrier(JNIHandles::resolve(obj));
-  HeapWord* addr = (HeapWord *)index_oop_from_field_offset_long(p, offset);
   oop x = JNIHandles::resolve(x_h);
+  oop e = JNIHandles::resolve(e_h);
+  oop p = JNIHandles::resolve(obj);
+
+  p = oopDesc::bs()->write_barrier(p);
   x = oopDesc::bs()->read_barrier(x);
-  oop old = JNIHandles::resolve(e_h);
+
+  HeapWord* addr = (HeapWord *)index_oop_from_field_offset_long(p, offset);
   jboolean success;
   if (UseShenandoahGC) {
     oop expected;
     do {
-      expected = old;
-      old = oopDesc::atomic_compare_exchange_oop(x, addr, expected, true);
-      success  = oopDesc::unsafe_equals(old, expected);
-    } while ((! success) && oopDesc::unsafe_equals(oopDesc::bs()->read_barrier(old), oopDesc::bs()->read_barrier(expected)));
+      expected = e;
+      e = oopDesc::atomic_compare_exchange_oop(x, addr, expected, true);
+      success  = oopDesc::unsafe_equals(e, expected);
+    } while ((! success) && oopDesc::unsafe_equals(oopDesc::bs()->read_barrier(e), oopDesc::bs()->read_barrier(expected)));
   } else {
-    success = oopDesc::unsafe_equals(old, oopDesc::atomic_compare_exchange_oop(x, addr, old, true));
+    success = oopDesc::unsafe_equals(e, oopDesc::atomic_compare_exchange_oop(x, addr, e, true));
   }
-  if (success)
-    update_barrier_set((void*)addr, x);
-  return success;
+  if (! success) {
+    return false;
+  }
+
+  update_barrier_set((void*)addr, x);
+
+  return true;
 UNSAFE_END
 
 UNSAFE_ENTRY(jboolean, Unsafe_CompareAndSwapInt(JNIEnv *env, jobject unsafe, jobject obj, jlong offset, jint e, jint x))

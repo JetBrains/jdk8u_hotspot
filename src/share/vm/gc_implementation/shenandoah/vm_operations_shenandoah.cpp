@@ -21,26 +21,30 @@
  *
  */
 
+#include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
-#include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
+#include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
-
-VM_Operation::VMOp_Type VM_ShenandoahInitMark::type() const {
-  return VMOp_ShenandoahInitMark;
-}
-
-const char* VM_ShenandoahInitMark::name() const {
-  return "Shenandoah Initial Marking";
-}
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
+#include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 void VM_ShenandoahInitMark::doit() {
   ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
+  FlexibleWorkGang*       workers = sh->workers();
+
+  // Calculate workers for initial marking
+  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
+    workers->active_workers(), Threads::number_of_non_daemon_threads());
+
+  ShenandoahWorkerScope scope(workers, nworkers);
+
+  GCTraceTime time("Pause Init Mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
+  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark);
 
-  assert(sh->is_bitmap_clear(), "need clear marking bitmap");
+  assert(sh->is_next_bitmap_clear(), "need clear marking bitmap");
 
-  if (ShenandoahGCVerbose)
-    tty->print("vm_ShenandoahInitMark\n");
   sh->start_concurrent_marking();
   if (UseTLAB) {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
@@ -49,16 +53,13 @@ void VM_ShenandoahInitMark::doit() {
   }
 
   sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark);
+  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
 
-}
-
-VM_Operation::VMOp_Type VM_ShenandoahFullGC::type() const {
-  return VMOp_ShenandoahFullGC;
 }
 
 void VM_ShenandoahFullGC::doit() {
 
-  ShenandoahMarkCompact::do_mark_compact();
+  ShenandoahMarkCompact::do_mark_compact(_gc_cause);
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   if (UseTLAB) {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
@@ -66,11 +67,6 @@ void VM_ShenandoahFullGC::doit() {
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::resize_tlabs);
   }
 }
-
-const char* VM_ShenandoahFullGC::name() const {
-  return "Shenandoah Full GC";
-}
-
 
 bool VM_ShenandoahReferenceOperation::doit_prologue() {
   if (Thread::current()->is_Java_thread()) {
@@ -93,25 +89,30 @@ void VM_ShenandoahReferenceOperation::doit_epilogue() {
 
 void VM_ShenandoahStartEvacuation::doit() {
 
-  // We need to do the finish mark here, so that a JNI critical region
-  // can't divide it from evacuation start. It is critical that we
+  // It is critical that we
   // evacuate roots right after finishing marking, so that we don't
   // get unmarked objects in the roots.
   ShenandoahHeap *sh = ShenandoahHeap::heap();
-  if (! sh->cancelled_concgc()) {
-    if (ShenandoahGCVerbose)
-      tty->print("vm_ShenandoahFinalMark\n");
+  // Setup workers for final marking
+  FlexibleWorkGang* workers = sh->workers();
+  uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_final_marking(workers->active_workers(),
+    Threads::number_of_non_daemon_threads());
+  ShenandoahWorkerScope scope(workers, n_workers);
 
+  if (! sh->cancelled_concgc()) {
+    GCTraceTime time("Pause Final Mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id(), true);
+    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark);
     sh->concurrentMark()->finish_mark_from_roots();
     sh->stop_concurrent_marking();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark);
+    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
 
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::prepare_evac);
     sh->prepare_for_concurrent_evacuation();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::prepare_evac);
 
-    sh->set_evacuation_in_progress(true);
+    sh->set_evacuation_in_progress_at_safepoint(true);
 
     // From here on, we need to update references.
     sh->set_need_update_refs(true);
@@ -121,26 +122,10 @@ void VM_ShenandoahStartEvacuation::doit() {
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_evac);
 
   } else {
+    GCTraceTime time("Cancel concurrent mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
-    sh->recycle_dirty_regions();
   }
-}
-
-VM_Operation::VMOp_Type VM_ShenandoahStartEvacuation::type() const {
-  return VMOp_ShenandoahStartEvacuation;
-}
-
-const char* VM_ShenandoahStartEvacuation::name() const {
-  return "Start shenandoah evacuation";
-}
-
-VM_Operation::VMOp_Type VM_ShenandoahVerifyHeapAfterEvacuation::type() const {
-  return VMOp_ShenandoahVerifyHeapAfterEvacuation;
-}
-
-const char* VM_ShenandoahVerifyHeapAfterEvacuation::name() const {
-  return "Shenandoah verify heap after evacuation";
 }
 
 void VM_ShenandoahVerifyHeapAfterEvacuation::doit() {

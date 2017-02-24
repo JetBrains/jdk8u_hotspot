@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, Red Hat, Inc. and/or its affiliates.
+ * Copyright (c) 2016, Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -21,22 +21,30 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHJNICRITICAL_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHJNICRITICAL_HPP
+/*
+ * @test AllocIntArrays
+ * @summary Acceptance tests: collector can withstand allocation
+ * @run main/othervm -XX:+UseShenandoahGC AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g AllocIntArrays
+ */
 
-#include "gc_implementation/shared/vmGCOperations.hpp"
-#include "memory/allocation.hpp"
+public class AllocIntArrays {
 
-class ShenandoahJNICritical : public CHeapObj<mtGC> {
-private:
-  VM_Operation* _op_waiting_for_jni_critical;
-  VM_Operation* _op_ready_for_execution;
-public:
-  ShenandoahJNICritical();
-  void notify_jni_critical();
-  void set_waiting_for_jni_before_gc(VM_Operation* op);
-  void execute_in_vm_thread(VM_Operation* op);
-};
+  static final long TARGET_MB = Long.getLong("target", 20_000); // 20 Gb allocation
+
+  static volatile Object sink;
+
+  public static void main(String[] args) throws Exception {
+     final int min = 10;
+     final int max = 10_000_000;
+     for (int s = min; s <= max; s *= 10) {
+         System.out.println("int[" + s + "]");
+         long count = TARGET_MB * 1024 * 1024 / (16 + 4*s);
+         for (long c = 0; c < count; c++) {
+             sink = new int[s];
+         }
+     }
+  }
 
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHJNICRITICAL_HPP
+}

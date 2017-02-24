@@ -26,90 +26,158 @@
 
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 
-typedef OverflowTaskQueue<ObjArrayTask, mtGC> ShenandoahOverflowTaskQueue;
-typedef Padded<ShenandoahOverflowTaskQueue> SCMObjToScanQueue;
-typedef GenericTaskQueueSet<SCMObjToScanQueue, mtGC> SCMObjToScanQueueSet;
+typedef ObjArrayChunkedTask SCMTask;
+typedef BufferedOverflowTaskQueue<SCMTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
+typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
 
 class ShenandoahConcurrentMark;
 
-class QHolder {
-private:
-  SCMObjToScanQueue* _queue;
-public:
-  QHolder(SCMObjToScanQueue* q) : _queue(q) {
-  }
-  inline SCMObjToScanQueue* queue() {
-    return _queue;
-  }
-};
-
 #ifdef ASSERT
 class ShenandoahVerifyRootsClosure1 : public OopClosure {
-  void do_oop(oop* p);
+private:
+  template <class T>
+  inline void do_oop_work(T* p);
 
-  void do_oop(narrowOop* p) {
-    Unimplemented();
-  }
+public:
+  void do_oop(oop* p);
+  void do_oop(narrowOop* p);
 };
 #endif
-
-template <class T>
-class ShenandoahMarkObjsClosure {
-  ShenandoahHeap* _heap;
-  T _mark_refs;
-  QHolder* _queue;
-  uint _last_region_idx;
-  size_t _live_data;
-public:
-  ShenandoahMarkObjsClosure(QHolder* q);
-  ~ShenandoahMarkObjsClosure();
-
-  inline void do_object(oop obj, int index);
-  inline void do_objarray(objArrayOop array, int index);
-  inline void count_liveness(oop obj);
-};
 
 class ShenandoahConcurrentMark: public CHeapObj<mtGC> {
 
 private:
+  ShenandoahHeap* _heap;
+
   // The per-worker-thread work queues
   SCMObjToScanQueueSet* _task_queues;
 
-  uint _max_conc_worker_id;
+  bool _process_references;
+  bool _unload_classes;
+
+  jbyte _claimed_codecache;
+
+  // Used for buffering per-region liveness data.
+  // Needed since ShenandoahHeapRegion uses atomics to update liveness.
+  //
+  // The array has max-workers elements, each of which is an array of
+  // jushort * max_regions. The choice of jushort is not accidental:
+  // there is a tradeoff between static/dynamic footprint that translates
+  // into cache pressure (which is already high during marking), and
+  // too many atomic updates. size_t/jint is too large, jbyte is too small.
+  jushort** _liveness_local;
+
+private:
+  template <class T, bool COUNT_LIVENESS>
+  inline void do_task(SCMObjToScanQueue* q, T* cl, jushort* live_data, SCMTask* task);
+
+  template <class T>
+  inline void do_chunked_array_start(SCMObjToScanQueue* q, T* cl, oop array);
+
+  template <class T>
+  inline void do_chunked_array(SCMObjToScanQueue* q, T* cl, oop array, int chunk, int pow);
+
+  inline void count_liveness(jushort* live_data, oop obj);
+
+  // Actual mark loop with closures set up
+  template <class T, bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS>
+  void mark_loop_work(T* cl, jushort* live_data, uint worker_id, ParallelTaskTerminator *t);
+
+  template <bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS, bool CLASS_UNLOAD, bool UPDATE_REFS>
+  void mark_loop_prework(uint worker_id, ParallelTaskTerminator *terminator, ReferenceProcessor *rp);
+
+  // ------------------------ Currying dynamic arguments to template args ----------------------------
+
+  template <bool B1, bool B2, bool B3, bool B4>
+  void mark_loop_4(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp, bool b5) {
+    if (b5) {
+      mark_loop_prework<B1, B2, B3, B4, true>(w, t, rp);
+    } else {
+      mark_loop_prework<B1, B2, B3, B4, false>(w, t, rp);
+    }
+  };
+
+  template <bool B1, bool B2, bool B3>
+  void mark_loop_3(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp, bool b4, bool b5) {
+    if (b4) {
+      mark_loop_4<B1, B2, B3, true>(w, t, rp, b5);
+    } else {
+      mark_loop_4<B1, B2, B3, false>(w, t, rp, b5);
+    }
+  };
+
+  template <bool B1, bool B2>
+  void mark_loop_2(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp, bool b3, bool b4, bool b5) {
+    if (b3) {
+      mark_loop_3<B1, B2, true>(w, t, rp, b4, b5);
+    } else {
+      mark_loop_3<B1, B2, false>(w, t, rp, b4, b5);
+    }
+  };
+
+  template <bool B1>
+  void mark_loop_1(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp, bool b2, bool b3, bool b4, bool b5) {
+    if (b2) {
+      mark_loop_2<B1, true>(w, t, rp, b3, b4, b5);
+    } else {
+      mark_loop_2<B1, false>(w, t, rp, b3, b4, b5);
+    }
+  };
+
+  // ------------------------ END: Currying dynamic arguments to template args ----------------------------
 
 public:
   // We need to do this later when the heap is already created.
-  void initialize();
+  void initialize(uint workers);
 
-  static inline void mark_and_push(oop obj, ShenandoahHeap* heap, SCMObjToScanQueue* q);
+  void set_process_references(bool pr);
+  bool process_references() const;
+
+  void set_unload_classes(bool uc);
+  bool unload_classes() const;
+
+  bool claim_codecache();
+  void clear_claim_codecache();
+
+  template<class T, UpdateRefsMode UPDATE_REFS>
+  static inline void mark_through_ref(T* p, ShenandoahHeap* heap, SCMObjToScanQueue* q);
 
   void mark_from_roots();
 
   // Prepares unmarked root objects by marking them and putting
   // them into the marking task queue.
-  void prepare_unmarked_root_objs();
-  void prepare_unmarked_root_objs_no_derived_ptrs(bool update_refs);
+  void init_mark_roots();
+  void mark_roots();
+  void update_roots();
+  void final_update_roots();
 
-  void shared_finish_mark_from_roots();
+  void shared_finish_mark_from_roots(bool full_gc);
   void finish_mark_from_roots();
   // Those are only needed public because they're called from closures.
 
-  template <class T>
-  void concurrent_mark_loop(ShenandoahMarkObjsClosure<T>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
+  // Mark loop entry.
+  // Translates dynamic arguments to template parameters with progressive currying.
+  void mark_loop(uint worker_id, ParallelTaskTerminator* terminator, ReferenceProcessor *rp,
+                 bool cancellable, bool drain_satb, bool count_liveness, bool class_unload, bool update_refs) {
+    if (cancellable) {
+      mark_loop_1<true>(worker_id, terminator, rp, drain_satb, count_liveness, class_unload, update_refs);
+    } else {
+      mark_loop_1<false>(worker_id, terminator, rp, drain_satb, count_liveness, class_unload, update_refs);
+    }
+  }
 
-  template <class T>
-  void final_mark_loop(ShenandoahMarkObjsClosure<T>* cl, uint worker_id, SCMObjToScanQueue* q, ParallelTaskTerminator* t);
+  inline bool try_queue(SCMObjToScanQueue* q, SCMTask &task);
 
   SCMObjToScanQueue* get_queue(uint worker_id);
-  template <class T>
-  inline bool try_queue(SCMObjToScanQueue* q, ShenandoahMarkObjsClosure<T>* cl);
-  template <class T>
-  inline bool try_to_steal(uint worker_id, ShenandoahMarkObjsClosure<T>* cl, int *seed);
-  inline bool try_draining_an_satb_buffer(SCMObjToScanQueue* q);
+  void clear_queue(SCMObjToScanQueue *q);
+
+  inline bool try_draining_satb_buffer(SCMObjToScanQueue *q, SCMTask &task);
   void drain_satb_buffers(uint worker_id, bool remark = false);
   SCMObjToScanQueueSet* task_queues() { return _task_queues;}
-  uint max_conc_worker_id() { return _max_conc_worker_id; }
+
+  jushort* get_liveness(uint worker_id);
 
   void cancel();
 
@@ -122,9 +190,8 @@ private:
   void weak_refs_work();
 
 #if TASKQUEUE_STATS
-  static void print_taskqueue_stats_hdr(outputStream* const st = gclog_or_tty);
-  void print_taskqueue_stats(outputStream* const st = gclog_or_tty) const;
-  void print_push_only_taskqueue_stats(outputStream* const st = gclog_or_tty) const;
+  static void print_taskqueue_stats_hdr(outputStream* const st = tty);
+  void print_taskqueue_stats() const;
   void reset_taskqueue_stats();
 #endif // TASKQUEUE_STATS
 

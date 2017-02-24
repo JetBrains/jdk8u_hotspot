@@ -491,7 +491,7 @@ void nmethod::init_defaults() {
   _oops_do_mark_link       = NULL;
   _jmethod_id              = NULL;
   _osr_link                = NULL;
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     _unloading_next        = NULL;
   } else {
     _scavenge_root_link    = NULL;
@@ -1945,7 +1945,7 @@ void nmethod::mark_metadata_on_stack_at(RelocIterator* iter_at_metadata) {
 void nmethod::mark_metadata_on_stack_non_relocs() {
     // Visit the metadata section
     for (Metadata** p = metadata_begin(); p < metadata_end(); p++) {
-    if (*p == Universe::non_oop_word() || *p == NULL)  continue;  // skip non-oops
+      if (*p == Universe::non_oop_word() || *p == NULL)  continue;  // skip non-oops
       Metadata* md = *p;
       Metadata::mark_on_stack(md);
     }
@@ -2853,7 +2853,7 @@ public:
 };
 
 void nmethod::verify_scavenge_root_oops() {
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     return;
   }
 

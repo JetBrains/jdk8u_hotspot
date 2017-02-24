@@ -756,7 +756,7 @@ class StubGenerator: public StubCodeGenerator {
     return start;
   }
 
-  address generate_shenandoah_wb() {
+  address generate_shenandoah_wb(bool c_abi, bool do_cset_test) {
     StubCodeMark mark(this, "StubRoutines", "shenandoah_wb");
     address start = __ pc();
 
@@ -765,33 +765,45 @@ class StubGenerator: public StubCodeGenerator {
     // We use RDI, which also serves as argument register for slow call.
     // RAX always holds the src object ptr, except after the slow call and
     // the cmpxchg, then it holds the result.
-    // RBX and RCX are used as temporary registers.
-    __ push(rdi);
-    __ push(rbx);
+    // R8 and RCX are used as temporary registers.
+    if (!c_abi) {
+      __ push(rdi);
+      __ push(r8);
+    }
 
     // Check for object beeing in the collection set.
     // TODO: Can we use only 1 register here?
     // The source object arrives here in rax.
     // live: rax
     // live: rdi
-    __ movptr(rdi, rax);
-    __ shrptr(rdi, ShenandoahHeapRegion::RegionSizeShift);
-    // live: rbx
-    __ movptr(rbx, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
-    __ movbool(rbx, Address(rbx, rdi, Address::times_1));
-    // unlive: rdi
-    __ testbool(rbx);
-    // unlive: rbx
-    __ jccb(Assembler::notZero, not_done);
+    if (!c_abi) {
+      __ mov(rdi, rax);
+    } else {
+      __ mov(rax, rdi);
+    }
+    if (do_cset_test) {
+      __ shrptr(rdi, ShenandoahHeapRegion::RegionSizeShift);
+      // live: r8
+      __ movptr(r8, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
+      __ movbool(r8, Address(r8, rdi, Address::times_1));
+      // unlive: rdi
+      __ testbool(r8);
+      // unlive: r8
+      __ jccb(Assembler::notZero, not_done);
 
-    __ pop(rbx);
-    __ pop(rdi);
-    __ ret(0);
+      if (!c_abi) {
+        __ pop(r8);
+        __ pop(rdi);
+      }
+      __ ret(0);
 
-    __ bind(not_done);
+      __ bind(not_done);
+    }
 
-    __ push(rcx);
-    Register new_obj = rbx;
+    if (!c_abi) {
+      __ push(rcx);
+    }
+    Register new_obj = r8;
     __ movptr(new_obj, Address(r15_thread, JavaThread::gclab_top_offset()));
     __ testptr(new_obj, new_obj);
     __ jcc(Assembler::zero, slow_case); // No TLAB.
@@ -806,7 +818,7 @@ class StubGenerator: public StubCodeGenerator {
     __ jcc(Assembler::lessEqual, not_an_instance); // Thrashes rcx, returns size in rcx. Uses rax.
     __ bind(is_array);
 
-    // Size in rdi, new_obj in rbx, src obj in rax
+    // Size in rdi, new_obj in r8, src obj in rax
 
     Register new_obj_end = rdi;
     int oop_extra_words = Universe::heap()->oop_extra_words();
@@ -819,38 +831,50 @@ class StubGenerator: public StubCodeGenerator {
     // Store Brooks pointer and adjust start of newobj.
     Universe::heap()->compile_prepare_oop(_masm, new_obj);
 
-    // Size in rcx, new_obj in rbx, src obj in rax
+    // Size in rcx, new_obj in r8, src obj in rax
 
     // Copy object.
     Label loop;
-    __ push(rdi); // Save new_obj_end
-    __ push(rsi);
+    if (!c_abi) {
+      __ push(rdi); // Save new_obj_end
+      __ push(rsi);
+    } else {
+      __ mov(r9, rdi); // Save new_obj_end
+    }
     __ shrl(rcx, 3);   // Make it num-64-bit-words
-    __ mov(rdi, rbx); // Mov dst into rdi
+    __ mov(rdi, r8); // Mov dst into rdi
     __ mov(rsi, rax); // Src into rsi.
     __ rep_mov();
-    __ pop(rsi); // Restore rsi.
-    __ pop(rdi); // Restore new_obj_end
+    if (!c_abi) {
+      __ pop(rsi); // Restore rsi.
+      __ pop(rdi); // Restore new_obj_end
+    } else {
+      __ mov(rdi, r9); // Restore new_obj_end
+    }
 
     // Src obj still in rax.
     if (os::is_MP()) {
       __ lock();
     }
-    __ cmpxchgptr(new_obj, Address(rax, BrooksPointer::BYTE_OFFSET, Address::times_1));
+    __ cmpxchgptr(new_obj, Address(rax, BrooksPointer::byte_offset(), Address::times_1));
     __ jccb(Assembler::notEqual, done); // Failed. Updated object in rax.
     // Otherwise, we succeeded.
     __ mov(rax, new_obj);
     __ movptr(Address(r15_thread, JavaThread::gclab_top_offset()), new_obj_end);
     __ bind(done);
 
-    __ pop(rcx);
-    __ pop(rbx);
-    __ pop(rdi);
+    if (!c_abi) {
+      __ pop(rcx);
+      __ pop(r8);
+      __ pop(rdi);
+    }
 
     __ ret(0);
 
     __ bind(not_an_instance);
-    __ push(rdx);
+    if (!c_abi) {
+      __ push(rdx);
+    }
     // Layout_helper bits are in rcx
     __ movl(rdx, rcx); // Move layout_helper bits to rdx
     __ movl(rdi, Address(rax, arrayOopDesc::length_offset_in_bytes()));
@@ -863,43 +887,48 @@ class StubGenerator: public StubCodeGenerator {
     // Round up.
     __ addl(rdi, HeapWordSize-1);
     __ andl(rdi, -HeapWordSize);
-    __ pop(rdx);
+    if (!c_abi) {
+      __ pop(rdx);
+    }
     // Move size (rdi) into rcx
     __ movl(rcx, rdi);
     __ jmp(is_array);
 
     __ bind(slow_case);
-    __ push(rdx);
-    __ push(rdi);
-    __ push(rsi);
-    __ push(r8);
-    __ push(r9);
-    __ push(r10);
-    __ push(r11);
-    __ push(r12);
-    __ push(r13);
-    __ push(r14);
-    __ push(r15);
+    if (!c_abi) {
+      __ push(rdx);
+      __ push(rdi);
+      __ push(rsi);
+      __ push(r8);
+      __ push(r9);
+      __ push(r10);
+      __ push(r11);
+      __ push(r12);
+      __ push(r13);
+      __ push(r14);
+      __ push(r15);
+    }
     __ save_vector_registers();
     __ movptr(rdi, rax);
     __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_c2), rdi);
     __ restore_vector_registers();
-    __ pop(r15);
-    __ pop(r14);
-    __ pop(r13);
-    __ pop(r12);
-    __ pop(r11);
-    __ pop(r10);
-    __ pop(r9);
-    __ pop(r8);
-    __ pop(rsi);
-    __ pop(rdi);
-    __ pop(rdx);
+    if (!c_abi) {
+      __ pop(r15);
+      __ pop(r14);
+      __ pop(r13);
+      __ pop(r12);
+      __ pop(r11);
+      __ pop(r10);
+      __ pop(r9);
+      __ pop(r8);
+      __ pop(rsi);
+      __ pop(rdi);
+      __ pop(rdx);
 
-    __ pop(rcx);
-    __ pop(rbx);
-    __ pop(rdi);
-
+      __ pop(rcx);
+      __ pop(r8);
+      __ pop(rdi);
+    }
     __ ret(0);
 
     return start;
@@ -4204,9 +4233,6 @@ class StubGenerator: public StubCodeGenerator {
                                                 throw_NullPointerException_at_call));
 
     // entry points that are platform specific
-    if (UseShenandoahGC) {
-      StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb();
-    }
     StubRoutines::x86::_f2i_fixup = generate_f2i_fixup();
     StubRoutines::x86::_f2l_fixup = generate_f2l_fixup();
     StubRoutines::x86::_d2i_fixup = generate_d2i_fixup();
@@ -4266,16 +4292,27 @@ class StubGenerator: public StubCodeGenerator {
 #endif // COMPILER2
   }
 
+  void generate_barriers() {
+    if (UseShenandoahGC) {
+      StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb(false, true);
+      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
+    }
+  }
+
  public:
-  StubGenerator(CodeBuffer* code, bool all) : StubCodeGenerator(code) {
-    if (all) {
+  StubGenerator(CodeBuffer* code, int phase) : StubCodeGenerator(code) {
+    if (phase == 2) {
       generate_all();
-    } else {
+    } else if (phase == 1) {
       generate_initial();
+    } else if (phase == 3) {
+      generate_barriers();
+    } else {
+      ShouldNotReachHere();
     }
   }
 }; // end class declaration
 
-void StubGenerator_generate(CodeBuffer* code, bool all) {
-  StubGenerator g(code, all);
+void StubGenerator_generate(CodeBuffer* code, int phase) {
+  StubGenerator g(code, phase);
 }

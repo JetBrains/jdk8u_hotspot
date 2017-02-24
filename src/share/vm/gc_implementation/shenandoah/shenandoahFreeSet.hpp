@@ -33,29 +33,29 @@ private:
   size_t _capacity;
   size_t _used;
 
-  size_t _write_index;
-
-  size_t is_contiguous(size_t start, size_t end, size_t num);
-  size_t find_contiguous(size_t start, size_t end, size_t num);
-  void push_back_regions(size_t start, size_t end);
+  size_t is_contiguous(size_t start, size_t num);
+  size_t find_contiguous(size_t start, size_t num);
   void initialize_humongous_regions(size_t first, size_t num);
-  size_t diff_to_end(size_t i, size_t end) const;
+  ShenandoahHeapRegion* skip_humongous(ShenandoahHeapRegion* r);
+
+  void assert_heaplock_owned_by_current_thread();
 
 public:
   ShenandoahFreeSet(size_t max_regions);
   ~ShenandoahFreeSet();
-  void add_region(ShenandoahHeapRegion* r);
-  void par_add_regions(ShenandoahHeapRegion** regions, size_t start, size_t num, size_t max);
 
-  size_t par_claim_next(size_t current);
+  void add_region(ShenandoahHeapRegion* r);
 
   size_t capacity();
-  ShenandoahHeapRegion* claim_contiguous(size_t num);
-  void clear();
 
   size_t used();
 
+  ShenandoahHeapRegion* allocate_contiguous(size_t num);
+  void clear();
+
   void increase_used(size_t amount);
+  ShenandoahHeapRegion* current_no_humongous();
+  ShenandoahHeapRegion* next_no_humongous();
 };
 
 #endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHFREESET_HPP

@@ -38,7 +38,6 @@
 #include "code/scopeDesc.hpp"
 #include "code/vtableStubs.hpp"
 #include "compiler/disassembler.hpp"
-#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "interpreter/bytecode.hpp"
 #include "interpreter/interpreter.hpp"
@@ -217,7 +216,6 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
   switch (id) {
     // These stubs don't need to have an oopmap
     case dtrace_object_alloc_id:
-    case shenandoah_write_barrier_slow_id:
     case g1_pre_barrier_slow_id:
     case g1_post_barrier_slow_id:
     case slow_subtype_check_id:
@@ -330,7 +328,6 @@ const char* Runtime1::name_for_address(address entry) {
   FUNCTION_CASE(entry, TRACE_TIME_METHOD);
 #endif
   FUNCTION_CASE(entry, StubRoutines::updateBytesCRC32());
-  FUNCTION_CASE(entry, ShenandoahBarrierSet::write_barrier_c1);
 
 #undef FUNCTION_CASE
 
@@ -688,7 +685,7 @@ JRT_ENTRY_NO_ASYNC(void, Runtime1::monitorenter(JavaThread* thread, oopDesc* obj
   if (PrintBiasedLockingStatistics) {
     Atomic::inc(BiasedLocking::slow_path_entry_count_addr());
   }
-  Handle h_obj(thread, oopDesc::bs()->write_barrier(obj));
+  Handle h_obj(thread, obj);
   assert(h_obj()->is_oop(), "must be NULL or an object");
   if (UseBiasedLocking) {
     // Retry fast entry if bias is revoked to avoid unnecessary inflation
@@ -713,7 +710,7 @@ JRT_LEAF(void, Runtime1::monitorexit(JavaThread* thread, BasicObjectLock* lock))
   // monitorexit is non-blocking (leaf routine) => no exceptions can be thrown
   EXCEPTION_MARK;
 
-  oop obj = oopDesc::bs()->write_barrier(lock->obj());
+  oop obj = lock->obj();
   assert(obj->is_oop(), "must be NULL or an object");
   if (UseFastLocking) {
     // When using fast locking, the compiled code has already tried the fast case

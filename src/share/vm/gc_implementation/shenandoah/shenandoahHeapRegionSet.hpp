@@ -30,6 +30,8 @@
 
 class ShenandoahHeapRegion;
 
+extern outputStream* tty;
+
 class ShenandoahHeapRegionClosure : public StackObj {
   bool _complete;
   void incomplete() {_complete = false;}
@@ -70,10 +72,17 @@ public:
   size_t count() const;
 
   ShenandoahHeapRegion* get(size_t i) const;
+  inline ShenandoahHeapRegion* get_fast(size_t i) const {
+    assert (i < _active_end, "sanity");
+    return _regions[i];
+  }
 
   virtual void add_region(ShenandoahHeapRegion* r);
+  virtual void add_region_check_for_duplicates(ShenandoahHeapRegion* r);
 
-  ShenandoahHeapRegion* next();
+  // Advance the iteration pointer to the next region.
+  void next();
+  // Return the current region, and advance iteration pointer to next one, atomically.
   ShenandoahHeapRegion* claim_next();
 
   template<class C>
@@ -81,7 +90,7 @@ public:
     QuickSort::sort<ShenandoahHeapRegion*>(_regions, _active_end, comparator, false);
   }
 
-  void print();
+  void print(outputStream* out = tty);
 public:
 
   void heap_region_iterate(ShenandoahHeapRegionClosure* blk,
@@ -91,8 +100,10 @@ public:
   size_t current_index()   { return _current_index;}
   void clear_current_index() {_current_index = 0; }
 
-protected:
   bool contains(ShenandoahHeapRegion* r);
+  ShenandoahHeapRegion* current() const;
+
+protected:
 
   void active_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
                            bool skip_dirty_regions = false,

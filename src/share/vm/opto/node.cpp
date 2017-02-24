@@ -521,6 +521,10 @@ Node *Node::clone() const {
     C->add_macro_node(n);
   if (is_expensive())
     C->add_expensive_node(n);
+
+  if (Opcode() == Op_ShenandoahWriteBarrier) {
+    C->add_shenandoah_barrier(n->as_ShenandoahBarrier());
+  }
   // If the cloned node is a range check dependent CastII, add it to the list.
   CastIINode* cast = n->isa_CastII();
   if (cast != NULL && cast->has_range_check()) {
@@ -653,6 +657,9 @@ void Node::destruct() {
   }
   if (is_expensive()) {
     compile->remove_expensive_node(this);
+  }
+  if (is_ShenandoahBarrier()) {
+    compile->remove_shenandoah_barrier(this->as_ShenandoahBarrier());
   }
   CastIINode* cast = isa_CastII();
   if (cast != NULL && cast->has_range_check()) {
@@ -925,22 +932,6 @@ Node* Node::uncast() const {
     return (Node*) this;
 }
 
-// Find out of current node that matches opcode.
-Node* Node::find_out_with(int opcode) {
-  for (DUIterator_Fast imax, i = fast_outs(imax); i < imax; i++) {
-    Node* use = fast_out(i);
-    if (use->Opcode() == opcode) {
-      return use;
-    }
-  }
-  return NULL;
-}
-
-// Return true if the current node has an out that matches opcode.
-bool Node::has_out_with(int opcode) {
-  return (find_out_with(opcode) != NULL);
-}
-
 //---------------------------uncast_helper-------------------------------------
 Node* Node::uncast_helper(const Node* p) {
 #ifdef ASSERT
@@ -968,6 +959,22 @@ Node* Node::uncast_helper(const Node* p) {
     }
   }
   return (Node*) p;
+}
+
+// Find out of current node that matches opcode.
+Node* Node::find_out_with(int opcode) {
+  for (DUIterator_Fast imax, i = fast_outs(imax); i < imax; i++) {
+    Node* use = fast_out(i);
+    if (use->Opcode() == opcode) {
+      return use;
+    }
+  }
+  return NULL;
+}
+
+// Return true if the current node has an out that matches opcode.
+bool Node::has_out_with(int opcode) {
+  return (find_out_with(opcode) != NULL);
 }
 
 //------------------------------add_prec---------------------------------------
@@ -1152,6 +1159,8 @@ bool Node::has_special_unique_user() const {
   } else if( op == Op_SubI || op == Op_SubL ) {
     // Condition for subI(x,subI(y,z)) ==> subI(addI(x,z),y)
     return n->Opcode() == op && n->in(2) == this;
+  } else if (op == Op_ShenandoahWriteBarrier) {
+    return n->Opcode() == Op_ShenandoahWBMemProj;
   }
   return false;
 };
@@ -1370,6 +1379,9 @@ static void kill_dead_code( Node *dead, PhaseIterGVN *igvn ) {
       if (dead->is_expensive()) {
         igvn->C->remove_expensive_node(dead);
       }
+      if (dead->is_ShenandoahBarrier()) {
+        igvn->C->remove_shenandoah_barrier(dead->as_ShenandoahBarrier());
+      }
       CastIINode* cast = dead->isa_CastII();
       if (cast != NULL && cast->has_range_check()) {
         igvn->C->remove_range_check_cast(cast);
@@ -1392,6 +1404,8 @@ static void kill_dead_code( Node *dead, PhaseIterGVN *igvn ) {
             // The restriction (outcnt() <= 2) is the same as in set_req_X()
             // and remove_globally_dead_node().
             igvn->add_users_to_worklist( n );
+          } else if (n->Opcode() == Op_AddP && CallLeafNode::has_only_g1_wb_pre_uses(n)) {
+            igvn->add_users_to_worklist(n);
           }
         }
       }
@@ -1417,12 +1431,6 @@ bool Node::remove_dead_region(PhaseGVN *phase, bool can_reshape) {
     return true;
   }
   return false;
-}
-
-//------------------------------Ideal_DU_postCCP-------------------------------
-// Idealize graph, using DU info.  Must clone result into new-space
-Node *Node::Ideal_DU_postCCP( PhaseCCP * ) {
-  return NULL;                 // Default to no change
 }
 
 //------------------------------hash-------------------------------------------
@@ -2111,6 +2119,14 @@ Node* Node::unique_ctrl_out() {
     }
   }
   return found;
+}
+
+void Node::ensure_control_or_add_prec(Node* c) {
+  if (in(0) == NULL) {
+    set_req(0, c);
+  } else if (in(0) != c) {
+    add_prec(c);
+  }
 }
 
 //=============================================================================

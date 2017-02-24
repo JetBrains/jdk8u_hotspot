@@ -264,6 +264,14 @@ void VMThread::run() {
   }
   // Notify_lock is destroyed by Threads::create_vm()
 
+  // VMThread needs GCLAB for cases when it writes to Java heap (e.g. biased
+  // locking stores to headers), and needs the space to evacuate. Have to
+  // initialize here, because VMThread is not yet available when Universe is
+  // initialized.
+  if (UseShenandoahGC && UseTLAB) {
+    gclab().initialize(true);
+  }
+
   int prio = (VMThreadPriority == -1)
     ? os::java_to_os_priority[NearMaxPriority]
     : VMThreadPriority;

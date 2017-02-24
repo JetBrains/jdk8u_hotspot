@@ -81,12 +81,6 @@ Node* Parse::array_addressing(BasicType type, int vals, bool is_store, const Typ
   // Compile-time detect of null-exception?
   if (stopped())  return top();
 
-  if (is_store) {
-    ary = shenandoah_write_barrier(ary);
-  } else {
-    ary = shenandoah_read_barrier(ary);
-  }
-
   const TypeAryPtr* arytype  = _gvn.type(ary)->is_aryptr();
   const TypeInt*    sizetype = arytype->size();
   const Type*       elemtype = arytype->elem();
@@ -163,6 +157,12 @@ Node* Parse::array_addressing(BasicType type, int vals, bool is_store, const Typ
   }
   // Check for always knowing you are throwing a range-check exception
   if (stopped())  return top();
+
+  if (is_store) {
+    ary = shenandoah_write_barrier(ary);
+  } else {
+    ary = shenandoah_read_barrier(ary);
+  }
 
   // Make array address computation control dependent to prevent it
   // from floating above the range check during loop optimizations.
@@ -1736,7 +1736,7 @@ void Parse::do_one_bytecode() {
     // a is not used except for an assert. The address d already has the
     // write barrier. Adding a barrier on a only results in additional code
     // being generated.
-    c = shenandoah_read_barrier_nomem(c);
+    c = shenandoah_read_barrier_storeval(c);
     Node* store = store_oop_to_array(control(), a, d, adr_type, c, elemtype, T_OBJECT, MemNode::release);
     break;
   }
@@ -2281,8 +2281,7 @@ void Parse::do_one_bytecode() {
     maybe_add_safepoint(iter().get_dest());
     a = pop();
     b = pop();
-    shenandoah_acmp_barrier(a, b);
-    c = _gvn.transform( new (C) CmpPNode(b, a) );
+    c = cmp_objects(a, b);
     c = optimize_cmp_with_klass(c);
     do_if(btest, c);
     break;

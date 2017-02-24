@@ -207,8 +207,16 @@ void CMBitMap::clearRange(MemRegion mr) {
   mr.intersection(MemRegion(_bmStartWord, _bmWordSize));
   assert(!mr.is_empty(), "unexpected empty region");
   // convert address range into offset range
-  _bm.at_put_range(heapWordToOffset(mr.start()),
-                   heapWordToOffset(mr.end()), false);
+  _bm.clear_range(heapWordToOffset(mr.start()),
+                  heapWordToOffset(mr.end()));
+}
+
+void CMBitMap::clear_range_large(MemRegion mr) {
+  mr.intersection(MemRegion(_bmStartWord, _bmWordSize));
+  assert(!mr.is_empty(), "unexpected empty region");
+  // convert address range into offset range
+  _bm.clear_large_range(heapWordToOffset(mr.start()),
+                        heapWordToOffset(mr.end()));
 }
 
 MemRegion CMBitMap::getAndClearMarkedRegion(HeapWord* addr,

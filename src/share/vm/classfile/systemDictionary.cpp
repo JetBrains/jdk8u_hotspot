@@ -1543,9 +1543,9 @@ instanceKlassHandle SystemDictionary::find_or_define_instance_class(Symbol* clas
 Handle SystemDictionary::compute_loader_lock_object(Handle class_loader, TRAPS) {
   // If class_loader is NULL we synchronize on _system_loader_lock_obj
   if (class_loader.is_null()) {
-    return Handle(THREAD, oopDesc::bs()->write_barrier(_system_loader_lock_obj));
+    return Handle(THREAD, _system_loader_lock_obj);
   } else {
-    return Handle(THREAD, oopDesc::bs()->write_barrier(class_loader()));
+    return class_loader;
   }
 }
 

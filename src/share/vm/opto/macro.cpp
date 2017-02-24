@@ -282,22 +282,10 @@ void PhaseMacroExpand::eliminate_card_mark(Node* p2x) {
       if (!this_region->in(ind)->is_IfFalse()) {
         ind = 2;
       }
-      if (this_region->in(ind)->is_IfFalse()) {
-        Node* bol = this_region->in(ind)->in(0)->in(1);
-        assert(bol->is_Bool(), "");
-        cmpx = bol->in(1);
-        if (bol->as_Bool()->_test._test == BoolTest::ne &&
-            cmpx->is_Cmp() && cmpx->in(2) == intcon(0) &&
-            cmpx->in(1)->is_Load()) {
-          Node* adr = cmpx->in(1)->as_Load()->in(MemNode::Address);
-          const int marking_offset = in_bytes(JavaThread::satb_mark_queue_offset() +
-                                              PtrQueue::byte_offset_of_active());
-          if (adr->is_AddP() && adr->in(AddPNode::Base) == top() &&
-              adr->in(AddPNode::Address)->Opcode() == Op_ThreadLocal &&
-              adr->in(AddPNode::Offset) == MakeConX(marking_offset)) {
-            _igvn.replace_node(cmpx, makecon(TypeInt::CC_EQ));
-          }
-        }
+      if (this_region->in(ind)->is_IfFalse() &&
+          this_region->in(ind)->in(0)->is_g1_marking_if(&_igvn)) {
+        Node* cmpx = this_region->in(ind)->in(0)->in(1)->in(1);
+        _igvn.replace_node(cmpx, makecon(TypeInt::CC_EQ));
       }
     }
     // Now CastP2X can be removed since it is used only on dead path
@@ -305,6 +293,26 @@ void PhaseMacroExpand::eliminate_card_mark(Node* p2x) {
     assert(p2x->outcnt() == 0 || p2x->unique_out()->Opcode() == Op_URShiftX, "");
     _igvn.replace_node(p2x, top());
   }
+}
+
+void PhaseMacroExpand::eliminate_g1_wb_pre(Node* n) {
+  Node* c = n->as_Call()->proj_out(TypeFunc::Control);
+  c = c->unique_ctrl_out();
+  assert(c->is_Region() && c->req() == 3, "where's the pre barrier control flow?");
+  c = c->unique_ctrl_out();
+  assert(c->is_Region() && c->req() == 3, "where's the pre barrier control flow?");
+  Node* iff = c->in(1)->is_IfProj() ? c->in(1)->in(0) : c->in(2)->in(0);
+  assert(iff->is_If(), "expect test");
+  if (!iff->is_g1_marking_if(&_igvn)) {
+    c = c->unique_ctrl_out();
+    assert(c->is_Region() && c->req() == 3, "where's the pre barrier control flow?");
+    iff = c->in(1)->is_IfProj() ? c->in(1)->in(0) : c->in(2)->in(0);
+    assert(iff->is_g1_marking_if(&_igvn), "expect marking test");
+  }
+  Node* cmpx = iff->in(1)->in(1);
+  _igvn.replace_node(cmpx, makecon(TypeInt::CC_EQ));
+  _igvn.rehash_node_delayed(n);
+  n->del_req(n->req()-1);
 }
 
 // Search for a memory operation for the specified memory slice.
@@ -446,7 +454,7 @@ Node *PhaseMacroExpand::value_from_mem_phi(Node *mem, BasicType ft, const Type *
       if (val == mem) {
         values.at_put(j, mem);
       } else if (val->is_Store()) {
-        values.at_put(j, val->in(MemNode::ValueIn));
+        values.at_put(j, ShenandoahBarrierNode::skip_through_barrier(val->in(MemNode::ValueIn)));
       } else if(val->is_Proj() && val->in(0) == alloc) {
         values.at_put(j, _igvn.zerocon(ft));
       } else if (val->is_Phi()) {
@@ -548,7 +556,7 @@ Node *PhaseMacroExpand::value_from_mem(Node *sfpt_mem, BasicType ft, const Type 
       // hit a sentinel, return appropriate 0 value
       return _igvn.zerocon(ft);
     } else if (mem->is_Store()) {
-      return mem->in(MemNode::ValueIn);
+      return ShenandoahBarrierNode::skip_through_barrier(mem->in(MemNode::ValueIn));
     } else if (mem->is_Phi()) {
       // attempt to produce a Phi reflecting the values on the input paths of the Phi
       Node_Stack value_phis(a, 8);
@@ -615,7 +623,8 @@ bool PhaseMacroExpand::can_eliminate_allocation(AllocateNode *alloc, GrowableArr
         for (DUIterator_Fast kmax, k = use->fast_outs(kmax);
                                    k < kmax && can_eliminate; k++) {
           Node* n = use->fast_out(k);
-          if (!n->is_Store() && n->Opcode() != Op_CastP2X) {
+          if (!n->is_Store() && n->Opcode() != Op_CastP2X &&
+              !n->is_g1_wb_pre_call()) {
             DEBUG_ONLY(disq_node = n;)
             if (n->is_Load() || n->is_LoadStore()) {
               NOT_PRODUCT(fail_eliminate = "Field load";)
@@ -846,9 +855,6 @@ bool PhaseMacroExpand::scalar_replacement(AllocateNode *alloc, GrowableArray <Sa
           field_val = transform_later(new (C) DecodeNNode(field_val, field_val->get_ptr_type()));
         }
       }
-      if (field_val->isa_ShenandoahBarrier()) {
-        field_val = field_val->in(ShenandoahBarrierNode::ValueIn);
-      }
       sfpt->add_req(field_val);
     }
     JVMState *jvms = sfpt->jvms();
@@ -889,11 +895,14 @@ void PhaseMacroExpand::process_users_of_allocation(CallNode *alloc) {
             }
 #endif
             _igvn.replace_node(n, n->in(MemNode::Memory));
+          } else if (n->is_g1_wb_pre_call()) {
+            eliminate_g1_wb_pre(n);
           } else {
             eliminate_card_mark(n);
           }
           k -= (oc2 - use->outcnt());
         }
+        _igvn.remove_dead_node(use);
       } else {
         eliminate_card_mark(use);
       }
@@ -1290,9 +1299,10 @@ void PhaseMacroExpand::expand_allocate_common(
     transform_later(old_eden_top);
     // Add to heap top to get a new heap top
 
+    Node* init_size_in_bytes = size_in_bytes;
     if (UseShenandoahGC) {
-      // Allocate one word more for the Shenandoah brooks pointer.
-      size_in_bytes = new (C) AddLNode(size_in_bytes, _igvn.MakeConX(8));
+      // Allocate several words more for the Shenandoah brooks pointer.
+      size_in_bytes = new (C) AddLNode(size_in_bytes, _igvn.MakeConX(BrooksPointer::byte_size()));
       transform_later(size_in_bytes);
     }
 
@@ -1387,16 +1397,15 @@ void PhaseMacroExpand::expand_allocate_common(
     }
 
     if (UseShenandoahGC) {
-      // Bump up object by one word. The preceding word is used for
-      // the Shenandoah brooks pointer.
-      fast_oop = new (C) AddPNode(top(), fast_oop, _igvn.MakeConX(8));
+      // Bump up object for Shenandoah brooks pointer.
+      fast_oop = new (C) AddPNode(top(), fast_oop, _igvn.MakeConX(BrooksPointer::byte_size()));
       transform_later(fast_oop);
     }
 
     InitializeNode* init = alloc->initialization();
     fast_oop_rawmem = initialize_object(alloc,
                                         fast_oop_ctrl, fast_oop_rawmem, fast_oop,
-                                        klass_node, length, size_in_bytes);
+                                        klass_node, length, init_size_in_bytes);
 
     // If initialization is performed by an array copy, any required
     // MemBarStoreStore was already added. If the object does not
@@ -1678,7 +1687,7 @@ PhaseMacroExpand::initialize_object(AllocateNode* alloc,
 
   if (UseShenandoahGC) {
     // Initialize Shenandoah brooks pointer to point to the object itself.
-    rawmem = make_store(control, rawmem, object, BrooksPointer::BYTE_OFFSET, object, T_OBJECT);
+    rawmem = make_store(control, rawmem, object, BrooksPointer::byte_offset(), object, T_OBJECT);
   }
 
   // Clear the object body, if necessary.

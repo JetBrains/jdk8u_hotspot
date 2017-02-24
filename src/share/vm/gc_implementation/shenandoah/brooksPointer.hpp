@@ -26,29 +26,76 @@
 
 #include "oops/oop.hpp"
 #include "utilities/globalDefinitions.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 
 class BrooksPointer {
 
 public:
-  static const uint BROOKS_POINTER_OBJ_SIZE = 1;
-  static const int BYTE_OFFSET = -8;
+
+  /*
+   * Notes:
+   *
+   *  a. It is important to have byte_offset and word_offset return constant
+   *     expressions, because that will allow to constant-fold forwarding ptr
+   *     accesses. This is not a problem in JIT compilers that would generate
+   *     the code once, but it is problematic in GC hotpath code.
+   *
+   *  b. With filler object mechanics, we may need to allocate more space for
+   *     the forwarding ptr to meet alignment requirements for objects. This
+   *     means *_offset and *_size calls are NOT interchangeable. The accesses
+   *     to forwarding ptrs should always be via *_offset. Storage size
+   *     calculations should always be via *_size.
+   */
+
+  /* Offset from the object start, in HeapWords. */
+  static inline int word_offset() {
+    return -1; // exactly one HeapWord
+  }
+
+  /* Offset from the object start, in bytes. */
+  static inline int byte_offset() {
+    return -HeapWordSize; // exactly one HeapWord
+  }
+
+  /* Allocated size, in HeapWords. */
+  static inline size_t word_size() {
+    return MinObjAlignment;
+  }
+
+  /* Allocated size, in bytes */
+  static inline size_t byte_size() {
+    return MinObjAlignmentInBytes;
+  }
+
+  /* Initializes Brooks pointer (to self).
+   */
+  static inline void initialize(oop obj);
+
+  /* Gets forwardee from the given object.
+   */
+  static inline oop forwardee(oop obj);
+
+  /* Forcefully sets forwardee in $holder to $update.
+   */
+  static inline void set_forwardee(oop obj, oop update);
+
+  /* Tries to atomically update forwardee in $holder object to $update.
+   * Assumes $holder points at itself.
+   * Asserts $holder is in from-space.
+   * Asserts $update is in to-space.
+   */
+  static inline oop try_update_forwardee(oop obj, oop update);
+
+  /* Sets raw value for forwardee slot.
+   * THIS IS DANGEROUS: USERS HAVE TO INITIALIZE/SET FORWARDEE BACK AFTER THEY ARE DONE.
+   */
+  static inline void set_raw(oop obj, HeapWord* update);
+
+  /* Returns the raw value from forwardee slot.
+   */
+  static inline HeapWord* get_raw(oop obj);
 
 private:
-
-  HeapWord** _heap_word;
-
-  BrooksPointer(HeapWord** heap_word);
-
-public:
-
-  bool check_forwardee_is_in_heap(oop forwardee);
-
-  inline void set_forwardee(oop forwardee);
-  inline HeapWord* get_forwardee();
-  inline HeapWord* cas_forwardee(HeapWord* old, HeapWord* forwardee);
-
-  static inline BrooksPointer get(oop obj);
+  static inline HeapWord** brooks_ptr_addr(oop obj);
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_BROOKSPOINTER_HPP

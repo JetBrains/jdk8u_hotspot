@@ -98,8 +98,12 @@ GCMemoryManager* MemoryManager::get_g1OldGen_memory_manager() {
   return (GCMemoryManager*) new G1OldGenMemoryManager();
 }
 
-GCMemoryManager* MemoryManager::get_shenandoah_memory_manager() {
-  return (GCMemoryManager*) new ShenandoahMemoryManager();
+GCMemoryManager* MemoryManager::get_shenandoah_minor_memory_manager() {
+  return (GCMemoryManager*) new ShenandoahMinorMemoryManager();
+}
+
+GCMemoryManager* MemoryManager::get_shenandoah_major_memory_manager() {
+  return (GCMemoryManager*) new ShenandoahMajorMemoryManager();
 }
 
 instanceOop MemoryManager::get_memory_manager_instance(TRAPS) {

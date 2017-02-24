@@ -650,227 +650,6 @@ const TypePtr* MemNode::calculate_adr_type(const Type* t, const TypePtr* cross_c
   }
 }
 
-//------------------------adr_phi_is_loop_invariant----------------------------
-// A helper function for Ideal_DU_postCCP to check if a Phi in a counted
-// loop is loop invariant. Make a quick traversal of Phi and associated
-// CastPP nodes, looking to see if they are a closed group within the loop.
-bool MemNode::adr_phi_is_loop_invariant(Node* adr_phi, Node* cast) {
-  // The idea is that the phi-nest must boil down to only CastPP nodes
-  // with the same data. This implies that any path into the loop already
-  // includes such a CastPP, and so the original cast, whatever its input,
-  // must be covered by an equivalent cast, with an earlier control input.
-  ResourceMark rm;
-
-  // The loop entry input of the phi should be the unique dominating
-  // node for every Phi/CastPP in the loop.
-  Unique_Node_List closure;
-  closure.push(adr_phi->in(LoopNode::EntryControl));
-
-  // Add the phi node and the cast to the worklist.
-  Unique_Node_List worklist;
-  worklist.push(adr_phi);
-  if( cast != NULL ){
-    if( !cast->is_ConstraintCast() ) return false;
-    worklist.push(cast);
-  }
-
-  // Begin recursive walk of phi nodes.
-  while( worklist.size() ){
-    // Take a node off the worklist
-    Node *n = worklist.pop();
-    if( !closure.member(n) ){
-      // Add it to the closure.
-      closure.push(n);
-      // Make a sanity check to ensure we don't waste too much time here.
-      if( closure.size() > 20) return false;
-      // This node is OK if:
-      //  - it is a cast of an identical value
-      //  - or it is a phi node (then we add its inputs to the worklist)
-      // Otherwise, the node is not OK, and we presume the cast is not invariant
-      if( n->is_ConstraintCast() ){
-        worklist.push(n->in(1));
-      } else if( n->is_Phi() ) {
-        for( uint i = 1; i < n->req(); i++ ) {
-          worklist.push(n->in(i));
-        }
-      } else {
-        return false;
-      }
-    }
-  }
-
-  // Quit when the worklist is empty, and we've found no offending nodes.
-  return true;
-}
-
-//------------------------------Ideal_DU_postCCP-------------------------------
-// Find any cast-away of null-ness and keep its control.  Null cast-aways are
-// going away in this pass and we need to make this memory op depend on the
-// gating null check.
-Node *MemNode::Ideal_DU_postCCP( PhaseCCP *ccp ) {
-  return Ideal_common_DU_postCCP(ccp, this, in(MemNode::Address));
-}
-
-// I tried to leave the CastPP's in.  This makes the graph more accurate in
-// some sense; we get to keep around the knowledge that an oop is not-null
-// after some test.  Alas, the CastPP's interfere with GVN (some values are
-// the regular oop, some are the CastPP of the oop, all merge at Phi's which
-// cannot collapse, etc).  This cost us 10% on SpecJVM, even when I removed
-// some of the more trivial cases in the optimizer.  Removing more useless
-// Phi's started allowing Loads to illegally float above null checks.  I gave
-// up on this approach.  CNC 10/20/2000
-// This static method may be called not from MemNode (EncodePNode calls it).
-// Only the control edge of the node 'n' might be updated.
-Node *MemNode::Ideal_common_DU_postCCP( PhaseCCP *ccp, Node* n, Node* adr ) {
-  Node *skipped_cast = NULL;
-  // Need a null check?  Regular static accesses do not because they are
-  // from constant addresses.  Array ops are gated by the range check (which
-  // always includes a NULL check).  Just check field ops.
-  if( n->in(MemNode::Control) == NULL ) {
-    // Scan upwards for the highest location we can place this memory op.
-    while( true ) {
-      switch( adr->Opcode() ) {
-
-      case Op_AddP:             // No change to NULL-ness, so peek thru AddP's
-        adr = adr->in(AddPNode::Base);
-        continue;
-
-      case Op_DecodeN:         // No change to NULL-ness, so peek thru
-      case Op_DecodeNKlass:
-        adr = adr->in(1);
-        continue;
-
-      case Op_EncodeP:
-      case Op_EncodePKlass:
-        // EncodeP node's control edge could be set by this method
-        // when EncodeP node depends on CastPP node.
-        //
-        // Use its control edge for memory op because EncodeP may go away
-        // later when it is folded with following or preceding DecodeN node.
-        if (adr->in(0) == NULL) {
-          // Keep looking for cast nodes.
-          adr = adr->in(1);
-          continue;
-        }
-        ccp->hash_delete(n);
-        n->set_req(MemNode::Control, adr->in(0));
-        ccp->hash_insert(n);
-        return n;
-
-      case Op_ShenandoahReadBarrier:
-      case Op_ShenandoahWriteBarrier:
-        if (adr->in(ShenandoahBarrierNode::Control) == NULL) {
-          // Keep looking for cast nodes.
-          adr = adr->in(ShenandoahBarrierNode::ValueIn);
-          continue;
-        }
-        ccp->hash_delete(n);
-        n->set_req(MemNode::Control, adr->in(ShenandoahBarrierNode::Control));
-        ccp->hash_insert(n);
-        return n;
-      case Op_CastPP:
-        // If the CastPP is useless, just peek on through it.
-        if( ccp->type(adr) == ccp->type(adr->in(1)) ) {
-          // Remember the cast that we've peeked though. If we peek
-          // through more than one, then we end up remembering the highest
-          // one, that is, if in a loop, the one closest to the top.
-          skipped_cast = adr;
-          adr = adr->in(1);
-          continue;
-        }
-        // CastPP is going away in this pass!  We need this memory op to be
-        // control-dependent on the test that is guarding the CastPP.
-        ccp->hash_delete(n);
-        n->set_req(MemNode::Control, adr->in(0));
-        ccp->hash_insert(n);
-        return n;
-
-      case Op_Phi:
-        // Attempt to float above a Phi to some dominating point.
-        if (adr->in(0) != NULL && adr->in(0)->is_CountedLoop()) {
-          // If we've already peeked through a Cast (which could have set the
-          // control), we can't float above a Phi, because the skipped Cast
-          // may not be loop invariant.
-          if (adr_phi_is_loop_invariant(adr, skipped_cast)) {
-            adr = adr->in(1);
-            continue;
-          }
-        }
-
-        // Intentional fallthrough!
-
-        // No obvious dominating point.  The mem op is pinned below the Phi
-        // by the Phi itself.  If the Phi goes away (no true value is merged)
-        // then the mem op can float, but not indefinitely.  It must be pinned
-        // behind the controls leading to the Phi.
-      case Op_CheckCastPP:
-        // These usually stick around to change address type, however a
-        // useless one can be elided and we still need to pick up a control edge
-        if (adr->in(0) == NULL) {
-          // This CheckCastPP node has NO control and is likely useless. But we
-          // need check further up the ancestor chain for a control input to keep
-          // the node in place. 4959717.
-          skipped_cast = adr;
-          adr = adr->in(1);
-          continue;
-        }
-        ccp->hash_delete(n);
-        n->set_req(MemNode::Control, adr->in(0));
-        ccp->hash_insert(n);
-        return n;
-
-        // List of "safe" opcodes; those that implicitly block the memory
-        // op below any null check.
-      case Op_CastX2P:          // no null checks on native pointers
-      case Op_Parm:             // 'this' pointer is not null
-      case Op_LoadP:            // Loading from within a klass
-      case Op_LoadN:            // Loading from within a klass
-      case Op_LoadKlass:        // Loading from within a klass
-      case Op_LoadNKlass:       // Loading from within a klass
-      case Op_ConP:             // Loading from a klass
-      case Op_ConN:             // Loading from a klass
-      case Op_ConNKlass:        // Loading from a klass
-      case Op_CreateEx:         // Sucking up the guts of an exception oop
-      case Op_Con:              // Reading from TLS
-      case Op_CMoveP:           // CMoveP is pinned
-      case Op_CMoveN:           // CMoveN is pinned
-        break;                  // No progress
-
-      case Op_Proj:             // Direct call to an allocation routine
-      case Op_SCMemProj:        // Memory state from store conditional ops
-#ifdef ASSERT
-        {
-          assert(adr->as_Proj()->_con == TypeFunc::Parms, "must be return value");
-          const Node* call = adr->in(0);
-          if (call->is_CallJava()) {
-            const CallJavaNode* call_java = call->as_CallJava();
-            const TypeTuple *r = call_java->tf()->range();
-            assert(r->cnt() > TypeFunc::Parms, "must return value");
-            const Type* ret_type = r->field_at(TypeFunc::Parms);
-            assert(ret_type && ret_type->isa_ptr(), "must return pointer");
-            // We further presume that this is one of
-            // new_instance_Java, new_array_Java, or
-            // the like, but do not assert for this.
-          } else if (call->is_Allocate()) {
-            // similar case to new_instance_Java, etc.
-          } else if (!call->is_CallLeaf()) {
-            // Projections from fetch_oop (OSR) are allowed as well.
-            ShouldNotReachHere();
-          }
-        }
-#endif
-        break;
-      default:
-        ShouldNotReachHere();
-      }
-      break;
-    }
-  }
-
-  return  NULL;               // No progress
-}
-
-
 //=============================================================================
 // Should LoadNode::Ideal() attempt to remove control edges?
 bool LoadNode::can_remove_control() const {
@@ -1145,8 +924,40 @@ Node *LoadNode::Identity( PhaseTransform *phase ) {
       if (!phase->type(value)->higher_equal(phase->type(this)))
         return this;
     }
+    PhaseIterGVN* igvn = phase->is_IterGVN();
+    if (UseShenandoahGC &&
+        igvn != NULL &&
+        value->is_Phi() &&
+        value->req() > 2 &&
+        value->in(1) != NULL &&
+        value->in(1)->is_ShenandoahBarrier()) {
+      if (igvn->_worklist.member(value) ||
+          igvn->_worklist.member(value->in(0)) ||
+          (value->in(0)->in(1) != NULL &&
+           value->in(0)->in(1)->is_IfProj() &&
+           (igvn->_worklist.member(value->in(0)->in(1)) ||
+            value->in(0)->in(1)->in(0) != NULL &&
+            igvn->_worklist.member(value->in(0)->in(1)->in(0))))) {
+        igvn->_worklist.push(this);
+        return this;
+      }
+    }
     // (This works even when value is a Con, but LoadNode::Value
     // usually runs first, producing the singleton type of the Con.)
+    if (UseShenandoahGC) {
+      Node* value_no_barrier = ShenandoahBarrierNode::skip_through_barrier(value->Opcode() == Op_EncodeP ? value->in(1) : value);
+      if (value->Opcode() == Op_EncodeP) {
+        if (value_no_barrier != value->in(1)) {
+          Node* encode = value->clone();
+          encode->set_req(1, value_no_barrier);
+          encode = phase->transform(encode);
+          return encode;
+        }
+      } else {
+        return value_no_barrier;
+      }
+    }
+
     return value;
   }
 
@@ -1206,7 +1017,7 @@ Node* LoadNode::eliminate_autobox(PhaseGVN* phase) {
       return NULL; // Complex address
     }
     AddPNode* address = base->in(Address)->as_AddP();
-    Node* cache_base = address->in(AddPNode::Base);
+    Node* cache_base = ShenandoahBarrierNode::skip_through_barrier(address->in(AddPNode::Base));
     if ((cache_base != NULL) && cache_base->is_DecodeN()) {
       // Get ConP node which is static 'cache' field.
       cache_base = cache_base->in(1);
@@ -1667,12 +1478,22 @@ const Type *LoadNode::Value( PhaseTransform *phase ) const {
     // as to alignment, which will therefore produce the smallest
     // possible base offset.
     const int min_base_off = arrayOopDesc::base_offset_in_bytes(T_BYTE);
-    const bool off_beyond_header = (off != BrooksPointer::BYTE_OFFSET || !UseShenandoahGC) && ((uint)off >= (uint)min_base_off);
+    const bool off_beyond_header = (off != BrooksPointer::byte_offset() || !UseShenandoahGC) && ((uint)off >= (uint)min_base_off);
 
     // Try to constant-fold a stable array element.
-    if (FoldStableValues && ary->is_stable() && ary->const_oop() != NULL) {
+    if (FoldStableValues && ary->is_stable()) {
       // Make sure the reference is not into the header and the offset is constant
-      if (off_beyond_header && adr->is_AddP() && off != Type::OffsetBot) {
+      ciObject* aobj = NULL;
+      if (UseShenandoahGC && adr->is_AddP() && !adr->in(AddPNode::Base)->is_top()) {
+        Node* base = ShenandoahBarrierNode::skip_through_barrier(adr->in(AddPNode::Base));
+        if (!base->is_top()) {
+          ary = phase->type(base)->is_aryptr();
+          aobj = ary->const_oop();
+        }
+      } else {
+        aobj = ary->const_oop();
+      }
+      if (aobj != NULL && off_beyond_header && adr->is_AddP() && off != Type::OffsetBot) {
         const Type* con_type = fold_stable_ary_elem(ary, off, memory_type());
         if (con_type != NULL) {
           return con_type;
@@ -1761,7 +1582,19 @@ const Type *LoadNode::Value( PhaseTransform *phase ) const {
       }
     }
     // Optimizations for constant objects
-    ciObject* const_oop = tinst->const_oop();
+    ciObject* const_oop = NULL;
+    if (UseShenandoahGC && adr->is_AddP() && !adr->in(AddPNode::Base)->is_top()) {
+      Node* base = ShenandoahBarrierNode::skip_through_barrier(adr->in(AddPNode::Base));
+      if (phase->type(base) != Type::TOP) {
+        const TypePtr* base_t = phase->type(base)->is_ptr();
+        if (base_t != TypePtr::NULL_PTR) {
+          tinst = base_t->is_instptr();
+          const_oop = tinst->const_oop();
+        }
+      }
+    } else {
+      const_oop = tinst->const_oop();
+    }
     if (const_oop != NULL) {
       // For constant Boxed value treat the target field as a compile time constant.
       if (tinst->is_ptr_to_boxed_value()) {

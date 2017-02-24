@@ -2043,7 +2043,7 @@ bool ConnectionGraph::is_oop_field(Node* n, int offset, bool* unsafe) {
     } else if (adr_type->isa_aryptr()) {
       if (offset == arrayOopDesc::length_offset_in_bytes()) {
         // Ignore array length load.
-      } else if (UseShenandoahGC && offset == BrooksPointer::BYTE_OFFSET) {
+      } else if (UseShenandoahGC && offset == BrooksPointer::byte_offset()) {
         // Shenandoah read barrier.
         bt = T_ARRAY;
       } else if (find_second_addp(n, n->in(AddPNode::Base)) != NULL) {
@@ -2287,7 +2287,9 @@ Node* ConnectionGraph::get_addp_base(Node *addp) {
     assert(opcode == Op_ConP || opcode == Op_ThreadLocal ||
            opcode == Op_CastX2P || uncast_base->is_DecodeNarrowPtr() ||
            (uncast_base->is_Mem() && (uncast_base->bottom_type()->isa_rawptr() != NULL)) ||
-           (uncast_base->is_Proj() && uncast_base->in(0)->is_Allocate()), "sanity");
+           (uncast_base->is_Proj() && uncast_base->in(0)->is_Allocate()) ||
+           (uncast_base->is_Phi() && (uncast_base->bottom_type()->isa_rawptr() != NULL)) ||
+           uncast_base->is_ShenandoahBarrier(), "sanity");
   }
   return base;
 }

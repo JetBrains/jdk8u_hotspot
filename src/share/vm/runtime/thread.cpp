@@ -1244,6 +1244,13 @@ WatcherThread::WatcherThread() : Thread(), _crash_protection(NULL) {
   if (os::create_thread(this, os::watcher_thread)) {
     _watcher_thread = this;
 
+    // WatcherThread needs GCLAB for cases when it writes to Java heap,
+    // and needs the space to evacuate. Have to initialize here, because
+    // WatcherThread is initialized before the Universe.
+    if (UseShenandoahGC && UseTLAB) {
+      gclab().initialize(true);
+    }
+
     // Set the watcher thread to the highest OS priority which should not be
     // used, unless a Java thread with priority java.lang.Thread.MAX_PRIORITY
     // is created. The only normal thread using this priority is the reference
@@ -1712,7 +1719,7 @@ void JavaThread::thread_main_inner() {
 
 static void ensure_join(JavaThread* thread) {
   // We do not need to grap the Threads_lock, since we are operating on ourself.
-  Handle threadObj(thread, oopDesc::bs()->write_barrier(thread->threadObj()));
+  Handle threadObj(thread, thread->threadObj());
   assert(threadObj.not_null(), "java thread object must exist");
   ObjectLocker lock(threadObj, thread);
   // Ignore pending exception (ThreadDeath), since we are exiting anyway
@@ -1963,6 +1970,8 @@ void JavaThread::initialize_queues() {
   // The dirty card queue should have been constructed with its
   // active field set to true.
   assert(dirty_queue.is_active(), "dirty card queue should be active");
+
+  _evacuation_in_progress = _evacuation_in_progress_global;
 }
 
 bool JavaThread::evacuation_in_progress() const {
@@ -1974,8 +1983,9 @@ void JavaThread::set_evacuation_in_progress(bool in_prog) {
 }
 
 void JavaThread::set_evacuation_in_progress_all_threads(bool in_prog) {
+  assert_locked_or_safepoint(Threads_lock);
   _evacuation_in_progress_global = in_prog;
-  for (JavaThread* t = Threads::first(); t; t = t->next()) {
+  for (JavaThread* t = Threads::first(); t != NULL; t = t->next()) {
     t->set_evacuation_in_progress(in_prog);
   }
 }
@@ -4038,9 +4048,6 @@ bool Threads::destroy_vm() {
 
   thread->exit(true);
 
-  // Stop GC threads.
-  Universe::heap()->shutdown();
-
   // Stop VM thread.
   {
     // 4945125 The vm thread comes to a safepoint during exit.
@@ -4211,7 +4218,8 @@ void Threads::possibly_parallel_oops_do(OopClosure* f, CLDClosure* cld_f, CodeBl
   bool is_par = sh->n_par_threads() > 0;
   assert(!is_par ||
          (SharedHeap::heap()->n_par_threads() ==
-          SharedHeap::heap()->workers()->active_workers()) || UseShenandoahGC, "Mismatch");
+          SharedHeap::heap()->workers()->active_workers()
+	  || UseShenandoahGC), "Mismatch");
   int cp = SharedHeap::heap()->strong_roots_parity();
   ALL_JAVA_THREADS(p) {
     if (p->claim_oops_do(is_par, cp)) {

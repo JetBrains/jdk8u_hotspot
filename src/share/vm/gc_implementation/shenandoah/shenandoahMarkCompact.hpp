@@ -26,7 +26,7 @@
 
 #include "memory/allocation.hpp"
 
-class HeapWord;
+class STWGCTimer;
 class ShenandoahHeapRegionSet;
 
 /**
@@ -43,10 +43,12 @@ class ShenandoahHeapRegionSet;
  */
 
 class ShenandoahMarkCompact: AllStatic {
+private:
+  static STWGCTimer* _gc_timer;
 
 public:
-
-  static void do_mark_compact();
+  static void initialize();
+  static void do_mark_compact(GCCause::Cause gc_cause);
 
 private:
 
@@ -54,7 +56,6 @@ private:
   static void phase2_calculate_target_addresses(ShenandoahHeapRegionSet** copy_queues);
   static void phase3_update_references();
   static void phase4_compact_objects(ShenandoahHeapRegionSet** copy_queues);
-  static void finish_compaction(HeapWord* last_addr);
 
   static void allocate_stacks();
 };

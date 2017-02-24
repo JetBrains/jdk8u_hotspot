@@ -43,6 +43,8 @@
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/g1/heapRegion.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #endif // INCLUDE_ALL_GCS
 
 #ifdef PRODUCT
@@ -1082,6 +1084,8 @@ int MacroAssembler::biased_locking_enter(Register lock_reg,
   Address mark_addr      (obj_reg, oopDesc::mark_offset_in_bytes());
   Address saved_mark_addr(lock_reg, 0);
 
+  shenandoah_store_addr_check(obj_reg);
+
   if (PrintBiasedLockingStatistics && counters == NULL) {
     counters = BiasedLocking::counters();
   }
@@ -1157,7 +1161,7 @@ int MacroAssembler::biased_locking_enter(Register lock_reg,
   // the prototype header is no longer biased and we have to revoke
   // the bias on this object.
   testptr(header_reg, markOopDesc::biased_lock_mask_in_place);
-  jccb(Assembler::notZero, try_revoke_bias);
+  jccb_if_possible(Assembler::notZero, try_revoke_bias);
 
   // Biasing is still enabled for this data type. See whether the
   // epoch of the current bias is still valid, meaning that the epoch
@@ -1169,7 +1173,7 @@ int MacroAssembler::biased_locking_enter(Register lock_reg,
   // otherwise the manipulations it performs on the mark word are
   // illegal.
   testptr(header_reg, markOopDesc::epoch_mask_in_place);
-  jccb(Assembler::notZero, try_rebias);
+  jccb_if_possible(Assembler::notZero, try_rebias);
 
   // The epoch of the current bias is still valid but we know nothing
   // about the owner; it might be set or it might be clear. Try to
@@ -1296,6 +1300,7 @@ void MacroAssembler::biased_locking_exit(Register obj_reg, Register temp_reg, La
   // a higher level. Second, if the bias was revoked while we held the
   // lock, the object could not be rebiased toward another thread, so
   // the bias bit would be clear.
+  shenandoah_store_addr_check(obj_reg); // Access mark word
   movptr(temp_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
   andptr(temp_reg, markOopDesc::biased_lock_mask_in_place);
   cmpptr(temp_reg, markOopDesc::biased_lock_pattern);
@@ -1489,6 +1494,7 @@ void MacroAssembler::rtm_stack_locking(Register objReg, Register tmpReg, Registe
     movl(retry_on_abort_count_Reg, RTMRetryCount); // Retry on abort
     bind(L_rtm_retry);
   }
+  shenandoah_store_addr_check(objReg); // Access mark word
   movptr(tmpReg, Address(objReg, 0));
   testptr(tmpReg, markOopDesc::monitor_value);  // inflated vs stack-locked|neutral|biased
   jcc(Assembler::notZero, IsInflated);
@@ -1504,6 +1510,7 @@ void MacroAssembler::rtm_stack_locking(Register objReg, Register tmpReg, Registe
     bind(L_noincrement);
   }
   xbegin(L_on_abort);
+  shenandoah_store_addr_check(objReg); // Access mark word
   movptr(tmpReg, Address(objReg, 0));       // fetch markword
   andptr(tmpReg, markOopDesc::biased_lock_mask_in_place); // look at 3 lock bits
   cmpptr(tmpReg, markOopDesc::unlocked_value);            // bits = 001 unlocked
@@ -1566,6 +1573,7 @@ void MacroAssembler::rtm_inflated_locking(Register objReg, Register boxReg, Regi
     bind(L_noincrement);
   }
   xbegin(L_on_abort);
+  shenandoah_store_addr_check(objReg); // Access mark word
   movptr(tmpReg, Address(objReg, 0));
   movptr(tmpReg, Address(tmpReg, owner_offset));
   testptr(tmpReg, tmpReg);
@@ -1712,6 +1720,8 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
     assert_different_registers(objReg, boxReg, tmpReg, scrReg);
   }
 
+  shenandoah_store_addr_check(objReg); // Access mark word
+
   if (counters != NULL) {
     atomic_incl(ExternalAddress((address)counters->total_entry_count_addr()), scrReg);
   }
@@ -1782,7 +1792,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
 
     movptr(tmpReg, Address(objReg, 0));          // [FETCH]
     testptr(tmpReg, markOopDesc::monitor_value); // inflated vs stack-locked|neutral|biased
-    jccb(Assembler::notZero, IsInflated);
+    jccb_if_possible(Assembler::notZero, IsInflated);
 
     // Attempt stack-locking ...
     orptr (tmpReg, markOopDesc::unlocked_value);
@@ -1873,7 +1883,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
          // Test-And-CAS instead of CAS
          movptr(tmpReg, Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2));   // rax, = m->_owner
          testptr(tmpReg, tmpReg);                   // Locked ?
-         jccb  (Assembler::notZero, DONE_LABEL);
+         jccb_if_possible(Assembler::notZero, DONE_LABEL);
        }
 
        // Appears unlocked - try to swing _owner from null to non-null.
@@ -1889,7 +1899,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
        }
        cmpxchgptr(scrReg, Address(boxReg, ObjectMonitor::owner_offset_in_bytes()-2));
        movptr(Address(scrReg, 0), 3);          // box->_displaced_header = 3
-       jccb  (Assembler::notZero, DONE_LABEL);
+       jccb_if_possible(Assembler::notZero, DONE_LABEL);
        get_thread (scrReg);                    // beware: clobbers ICCs
        movptr(Address(boxReg, ObjectMonitor::owner_offset_in_bytes()-2), scrReg);
        xorptr(boxReg, boxReg);                 // set icc.ZFlag = 1 to indicate success
@@ -1918,7 +1928,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
          // Can suffer RTS->RTO upgrades on shared or cold $ lines
          movptr(tmpReg, Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2));   // rax, = m->_owner
          testptr(tmpReg, tmpReg);                   // Locked ?
-         jccb  (Assembler::notZero, DONE_LABEL);
+         jccb_if_possible(Assembler::notZero, DONE_LABEL);
        }
 
        // Appears unlocked - try to swing _owner from null to non-null.
@@ -1953,7 +1963,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
     movptr (boxReg, tmpReg);
     movptr (tmpReg, Address(boxReg, ObjectMonitor::owner_offset_in_bytes()-2));
     testptr(tmpReg, tmpReg);
-    jccb   (Assembler::notZero, DONE_LABEL);
+    jccb_if_possible(Assembler::notZero, DONE_LABEL);
 
     // It's inflated and appears unlocked
     if (os::is_MP()) {
@@ -2010,6 +2020,8 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
 void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpReg, bool use_rtm) {
   assert(boxReg == rax, "");
   assert_different_registers(objReg, boxReg, tmpReg);
+
+  shenandoah_store_addr_check(objReg); // Access mark word
 
   if (EmitSync & 4) {
     // Disable - inhibit all inlining.  Force control through the slow-path
@@ -2071,7 +2083,7 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
       testptr(boxReg, boxReg);
       jccb(Assembler::notZero, L_regular_inflated_unlock);
       xend();
-      jmpb(DONE_LABEL);
+      jmpb_if_possible(DONE_LABEL);
       bind(L_regular_inflated_unlock);
     }
 #endif
@@ -2115,18 +2127,18 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
        orptr(boxReg, Address (tmpReg, ObjectMonitor::recursions_offset_in_bytes()-2));
        orptr(boxReg, Address (tmpReg, ObjectMonitor::EntryList_offset_in_bytes()-2));
        orptr(boxReg, Address (tmpReg, ObjectMonitor::cxq_offset_in_bytes()-2));
-       jccb  (Assembler::notZero, DONE_LABEL);
+       jccb_if_possible(Assembler::notZero, DONE_LABEL);
        movptr(Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2), NULL_WORD);
-       jmpb  (DONE_LABEL);
+       jmpb_if_possible(DONE_LABEL);
     } else {
        xorptr(boxReg, Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2));
        orptr(boxReg, Address (tmpReg, ObjectMonitor::recursions_offset_in_bytes()-2));
-       jccb  (Assembler::notZero, DONE_LABEL);
+       jccb_if_possible(Assembler::notZero, DONE_LABEL);
        movptr(boxReg, Address (tmpReg, ObjectMonitor::EntryList_offset_in_bytes()-2));
        orptr(boxReg, Address (tmpReg, ObjectMonitor::cxq_offset_in_bytes()-2));
-       jccb  (Assembler::notZero, CheckSucc);
+       jccb_if_possible(Assembler::notZero, CheckSucc);
        movptr(Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2), NULL_WORD);
-       jmpb  (DONE_LABEL);
+       jmpb_if_possible(DONE_LABEL);
     }
 
     // The Following code fragment (EmitSync & 65536) improves the performance of
@@ -2198,11 +2210,11 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
 
        bind  (LGoSlowPath);
        orptr(boxReg, 1);                      // set ICC.ZF=0 to indicate failure
-       jmpb  (DONE_LABEL);
+       jmpb_if_possible(DONE_LABEL);
 
        bind  (LSuccess);
        xorptr(boxReg, boxReg);                 // set ICC.ZF=1 to indicate success
-       jmpb  (DONE_LABEL);
+       jmpb_if_possible(DONE_LABEL);
     }
 
     bind (Stacked);
@@ -2231,12 +2243,12 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
     movptr(boxReg, Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2));
     xorptr(boxReg, r15_thread);
     orptr (boxReg, Address (tmpReg, ObjectMonitor::recursions_offset_in_bytes()-2));
-    jccb  (Assembler::notZero, DONE_LABEL);
+    jccb_if_possible(Assembler::notZero, DONE_LABEL);
     movptr(boxReg, Address (tmpReg, ObjectMonitor::cxq_offset_in_bytes()-2));
     orptr (boxReg, Address (tmpReg, ObjectMonitor::EntryList_offset_in_bytes()-2));
     jccb  (Assembler::notZero, CheckSucc);
     movptr(Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2), (int32_t)NULL_WORD);
-    jmpb  (DONE_LABEL);
+    jmpb_if_possible(DONE_LABEL);
 
     if ((EmitSync & 65536) == 0) {
       Label LSuccess, LGoSlowPath ;
@@ -2263,11 +2275,11 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
 
       bind  (LGoSlowPath);
       orl   (boxReg, 1);                      // set ICC.ZF=0 to indicate failure
-      jmpb  (DONE_LABEL);
+      jmpb_if_possible(DONE_LABEL);
 
       bind  (LSuccess);
       testl (boxReg, 0);                      // set ICC.ZF=1 to indicate success
-      jmpb  (DONE_LABEL);
+      jmpb_if_possible(DONE_LABEL);
     }
 
     bind  (Stacked);
@@ -3861,6 +3873,92 @@ void MacroAssembler::serialize_memory(Register thread, Register tmp) {
   movl(as_Address(ArrayAddress(page, index)), tmp);
 }
 
+// Special Shenandoah CAS implementation that handles false negatives
+// due to concurrent evacuation.
+void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register oldval, Register newval,
+                              bool exchange,
+                              Register tmp1, Register tmp2) {
+  assert (UseShenandoahGC, "Should only be used with Shenandoah");
+  assert(oldval == rax, "must be in rax for implicit use in cmpxchg");
+
+  Label retry, done;
+
+  // Remember oldval for retry logic below
+  if (UseCompressedOops) {
+    movl(tmp1, oldval);
+  } else {
+    movptr(tmp1, oldval);
+  }
+
+  // Step 1. Try to CAS with given arguments. If successful, then we are done,
+  // and can safely return.
+  if (os::is_MP()) lock();
+  if (UseCompressedOops) {
+    cmpxchgl(newval, addr);
+  } else {
+    cmpxchgptr(newval, addr);
+  }
+  jcc(Assembler::equal, done, true);
+
+  // Step 2. CAS had failed. This may be a false negative.
+  //
+  // The trouble comes when we compare the to-space pointer with the from-space
+  // pointer to the same object. To resolve this, it will suffice to read both
+  // oldval and the value from memory through the read barriers -- this will give
+  // both to-space pointers. If they mismatch, then it was a legitimate failure.
+  //
+  if (UseCompressedOops) {
+    decode_heap_oop(tmp1);
+  }
+  oopDesc::bs()->interpreter_read_barrier(this, tmp1);
+
+  if (UseCompressedOops) {
+    movl(tmp2, oldval);
+    decode_heap_oop(tmp2);
+  } else {
+    movptr(tmp2, oldval);
+  }
+  oopDesc::bs()->interpreter_read_barrier(this, tmp2);
+
+  cmpptr(tmp1, tmp2);
+  jcc(Assembler::notEqual, done, true);
+
+  // Step 3. Try to CAS again with resolved to-space pointers.
+  //
+  // Corner case: it may happen that somebody stored the from-space pointer
+  // to memory while we were preparing for retry. Therefore, we can fail again
+  // on retry, and so need to do this in loop, always re-reading the failure
+  // witness through the read barrier.
+  bind(retry);
+  if (os::is_MP()) lock();
+  if (UseCompressedOops) {
+    cmpxchgl(newval, addr);
+  } else {
+    cmpxchgptr(newval, addr);
+  }
+  jcc(Assembler::equal, done, true);
+
+  if (UseCompressedOops) {
+    movl(tmp2, oldval);
+    decode_heap_oop(tmp2);
+  } else {
+    movptr(tmp2, oldval);
+  }
+  oopDesc::bs()->interpreter_read_barrier(this, tmp2);
+
+  cmpptr(tmp1, tmp2);
+  jcc(Assembler::equal, retry, true);
+
+  // Step 4. If we need a boolean result out of CAS, check the flag again,
+  // and promote the result. Note that we handle the flag from both the CAS
+  // itself and from the retry loop.
+  bind(done);
+  if (!exchange) {
+    setb(Assembler::equal, res);
+    movzbl(res, res);
+  }
+}
+
 // Calls to C land
 //
 // When entering C land, the rbp, & rsp of the last Java frame have to be recorded
@@ -4336,6 +4434,34 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
 #endif
   pop(new_val);
   pop(store_addr);
+
+  bind(done);
+}
+
+void MacroAssembler::shenandoah_write_barrier(Register dst) {
+  assert(UseShenandoahGC, "must only be called with Shenandoah GC active");
+
+  Label done;
+
+  // Check for evacuation-in-progress
+  Address evacuation_in_progress = Address(r15_thread, in_bytes(JavaThread::evacuation_in_progress_offset()));
+  cmpb(evacuation_in_progress, 0);
+
+  // The read-barrier.
+  movptr(dst, Address(dst, BrooksPointer::byte_offset()));
+
+  jccb(Assembler::equal, done);
+
+  if (dst != rax) {
+    xchgptr(dst, rax); // Move obj into rax and save rax into obj.
+  }
+
+  assert(StubRoutines::x86::shenandoah_wb() != NULL, "need write barrier stub");
+  call(RuntimeAddress(CAST_FROM_FN_PTR(address, StubRoutines::x86::shenandoah_wb())));
+
+  if (dst != rax) {
+    xchgptr(rax, dst); // Swap back obj with rax.
+  }
 
   bind(done);
 }
@@ -5219,6 +5345,169 @@ void MacroAssembler::verify_oop(Register reg, const char* s) {
   BLOCK_COMMENT("} verify_oop");
 }
 
+
+void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
+  ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
+
+  HeapWord* first_region_bottom = h->first_region_bottom();
+  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize) * h->max_regions();
+  guarantee(first_region_bottom < last_region_end, err_msg("sanity: %p < %p", first_region_bottom, last_region_end));
+  movptr(tmp, (intptr_t) first_region_bottom);
+  cmpptr(raddr, tmp);
+  jcc(Assembler::below, done);
+  movptr(tmp, (intptr_t) last_region_end);
+  cmpptr(raddr, tmp);
+  jcc(Assembler::aboveEqual, done);
+
+}
+
+void MacroAssembler::shenandoah_cset_check(Register raddr, Register tmp1, Register tmp2, Label& done) {
+  // Test that oop is not in to-space.
+  movptr(tmp1, raddr);
+  shrptr(tmp1, ShenandoahHeapRegion::RegionSizeShift);
+  movptr(tmp2, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
+  movbool(tmp2, Address(tmp2, tmp1, Address::times_1));
+  testbool(tmp2);
+  jcc(Assembler::zero, done);
+
+  // Check for cancelled GC.
+  movptr(tmp2, (intptr_t) ShenandoahHeap::cancelled_concgc_addr());
+  movbool(tmp2, Address(tmp2, 0));
+  testbool(tmp2);
+  jcc(Assembler::notZero, done);
+
+}
+
+void MacroAssembler::_shenandoah_store_addr_check(Address addr, const char* msg, const char* file, int line) {
+  _shenandoah_store_addr_check(addr.base(), msg, file, line);
+}
+
+void MacroAssembler::_shenandoah_store_addr_check(Register dst, const char* msg, const char* file, int line) {
+  if (! UseShenandoahGC || ! ShenandoahStoreCheck) return;
+  if (dst == rsp) return; // Stack-based target
+
+  Register raddr = r9;
+  Register tmp1 = r10;
+  Register tmp2 = r11;
+
+  Label done;
+
+  pushf();
+  push(raddr);
+  push(tmp1);
+  push(tmp2);
+
+  movptr(raddr, dst);
+
+  // Check null.
+  testptr(raddr, raddr);
+  jcc(Assembler::zero, done);
+
+  in_heap_check(raddr, tmp1, done);
+  shenandoah_cset_check(raddr, tmp1, tmp2, done);
+
+  // Fail.
+  pop(tmp2);
+  pop(tmp1);
+  pop(raddr);
+  popf();
+  const char* b = NULL;
+  {
+    ResourceMark rm;
+    stringStream ss;
+    ss.print("shenandoah_store_check: %s in file: %s line: %i", msg, file, line);
+    b = code_string(ss.as_string());
+  }
+  stop(b);
+
+  bind(done);
+
+  pop(tmp2);
+  pop(tmp1);
+  pop(raddr);
+  popf();
+}
+
+void MacroAssembler::_shenandoah_store_check(Register dst, Register value, const char* msg, const char* file, int line) {
+  if (! UseShenandoahGC || ! ShenandoahStoreCheck) return;
+  if (dst == rsp) return; // Stack-based target
+
+  Register raddr = r8;
+  Register rval =  r9;
+  Register tmp1 = r10;
+  Register tmp2 = r11;
+
+  // Push tmp regs and flags.
+  pushf();
+  push(raddr);
+  push(rval);
+  push(tmp1);
+  push(tmp2);
+
+  movptr(raddr, dst);
+  movptr(rval, value);
+
+  Label done;
+
+  // If not in-heap target, skip check.
+  in_heap_check(raddr, tmp1, done);
+
+  // Test that target oop is not in to-space.
+  shenandoah_cset_check(raddr, tmp1, tmp2, done);
+
+  // Do value-check only when concurrent mark is in progress.
+  movptr(tmp1, (intptr_t) ShenandoahHeap::concurrent_mark_in_progress_addr());
+  movbool(tmp1, Address(tmp1, 0));
+  testbool(tmp1);
+  jcc(Assembler::zero, done);
+
+  // Null-check value.
+  testptr(rval, rval);
+  jcc(Assembler::zero, done);
+
+  // Test that value oop is not in to-space.
+  shenandoah_cset_check(rval, tmp1, tmp2, done);
+
+  // Failure.
+  // Pop tmp regs and flags.
+  pop(tmp2);
+  pop(tmp1);
+  pop(rval);
+  pop(raddr);
+  popf();
+  const char* b = NULL;
+  {
+    ResourceMark rm;
+    stringStream ss;
+    ss.print("shenandoah_store_check: %s in file: %s line: %i", msg, file, line);
+    b = code_string(ss.as_string());
+  }
+  stop(b);
+
+  bind(done);
+
+  // Pop tmp regs and flags.
+  pop(tmp2);
+  pop(tmp1);
+  pop(rval);
+  pop(raddr);
+  popf();
+}
+
+void MacroAssembler::_shenandoah_store_check(Address addr, Register value, const char* msg, const char* file, int line) {
+  _shenandoah_store_check(addr.base(), value, msg, file, line);
+}
+
+void MacroAssembler::_shenandoah_lock_check(Register dst, const char* msg, const char* file, int line) {
+#ifdef ASSERT
+  if (! UseShenandoahGC || ! ShenandoahStoreCheck) return;
+
+  push(r8);
+  movptr(r8, Address(dst, BasicObjectLock::obj_offset_in_bytes()));
+  _shenandoah_store_addr_check(r8, msg, file, line);
+  pop(r8);
+#endif
+}
 
 RegisterOrConstant MacroAssembler::delayed_value_impl(intptr_t* delayed_value_addr,
                                                       Register tmp,
@@ -6884,6 +7173,9 @@ void MacroAssembler::char_arrays_equals(bool is_array_equ, Register ary1, Regist
 
   // Check the input args
   cmpptr(ary1, ary2);
+  if (is_array_equ) {
+    oopDesc::bs()->asm_acmp_barrier(this, ary1, ary2);
+  }
   jcc(Assembler::equal, TRUE_LABEL);
 
   if (is_array_equ) {

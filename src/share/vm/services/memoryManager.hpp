@@ -65,7 +65,8 @@ public:
     PSMarkSweep,
     G1YoungGen,
     G1OldGen,
-    Shenandoah
+    ShenandoahMinor,
+    ShenandoahMajor
   };
 
   MemoryManager();
@@ -99,8 +100,8 @@ public:
   static GCMemoryManager* get_psMarkSweep_memory_manager();
   static GCMemoryManager* get_g1YoungGen_memory_manager();
   static GCMemoryManager* get_g1OldGen_memory_manager();
-  static GCMemoryManager* get_shenandoah_memory_manager();
-
+  static GCMemoryManager* get_shenandoah_minor_memory_manager();
+  static GCMemoryManager* get_shenandoah_major_memory_manager();
 };
 
 class CodeCacheMemoryManager : public MemoryManager {
@@ -286,14 +287,19 @@ public:
   const char* name()         { return "G1 Old Generation"; }
 };
 
-class ShenandoahMemoryManager : public GCMemoryManager {
-private:
+class ShenandoahMinorMemoryManager : public GCMemoryManager {
 public:
-  ShenandoahMemoryManager() : GCMemoryManager() {}
+  ShenandoahMinorMemoryManager() : GCMemoryManager() {}
 
-  MemoryManager::Name kind() { return MemoryManager::Shenandoah; }
-  const char* name()         { return "Shenandoah";}
-
+  MemoryManager::Name kind() { return MemoryManager::ShenandoahMinor; }
+  const char* name()         { return "Shenandoah Minor"; }
 };
 
+class ShenandoahMajorMemoryManager : public GCMemoryManager {
+public:
+  ShenandoahMajorMemoryManager() : GCMemoryManager() {}
+
+  MemoryManager::Name kind() { return MemoryManager::ShenandoahMajor; }
+  const char* name()         { return "Shenandoah Major"; }
+};
 #endif // SHARE_VM_SERVICES_MEMORYMANAGER_HPP

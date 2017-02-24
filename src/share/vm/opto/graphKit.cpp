@@ -26,8 +26,8 @@
 #include "compiler/compileLog.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/g1/heapRegion.hpp"
-#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_interface/collectedHeap.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "memory/barrierSet.hpp"
 #include "memory/cardTableModRefBS.hpp"
 #include "opto/addnode.hpp"
@@ -1168,7 +1168,7 @@ Node* GraphKit::load_array_length(Node* array) {
       array = shenandoah_read_barrier(array);
     }
 
-   Node *r_adr = basic_plus_adr(array, arrayOopDesc::length_offset_in_bytes());
+    Node *r_adr = basic_plus_adr(array, arrayOopDesc::length_offset_in_bytes());
     alen = _gvn.transform( new (C) LoadRangeNode(0, immutable_memory(), r_adr, TypeInt::POS));
   } else {
     alen = alloc->Ideal_length();
@@ -2926,12 +2926,12 @@ Node* GraphKit::gen_instanceof(Node* obj, Node* superklass, bool safe_for_replac
     }
   }
 
-  // Load the object's klass
-  Node* obj_klass = load_object_klass(not_null_obj);
-
   if (ShenandoahVerifyReadsToFromSpace) {
     not_null_obj = shenandoah_read_barrier(not_null_obj);
   }
+
+  // Load the object's klass
+  Node* obj_klass = load_object_klass(not_null_obj);
 
   // Generate the subtype check
   Node* not_subtype_ctrl = gen_subtype_check(obj_klass, superklass);
@@ -3869,6 +3869,15 @@ void GraphKit::write_barrier_post(Node* oop_store,
   final_sync(ideal);
 }
 
+static void g1_write_barrier_pre_helper(const GraphKit& kit, Node* adr) {
+  if (UseShenandoahGC && adr != NULL) {
+    Node* c = kit.control();
+    Node* call = c->in(1)->in(1)->in(1)->in(0);
+    assert(call->is_g1_wb_pre_call(), "g1_wb_pre call expected");
+    call->add_req(adr);
+  }
+}
+
 // G1 pre/post barriers
 void GraphKit::g1_write_barrier_pre(bool do_load,
                                     Node* obj,
@@ -3967,6 +3976,7 @@ void GraphKit::g1_write_barrier_pre(bool do_load,
 
   // Final sync IdealKit and GraphKit.
   final_sync(ideal);
+  g1_write_barrier_pre_helper(*this, adr);
 }
 
 //
@@ -4124,11 +4134,6 @@ Node* GraphKit::load_String_offset(Node* ctrl, Node* str) {
                                                        false, NULL, 0);
     const TypePtr* offset_field_type = string_type->add_offset(offset_offset);
     int offset_field_idx = C->get_alias_index(offset_field_type);
-
-    if (! ShenandoahOptimizeFinals) {
-      str = shenandoah_read_barrier(str);
-    }
-
     return make_load(ctrl,
                      basic_plus_adr(str, str, offset_offset),
                      TypeInt::INT, T_INT, offset_field_idx, MemNode::unordered);
@@ -4189,7 +4194,7 @@ void GraphKit::store_String_offset(Node* ctrl, Node* str, Node* value) {
 
   str = shenandoah_write_barrier(str);
 
-  store_to_memory(control(), basic_plus_adr(str, offset_offset),
+  store_to_memory(ctrl, basic_plus_adr(str, offset_offset),
                   value, T_INT, offset_field_idx, MemNode::unordered);
 }
 
@@ -4199,10 +4204,10 @@ void GraphKit::store_String_value(Node* ctrl, Node* str, Node* value) {
                                                      false, NULL, 0);
   const TypePtr* value_field_type = string_type->add_offset(value_offset);
 
+  value = shenandoah_read_barrier_storeval(value);
   str = shenandoah_write_barrier(str);
-  value = shenandoah_read_barrier_nomem(value);
 
-  store_oop_to_object(control(), str,  basic_plus_adr(str, value_offset), value_field_type,
+  store_oop_to_object(ctrl, str,  basic_plus_adr(str, value_offset), value_field_type,
       value, TypeAryPtr::CHARS, T_OBJECT, MemNode::unordered);
 }
 
@@ -4215,7 +4220,7 @@ void GraphKit::store_String_length(Node* ctrl, Node* str, Node* value) {
 
   str = shenandoah_write_barrier(str);
 
-  store_to_memory(control(), basic_plus_adr(str, count_offset),
+  store_to_memory(ctrl, basic_plus_adr(str, count_offset),
                   value, T_INT, count_field_idx, MemNode::unordered);
 }
 
@@ -4226,24 +4231,24 @@ Node* GraphKit::cast_array_to_stable(Node* ary, const TypeAryPtr* ary_type) {
 }
 
 Node* GraphKit::shenandoah_read_barrier(Node* obj) {
-  return shenandoah_read_barrier_impl(obj, false, true);
+  return shenandoah_read_barrier_impl(obj, false, true, true);
 }
 
-Node* GraphKit::shenandoah_read_barrier_nomem(Node* obj) {
-  return shenandoah_read_barrier_impl(obj, false, false);
+Node* GraphKit::shenandoah_read_barrier_storeval(Node* obj) {
+  return shenandoah_read_barrier_impl(obj, true, false, false);
 }
 
-Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_mem) {
+Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_mem, bool allow_fromspace) {
 
   if (UseShenandoahGC && ShenandoahReadBarrier) {
     const Type* obj_type = obj->bottom_type();
     if (obj_type->higher_equal(TypePtr::NULL_PTR)) {
       return obj;
     }
-    const TypePtr* adr_type = obj_type->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
+    const TypePtr* adr_type = ShenandoahBarrierNode::brooks_pointer_type(obj_type);
     Node* mem = use_mem ? memory(adr_type) : immutable_memory();
 
-    if (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, obj, mem, use_mem)) {
+    if (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, obj, mem, allow_fromspace)) {
       // We know it is null, no barrier needed.
       return obj;
     }
@@ -4259,10 +4264,10 @@ Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_
       Node* not_null_obj = null_check_oop(obj, &null_ctrl);
 
       region->init_req(_null_path, null_ctrl);
-      phi   ->init_req(_null_path, obj);
+      phi   ->init_req(_null_path, zerocon(T_OBJECT));
 
       Node* ctrl = use_ctrl ? control() : NULL;
-      ShenandoahReadBarrierNode* rb = new (C) ShenandoahReadBarrierNode(ctrl, mem, not_null_obj, use_mem);
+      ShenandoahReadBarrierNode* rb = new (C) ShenandoahReadBarrierNode(ctrl, mem, not_null_obj, allow_fromspace);
       Node* n = _gvn.transform(rb);
 
       region->init_req(_not_null_path, control());
@@ -4275,7 +4280,7 @@ Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_
     } else {
       // We know it is not null. Simple barrier is sufficient.
       Node* ctrl = use_ctrl ? control() : NULL;
-      ShenandoahReadBarrierNode* rb = new (C) ShenandoahReadBarrierNode(ctrl, mem, obj, use_mem);
+      ShenandoahReadBarrierNode* rb = new (C) ShenandoahReadBarrierNode(ctrl, mem, obj, allow_fromspace);
       Node* n = _gvn.transform(rb);
       record_for_igvn(n);
       return n;
@@ -4286,6 +4291,17 @@ Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_
   }
 }
 
+static Node* shenandoah_write_barrier_helper(GraphKit& kit, Node* obj, const TypePtr* adr_type) {
+  ShenandoahWriteBarrierNode* wb = new (kit.C) ShenandoahWriteBarrierNode(kit.C, kit.control(), kit.memory(adr_type), obj);
+  Node* n = kit.gvn().transform(wb);
+  if (n == wb) { // New barrier needs memory projection.
+    Node* proj = kit.gvn().transform(new (kit.C) ShenandoahWBMemProjNode(n));
+    kit.set_memory(proj, adr_type);
+  }
+
+  return n;
+}
+
 Node* GraphKit::shenandoah_write_barrier(Node* obj) {
 
   if (UseShenandoahGC && ShenandoahWriteBarrier) {
@@ -4294,7 +4310,7 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
       return obj;
     }
     const Type* obj_type = obj->bottom_type();
-    const TypePtr* adr_type = obj_type->is_ptr()->add_offset(BrooksPointer::BYTE_OFFSET);
+    const TypePtr* adr_type = ShenandoahBarrierNode::brooks_pointer_type(obj_type);
     if (obj_type->meet(TypePtr::NULL_PTR) == obj_type->remove_speculative()) {
       // We don't know if it's null or not. Need null-check.
       enum { _not_null_path = 1, _null_path, PATH_LIMIT };
@@ -4307,15 +4323,10 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
       Node* not_null_obj = null_check_oop(obj, &null_ctrl);
 
       region->init_req(_null_path, null_ctrl);
-      phi   ->init_req(_null_path, obj);
+      phi   ->init_req(_null_path, zerocon(T_OBJECT));
       memphi->init_req(_null_path, prev_mem);
 
-      ShenandoahWriteBarrierNode* wb = new (C) ShenandoahWriteBarrierNode(NULL, memory(adr_type), not_null_obj);
-      Node* n = _gvn.transform(wb);
-      if (n == wb) { // New barrier needs memory projection.
-        Node* proj = _gvn.transform(new (C) ShenandoahWBMemProjNode(n));
-        set_memory(proj, adr_type);
-      }
+      Node* n = shenandoah_write_barrier_helper(*this, not_null_obj, adr_type);
 
       region->init_req(_not_null_path, control());
       phi   ->init_req(_not_null_path, n);
@@ -4326,15 +4337,12 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
       set_memory(_gvn.transform(memphi), adr_type);
 
       Node* res_val = _gvn.transform(phi);
+      // replace_in_map(obj, res_val);
       return res_val;
     } else {
       // We know it is not null. Simple barrier is sufficient.
-      ShenandoahWriteBarrierNode* wb = new (C) ShenandoahWriteBarrierNode(NULL, memory(adr_type), obj);
-      Node* n = _gvn.transform(wb);
-      if (n == wb) {
-        Node* proj = _gvn.transform(new (C) ShenandoahWBMemProjNode(wb));
-        set_memory(proj, adr_type);
-      }
+      Node* n = shenandoah_write_barrier_helper(*this, obj, adr_type);
+      // replace_in_map(obj, n);
       record_for_igvn(n);
       return n;
     }
@@ -4345,7 +4353,7 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
 }
 
 /**
- * We need barriers on acmp (and similar instructions that compare two
+ * In Shenandoah, we need barriers on acmp (and similar instructions that compare two
  * oops) to avoid false negatives. If it compares a from-space and a to-space
  * copy of an object, a regular acmp would return false, even though both are
  * the same. The acmp barrier compares the two objects, and when they are
@@ -4353,31 +4361,36 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
  * failed because of different copies of the object, we know that the object
  * must already have been evacuated (and therefore doesn't require a write-barrier).
  */
-void GraphKit::shenandoah_acmp_barrier(Node*& a, Node*& b) {
+Node* GraphKit::cmp_objects(Node* a, Node* b) {
+  // TODO: Refactor into proper GC interface.
   if (UseShenandoahGC) {
     const Type* a_type = a->bottom_type();
     const Type* b_type = b->bottom_type();
     if (a_type->higher_equal(TypePtr::NULL_PTR) || b_type->higher_equal(TypePtr::NULL_PTR)) {
       // We know one arg is gonna be null. No need for barriers.
-      return;
+      return _gvn.transform(new (C) CmpPNode(b, a));
     }
-    if (a_type->is_oopptr()->const_oop() != NULL && b_type->is_oopptr()->const_oop() != NULL ) {
-      // We know one arg is inlined constant. No need for barriers.
-      return;
+
+    const TypePtr* a_adr_type = ShenandoahBarrierNode::brooks_pointer_type(a_type);
+    const TypePtr* b_adr_type = ShenandoahBarrierNode::brooks_pointer_type(b_type);
+    if ((! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, a, memory(a_adr_type), false)) &&
+        (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, b, memory(b_adr_type), false))) {
+      // We know both args are in to-space already. No acmp barrier needed.
+      return _gvn.transform(new (C) CmpPNode(b, a));
     }
-    if (a->Opcode() == Op_ShenandoahWriteBarrier && b->Opcode() == Op_ShenandoahWriteBarrier) {
-      // We know one arg is already write-barrier'd. No need for barriers.
-      return;
-    }
-    if (AllocateNode::Ideal_allocation(a, &_gvn) != NULL || AllocateNode::Ideal_allocation(b, &_gvn) != NULL) {
-      // We know one arg is already in to-space. No need for barriers.
-      return;
+
+    C->set_has_split_ifs(true);
+
+    if (ShenandoahVerifyOptoBarriers) {
+      a = shenandoah_write_barrier(a);
+      b = shenandoah_write_barrier(b);
+      return _gvn.transform(new (C) CmpPNode(b, a));
     }
 
     enum { _equal = 1, _not_equal, PATH_LIMIT };
     RegionNode* region = new (C) RegionNode(PATH_LIMIT);
-    PhiNode* phiA = PhiNode::make(region, a);
-    PhiNode* phiB = PhiNode::make(region, b);
+    PhiNode* phiA = PhiNode::make(region, a, _gvn.type(a)->is_oopptr()->cast_to_nonconst());
+    PhiNode* phiB = PhiNode::make(region, b, _gvn.type(b)->is_oopptr()->cast_to_nonconst());
 
     Node* cmp = _gvn.transform(new (C) CmpPNode(b, a));
     Node* tst = _gvn.transform(new (C) BoolNode(cmp, BoolTest::eq));
@@ -4392,19 +4405,59 @@ void GraphKit::shenandoah_acmp_barrier(Node*& a, Node*& b) {
     phiA->init_req(_equal, a);
     phiB->init_req(_equal, b);
 
+    uint alias_a = C->get_alias_index(a_adr_type);
+    uint alias_b = C->get_alias_index(b_adr_type);
+    PhiNode* mem_phi = NULL;
+    if (alias_a == alias_b) {
+      mem_phi = PhiNode::make(region, memory(alias_a), Type::MEMORY, C->get_adr_type(alias_a));
+    } else {
+      mem_phi = PhiNode::make(region, map()->memory(), Type::MEMORY, TypePtr::BOTTOM);
+    }
+
     // Unequal path: retry after read barriers.
     set_control(iffalse);
-    a = shenandoah_read_barrier_impl(a, true, true);
-    b = shenandoah_read_barrier_impl(b, true, true);
+    if (!iffalse->is_top()) {
+      Node* mb = NULL;
+      if (alias_a == alias_b) {
+        Node* mem = reset_memory();
+        mb = MemBarNode::make(C, Op_MemBarAcquire, alias_a);
+        mb->init_req(TypeFunc::Control, control());
+        mb->init_req(TypeFunc::Memory, mem);
+        Node* membar = _gvn.transform(mb);
+        set_control(_gvn.transform(new (C) ProjNode(membar, TypeFunc::Control)));
+        Node* newmem = _gvn.transform(new (C) ProjNode(membar, TypeFunc::Memory));
+        set_all_memory(mem);
+        set_memory(newmem, alias_a);
+      } else {
+        mb = insert_mem_bar(Op_MemBarAcquire);
+      }
+    } else {
+      a = top();
+      b = top();
+    }
+
+    a = shenandoah_read_barrier_impl(a, true, true, false);
+    b = shenandoah_read_barrier_impl(b, true, true, false);
 
     region->init_req(_not_equal, control());
     phiA->init_req(_not_equal, a);
     phiB->init_req(_not_equal, b);
-
+    if (alias_a == alias_b) {
+      mem_phi->init_req(_not_equal, memory(alias_a));
+      set_memory(mem_phi, alias_a);
+    } else {
+      mem_phi->init_req(_not_equal, reset_memory());
+      set_all_memory(mem_phi);
+    }
+    record_for_igvn(mem_phi);
+    _gvn.set_type(mem_phi, Type::MEMORY);
     set_control(_gvn.transform(region));
     record_for_igvn(region);
 
     a = _gvn.transform(phiA);
     b = _gvn.transform(phiB);
+    return _gvn.transform(new (C) CmpPNode(b, a));
+  } else {
+    return _gvn.transform(new (C) CmpPNode(b, a));
   }
 }

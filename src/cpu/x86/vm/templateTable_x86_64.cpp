@@ -1042,6 +1042,7 @@ void TemplateTable::bastore() {
   // ebx: index
   // rdx: array
   index_check(rdx, rbx); // prefer index in ebx
+  oopDesc::bs()->interpreter_write_barrier(_masm, rdx);
   // Need to check whether array is boolean or byte
   // since both types share the bastore bytecode.
   __ load_klass(rcx, rdx);
@@ -1052,7 +1053,6 @@ void TemplateTable::bastore() {
   __ jccb(Assembler::zero, L_skip);
   __ andl(rax, 1);  // if it is a T_BOOLEAN array, mask the stored value to 0/1
   __ bind(L_skip);
-  oopDesc::bs()->interpreter_write_barrier(_masm, rdx);
   __ movb(Address(rdx, rbx,
                   Address::times_1,
                   arrayOopDesc::base_offset_in_bytes(T_BYTE)),
@@ -3727,11 +3727,7 @@ void TemplateTable::monitorenter() {
                                      // starting with top-most entry
     __ lea(c_rarg2, monitor_block_bot); // points to word before bottom
                                      // of monitor block
-    if (UseShenandoahGC && ShenandoahVerifyReadsToFromSpace) {
-      __ jmp(entry);
-    } else {
-      __ jmpb(entry);
-    }
+    __ jmpb_if_possible(entry);
 
     __ bind(loop);
     // check if current entry is used
@@ -3739,9 +3735,8 @@ void TemplateTable::monitorenter() {
     // if not used then remember entry in c_rarg1
     __ cmov(Assembler::equal, c_rarg1, c_rarg3);
     // check if current entry is for same object
-    __ movptr(rscratch1, Address(c_rarg3, BasicObjectLock::obj_offset_in_bytes()));
-    oopDesc::bs()->interpreter_read_barrier(_masm, rscratch1);
-    __ cmpptr(rax, rscratch1);
+    __ shenandoah_lock_check(c_rarg3); // Invariant
+    __ cmpptr(rax, Address(c_rarg3, BasicObjectLock::obj_offset_in_bytes()));
     // if same object then stop searching
     __ jccb(Assembler::equal, exit);
     // otherwise advance to next entry
@@ -3790,6 +3785,7 @@ void TemplateTable::monitorenter() {
   __ increment(r13);
 
   // store object
+  __ shenandoah_store_addr_check(rax); // Invariant
   __ movptr(Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()), rax);
   __ lock_object(c_rarg1);
 
@@ -3829,17 +3825,12 @@ void TemplateTable::monitorexit() {
                                      // starting with top-most entry
     __ lea(c_rarg2, monitor_block_bot); // points to word before bottom
                                      // of monitor block
-    if (UseShenandoahGC && ShenandoahVerifyReadsToFromSpace) {
-      __ jmp(entry);
-    } else {
-      __ jmpb(entry);
-    }
+    __ jmpb_if_possible(entry);
 
     __ bind(loop);
     // check if current entry is for same object
-    __ movptr(rscratch1, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
-    oopDesc::bs()->interpreter_read_barrier(_masm, rscratch1);
-    __ cmpptr(rax, rscratch1);
+    __ shenandoah_lock_check(c_rarg1); // Invariant
+    __ cmpptr(rax, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
     // if same object then stop searching
     __ jcc(Assembler::equal, found);
     // otherwise advance to next entry

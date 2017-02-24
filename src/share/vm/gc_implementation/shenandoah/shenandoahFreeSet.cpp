@@ -22,13 +22,12 @@
  */
 
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.inline.hpp"
-#include "runtime/atomic.inline.hpp"
+#include "runtime/atomic.hpp"
 
 ShenandoahFreeSet::ShenandoahFreeSet(size_t max_regions) :
   ShenandoahHeapRegionSet(max_regions),
-  _write_index(0),
   _capacity(0),
   _used(0)
 {
@@ -38,8 +37,12 @@ ShenandoahFreeSet::~ShenandoahFreeSet() {
 }
 
 void ShenandoahFreeSet::increase_used(size_t num_bytes) {
-  assert(_used <= _capacity, "must not use more than we have");
-  Atomic::add_ptr((intptr_t) num_bytes, (intptr_t*) &_used);
+  assert_heaplock_owned_by_current_thread();
+  _used += num_bytes;
+
+  assert(_used <= _capacity, err_msg("must not use more than we have: used: "SIZE_FORMAT
+				     ", capacity: "SIZE_FORMAT", num_bytes: "SIZE_FORMAT,
+				     _used, _capacity, num_bytes));
 }
 
 size_t ShenandoahFreeSet::used() {
@@ -56,7 +59,8 @@ size_t ShenandoahFreeSet::capacity() {
  * the caller, how many regions to skip (because we know, there
  * can't start a contiguous range there).
  */
-size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t end, size_t num) {
+size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t num) {
+  assert_heaplock_owned_by_current_thread();
 
   ShenandoahHeapRegion* r1 = get(start);
 
@@ -65,8 +69,8 @@ size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t end, size_t num) {
   }
   for (size_t i = 1; i < num; i++) {
 
-    size_t index = (start + i) % _reserved_end;
-    if (index == end) {
+    size_t index = start + i;
+    if (index == _active_end) {
       // We reached the end of our free list.
       ShouldNotReachHere(); // We limit search in find_contiguous()
       return i;
@@ -83,148 +87,98 @@ size_t ShenandoahFreeSet::is_contiguous(size_t start, size_t end, size_t num) {
   return 0;
 }
 
-size_t ShenandoahFreeSet::find_contiguous(size_t start, size_t end, size_t num) {
+size_t ShenandoahFreeSet::find_contiguous(size_t start, size_t num) {
+  assert_heaplock_owned_by_current_thread();
 
   assert(start < _reserved_end, "sanity");
 
-  // The modulo will take care of wrapping around.
   size_t index = start;
-  while (index != end && diff_to_end(index, end) > num) {
+  while (index + num < _active_end) {
     assert(index < _reserved_end, "sanity");
-    size_t j = is_contiguous(index, end, num);
+    size_t j = is_contiguous(index, num);
     if (j == 0) {
       return index;
     }
-    index = (index + j) % _reserved_end;
+    index = index + j;
   }
   return SIZE_MAX;
 }
 
-void ShenandoahFreeSet::push_back_regions(size_t start, size_t end) {
-  if (start == end) return; // Nothing to do.
-  for (size_t i = start; i != end; i = (i + 1) % _reserved_end) {
-    ShenandoahHeapRegion* r = get(i);
-    // We subtract the capacity here, and add it back in par_add_region.
-    Atomic::add_ptr(- ((intptr_t)r->free()), (intptr_t*) &_capacity);
-  }
-  par_add_regions(_regions, start, diff_to_end(start, end), _reserved_end);
-}
-
 void ShenandoahFreeSet::initialize_humongous_regions(size_t first, size_t num) {
+  assert_heaplock_owned_by_current_thread();
   for (size_t i = 0; i < num; i++) {
-    ShenandoahHeapRegion* current = get((first + i) % _reserved_end);
+    ShenandoahHeapRegion* current = get(first + i);
     if (i == 0)
       current->set_humongous_start(true);
     else
       current->set_humongous_continuation(true);
 
+    assert(current->is_empty(), "must be empty");
     current->set_top(current->end());
-    current->increase_live_data(ShenandoahHeapRegion::RegionSizeBytes);
+    current->increase_live_data_words(ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize);
   }
   increase_used(ShenandoahHeapRegion::RegionSizeBytes * num);
   ShenandoahHeap::heap()->increase_used(ShenandoahHeapRegion::RegionSizeBytes * num);
 }
 
-size_t ShenandoahFreeSet::diff_to_end(size_t i, size_t end) const {
-  if (end <= i) {
-    end += _reserved_end;
-  }
-  assert(end > i, "sanity");
-  return end == i ? _capacity : end - i;
-}
-
-ShenandoahHeapRegion* ShenandoahFreeSet::claim_contiguous(size_t num) {
-  size_t current_idx = _current_index;
-  size_t next = (current_idx + 1) % _reserved_end;
-  size_t end = _active_end;
-  while (next != end && diff_to_end(next, end) > num) {
-    size_t first = find_contiguous(next, end, num);
+ShenandoahHeapRegion* ShenandoahFreeSet::allocate_contiguous(size_t num) {
+  assert_heaplock_owned_by_current_thread();
+  size_t next = _current_index;
+  while (next + num < _active_end) {
+    size_t first = find_contiguous(next, num);
     if (first == SIZE_MAX) return NULL;
-    size_t next_current = (first + num) % _reserved_end;
-    assert(next_current != end, "never set current==end");
-    do {
-      size_t result = (size_t) Atomic::cmpxchg((jlong) next_current, (jlong*) &_current_index, (jlong) current_idx);
-      if (result == current_idx) {
+    size_t next_current = first + num;
+    assert(next_current != _active_end, "never set current==end");
 
-        push_back_regions(next, first);
+    initialize_humongous_regions(first, num);
 
-        initialize_humongous_regions(first, num);
-        assert(current_index() != first, "current overlaps with contiguous regions");
-        return get(first);
-      }
+    return get(first);
 
-      current_idx = result;
-      assert(current_idx != end, "must not cross active-end");
-      next = (current_idx + 1) % _reserved_end;
-      end = _active_end;
-    } while (diff_to_end(current_idx, end) > diff_to_end(first, end));
   }
   return NULL;
 }
 
-void ShenandoahFreeSet::clear() {
-  _active_end = _current_index;
-  _write_index = _current_index;
-  _capacity = 0;
-  _used = 0;
-}
-
-void ShenandoahFreeSet::par_add_regions(ShenandoahHeapRegion** regions, size_t start, size_t num, size_t max) {
-
-  size_t next = (size_t) Atomic::add_ptr((intptr_t) num, (intptr_t*) &_write_index);
-  assert(next >= num, "don't get negative");
-  size_t bottom = (next - num) % _reserved_end;
-  next = next % _reserved_end;
-  assert(bottom != next, "must be");
-
-  size_t capacity = 0;
-  for (size_t i = 0; i < num; i++) {
-    ShenandoahHeapRegion* r = regions[(start + i) % max];
-    capacity += r->free();
-    _regions[(bottom + i) % _reserved_end] = r;
-  }
-
-  // loop until we succeed in bringing the active_end up to our
-  // write index
-  // active_end gets set to 0 when we start a full gc
-  while (true) {
-    size_t test = (size_t) Atomic::cmpxchg((jlong) next, (jlong*) &_active_end, (jlong) bottom);
-    if (test == bottom) {
-      Atomic::add_ptr((intptr_t) capacity, (intptr_t*) &_capacity);
-      return;
-    } else {
-      // Don't starve competing threads.
-      os::yield();
-    }
-  }
-
-}
-
 void ShenandoahFreeSet::add_region(ShenandoahHeapRegion* r) {
-  assert(!r->is_in_collection_set(), "Shouldn't be adding those to the free set");
-  assert(!contains(r), "We are about to add it, it shouldn't be there already");
-  assert(!r->is_humongous(), "Don't add to humongous regions");
+  assert_heaplock_owned_by_current_thread();
+  assert(! r->in_collection_set(), "Shouldn't be adding those to the free set");
+  assert(! contains(r), "We are about to add it, it shouldn't be there already");
+  assert(! r->is_humongous(), "Don't add to humongous regions");
 
-  assert(_active_end < _reserved_end, "within bounds and no wrapping here");
+  assert(_active_end < _reserved_end, "within bounds");
 
   _regions[_active_end] = r;
-  _active_end = (_active_end + 1) % _reserved_end;
-  _write_index++;
+  _active_end++;
   _capacity += r->free();
   assert(_used <= _capacity, "must not use more than we have");
 }
 
-size_t ShenandoahFreeSet::par_claim_next(size_t idx) {
-  size_t next = (idx + 1) % _reserved_end;
-  if (next == _active_end) {
-    // Don't increase _current_index up to _active_end.
-    return SIZE_MAX;
-  }
-  size_t result = (size_t) Atomic::cmpxchg((jlong) next, (jlong*) &_current_index, (jlong) idx);
+void ShenandoahFreeSet::clear() {
+  assert_heaplock_owned_by_current_thread();
+  ShenandoahHeapRegionSet::clear();
+  _capacity = 0;
+  _used = 0;
+}
 
-  if (result == idx) {
-    result = next;
+ShenandoahHeapRegion* ShenandoahFreeSet::skip_humongous(ShenandoahHeapRegion* r) {
+  while (r != NULL && r->is_humongous()) {
+    next();
+    r = current();
   }
-  assert (result != _active_end, "don't increase current into active_end");
-  return result;
+  return r;
+}
+
+ShenandoahHeapRegion* ShenandoahFreeSet::current_no_humongous() {
+  ShenandoahHeapRegion* r = current();
+  return skip_humongous(r);
+}
+
+ShenandoahHeapRegion* ShenandoahFreeSet::next_no_humongous() {
+  next();
+  return current_no_humongous();
+}
+
+void ShenandoahFreeSet::assert_heaplock_owned_by_current_thread() {
+#ifdef ASSERT
+  ShenandoahHeap::heap()->assert_heaplock_owned_by_current_thread();
+#endif
 }

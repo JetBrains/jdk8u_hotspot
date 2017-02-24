@@ -278,8 +278,16 @@ bool PhaseIdealLoop::is_counted_loop( Node *x, IdealLoopTree *loop ) {
     return false;
 
   // Allow funny placement of Safepoint
-  if (back_control->Opcode() == Op_SafePoint)
+  if (back_control->Opcode() == Op_SafePoint) {
+    if (UseCountedLoopSafepoints) {
+      // Leaving the safepoint on the backedge and creating a
+      // CountedLoop will confuse optimizations. We can't move the
+      // safepoint around because its jvm state wouldn't match a new
+      // location. Give up on that loop.
+      return false;
+    }
     back_control = back_control->in(TypeFunc::Control);
+  }
 
   // Controlling test for loop
   Node *iftrue = back_control;
@@ -2333,6 +2341,10 @@ void PhaseIdealLoop::build_and_optimize(bool do_split_ifs, bool skip_loop_opts) 
       C->set_major_progress();
     }
 
+    if (!C->major_progress()) {
+      shenandoah_pin_and_expand_barriers();
+    }
+
     // Cleanup any modified bits
     _igvn.optimize();
 
@@ -3113,7 +3125,7 @@ void PhaseIdealLoop::build_loop_early( VectorSet &visited, Node_List &worklist, 
         ++i;
         if (in == NULL) continue;
         if (in->pinned() && !in->is_CFG())
-          set_ctrl(in, in->Opcode() == Op_ShenandoahWBMemProj ? in->in(0)->in(0) : in->in(0));
+          set_ctrl(in, in->in(0));
         int is_visited = visited.test_set( in->_idx );
         if (!has_node(in)) {  // No controlling input yet?
           assert( !in->is_CFG(), "CFG Node with no controlling input?" );
@@ -3289,7 +3301,7 @@ Node *PhaseIdealLoop::get_late_ctrl( Node *n, Node *early ) {
     }
     while(worklist.size() != 0 && LCA != early) {
       Node* s = worklist.pop();
-      if (s->is_Load()) {
+      if (s->is_Load() || s->is_ShenandoahBarrier()) {
         continue;
       } else if (s->is_MergeMem()) {
         for (DUIterator_Fast imax, i = s->fast_outs(imax); i < imax; i++) {
@@ -3521,6 +3533,7 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
     case Op_AryEq:
     case Op_ShenandoahReadBarrier:
     case Op_ShenandoahWriteBarrier:
+    case Op_ShenandoahWBMemProj:
       pinned = false;
     }
     if( pinned ) {
@@ -3609,6 +3622,16 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
   IdealLoopTree *chosen_loop = get_loop(least);
   if( !chosen_loop->_child )   // Inner loop?
     chosen_loop->_body.push(n);// Collect inner loops
+
+  if (n->Opcode() == Op_ShenandoahWriteBarrier) {
+    // The write barrier and its memory proj must have the same
+    // control otherwise some loop opts could put nodes (Phis) between
+    // them
+    Node* proj = n->find_out_with(Op_ShenandoahWBMemProj);
+    if (proj != NULL) {
+      set_ctrl_and_loop(proj, least);
+    }
+  }
 }
 
 #ifdef ASSERT
