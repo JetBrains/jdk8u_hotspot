@@ -49,7 +49,7 @@
           "Size of the Shenandoah regions. "                                \
           "Determined automatically by default.")                           \
                                                                             \
-  experimental(uintx, ShenandoahMinRegionSize, 1 * M,                       \
+  experimental(uintx, ShenandoahMinRegionSize, 256 * K,                     \
           "Minimum heap region size. ")                                     \
                                                                             \
   experimental(uintx, ShenandoahMaxRegionSize, 32 * M,                      \

@@ -28,9 +28,6 @@
 
 class ShenandoahHeapRegion : public ContiguousSpace {
 private:
-  static const size_t MIN_REGION_SIZE = 256*K;
-  static const size_t MIN_NUM_REGIONS = 10;
-
   static Monitor _mem_protect_lock;
 
 public:

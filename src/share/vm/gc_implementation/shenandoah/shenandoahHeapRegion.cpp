@@ -303,22 +303,37 @@ HeapWord* ShenandoahHeapRegion::block_start_const(const void* p) const {
 }
 
 void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size) {
+  // Absolute minimums we should not ever break:
+  static const size_t MIN_REGION_SIZE = 256*K;
+  static const size_t MIN_NUM_REGIONS = 10;
+
   uintx region_size;
   if (FLAG_IS_DEFAULT(ShenandoahHeapRegionSize)) {
     if (ShenandoahMinRegionSize > initial_heap_size / MIN_NUM_REGIONS) {
-      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize option");
+      err_msg message("Initial heap size (" SIZE_FORMAT "K) is too low to afford the minimum number "
+                      "of regions (" SIZE_FORMAT ") of minimum region size (" SIZE_FORMAT "K).",
+                      initial_heap_size/K, MIN_NUM_REGIONS, ShenandoahMinRegionSize/K);
+      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize option", message);
     }
     if (ShenandoahMinRegionSize < MIN_REGION_SIZE) {
-      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize option");
+      err_msg message("" SIZE_FORMAT "K should not be lower than minimum region size (" SIZE_FORMAT "K).",
+                      ShenandoahMinRegionSize/K,  MIN_REGION_SIZE/K);
+      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize option", message);
     }
     if (ShenandoahMinRegionSize < MinTLABSize) {
-      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize option");
+      err_msg message("" SIZE_FORMAT "K should not be lower than TLAB size size (" SIZE_FORMAT "K).",
+                      ShenandoahMinRegionSize/K,  MinTLABSize/K);
+      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize option", message);
     }
     if (ShenandoahMaxRegionSize < MIN_REGION_SIZE) {
-      vm_exit_during_initialization("Invalid -XX:ShenandoahMaxRegionSize option");
+      err_msg message("" SIZE_FORMAT "K should not be lower than min region size (" SIZE_FORMAT "K).",
+                      ShenandoahMaxRegionSize/K,  MIN_REGION_SIZE/K);
+      vm_exit_during_initialization("Invalid -XX:ShenandoahMaxRegionSize option", message);
     }
     if (ShenandoahMinRegionSize > ShenandoahMaxRegionSize) {
-      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize or -XX:ShenandoahMaxRegionSize");
+      err_msg message("Minimum (" SIZE_FORMAT "K) should be larger than maximum (" SIZE_FORMAT "K).",
+                      ShenandoahMinRegionSize/K, ShenandoahMaxRegionSize/K);
+      vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize or -XX:ShenandoahMaxRegionSize", message);
     }
     size_t average_heap_size = (initial_heap_size + max_heap_size) / 2;
     region_size = MAX2(average_heap_size / ShenandoahTargetNumRegions,
@@ -330,10 +345,20 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
 
   } else {
     if (ShenandoahHeapRegionSize > initial_heap_size / MIN_NUM_REGIONS) {
-      vm_exit_during_initialization("Invalid -XX:ShenandoahHeapRegionSize option");
+      err_msg message("Initial heap size (" SIZE_FORMAT "K) is too low to afford the minimum number "
+                              "of regions (" SIZE_FORMAT ") of requested size (" SIZE_FORMAT "K).",
+                      initial_heap_size/K, MIN_NUM_REGIONS, ShenandoahHeapRegionSize/K);
+      vm_exit_during_initialization("Invalid -XX:ShenandoahHeapRegionSize option", message);
     }
-    if (ShenandoahHeapRegionSize < MIN_REGION_SIZE) {
-      vm_exit_during_initialization("Invalid -XX:ShenandoahHeapRegionSize option");
+    if (ShenandoahHeapRegionSize < ShenandoahMinRegionSize) {
+      err_msg message("Heap region size (" SIZE_FORMAT "K) should be larger than min region size (" SIZE_FORMAT "K).",
+                      ShenandoahHeapRegionSize/K, ShenandoahMinRegionSize/K);
+      vm_exit_during_initialization("Invalid -XX:ShenandoahHeapRegionSize option", message);
+    }
+    if (ShenandoahHeapRegionSize > ShenandoahMaxRegionSize) {
+      err_msg message("Heap region size (" SIZE_FORMAT "K) should be lower than max region size (" SIZE_FORMAT "K).",
+                      ShenandoahHeapRegionSize/K, ShenandoahMaxRegionSize/K);
+      vm_exit_during_initialization("Invalid -XX:ShenandoahHeapRegionSize option", message);
     }
     region_size = ShenandoahHeapRegionSize;
   }

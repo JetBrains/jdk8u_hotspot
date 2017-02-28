@@ -38,6 +38,22 @@ class ShenandoahHeuristics : public CHeapObj<mtGC> {
   size_t _bytes_reclaimed_this_cycle;
 
 protected:
+  typedef struct {
+    size_t region_number;
+    size_t garbage;
+  } RegionGarbage;
+
+  static int compare_by_garbage(RegionGarbage a, RegionGarbage b) {
+    if (a.garbage > b.garbage)
+      return -1;
+    else if (b.garbage < a.garbage)
+      return 1;
+    else return 0;
+  }
+
+  RegionGarbage* _region_garbage;
+  size_t _region_garbage_size;
+
   size_t _bytes_allocated_start_CM;
   size_t _bytes_allocated_during_CM;
 
@@ -49,6 +65,7 @@ protected:
 public:
 
   ShenandoahHeuristics();
+  ~ShenandoahHeuristics();
 
   void record_bytes_allocated(size_t bytes);
   void record_bytes_reclaimed(size_t bytes);
@@ -110,20 +127,6 @@ public:
     // Most of them do not.
     return false;
   }
-
-public:
-  typedef struct {
-    size_t region_number;
-    size_t garbage;
-  } RegionGarbage;
-
-  static int compare_by_garbage(RegionGarbage a, RegionGarbage b) {
-    if (a.garbage > b.garbage)
-      return -1;
-    else if (b.garbage < a.garbage)
-      return 1;
-    else return 0;
-  }
 };
 
 ShenandoahHeuristics::ShenandoahHeuristics() :
@@ -133,8 +136,16 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   _bytes_allocated_during_CM(0),
   _bytes_in_cset(0),
   _cancelled_cm_cycles_in_a_row(0),
-  _successful_cm_cycles_in_a_row(0)
+  _successful_cm_cycles_in_a_row(0),
+  _region_garbage(NULL),
+  _region_garbage_size(0)
 {
+}
+
+ShenandoahHeuristics::~ShenandoahHeuristics() {
+  if (_region_garbage != NULL) {
+    FREE_C_HEAP_ARRAY(RegionGarbage, _region_garbage, mtGC);
+  }
 }
 
 void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections) {
@@ -145,15 +156,23 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   // Step 1. Build up the region candidates we care about, rejecting losers and accepting winners right away.
 
   ShenandoahHeapRegionSet* regions = heap->regions();
-  size_t end = regions->active_regions();
+  size_t active = regions->active_regions();
 
-  RegionGarbage candidates[end];
+  RegionGarbage* candidates = _region_garbage;
+  if (candidates == NULL) {
+    candidates = NEW_C_HEAP_ARRAY(RegionGarbage, active, mtGC);
+    _region_garbage_size = active;
+  } else if (_region_garbage_size < active) {
+    REALLOC_C_HEAP_ARRAY(RegionGarbage, _region_garbage, active, mtGC);
+    _region_garbage_size = active;
+  }
+
   size_t cand_idx = 0;
   _bytes_in_cset = 0;
 
   size_t immediate_garbage = 0;
   size_t immediate_regions = 0;
-  for (size_t i = 0; i < end; i++) {
+  for (size_t i = 0; i < active; i++) {
     ShenandoahHeapRegion* region = regions->get(i);
 
     if (! region->is_humongous() && ! region->is_pinned()) {

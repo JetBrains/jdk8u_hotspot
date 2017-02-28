@@ -44,6 +44,31 @@ public class TestRegionSizeArgs {
 
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-Xms2m",
+                                                                      "-version");
+            OutputAnalyzer output = new OutputAnalyzer(pb.start());
+            output.shouldMatch("Initial heap size");
+            output.shouldHaveExitValue(1);
+        }
+
+        {
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-Xms4m",
+                                                                      "-version");
+            OutputAnalyzer output = new OutputAnalyzer(pb.start());
+            output.shouldHaveExitValue(0);
+        }
+
+        {
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-Xms8m",
+                                                                      "-version");
+            OutputAnalyzer output = new OutputAnalyzer(pb.start());
+            output.shouldHaveExitValue(0);
+        }
+
+        {
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
                                                                       "-Xms100m",
                                                                       "-XX:ShenandoahHeapRegionSize=200m",
                                                                       "-version");
@@ -88,6 +113,48 @@ public class TestRegionSizeArgs {
                                                                       "-version");
             OutputAnalyzer output = new OutputAnalyzer(pb.start());
             output.shouldHaveExitValue(0);
+        }
+
+        {
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-Xms1g",
+                                                                      "-XX:+UnlockExperimentalVMOptions",
+                                                                      "-XX:ShenandoahHeapRegionSize=32M",
+                                                                      "-version");
+            OutputAnalyzer output = new OutputAnalyzer(pb.start());
+            output.shouldHaveExitValue(0);
+        }
+
+        {
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-Xms1g",
+                                                                      "-XX:+UnlockExperimentalVMOptions",
+                                                                      "-XX:ShenandoahHeapRegionSize=64M",
+                                                                      "-version");
+            OutputAnalyzer output = new OutputAnalyzer(pb.start());
+            output.shouldMatch("Invalid -XX:ShenandoahHeapRegionSize option");
+            output.shouldHaveExitValue(1);
+        }
+
+        {
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-Xms1g",
+                                                                      "-XX:+UnlockExperimentalVMOptions",
+                                                                      "-XX:ShenandoahHeapRegionSize=256K",
+                                                                      "-version");
+            OutputAnalyzer output = new OutputAnalyzer(pb.start());
+            output.shouldHaveExitValue(0);
+        }
+
+        {
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-Xms1g",
+                                                                      "-XX:+UnlockExperimentalVMOptions",
+                                                                      "-XX:ShenandoahHeapRegionSize=128K",
+                                                                      "-version");
+            OutputAnalyzer output = new OutputAnalyzer(pb.start());
+            output.shouldMatch("Invalid -XX:ShenandoahHeapRegionSize option");
+            output.shouldHaveExitValue(1);
         }
     }
 
