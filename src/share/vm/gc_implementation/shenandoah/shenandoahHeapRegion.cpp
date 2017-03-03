@@ -303,6 +303,10 @@ HeapWord* ShenandoahHeapRegion::block_start_const(const void* p) const {
 }
 
 void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size) {
+  // Absolute minimums we should not ever break:
+  static const size_t MIN_REGION_SIZE = 256*K;
+  static const size_t MIN_NUM_REGIONS = 10;
+
   uintx region_size;
   if (FLAG_IS_DEFAULT(ShenandoahHeapRegionSize)) {
     if (ShenandoahMinRegionSize > initial_heap_size / MIN_NUM_REGIONS) {
