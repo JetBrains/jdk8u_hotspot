@@ -37,6 +37,18 @@
 #include "runtime/prefetch.inline.hpp"
 #include "utilities/copy.hpp"
 
+template <class T>
+void SCMUpdateRefsClosure::do_oop_work(T* p) {
+  T o = oopDesc::load_heap_oop(p);
+  if (! oopDesc::is_null(o)) {
+    oop obj = oopDesc::decode_heap_oop_not_null(o);
+    _heap->update_oop_ref_not_null(p, obj);
+  }
+}
+
+void SCMUpdateRefsClosure::do_oop(oop* p)       { do_oop_work(p); }
+void SCMUpdateRefsClosure::do_oop(narrowOop* p) { do_oop_work(p); }
+
 /*
  * Marks the object. Returns true if the object has not been marked before and has
  * been marked by this thread. Returns false if the object has already been marked,
@@ -114,7 +126,7 @@ template <class T>
 inline oop ShenandoahHeap::update_oop_ref_not_null(T* p, oop obj) {
   if (in_collection_set(obj)) {
     oop forw = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-    assert(! oopDesc::unsafe_equals(forw, obj) || is_full_gc_in_progress(), "expect forwarded object");
+    assert(! oopDesc::unsafe_equals(forw, obj) || is_full_gc_in_progress() || cancelled_concgc(), "expect forwarded object");
     obj = forw;
     oopDesc::encode_store_heap_oop(p, obj);
   }

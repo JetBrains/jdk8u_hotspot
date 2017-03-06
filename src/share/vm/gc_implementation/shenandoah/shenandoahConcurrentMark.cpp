@@ -41,23 +41,6 @@
 #include "oops/oop.inline.hpp"
 #include "utilities/taskqueue.hpp"
 
-#ifdef ASSERT
-class AssertToSpaceClosure : public OopClosure {
-private:
-  template <class T>
-  inline void do_oop_nv(T* p) {
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "need to-space object here");
-    }
-  }
-public:
-  void do_oop(narrowOop* p) { do_oop_nv(p); }
-  void do_oop(oop* p)       { do_oop_nv(p); }
-};
-#endif
-
 class ShenandoahInitMarkRootsClosure : public OopClosure {
 private:
   SCMObjToScanQueue* _queue;
@@ -74,34 +57,6 @@ public:
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
   void do_oop(oop* p)       { do_oop_nv(p); }
-};
-
-class SCMUpdateRefsClosure: public OopClosure {
-private:
-  ShenandoahHeap* _heap;
-public:
-
-  SCMUpdateRefsClosure() : _heap(ShenandoahHeap::heap()) {
-  }
-
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      _heap->update_oop_ref_not_null(p, obj);
-    }
-  }
-
-public:
-  inline void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
 };
 
 ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :

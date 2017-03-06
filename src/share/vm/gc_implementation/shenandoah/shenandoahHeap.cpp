@@ -47,6 +47,24 @@
 #include "runtime/vmThread.hpp"
 #include "services/mallocTracker.hpp"
 
+SCMUpdateRefsClosure::SCMUpdateRefsClosure() : _heap(ShenandoahHeap::heap()) {}
+
+#ifdef ASSERT
+template <class T>
+void AssertToSpaceClosure::do_oop_nv(T* p) {
+  T o = oopDesc::load_heap_oop(p);
+  if (! oopDesc::is_null(o)) {
+    oop obj = oopDesc::decode_heap_oop_not_null(o);
+    assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)),
+           err_msg("need to-space object here obj: "PTR_FORMAT" , rb(obj): "PTR_FORMAT", p: "PTR_FORMAT,
+		   p2i(obj), p2i(ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), p2i(p)));
+  }
+}
+
+void AssertToSpaceClosure::do_oop(narrowOop* p) { do_oop_nv(p); }
+void AssertToSpaceClosure::do_oop(oop* p)       { do_oop_nv(p); }
+#endif
+
 const char* ShenandoahHeap::name() const {
   return "Shenandoah";
 }
@@ -1252,6 +1270,24 @@ public:
   }
 };
 
+class ShenandoahFixRootsTask : public AbstractGangTask {
+  ShenandoahRootEvacuator* _rp;
+public:
+
+  ShenandoahFixRootsTask(ShenandoahRootEvacuator* rp) :
+    AbstractGangTask("Shenandoah update roots"),
+    _rp(rp)
+  {
+    // Nothing else to do.
+  }
+
+  void work(uint worker_id) {
+    SCMUpdateRefsClosure cl;
+    MarkingCodeBlobClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
+
+    _rp->process_evacuate_roots(&cl, &blobsCl, worker_id);
+  }
+};
 void ShenandoahHeap::evacuate_and_update_roots() {
 
   COMPILER2_PRESENT(DerivedPointerTable::clear());
@@ -1271,6 +1307,17 @@ void ShenandoahHeap::evacuate_and_update_roots() {
     workers()->run_task(&roots_task);
   }
 
+  if (cancelled_concgc()) {
+    // If initial evacuation has been cancelled, we need to update all references
+    // after all workers have finished. Otherwise we might run into the following problem:
+    // GC thread 1 cannot allocate anymore, thus evacuation fails, leaves from-space ptr of object X.
+    // GC thread 2 evacuates the same object X to to-space
+    // which leaves a truly dangling from-space reference in the first root oop*. This must not happen.
+    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::evac_thread_roots);
+    ShenandoahFixRootsTask update_roots_task(&rp);
+    workers()->run_task(&update_roots_task);
+  }
+
 #ifdef ASSERT
   if (ShenandoahVerifyReadsToFromSpace) {
     set_from_region_protection(true);
@@ -1279,6 +1326,14 @@ void ShenandoahHeap::evacuate_and_update_roots() {
 
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
 
+#ifdef ASSERT
+  {
+    AssertToSpaceClosure cl;
+    CodeBlobToOopClosure code_cl(&cl, !CodeBlobToOopClosure::FixRelocations);
+    ShenandoahRootEvacuator rp(this, 1);
+    rp.process_evacuate_roots(&cl, &code_cl, 0);
+  }
+#endif
 }
 
 
