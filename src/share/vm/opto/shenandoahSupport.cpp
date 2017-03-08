@@ -922,7 +922,7 @@ void ShenandoahBarrierNode::verify(RootNode* root) {
           }
         }
         if (i != calls_len) {
-          const int args_len = sizeof(calls[0].args) / sizeof(calls[0].args[0]);
+          const uint args_len = sizeof(calls[0].args) / sizeof(calls[0].args[0]);
           for (uint j = 0; j < args_len; j++) {
             int pos = calls[i].args[j].pos;
             if (pos == -1) {
@@ -1008,7 +1008,7 @@ void ShenandoahBarrierNode::verify(RootNode* root) {
       }
       uint stop = n->is_Call() ? n->as_Call()->tf()->domain()->cnt() : n->req();
       if (i != others_len) {
-        const int inputs_len = sizeof(others[0].inputs) / sizeof(others[0].inputs[0]);
+        const uint inputs_len = sizeof(others[0].inputs) / sizeof(others[0].inputs[0]);
         for (uint j = 0; j < inputs_len; j++) {
           int pos = others[i].inputs[j].pos;
           if (pos == -1) {
