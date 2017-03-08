@@ -192,8 +192,8 @@ public:
   };
 public:
   ObjArrayChunkedTask(oop o = NULL, int chunk = 0, int pow = 0): _obj(o) {
-    assert(0 <= chunk && chunk < chunk_size, "chunk is sane: %d", chunk);
-    assert(0 <= pow && pow < pow_size, "pow is sane: %d", pow);
+    assert(0 <= chunk && chunk < chunk_size, err_msg("chunk is sane: %d", chunk));
+    assert(0 <= pow && pow < pow_size, err_msg("pow is sane: %d", pow));
     _chunk = chunk;
     _pow = pow;
   }
