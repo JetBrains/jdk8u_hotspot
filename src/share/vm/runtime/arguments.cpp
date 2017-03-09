@@ -1720,7 +1720,7 @@ void Arguments::set_g1_gc_flags() {
 void Arguments::set_shenandoah_gc_flags() {
 
 #if !(defined AARCH64 || defined AMD64)
-  UNSUPPORTED_OPTION(UseShenandoahGC);
+  UNSUPPORTED_GC_OPTION(UseShenandoahGC);
 #endif
 
   if (!FLAG_IS_DEFAULT(ShenandoahGarbageThreshold)) {
@@ -1741,12 +1741,16 @@ void Arguments::set_shenandoah_gc_flags() {
     }
   }
 
+#ifdef _LP64
+  // The optimized ObjArrayChunkedTask takes some bits away from the full 64 addressable
+  // bits, fail if we ever attempt to address more than we can. Only valid on 64bit.
   if (MaxHeapSize >= ObjArrayChunkedTask::oop_size) {
     jio_fprintf(defaultStream::error_stream(),
                 "Shenandoah GC cannot address more than " SIZE_FORMAT " bytes, and " SIZE_FORMAT " bytes heap requested.",
                 ObjArrayChunkedTask::oop_size, MaxHeapSize);
     vm_exit(1);
   }
+#endif
 
   FLAG_SET_DEFAULT(ParallelGCThreads,
                    Abstract_VM_Version::parallel_worker_threads());
