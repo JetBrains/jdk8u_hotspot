@@ -227,8 +227,8 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   log_debug(gc)("Immediate Garbage regions: "SIZE_FORMAT, immediate_regions);
   log_debug(gc)("Garbage to be collected: "SIZE_FORMAT, collection_set->garbage());
   log_debug(gc)("Objects to be evacuated: "SIZE_FORMAT, collection_set->live_data());
-  log_debug(gc)("Live / Garbage ratio: "SIZE_FORMAT"%%", collection_set->live_data() * 100 / MAX2(collection_set->garbage(), 1UL));
-  log_debug(gc)("Collected-Garbage ratio / Total-garbage: "SIZE_FORMAT"%%", collection_set->garbage() * 100 / MAX2(total_garbage, 1UL));
+  log_debug(gc)("Live / Garbage ratio: "SIZE_FORMAT"%%", collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
+  log_debug(gc)("Collected-Garbage ratio / Total-garbage: "SIZE_FORMAT"%%", collection_set->garbage() * 100 / MAX2(total_garbage, (size_t)1));
 }
 
 void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
@@ -519,7 +519,7 @@ public:
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
     size_t min_ratio = 100 - ShenandoahGarbageThreshold;
-    if (_live * 100 / MAX2(_garbage + immediate_garbage, 1UL) < min_ratio && ! r->is_empty()) {
+    if (_live * 100 / MAX2(_garbage + immediate_garbage, (size_t)1) < min_ratio && ! r->is_empty()) {
       _garbage += r->garbage();
       _live += r->get_live_data_bytes();
       return true;
