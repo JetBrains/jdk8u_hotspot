@@ -4584,7 +4584,7 @@ void MacroAssembler::tlab_allocate(Register obj,
     lea(end, Address(obj, con_size_in_bytes + oop_extra_words * HeapWordSize));
   } else {
     if (oop_extra_words > 0) {
-      addq(var_size_in_bytes, oop_extra_words * HeapWordSize);
+      addptr(var_size_in_bytes, oop_extra_words * HeapWordSize);
     }
     lea(end, Address(obj, var_size_in_bytes, Address::times_1));
   }

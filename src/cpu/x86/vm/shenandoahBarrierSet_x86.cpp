@@ -212,7 +212,11 @@ void ShenandoahBarrierSet::asm_acmp_barrier(MacroAssembler* masm, Register op1, 
 }
 
 void ShenandoahHeap::compile_prepare_oop(MacroAssembler* masm, Register obj) {
+#ifdef _LP64
   __ incrementq(obj, BrooksPointer::byte_size());
+#else
+  __ incrementl(obj, BrooksPointer::byte_size());
+#endif
   __ movptr(Address(obj, BrooksPointer::byte_offset()), obj);
 }
 #endif
