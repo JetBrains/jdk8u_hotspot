@@ -30,6 +30,12 @@
 #define __ masm->
 
 #ifndef CC_INTERP
+
+#ifndef _LP64
+void ShenandoahBarrierSet::compile_resolve_oop_runtime(MacroAssembler* masm, Register dst) {
+  Unimplemented();
+}
+#else
 void ShenandoahBarrierSet::compile_resolve_oop_runtime(MacroAssembler* masm, Register dst) {
 
   __ push(rscratch1);
@@ -164,6 +170,7 @@ void ShenandoahBarrierSet::compile_resolve_oop_runtime(MacroAssembler* masm, Reg
 
   __ pop(rscratch1);
 }
+#endif // _LP64
 
 void ShenandoahBarrierSet::interpreter_read_barrier(MacroAssembler* masm, Register dst) {
   if (ShenandoahReadBarrier) {
