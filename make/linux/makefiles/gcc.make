@@ -215,6 +215,12 @@ ifeq ($(USE_CLANG),)
   ifeq "$(shell expr \( $(CC_VER_MAJOR) \> 4 \) \| \( \( $(CC_VER_MAJOR) = 4 \) \& \( $(CC_VER_MINOR) \>= 3 \) \))" "0"
     WARNING_FLAGS += -Wconversion
   endif
+
+  # Since GCC 5, there are some deprecated declarations warnings. They break compilation
+  ifeq "$(shell expr \( $(CC_VER_MAJOR) \>= 5 \) )" "1"
+    WARNING_FLAGS += -Wno-error=deprecated-declarations
+  endif
+
 endif
 
 CFLAGS_WARN/DEFAULT = $(WARNINGS_ARE_ERRORS) $(WARNING_FLAGS)
