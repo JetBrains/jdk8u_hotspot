@@ -347,9 +347,8 @@ public:
 
   inline oop  evacuate_object(oop src, Thread* thread);
   inline bool cancelled_concgc() const;
-  inline void set_cancelled_concgc(bool v);
-  inline bool try_cancel_concgc() const;
-  void clear_cancelled_concgc();
+  inline bool try_cancel_concgc();
+  inline void clear_cancelled_concgc();
 
   ShenandoahHeapRegionSet* regions() { return _ordered_regions;}
   ShenandoahFreeSet* free_regions();

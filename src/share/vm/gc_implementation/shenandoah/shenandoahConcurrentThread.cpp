@@ -138,7 +138,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     heap->shenandoahPolicy()->record_cm_cancelled();
     if (_full_gc_cause == GCCause::_allocation_failure &&
         heap->shenandoahPolicy()->handover_cancelled_marking()) {
-      heap->set_cancelled_concgc(false);
+      heap->clear_cancelled_concgc();
       clear_full_gc = true;
       heap->shenandoahPolicy()->record_cm_degenerated();
     } else {

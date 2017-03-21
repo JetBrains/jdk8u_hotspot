@@ -2176,10 +2176,6 @@ const char* ShenandoahHeap::cancel_cause_to_string(ShenandoahCancelCause cause) 
   }
 }
 
-void ShenandoahHeap::clear_cancelled_concgc() {
-  set_cancelled_concgc(false);
-}
-
 uint ShenandoahHeap::max_workers() {
   return _max_workers;
 }

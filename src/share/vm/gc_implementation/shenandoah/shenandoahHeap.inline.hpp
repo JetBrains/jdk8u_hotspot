@@ -201,15 +201,15 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(T* p, oop heap_oop) {
 }
 
 inline bool ShenandoahHeap::cancelled_concgc() const {
-  return (jbyte) OrderAccess::load_acquire((jbyte*) &_cancelled_concgc);
+  return OrderAccess::load_acquire((jbyte*) &_cancelled_concgc) == 1;
 }
 
-inline bool ShenandoahHeap::try_cancel_concgc() const {
-  return Atomic::cmpxchg(true, (jbyte*) &_cancelled_concgc, false) == false;
+inline bool ShenandoahHeap::try_cancel_concgc() {
+  return Atomic::cmpxchg(1, &_cancelled_concgc, 0) == 0;
 }
 
-inline void ShenandoahHeap::set_cancelled_concgc(bool v) {
-  OrderAccess::release_store_fence((jbyte*) &_cancelled_concgc, (jbyte) v);
+inline void ShenandoahHeap::clear_cancelled_concgc() {
+  OrderAccess::release_store_fence(&_cancelled_concgc, 0);
 }
 
 inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size) {
