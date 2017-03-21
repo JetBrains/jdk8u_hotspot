@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"

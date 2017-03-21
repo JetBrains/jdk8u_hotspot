@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/shenandoah_globals.hpp"
 
 SHENANDOAH_FLAGS(MATERIALIZE_DEVELOPER_FLAG,    \

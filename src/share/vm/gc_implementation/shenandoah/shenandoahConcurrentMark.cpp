@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shared/isGCActiveMark.hpp"
 #include "gc_implementation/shared/parallelCleaning.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"

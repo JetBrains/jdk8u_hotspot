@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "memory/allocation.hpp"
 
 #include "gc_implementation/shared/gcTimer.hpp"

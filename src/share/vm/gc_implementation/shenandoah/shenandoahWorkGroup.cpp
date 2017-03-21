@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
  
 ShenandoahWorkerScope::ShenandoahWorkerScope(FlexibleWorkGang* workers, uint nworkers) :

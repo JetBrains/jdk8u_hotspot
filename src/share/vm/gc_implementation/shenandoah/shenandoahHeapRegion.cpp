@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"

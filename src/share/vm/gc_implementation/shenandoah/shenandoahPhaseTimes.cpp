@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimes.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkerDataArray.inline.hpp"
 #include "runtime/os.hpp"

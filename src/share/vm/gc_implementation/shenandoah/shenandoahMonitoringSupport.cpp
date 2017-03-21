@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shared/hSpaceCounters.hpp"
 #include "gc_implementation/shared/collectorCounters.hpp"
 #include "gc_implementation/shared/generationCounters.hpp"
