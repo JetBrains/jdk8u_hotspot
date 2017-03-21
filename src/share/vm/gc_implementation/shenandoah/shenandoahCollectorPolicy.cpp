@@ -902,7 +902,7 @@ ShenandoahPhaseTimes* ShenandoahCollectorPolicy::phase_times() {
 
 
 uint ShenandoahCollectorPolicy::calc_workers_for_java_threads(uint application_workers) {
-  return (uint)ShenandoahGCWorkerPerJavaThread * application_workers;
+  return (uint)(ShenandoahGCWorkerPerJavaThread * application_workers);
 }
 
 uint ShenandoahCollectorPolicy::calc_workers_for_live_set(size_t live_data) {
