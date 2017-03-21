@@ -154,7 +154,6 @@ class StubRoutines: AllStatic {
 
   static BufferBlob* _code1;                               // code buffer for initial routines
   static BufferBlob* _code2;                               // code buffer for all other routines
-  static BufferBlob* _code3;                               // code buffer for all other routines
 
   // Leaf routines which implement arraycopy and their addresses
   // arraycopy operands aligned on element type boundary
@@ -257,13 +256,11 @@ class StubRoutines: AllStatic {
   static bool contains(address addr) {
     return
       (_code1 != NULL && _code1->blob_contains(addr)) ||
-      (_code2 != NULL && _code1->blob_contains(addr)) ||
-      (_code3 != NULL && _code2->blob_contains(addr)) ;
+      (_code2 != NULL && _code1->blob_contains(addr)) ;
   }
 
   static CodeBlob* code1() { return _code1; }
   static CodeBlob* code2() { return _code2; }
-  static CodeBlob* code3() { return _code3; }
 
   // Debugging
   static jint    verify_oop_count()                        { return _verify_oop_count; }

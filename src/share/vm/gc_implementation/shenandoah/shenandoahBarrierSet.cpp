@@ -367,6 +367,11 @@ JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_c2(oopDesc* src))
   return (oopDesc*) result;
 JRT_END
 
+IRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_interp(oopDesc* src))
+  oop result = ((ShenandoahBarrierSet*)oopDesc::bs())->resolve_and_maybe_copy_oop_work2(oop(src));
+  return (oopDesc*) result;
+IRT_END
+
 oop ShenandoahBarrierSet::write_barrier(oop src) {
   if (! oopDesc::is_null(src)) {
     assert(_heap->is_in(src), "sanity");
