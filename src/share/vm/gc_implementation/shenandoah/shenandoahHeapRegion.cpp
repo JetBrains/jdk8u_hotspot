@@ -123,8 +123,6 @@ void ShenandoahHeapRegion::set_in_collection_set(bool b) {
 #endif
 }
 
-#include <sys/mman.h>
-
 #ifdef ASSERT
 
 void ShenandoahHeapRegion::memProtectionOn() {
