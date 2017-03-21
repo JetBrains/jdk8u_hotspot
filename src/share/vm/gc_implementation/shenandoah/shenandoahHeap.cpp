@@ -138,6 +138,8 @@ public:
 jint ShenandoahHeap::initialize() {
   CollectedHeap::pre_initialize();
 
+  BrooksPointer::initial_checks();
+
   size_t init_byte_size = collector_policy()->initial_heap_byte_size();
   size_t max_byte_size = collector_policy()->max_heap_byte_size();
 
@@ -753,7 +755,7 @@ HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
   }
   _numAllocs++;
 #endif
-  HeapWord* filler = allocate_memory(BrooksPointer::word_size() + size, false);
+  HeapWord* filler = allocate_memory(size + BrooksPointer::word_size(), false);
   HeapWord* result = filler + BrooksPointer::word_size();
   if (filler != NULL) {
     BrooksPointer::initialize(oop(result));

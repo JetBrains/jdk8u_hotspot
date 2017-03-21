@@ -57,13 +57,19 @@ public:
   }
 
   /* Allocated size, in HeapWords. */
-  static inline size_t word_size() {
-    return MinObjAlignment;
+  static inline uint word_size() {
+    return (uint) MinObjAlignment;
   }
 
   /* Allocated size, in bytes */
-  static inline size_t byte_size() {
-    return MinObjAlignmentInBytes;
+  static inline uint byte_size() {
+    return (uint) MinObjAlignmentInBytes;
+  }
+
+  /* Assert basic stuff once at startup. */
+  static void initial_checks() {
+    guarantee (MinObjAlignment > 0, "sanity, word_size is correct");
+    guarantee (MinObjAlignmentInBytes > 0, "sanity, byte_size is correct");
   }
 
   /* Initializes Brooks pointer (to self).

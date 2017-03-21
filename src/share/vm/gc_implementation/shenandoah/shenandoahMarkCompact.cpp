@@ -389,8 +389,7 @@ public:
     assert(_from_region != NULL, "must set before work");
     assert(_heap->is_marked_complete(p), "must be marked");
     assert(! _heap->allocated_after_complete_mark_start((HeapWord*) p), "must be truly marked");
-    size_t size = p->size();
-    size_t obj_size = size + BrooksPointer::word_size();
+    size_t obj_size = p->size() + BrooksPointer::word_size();
     if (_compact_point + obj_size > _to_region->end()) {
       // Object doesn't fit. Pick next to-region and start compacting there.
       _to_region->set_new_top(_compact_point);
