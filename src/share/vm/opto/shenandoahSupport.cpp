@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
@@ -2004,7 +2005,7 @@ Node* PhaseIdealLoop::try_common_shenandoah_barriers(Node* n, Node *n_ctrl) {
         if (ctrl->is_Proj() &&
             ctrl->in(0)->is_Call() &&
             ctrl->unique_ctrl_out() != NULL &&
-            ctrl->unique_ctrl_out()->Opcode() == Op_Catch &
+            ctrl->unique_ctrl_out()->Opcode() == Op_Catch &&
             !is_dominator(val_ctrl, ctrl->in(0)->in(0))) {
           continue;
         }
