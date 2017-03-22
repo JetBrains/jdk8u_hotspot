@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
 
