@@ -169,7 +169,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     // Setup workers for phase 1
     {
       uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
-	workers->active_workers(), Threads::number_of_non_daemon_threads());
+              workers->active_workers(), (uint) Threads::number_of_non_daemon_threads());
       workers->set_active_workers(nworkers);
       ShenandoahWorkerScope scope(workers, nworkers);
 
@@ -183,7 +183,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     // Setup workers for the rest
     {
       uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_parallel_evacuation(
-        workers->active_workers(), Threads::number_of_non_daemon_threads());
+              workers->active_workers(), (uint)Threads::number_of_non_daemon_threads());
       ShenandoahWorkerScope scope(workers, nworkers);
 
       OrderAccess::fence();
@@ -611,7 +611,7 @@ public:
   }
   void do_object(oop p) {
     assert(_heap->is_marked_complete(p), "must be marked");
-    size_t size = p->size();
+    size_t size = (size_t)p->size();
     HeapWord* compact_to = BrooksPointer::get_raw(p);
     HeapWord* compact_from = (HeapWord*) p;
     if (compact_from != compact_to) {

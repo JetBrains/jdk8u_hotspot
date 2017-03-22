@@ -86,6 +86,7 @@ public:
 
   void clear_live_data();
   void set_live_data(size_t s);
+  inline void increase_live_data_words(size_t s);
   inline void increase_live_data_words(jint s);
 
   void set_recently_allocated(bool value);

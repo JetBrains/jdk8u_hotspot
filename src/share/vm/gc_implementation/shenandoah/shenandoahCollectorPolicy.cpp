@@ -408,7 +408,7 @@ public:
   AdaptiveHeuristics() :
     ShenandoahHeuristics(),
     _free_threshold(ShenandoahInitFreeThreshold),
-    _cset_history(new TruncatedSeq(ShenandoahHappyCyclesThreshold)) {
+    _cset_history(new TruncatedSeq((uint)ShenandoahHappyCyclesThreshold)) {
 
     _cset_history->add((double) ShenandoahCSetThreshold);
     _cset_history->add((double) ShenandoahCSetThreshold);
