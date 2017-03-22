@@ -61,6 +61,12 @@ private:
   E _elem;
 };
 
+#ifdef _MSC_VER
+#pragma warning(push)
+// warning C4522: multiple assignment operators specified
+#pragma warning(disable:4522)
+#endif
+
 // ObjArrayChunkedTask
 //
 // Encodes both regular oops, and the array oops plus chunking data for parallel array processing.
