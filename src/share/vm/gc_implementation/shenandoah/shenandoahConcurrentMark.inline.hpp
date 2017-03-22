@@ -136,7 +136,7 @@ inline void ShenandoahConcurrentMark::do_chunked_array_start(SCMObjToScanQueue* 
     // Split out tasks, as suggested in ObjArrayChunkedTask docs. Record the last
     // successful right boundary to figure out the irregular tail.
     while ((1 << pow) > (int)ObjArrayMarkingStride &&
-           (chunk*2 < SCMTask::chunk_size)) {
+           (chunk*2 < SCMTask::chunk_size())) {
       pow--;
       int left_chunk = chunk*2 - 1;
       int right_chunk = chunk*2;
@@ -168,7 +168,7 @@ inline void ShenandoahConcurrentMark::do_chunked_array(SCMObjToScanQueue* q, T* 
 
   // Split out tasks, as suggested in ObjArrayChunkedTask docs. Avoid pushing tasks that
   // are known to start beyond the array.
-  while ((1 << pow) > (int)ObjArrayMarkingStride && (chunk*2 < SCMTask::chunk_size)) {
+  while ((1 << pow) > (int)ObjArrayMarkingStride && (chunk*2 < SCMTask::chunk_size())) {
     pow--;
     chunk *= 2;
     bool pushed = q->push(SCMTask(array, chunk - 1, pow));
