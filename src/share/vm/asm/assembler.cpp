@@ -321,7 +321,11 @@ bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
     // AArch64 uses 48-bit addresses
     const unsigned long address_bits = 0xfffffffffffful;
 #elif defined(_LP64)
+#ifdef _WINDOWS
+    const unsigned long long address_bits = 0xffffffffffffffffull;
+#else
     const unsigned long address_bits = 0xfffffffffffffffful;
+#endif // _WINDOWS
 #else
     // Shenandoah is not implemented on these platforms, make sure we build fine,
     // but also crash consistently at runtime.
