@@ -663,7 +663,7 @@ public:
     _heap->set_complete_top_at_mark_start(r->bottom(), r->bottom());
     r->set_in_collection_set(false);
     if (r->is_humongous()) {
-      _live += ShenandoahHeapRegion::RegionSizeBytes;
+      _live += ShenandoahHeapRegion::region_size_bytes();
     } else {
       size_t live = r->used();
       if (live == 0) {

@@ -5365,7 +5365,7 @@ void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
   ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
 
   HeapWord* first_region_bottom = h->first_region_bottom();
-  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize) * h->max_regions();
+  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();
   guarantee(first_region_bottom < last_region_end, err_msg("sanity: %p < %p", first_region_bottom, last_region_end));
   movptr(tmp, (intptr_t) first_region_bottom);
   cmpptr(raddr, tmp);
@@ -5379,7 +5379,7 @@ void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
 void MacroAssembler::shenandoah_cset_check(Register raddr, Register tmp1, Register tmp2, Label& done) {
   // Test that oop is not in to-space.
   movptr(tmp1, raddr);
-  shrptr(tmp1, ShenandoahHeapRegion::RegionSizeShift);
+  shrptr(tmp1, ShenandoahHeapRegion::region_size_shift_jint());
   movptr(tmp2, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
   movbool(tmp2, Address(tmp2, tmp1, Address::times_1));
   testbool(tmp2);

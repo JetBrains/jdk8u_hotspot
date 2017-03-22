@@ -91,7 +91,7 @@ inline bool ShenandoahHeap::need_update_refs() const {
 
 inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) const {
   uintptr_t region_start = ((uintptr_t) addr);
-  uintptr_t index = (region_start - (uintptr_t) _first_region_bottom) >> ShenandoahHeapRegion::RegionSizeShift;
+  uintptr_t index = (region_start - (uintptr_t) _first_region_bottom) >> ShenandoahHeapRegion::region_size_shift();
 #ifdef ASSERT
   if (!(index < _num_regions)) {
     tty->print_cr("heap region does not contain address, first_region_bottom: "PTR_FORMAT \
@@ -99,7 +99,7 @@ inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) con
                   p2i(_first_region_bottom),
                   p2i(_ordered_regions->get(0)->bottom()),
                   _num_regions,
-                  ShenandoahHeapRegion::RegionSizeBytes);
+                  ShenandoahHeapRegion::region_size_bytes());
   }
 #endif
   assert(index < _num_regions, "heap region index must be in range");
@@ -342,7 +342,7 @@ inline bool ShenandoahHeap::in_collection_set(T p) const {
 
   // no need to subtract the bottom of the heap from obj,
   // _in_cset_fast_test is biased
-  uintx index = ((uintx) obj) >> ShenandoahHeapRegion::RegionSizeShift;
+  uintx index = ((uintx) obj) >> ShenandoahHeapRegion::region_size_shift();
   return _in_cset_fast_test[index];
 }
 
@@ -359,14 +359,14 @@ inline bool ShenandoahHeap::is_evacuation_in_progress() {
 }
 
 inline bool ShenandoahHeap::allocated_after_next_mark_start(HeapWord* addr) const {
-  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::RegionSizeShift;
+  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_shift();
   HeapWord* top_at_mark_start = _next_top_at_mark_starts[index];
   bool alloc_after_mark_start = addr >= top_at_mark_start;
   return alloc_after_mark_start;
 }
 
 inline bool ShenandoahHeap::allocated_after_complete_mark_start(HeapWord* addr) const {
-  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::RegionSizeShift;
+  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_shift();
   HeapWord* top_at_mark_start = _complete_top_at_mark_starts[index];
   bool alloc_after_mark_start = addr >= top_at_mark_start;
   return alloc_after_mark_start;

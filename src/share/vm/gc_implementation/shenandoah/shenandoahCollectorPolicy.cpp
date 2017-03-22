@@ -392,7 +392,7 @@ public:
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    size_t threshold = ShenandoahHeapRegion::RegionSizeBytes * ShenandoahGarbageThreshold / 100;
+    size_t threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
     return r->garbage() > threshold;
   }
 
@@ -419,7 +419,7 @@ public:
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    size_t threshold = ShenandoahHeapRegion::RegionSizeBytes * ShenandoahGarbageThreshold / 100;
+    size_t threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
     return r->garbage() > threshold;
   }
 
@@ -785,8 +785,8 @@ HeapWord* ShenandoahCollectorPolicy::satisfy_failed_allocation(size_t size, bool
 void ShenandoahCollectorPolicy::initialize_alignments() {
 
   // This is expected by our algorithm for ShenandoahHeap::heap_region_containing().
-  _space_alignment = ShenandoahHeapRegion::RegionSizeBytes;
-  _heap_alignment = ShenandoahHeapRegion::RegionSizeBytes;
+  _space_alignment = ShenandoahHeapRegion::region_size_bytes();
+  _heap_alignment = ShenandoahHeapRegion::region_size_bytes();
 }
 
 void ShenandoahCollectorPolicy::post_heap_initialize() {

@@ -46,7 +46,7 @@ ShenandoahHeapRegionCounters::ShenandoahHeapRegionCounters() {
     PerfDataManager::create_constant(SUN_GC, cname, PerfData::U_None, max_regions, CHECK);
 
     cname = PerfDataManager::counter_name(_name_space, "region_size");
-    PerfDataManager::create_constant(SUN_GC, cname, PerfData::U_None, ShenandoahHeapRegion::RegionSizeBytes >> 10, CHECK);
+    PerfDataManager::create_constant(SUN_GC, cname, PerfData::U_None, ShenandoahHeapRegion::region_size_bytes() >> 10, CHECK);
 
     cname = PerfDataManager::counter_name(_name_space, "status");
     _status = PerfDataManager::create_long_variable(SUN_GC, cname,

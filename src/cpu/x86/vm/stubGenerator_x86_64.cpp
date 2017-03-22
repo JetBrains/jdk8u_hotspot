@@ -782,7 +782,7 @@ class StubGenerator: public StubCodeGenerator {
       __ mov(rax, rdi);
     }
     if (do_cset_test) {
-      __ shrptr(rdi, ShenandoahHeapRegion::RegionSizeShift);
+      __ shrptr(rdi, ShenandoahHeapRegion::region_size_shift_jint());
       // live: r8
       __ movptr(r8, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
       __ movbool(r8, Address(r8, rdi, Address::times_1));

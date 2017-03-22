@@ -30,7 +30,7 @@ class ShenandoahHeapRegion : public ContiguousSpace {
 private:
   static Monitor _mem_protect_lock;
 
-public:
+private:
   static size_t RegionSizeBytes;
   static size_t RegionSizeShift;
 
@@ -57,6 +57,26 @@ public:
   ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t regionSize, size_t index);
 
   static void setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size);
+
+  inline static size_t region_size_bytes() {
+    return ShenandoahHeapRegion::RegionSizeBytes;
+  }
+
+  inline static size_t region_size_shift() {
+    return ShenandoahHeapRegion::RegionSizeShift;
+  }
+
+  // Convert to jint with sanity checking
+  inline static jint region_size_bytes_jint() {
+    assert (ShenandoahHeapRegion::RegionSizeBytes <= max_jint, "sanity");
+    return (jint)ShenandoahHeapRegion::RegionSizeBytes;
+  }
+
+  // Convert to jint with sanity checking
+  inline static jint region_size_shift_jint() {
+    assert (ShenandoahHeapRegion::RegionSizeShift <= max_jint, "sanity");
+    return (jint)ShenandoahHeapRegion::RegionSizeShift;
+  }
 
   size_t region_number() const;
 
