@@ -609,8 +609,9 @@ public:
     for (size_t i = 0; i < num; i++) {
       if (connections[i * num + region_number] > 0) {
         ShenandoahHeapRegion* candidate = regions->get(sorted_by_garbage[i].region_number);
-        if (maybe_add_heap_region(candidate, collection_set))
+        if (maybe_add_heap_region(candidate, collection_set)) {
           log_develop_trace(gc)("Adding region " SIZE_FORMAT " which points to the choosen region", i);
+        }
       }
     }
 
