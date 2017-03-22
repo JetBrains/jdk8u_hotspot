@@ -184,13 +184,13 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     {
       uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_parallel_evacuation(
         workers->active_workers(), Threads::number_of_non_daemon_threads());
-
       ShenandoahWorkerScope scope(workers, nworkers);
 
       OrderAccess::fence();
 
+      ShenandoahHeapRegionSet** copy_queues = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, _heap->max_workers(), mtGC);
+
       policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
-      ShenandoahHeapRegionSet* copy_queues[_heap->max_workers()];
       phase2_calculate_target_addresses(copy_queues);
       policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
 
@@ -203,6 +203,8 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_copy_objects);
       phase4_compact_objects(copy_queues);
       policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_copy_objects);
+
+      FREE_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, copy_queues, mtGC);
 
       CodeCache::gc_epilogue();
       JvmtiExport::gc_epilogue();

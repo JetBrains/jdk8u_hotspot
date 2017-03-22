@@ -398,7 +398,12 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
     // there is no point for prefetching the oop contents, as oop->size() will
     // touch it prematurely.
 
-    oop slots[dist];
+    // No variable-length arrays in standard C++, have enough slots to fit
+    // the prefetch distance.
+    static const int SLOT_COUNT = 256;
+    guarantee(dist <= SLOT_COUNT, "adjust slot count");
+    oop slots[SLOT_COUNT];
+
     bool aborting = false;
     int avail;
     do {
