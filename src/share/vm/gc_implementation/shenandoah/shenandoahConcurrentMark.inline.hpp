@@ -77,7 +77,7 @@ void ShenandoahConcurrentMark::do_task(SCMObjToScanQueue* q, T* cl, jushort* liv
 }
 
 inline void ShenandoahConcurrentMark::count_liveness(jushort* live_data, oop obj) {
-  uint region_idx = _heap->heap_region_index_containing(obj);
+  size_t region_idx = _heap->heap_region_index_containing(obj);
   jushort cur = live_data[region_idx];
   int size = obj->size() + BrooksPointer::word_size();
   int max = (1 << (sizeof(jushort) * 8)) - 1;

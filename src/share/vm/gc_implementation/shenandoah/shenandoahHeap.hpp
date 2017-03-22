@@ -293,7 +293,7 @@ public:
   ShenandoahCollectorPolicy *shenandoahPolicy() { return _shenandoah_policy;}
 
   inline ShenandoahHeapRegion* heap_region_containing(const void* addr) const;
-  inline uint heap_region_index_containing(const void* addr) const;
+  inline size_t heap_region_index_containing(const void* addr) const;
   inline bool requires_marking(const void* entry) const;
   template <class T>
   inline oop maybe_update_oop_ref(T* p);

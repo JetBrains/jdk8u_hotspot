@@ -1072,7 +1072,7 @@ void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
   oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
   size_t size = humongous_obj->size() + BrooksPointer::word_size();
   uint required_regions = ShenandoahHumongous::required_regions(size * HeapWordSize);
-  uint index = r->region_number();
+  size_t index = r->region_number();
 
 
   assert(!r->has_live(), "liveness must be zero");
@@ -2360,13 +2360,13 @@ GCTimer* ShenandoahHeap::gc_timer() const {
 
 class RecordAllRefsOopClosure: public ExtendedOopClosure {
 private:
-  int _x;
+  size_t _x;
   int *_matrix;
-  int _num_regions;
+  size_t _num_regions;
   oop _p;
 
 public:
-  RecordAllRefsOopClosure(int *matrix, int x, size_t num_regions, oop p) :
+  RecordAllRefsOopClosure(int *matrix, size_t x, size_t num_regions, oop p) :
           _matrix(matrix), _x(x), _num_regions(num_regions), _p(p) {}
 
   template <class T>
@@ -2374,7 +2374,7 @@ public:
     oop o = oopDesc::load_decode_heap_oop(p);
     if (o != NULL) {
       if (ShenandoahHeap::heap()->is_in(o) && o->is_oop() ) {
-        int y = ShenandoahHeap::heap()->heap_region_containing(o)->region_number();
+        size_t y = ShenandoahHeap::heap()->heap_region_containing(o)->region_number();
         _matrix[_x * _num_regions + y]++;
       }
     }
@@ -2399,7 +2399,7 @@ public:
 
   void do_object(oop p) {
     if (ShenandoahHeap::heap()->is_in(p) && ShenandoahHeap::heap()->is_marked_next(p)  && p->is_oop()) {
-      int x = ShenandoahHeap::heap()->heap_region_containing(p)->region_number();
+      size_t x = ShenandoahHeap::heap()->heap_region_containing(p)->region_number();
       RecordAllRefsOopClosure cl(_matrix, x, _num_regions, p);
       p->oop_iterate(&cl);
     }
@@ -2408,10 +2408,10 @@ public:
 void ShenandoahHeap::calculate_matrix(int* connections) {
   log_develop_trace(gc)("calculating matrix");
   ensure_parsability(false);
-  int num = num_regions();
+  size_t num = num_regions();
 
-  for (int i = 0; i < num; i++) {
-    for (int j = 0; j < num; j++) {
+  for (size_t i = 0; i < num; i++) {
+    for (size_t j = 0; j < num; j++) {
       connections[i * num + j] = 0;
     }
   }
@@ -2425,17 +2425,17 @@ void ShenandoahHeap::calculate_matrix(int* connections) {
 }
 
 void ShenandoahHeap::print_matrix(int* connections) {
-  int num = num_regions();
+  size_t num = num_regions();
   int cs_regions = 0;
   int referenced = 0;
 
-  for (int i = 0; i < num; i++) {
+  for (size_t i = 0; i < num; i++) {
     size_t liveData = ShenandoahHeap::heap()->regions()->get(i)->get_live_data_bytes();
 
     int numReferencedRegions = 0;
     int numReferencedByRegions = 0;
 
-    for (int j = 0; j < num; j++) {
+    for (size_t j = 0; j < num; j++) {
       if (connections[i * num + j] > 0)
         numReferencedRegions++;
 
@@ -2447,16 +2447,15 @@ void ShenandoahHeap::print_matrix(int* connections) {
     }
 
     if (ShenandoahHeap::heap()->regions()->get(i)->has_live()) {
-      tty->print("Region %d is referenced by %d regions {",
-                 i, numReferencedByRegions);
+      tty->print("Region " SIZE_FORMAT " is referenced by %d regions {", i, numReferencedByRegions);
       int col_count = 0;
-      for (int j = 0; j < num; j++) {
+      for (size_t j = 0; j < num; j++) {
         int foo = connections[j * num + i];
         if (foo > 0) {
           col_count++;
           if ((col_count % 10) == 0)
             tty->print("\n");
-          tty->print("%d(%d), ", j,foo);
+          tty->print("" SIZE_FORMAT "(%d), ", j, foo);
         }
       }
       tty->print("} \n");

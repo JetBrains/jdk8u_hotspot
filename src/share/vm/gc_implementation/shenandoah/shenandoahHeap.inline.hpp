@@ -89,7 +89,7 @@ inline bool ShenandoahHeap::need_update_refs() const {
   return _need_update_refs;
 }
 
-inline uint ShenandoahHeap::heap_region_index_containing(const void* addr) const {
+inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) const {
   uintptr_t region_start = ((uintptr_t) addr);
   uintptr_t index = (region_start - (uintptr_t) _first_region_bottom) >> ShenandoahHeapRegion::RegionSizeShift;
 #ifdef ASSERT
@@ -107,7 +107,7 @@ inline uint ShenandoahHeap::heap_region_index_containing(const void* addr) const
 }
 
 inline ShenandoahHeapRegion* ShenandoahHeap::heap_region_containing(const void* addr) const {
-  uint index = heap_region_index_containing(addr);
+  size_t index = heap_region_index_containing(addr);
   ShenandoahHeapRegion* result = _ordered_regions->get(index);
 #ifdef ASSERT
   if (!(addr >= result->bottom() && addr < result->end())) {
