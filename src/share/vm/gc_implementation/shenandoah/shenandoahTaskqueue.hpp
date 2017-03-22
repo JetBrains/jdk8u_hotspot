@@ -189,10 +189,6 @@ public:
     chunk_bits  = 10,
     pow_bits    = 5,
   };
-  enum {
-    chunk_size  = nth_bit(chunk_bits),
-    pow_size    = nth_bit(pow_bits),
-  };
 public:
   ObjArrayChunkedTask(oop o = NULL, int chunk = 0, int pow = 0): _obj(o) {
     assert(0 <= chunk && chunk < nth_bit(chunk_bits), err_msg("chunk is sane: %d", chunk));
@@ -225,7 +221,7 @@ public:
   DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
 
   static size_t max_addressable() {
-    return nth_bit(oop_bits);
+    return sizeof(oop);
   }
 
   static int chunk_size() {
