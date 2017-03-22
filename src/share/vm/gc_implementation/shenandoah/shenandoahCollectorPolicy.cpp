@@ -759,7 +759,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   } else {
       ShouldNotReachHere();
   }
-  _phase_times = new ShenandoahPhaseTimes(MAX2(ConcGCThreads, ParallelGCThreads));
+  _phase_times = new ShenandoahPhaseTimes((uint)MAX2(ConcGCThreads, ParallelGCThreads));
 }
 
 ShenandoahCollectorPolicy* ShenandoahCollectorPolicy::as_pgc_policy() {

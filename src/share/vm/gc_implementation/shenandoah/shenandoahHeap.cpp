@@ -286,7 +286,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _max_allocated_gc(0),
   _allocated_last_gc(0),
   _used_start_gc(0),
-  _max_workers(MAX2(ConcGCThreads, ParallelGCThreads)),
+  _max_workers((uint)MAX2(ConcGCThreads, ParallelGCThreads)),
   _ref_processor(NULL),
   _in_cset_fast_test(NULL),
   _in_cset_fast_test_base(NULL),
@@ -499,7 +499,7 @@ void ShenandoahHeap::set_used(size_t bytes) {
 
 void ShenandoahHeap::decrease_used(size_t bytes) {
   assert(_used >= bytes, "never decrease heap size by more than we've left");
-  Atomic::add_ptr(-bytes, (intptr_t*) &_used);
+  Atomic::add_ptr(-((intptr_t)bytes), (intptr_t*) &_used);
 }
 
 size_t ShenandoahHeap::capacity() const {

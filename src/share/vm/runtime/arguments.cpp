@@ -1756,7 +1756,7 @@ void Arguments::set_shenandoah_gc_flags() {
                    Abstract_VM_Version::parallel_worker_threads());
 
   if (FLAG_IS_DEFAULT(ConcGCThreads)) {
-    uint conc_threads = MAX2((uintx) 1, ParallelGCThreads);
+    uint conc_threads = MAX2((uint) 1, (uint)ParallelGCThreads);
     FLAG_SET_DEFAULT(ConcGCThreads, conc_threads);
   }
 
