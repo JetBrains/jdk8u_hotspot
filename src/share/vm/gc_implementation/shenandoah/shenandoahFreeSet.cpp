@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.inline.hpp"
@@ -115,10 +116,10 @@ void ShenandoahFreeSet::initialize_humongous_regions(size_t first, size_t num) {
 
     assert(current->is_empty(), "must be empty");
     current->set_top(current->end());
-    current->increase_live_data_words(ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize);
+    current->increase_live_data_words(ShenandoahHeapRegion::region_size_bytes_jint() / HeapWordSize);
   }
-  increase_used(ShenandoahHeapRegion::RegionSizeBytes * num);
-  ShenandoahHeap::heap()->increase_used(ShenandoahHeapRegion::RegionSizeBytes * num);
+  increase_used(ShenandoahHeapRegion::region_size_bytes() * num);
+  ShenandoahHeap::heap()->increase_used(ShenandoahHeapRegion::region_size_bytes() * num);
 }
 
 ShenandoahHeapRegion* ShenandoahFreeSet::allocate_contiguous(size_t num) {

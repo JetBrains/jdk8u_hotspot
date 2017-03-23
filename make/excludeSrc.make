@@ -83,7 +83,7 @@ ifeq ($(INCLUDE_ALL_GCS), false)
 
       gc_impl := $(HS_COMMON_SRC)/share/vm/gc_implementation
       gc_impl_alt := $(HS_ALT_SRC)/share/vm/gc_implementation
-      gc_subdirs := concurrentMarkSweep g1 parallelScavenge parNew
+      gc_subdirs := concurrentMarkSweep g1 shenandoah parallelScavenge parNew
       gc_exclude := $(foreach gc,$(gc_subdirs),				\
 		     $(notdir $(wildcard $(gc_impl)/$(gc)/*.cpp))	\
 		     $(notdir $(wildcard $(gc_impl_alt)/$(gc)/*.cpp)))
@@ -115,6 +115,7 @@ ifeq ($(INCLUDE_ALL_GCS), false)
       # src/share/vm/services
       Src_Files_EXCLUDE +=						\
 	g1MemoryPool.cpp						\
+	shenandoahMemoryPool.cpp					\
 	psMemoryPool.cpp
 endif
 

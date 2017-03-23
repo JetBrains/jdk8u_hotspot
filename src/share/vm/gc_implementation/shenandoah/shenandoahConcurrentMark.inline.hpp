@@ -77,7 +77,7 @@ void ShenandoahConcurrentMark::do_task(SCMObjToScanQueue* q, T* cl, jushort* liv
 }
 
 inline void ShenandoahConcurrentMark::count_liveness(jushort* live_data, oop obj) {
-  uint region_idx = _heap->heap_region_index_containing(obj);
+  size_t region_idx = _heap->heap_region_index_containing(obj);
   jushort cur = live_data[region_idx];
   int size = obj->size() + BrooksPointer::word_size();
   int max = (1 << (sizeof(jushort) * 8)) - 1;
@@ -136,7 +136,7 @@ inline void ShenandoahConcurrentMark::do_chunked_array_start(SCMObjToScanQueue* 
     // Split out tasks, as suggested in ObjArrayChunkedTask docs. Record the last
     // successful right boundary to figure out the irregular tail.
     while ((1 << pow) > (int)ObjArrayMarkingStride &&
-           (chunk*2 < SCMTask::chunk_size)) {
+           (chunk*2 < SCMTask::chunk_size())) {
       pow--;
       int left_chunk = chunk*2 - 1;
       int right_chunk = chunk*2;
@@ -168,7 +168,7 @@ inline void ShenandoahConcurrentMark::do_chunked_array(SCMObjToScanQueue* q, T* 
 
   // Split out tasks, as suggested in ObjArrayChunkedTask docs. Avoid pushing tasks that
   // are known to start beyond the array.
-  while ((1 << pow) > (int)ObjArrayMarkingStride && (chunk*2 < SCMTask::chunk_size)) {
+  while ((1 << pow) > (int)ObjArrayMarkingStride && (chunk*2 < SCMTask::chunk_size())) {
     pow--;
     chunk *= 2;
     bool pushed = q->push(SCMTask(array, chunk - 1, pow));

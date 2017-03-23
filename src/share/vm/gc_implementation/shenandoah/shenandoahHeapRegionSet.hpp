@@ -87,7 +87,7 @@ public:
 
   template<class C>
   void sort(C comparator) {
-    QuickSort::sort<ShenandoahHeapRegion*>(_regions, _active_end, comparator, false);
+    QuickSort::sort<ShenandoahHeapRegion*>(_regions, (int)_active_end, comparator, false);
   }
 
   void print(outputStream* out = tty);

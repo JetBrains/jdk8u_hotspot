@@ -61,6 +61,12 @@ private:
   E _elem;
 };
 
+#ifdef _MSC_VER
+#pragma warning(push)
+// warning C4522: multiple assignment operators specified
+#pragma warning(disable:4522)
+#endif
+
 // ObjArrayChunkedTask
 //
 // Encodes both regular oops, and the array oops plus chunking data for parallel array processing.
@@ -126,20 +132,9 @@ public:
     oop_bits     = sizeof(uintptr_t)*8 - chunk_bits - pow_bits,
   };
   enum {
-    chunk_size   = nth_bit(chunk_bits),
-    pow_size     = nth_bit(pow_bits),
-    oop_size     = nth_bit(oop_bits),
-  };
-  enum {
     oop_shift    = 0,
     pow_shift    = oop_shift + oop_bits,
     chunk_shift  = pow_shift + pow_bits,
-  };
-  enum {
-    oop_mask     = right_n_bits(oop_bits),
-    pow_mask     = right_n_bits(pow_bits),
-    chunk_mask   = right_n_bits(chunk_bits),
-    chunk_mask_unshift = ~right_n_bits(oop_bits + pow_bits),
   };
 
 public:
@@ -147,12 +142,12 @@ public:
     _obj = ((uintptr_t)(void*) o) << oop_shift;
   }
   ObjArrayChunkedTask(oop o, int chunk, int mult) {
-    assert(0 <= chunk && chunk < chunk_size, err_msg("chunk is sane: %d", chunk));
-    assert(0 <= mult && mult < pow_size, err_msg("pow is sane: %d", mult));
+    assert(0 <= chunk && chunk < nth_bit(chunk_bits), err_msg("chunk is sane: %d", chunk));
+    assert(0 <= mult && mult < nth_bit(pow_bits), err_msg("pow is sane: %d", mult));
     uintptr_t t_b = ((uintptr_t) chunk) << chunk_shift;
     uintptr_t t_m = ((uintptr_t) mult) << pow_shift;
     uintptr_t obj = (uintptr_t)(void*)o;
-    assert(obj < oop_size, err_msg("obj ref is sane: " PTR_FORMAT, obj));
+    assert(obj < nth_bit(oop_bits), err_msg("obj ref is sane: " PTR_FORMAT, obj));
     intptr_t t_o = obj << oop_shift;
     _obj = t_o | t_m | t_b;
   }
@@ -168,12 +163,20 @@ public:
     return *this;
   }
 
-  inline oop obj()   const { return (oop) reinterpret_cast<void*>((_obj >> oop_shift) & oop_mask); }
-  inline int chunk() const { return (int) (_obj >> chunk_shift) & chunk_mask; }
-  inline int pow()   const { return (int) ((_obj >> pow_shift) & pow_mask); }
-  inline bool is_not_chunked() const { return (_obj & chunk_mask_unshift) == 0; }
+  inline oop obj()   const { return (oop) reinterpret_cast<void*>((_obj >> oop_shift) & right_n_bits(oop_bits)); }
+  inline int chunk() const { return (int) (_obj >> chunk_shift) & right_n_bits(chunk_bits); }
+  inline int pow()   const { return (int) ((_obj >> pow_shift) & right_n_bits(pow_bits)); }
+  inline bool is_not_chunked() const { return (_obj & ~right_n_bits(oop_bits + pow_bits)) == 0; }
 
   DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
+
+  static size_t max_addressable() {
+    return nth_bit(oop_bits);
+  }
+
+  static int chunk_size() {
+    return nth_bit(chunk_bits);
+  }
 
 private:
   uintptr_t _obj;
@@ -186,14 +189,10 @@ public:
     chunk_bits  = 10,
     pow_bits    = 5,
   };
-  enum {
-    chunk_size  = nth_bit(chunk_bits),
-    pow_size    = nth_bit(pow_bits),
-  };
 public:
   ObjArrayChunkedTask(oop o = NULL, int chunk = 0, int pow = 0): _obj(o) {
-    assert(0 <= chunk && chunk < chunk_size, err_msg("chunk is sane: %d", chunk));
-    assert(0 <= pow && pow < pow_size, err_msg("pow is sane: %d", pow));
+    assert(0 <= chunk && chunk < nth_bit(chunk_bits), err_msg("chunk is sane: %d", chunk));
+    assert(0 <= pow && pow < nth_bit(pow_bits), err_msg("pow is sane: %d", pow));
     _chunk = chunk;
     _pow = pow;
   }
@@ -220,6 +219,14 @@ public:
   inline bool is_not_chunked() const { return _chunk == 0; }
 
   DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
+
+  static size_t max_addressable() {
+    return sizeof(oop);
+  }
+
+  static int chunk_size() {
+    return nth_bit(chunk_bits);
+  }
 
 private:
   oop _obj;

@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
 
@@ -30,6 +31,12 @@
 #define __ masm->
 
 #ifndef CC_INTERP
+
+#ifndef _LP64
+void ShenandoahBarrierSet::compile_resolve_oop_runtime(MacroAssembler* masm, Register dst) {
+  Unimplemented();
+}
+#else
 void ShenandoahBarrierSet::compile_resolve_oop_runtime(MacroAssembler* masm, Register dst) {
 
   __ push(rscratch1);
@@ -164,6 +171,7 @@ void ShenandoahBarrierSet::compile_resolve_oop_runtime(MacroAssembler* masm, Reg
 
   __ pop(rscratch1);
 }
+#endif // _LP64
 
 void ShenandoahBarrierSet::interpreter_read_barrier(MacroAssembler* masm, Register dst) {
   if (ShenandoahReadBarrier) {
@@ -192,7 +200,88 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
     return interpreter_read_barrier(masm, dst);
   }
 
-  __ shenandoah_write_barrier(dst);
+#ifdef _LP64
+  assert(dst != rscratch1, "different regs");
+
+  Label done;
+
+  Address evacuation_in_progress = Address(r15_thread, in_bytes(JavaThread::evacuation_in_progress_offset()));
+
+  __ cmpb(evacuation_in_progress, 0);
+
+  // Now check if evacuation is in progress.
+  interpreter_read_barrier_not_null(masm, dst);
+
+  __ jcc(Assembler::equal, done);
+  __ push(rscratch1);
+  __ push(rscratch2);
+
+  __ movptr(rscratch1, dst);
+  __ shrptr(rscratch1, ShenandoahHeapRegion::region_size_shift_jint());
+  __ movptr(rscratch2, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
+  __ movbool(rscratch2, Address(rscratch2, rscratch1, Address::times_1));
+  __ testb(rscratch2, 0x1);
+
+  __ pop(rscratch2);
+  __ pop(rscratch1);
+
+  __ jcc(Assembler::zero, done);
+
+  __ push(rscratch1);
+
+  // Save possibly live regs.
+  if (dst != rax) {
+    __ push(rax);
+  }
+  if (dst != rbx) {
+    __ push(rbx);
+  }
+  if (dst != rcx) {
+    __ push(rcx);
+  }
+  if (dst != rdx) {
+    __ push(rdx);
+  }
+  if (dst != c_rarg1) {
+    __ push(c_rarg1);
+  }
+
+  __ subptr(rsp, 2 * wordSize);
+  __ movdbl(Address(rsp, 0), xmm0);
+
+  // Call into runtime
+  __ super_call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_interp), dst);
+  __ mov(rscratch1, rax);
+
+  // Restore possibly live regs.
+  __ movdbl(xmm0, Address(rsp, 0));
+  __ addptr(rsp, 2 * Interpreter::stackElementSize);
+
+  if (dst != c_rarg1) {
+    __ pop(c_rarg1);
+  }
+  if (dst != rdx) {
+    __ pop(rdx);
+  }
+  if (dst != rcx) {
+    __ pop(rcx);
+  }
+  if (dst != rbx) {
+    __ pop(rbx);
+  }
+  if (dst != rax) {
+    __ pop(rax);
+  }
+
+  // Move result into dst reg.
+  __ mov(dst, rscratch1);
+
+  __ pop(rscratch1);
+
+  __ bind(done);
+#else
+  Unimplemented();
+#endif
 }
 
 void ShenandoahBarrierSet::asm_acmp_barrier(MacroAssembler* masm, Register op1, Register op2) {
@@ -205,7 +294,11 @@ void ShenandoahBarrierSet::asm_acmp_barrier(MacroAssembler* masm, Register op1, 
 }
 
 void ShenandoahHeap::compile_prepare_oop(MacroAssembler* masm, Register obj) {
+#ifdef _LP64
   __ incrementq(obj, BrooksPointer::byte_size());
+#else
+  __ incrementl(obj, BrooksPointer::byte_size());
+#endif
   __ movptr(Address(obj, BrooksPointer::byte_offset()), obj);
 }
 #endif

@@ -22,6 +22,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shared/parallelCleaning.hpp"
 
 Monitor* CodeCacheUnloadingTask::_lock = new Monitor(Mutex::leaf, "Code Cache Unload lock");

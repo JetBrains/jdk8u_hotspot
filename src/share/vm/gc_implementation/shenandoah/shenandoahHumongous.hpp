@@ -29,8 +29,8 @@
 class ShenandoahHumongous : public AllStatic {
 
 public:
-  static uint required_regions(size_t bytes) {
-    return (bytes + ShenandoahHeapRegion::RegionSizeBytes - 1) / ShenandoahHeapRegion::RegionSizeBytes;
+  static size_t required_regions(size_t bytes) {
+    return (bytes + ShenandoahHeapRegion::region_size_bytes() - 1) / ShenandoahHeapRegion::region_size_bytes();
   }
 };
 

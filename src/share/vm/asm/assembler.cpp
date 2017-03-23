@@ -316,17 +316,26 @@ bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
   }
 #endif
 
+  if (UseShenandoahGC) {
 #ifdef AARCH64
-  // AArch64 uses 48-bit addresses
-  const unsigned long address_bits = 0xfffffffffffful;
+    // AArch64 uses 48-bit addresses
+    const unsigned long address_bits = 0xfffffffffffful;
+#elif defined(_LP64)
+#ifdef _WINDOWS
+    const unsigned long long address_bits = 0xffffffffffffffffull;
 #else
-  const unsigned long address_bits = 0xfffffffffffffffful;
+    const unsigned long address_bits = 0xfffffffffffffffful;
+#endif // _WINDOWS
+#else
+    // Shenandoah is not implemented on these platforms, make sure we build fine,
+    // but also crash consistently at runtime.
+    const unsigned long address_bits = 0;
+    ShouldNotReachHere();
 #endif
-
-  if (UseShenandoahGC
-      && ((offset & address_bits)
-          == (BrooksPointer::byte_offset() & address_bits)))
-    return false;
+    if ((offset & address_bits) == (BrooksPointer::byte_offset() & address_bits)) {
+      return false;
+    }
+  }
 
   return offset < 0 || os::vm_page_size() <= offset;
 }

@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
@@ -35,7 +36,7 @@ void VM_ShenandoahInitMark::doit() {
 
   // Calculate workers for initial marking
   uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
-    workers->active_workers(), Threads::number_of_non_daemon_threads());
+    workers->active_workers(), (uint)Threads::number_of_non_daemon_threads());
 
   ShenandoahWorkerScope scope(workers, nworkers);
 
@@ -96,7 +97,7 @@ void VM_ShenandoahStartEvacuation::doit() {
   // Setup workers for final marking
   FlexibleWorkGang* workers = sh->workers();
   uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_final_marking(workers->active_workers(),
-    Threads::number_of_non_daemon_threads());
+                                                                             (uint)Threads::number_of_non_daemon_threads());
   ShenandoahWorkerScope scope(workers, n_workers);
 
   if (! sh->cancelled_concgc()) {

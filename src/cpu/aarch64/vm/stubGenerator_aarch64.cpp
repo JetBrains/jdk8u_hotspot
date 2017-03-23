@@ -573,7 +573,7 @@ class StubGenerator: public StubCodeGenerator {
     if (do_cset_test) {
       Label work;
       __ mov(rscratch2, ShenandoahHeap::in_cset_fast_test_addr());
-      __ lsr(rscratch1, r0, ShenandoahHeapRegion::RegionSizeShift);
+      __ lsr(rscratch1, r0, ShenandoahHeapRegion::region_size_shift_jint());
       __ ldrb(rscratch2, Address(rscratch2, rscratch1));
       __ tbnz(rscratch2, 0, work);
       __ ret(lr);
@@ -4458,6 +4458,11 @@ class StubGenerator: public StubCodeGenerator {
       StubRoutines::_montgomerySquare = g.generate_multiply();
     }
 
+    if (UseShenandoahGC && ShenandoahWriteBarrier) {
+      StubRoutines::aarch64::_shenandoah_wb = generate_shenandoah_wb(false, true);
+      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
+    }
+
 #ifndef BUILTIN_SIM
     if (UseAESIntrinsics) {
       StubRoutines::_aescrypt_encryptBlock = generate_aescrypt_encryptBlock();
@@ -4485,27 +4490,16 @@ class StubGenerator: public StubCodeGenerator {
 #endif
   }
 
-  void generate_barriers() {
-    if (UseShenandoahGC) {
-      StubRoutines::aarch64::_shenandoah_wb = generate_shenandoah_wb(false, true);
-      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
-    }
-  }
-
  public:
-  StubGenerator(CodeBuffer* code, int phase) : StubCodeGenerator(code) {
-    if (phase == 2) {
+  StubGenerator(CodeBuffer* code, bool all) : StubCodeGenerator(code) {
+    if (all) {
       generate_all();
-    } else if (phase == 1) {
-      generate_initial();
-    } else if (phase == 3) {
-      generate_barriers();
     } else {
-      ShouldNotReachHere();
+      generate_initial();
     }
   }
 }; // end class declaration
 
-void StubGenerator_generate(CodeBuffer* code, int phase) {
-  StubGenerator g(code, phase);
+void StubGenerator_generate(CodeBuffer* code, bool all) {
+  StubGenerator g(code, all);
 }

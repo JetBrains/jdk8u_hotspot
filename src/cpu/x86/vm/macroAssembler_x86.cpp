@@ -3875,6 +3875,14 @@ void MacroAssembler::serialize_memory(Register thread, Register tmp) {
 
 // Special Shenandoah CAS implementation that handles false negatives
 // due to concurrent evacuation.
+#ifndef _LP64
+void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register oldval, Register newval,
+                              bool exchange,
+                              Register tmp1, Register tmp2) {
+  // Shenandoah has no 32-bit version for this.
+  Unimplemented();
+}
+#else
 void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register oldval, Register newval,
                               bool exchange,
                               Register tmp1, Register tmp2) {
@@ -3958,6 +3966,7 @@ void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register
     movzbl(res, res);
   }
 }
+#endif
 
 // Calls to C land
 //
@@ -4438,6 +4447,11 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
   bind(done);
 }
 
+#ifndef _LP64
+void MacroAssembler::shenandoah_write_barrier(Register dst) {
+  Unimplemented();
+}
+#else
 void MacroAssembler::shenandoah_write_barrier(Register dst) {
   assert(UseShenandoahGC, "must only be called with Shenandoah GC active");
 
@@ -4465,6 +4479,7 @@ void MacroAssembler::shenandoah_write_barrier(Register dst) {
 
   bind(done);
 }
+#endif // _LP64
 
 #endif // INCLUDE_ALL_GCS
 //////////////////////////////////////////////////////////////////////////////////
@@ -4569,7 +4584,7 @@ void MacroAssembler::tlab_allocate(Register obj,
     lea(end, Address(obj, con_size_in_bytes + oop_extra_words * HeapWordSize));
   } else {
     if (oop_extra_words > 0) {
-      addq(var_size_in_bytes, oop_extra_words * HeapWordSize);
+      addptr(var_size_in_bytes, oop_extra_words * HeapWordSize);
     }
     lea(end, Address(obj, var_size_in_bytes, Address::times_1));
   }
@@ -5350,7 +5365,7 @@ void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
   ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
 
   HeapWord* first_region_bottom = h->first_region_bottom();
-  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize) * h->max_regions();
+  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();
   guarantee(first_region_bottom < last_region_end, err_msg("sanity: %p < %p", first_region_bottom, last_region_end));
   movptr(tmp, (intptr_t) first_region_bottom);
   cmpptr(raddr, tmp);
@@ -5364,7 +5379,7 @@ void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
 void MacroAssembler::shenandoah_cset_check(Register raddr, Register tmp1, Register tmp2, Label& done) {
   // Test that oop is not in to-space.
   movptr(tmp1, raddr);
-  shrptr(tmp1, ShenandoahHeapRegion::RegionSizeShift);
+  shrptr(tmp1, ShenandoahHeapRegion::region_size_shift_jint());
   movptr(tmp2, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
   movbool(tmp2, Address(tmp2, tmp1, Address::times_1));
   testbool(tmp2);
@@ -5378,6 +5393,23 @@ void MacroAssembler::shenandoah_cset_check(Register raddr, Register tmp1, Regist
 
 }
 
+#ifndef _LP64
+void MacroAssembler::_shenandoah_store_addr_check(Address addr, const char* msg, const char* file, int line) {
+  // Not implemented on 32-bit, pass.
+}
+void MacroAssembler::_shenandoah_store_addr_check(Register dst, const char* msg, const char* file, int line) {
+  // Not implemented on 32-bit, pass.
+}
+void MacroAssembler::_shenandoah_store_check(Register dst, Register value, const char* msg, const char* file, int line) {
+  // Not implemented on 32-bit, pass.
+}
+void MacroAssembler::_shenandoah_store_check(Address addr, Register value, const char* msg, const char* file, int line) {
+  // Not implemented on 32-bit, pass.
+}
+void MacroAssembler::_shenandoah_lock_check(Register dst, const char* msg, const char* file, int line) {
+  // Not implemented on 32-bit, pass.
+}
+#else
 void MacroAssembler::_shenandoah_store_addr_check(Address addr, const char* msg, const char* file, int line) {
   _shenandoah_store_addr_check(addr.base(), msg, file, line);
 }
@@ -5508,6 +5540,7 @@ void MacroAssembler::_shenandoah_lock_check(Register dst, const char* msg, const
   pop(r8);
 #endif
 }
+#endif // _LP64
 
 RegisterOrConstant MacroAssembler::delayed_value_impl(intptr_t* delayed_value_addr,
                                                       Register tmp,

@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
@@ -49,6 +50,18 @@ protected:
     else if (b.garbage < a.garbage)
       return 1;
     else return 0;
+  }
+
+  RegionGarbage* get_region_garbage_cache(size_t num) {
+    RegionGarbage* res = _region_garbage;
+    if (res == NULL) {
+      res = NEW_C_HEAP_ARRAY(RegionGarbage, num, mtGC);
+      _region_garbage_size = num;
+    } else if (_region_garbage_size < num) {
+      REALLOC_C_HEAP_ARRAY(RegionGarbage, _region_garbage, num, mtGC);
+      _region_garbage_size = num;
+    }
+    return res;
   }
 
   RegionGarbage* _region_garbage;
@@ -158,14 +171,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   ShenandoahHeapRegionSet* regions = heap->regions();
   size_t active = regions->active_regions();
 
-  RegionGarbage* candidates = _region_garbage;
-  if (candidates == NULL) {
-    candidates = NEW_C_HEAP_ARRAY(RegionGarbage, active, mtGC);
-    _region_garbage_size = active;
-  } else if (_region_garbage_size < active) {
-    REALLOC_C_HEAP_ARRAY(RegionGarbage, _region_garbage, active, mtGC);
-    _region_garbage_size = active;
-  }
+  RegionGarbage* candidates = get_region_garbage_cache(active);
 
   size_t cand_idx = 0;
   _bytes_in_cset = 0;
@@ -203,7 +209,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 
   if (cand_idx > 0) {
     if (needs_regions_sorted_by_garbage()) {
-      QuickSort::sort<RegionGarbage>(candidates, cand_idx, compare_by_garbage, false);
+      QuickSort::sort<RegionGarbage>(candidates, (int)cand_idx, compare_by_garbage, false);
     }
 
     for (size_t i = 0; i < cand_idx; i++) {
@@ -227,8 +233,8 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   log_debug(gc)("Immediate Garbage regions: "SIZE_FORMAT, immediate_regions);
   log_debug(gc)("Garbage to be collected: "SIZE_FORMAT, collection_set->garbage());
   log_debug(gc)("Objects to be evacuated: "SIZE_FORMAT, collection_set->live_data());
-  log_debug(gc)("Live / Garbage ratio: "SIZE_FORMAT"%%", collection_set->live_data() * 100 / MAX2(collection_set->garbage(), 1UL));
-  log_debug(gc)("Collected-Garbage ratio / Total-garbage: "SIZE_FORMAT"%%", collection_set->garbage() * 100 / MAX2(total_garbage, 1UL));
+  log_debug(gc)("Live / Garbage ratio: "SIZE_FORMAT"%%", collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
+  log_debug(gc)("Collected-Garbage ratio / Total-garbage: "SIZE_FORMAT"%%", collection_set->garbage() * 100 / MAX2(total_garbage, (size_t)1));
 }
 
 void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
@@ -386,7 +392,7 @@ public:
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    size_t threshold = ShenandoahHeapRegion::RegionSizeBytes * ShenandoahGarbageThreshold / 100;
+    size_t threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
     return r->garbage() > threshold;
   }
 
@@ -402,7 +408,7 @@ public:
   AdaptiveHeuristics() :
     ShenandoahHeuristics(),
     _free_threshold(ShenandoahInitFreeThreshold),
-    _cset_history(new TruncatedSeq(ShenandoahHappyCyclesThreshold)) {
+    _cset_history(new TruncatedSeq((uint)ShenandoahHappyCyclesThreshold)) {
 
     _cset_history->add((double) ShenandoahCSetThreshold);
     _cset_history->add((double) ShenandoahCSetThreshold);
@@ -413,7 +419,7 @@ public:
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    size_t threshold = ShenandoahHeapRegion::RegionSizeBytes * ShenandoahGarbageThreshold / 100;
+    size_t threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
     return r->garbage() > threshold;
   }
 
@@ -519,7 +525,7 @@ public:
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
     size_t min_ratio = 100 - ShenandoahGarbageThreshold;
-    if (_live * 100 / MAX2(_garbage + immediate_garbage, 1UL) < min_ratio && ! r->is_empty()) {
+    if (_live * 100 / MAX2(_garbage + immediate_garbage, (size_t)1) < min_ratio && ! r->is_empty()) {
       _garbage += r->garbage();
       _live += r->get_live_data_bytes();
       return true;
@@ -557,8 +563,6 @@ public:
     _allocation_threshold_factor = 0.;
   }
 
-  virtual ~ConnectionHeuristics() {}
-
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
     size_t half_gig = 64 * 1024 * 1024;
     size_t bytes_alloc = ShenandoahHeap::heap()->bytes_allocated_since_cm();
@@ -578,17 +582,18 @@ public:
 
   virtual void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections) {
     ShenandoahHeapRegionSet* regions = ShenandoahHeap::heap()->regions();
-    size_t end = regions->active_regions();
-    RegionGarbage sorted_by_garbage[end];
-    for (size_t i = 0; i < end; i++) {
+    size_t active = regions->active_regions();
+
+    RegionGarbage* sorted_by_garbage = get_region_garbage_cache(active);
+    for (size_t i = 0; i < active; i++) {
       ShenandoahHeapRegion* r = regions->get_fast(i);
       sorted_by_garbage[i].region_number = r->region_number();
       sorted_by_garbage[i].garbage = r->garbage();
     }
 
-    QuickSort::sort<RegionGarbage>(sorted_by_garbage, end, compare_by_garbage, false);
+    QuickSort::sort<RegionGarbage>(sorted_by_garbage, (int) active, compare_by_garbage, false);
 
-    int num = ShenandoahHeap::heap()->num_regions();
+    size_t num = ShenandoahHeap::heap()->num_regions();
     // simulate write heuristics by picking best region.
     int r = 0;
     ShenandoahHeapRegion* choosenOne = regions->get(sorted_by_garbage[0].region_number);
@@ -597,28 +602,29 @@ public:
       choosenOne = regions->get(sorted_by_garbage[++r].region_number);
     }
 
-    int region_number = choosenOne->region_number();
-    log_develop_trace(gc)("Adding choosen region %d\n", region_number);
+    size_t region_number = choosenOne->region_number();
+    log_develop_trace(gc)("Adding choosen region " SIZE_FORMAT, region_number);
 
     // Add all the regions which point to this region.
-    for (int i = 0; i < num; i++) {
+    for (size_t i = 0; i < num; i++) {
       if (connections[i * num + region_number] > 0) {
         ShenandoahHeapRegion* candidate = regions->get(sorted_by_garbage[i].region_number);
-        if (maybe_add_heap_region(candidate, collection_set))
-          log_develop_trace(gc)("Adding region %d which points to the choosen region\n", i);
+        if (maybe_add_heap_region(candidate, collection_set)) {
+          log_develop_trace(gc)("Adding region " SIZE_FORMAT " which points to the choosen region", i);
+        }
       }
     }
 
     // Add all the regions they point to.
     for (size_t ci = 0; ci < collection_set->active_regions(); ci++) {
       ShenandoahHeapRegion* cs_heap_region = collection_set->get(ci);
-      int cs_heap_region_number = cs_heap_region->region_number();
-      for (int i = 0; i < num; i++) {
+      size_t cs_heap_region_number = cs_heap_region->region_number();
+      for (size_t i = 0; i < num; i++) {
         if (connections[i * num + cs_heap_region_number] > 0) {
           ShenandoahHeapRegion* candidate = regions->get(sorted_by_garbage[i].region_number);
           if (maybe_add_heap_region(candidate, collection_set)) {
             log_develop_trace(gc)
-              ("Adding region %d which is pointed to by region %d\n", i, cs_heap_region_number);
+              ("Adding region " SIZE_FORMAT " which is pointed to by region " SIZE_FORMAT, i, cs_heap_region_number);
           }
         }
       }
@@ -753,7 +759,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   } else {
       ShouldNotReachHere();
   }
-  _phase_times = new ShenandoahPhaseTimes(MAX2(ConcGCThreads, ParallelGCThreads));
+  _phase_times = new ShenandoahPhaseTimes((uint)MAX2(ConcGCThreads, ParallelGCThreads));
 }
 
 ShenandoahCollectorPolicy* ShenandoahCollectorPolicy::as_pgc_policy() {
@@ -779,8 +785,8 @@ HeapWord* ShenandoahCollectorPolicy::satisfy_failed_allocation(size_t size, bool
 void ShenandoahCollectorPolicy::initialize_alignments() {
 
   // This is expected by our algorithm for ShenandoahHeap::heap_region_containing().
-  _space_alignment = ShenandoahHeapRegion::RegionSizeBytes;
-  _heap_alignment = ShenandoahHeapRegion::RegionSizeBytes;
+  _space_alignment = ShenandoahHeapRegion::region_size_bytes();
+  _heap_alignment = ShenandoahHeapRegion::region_size_bytes();
 }
 
 void ShenandoahCollectorPolicy::post_heap_initialize() {
@@ -902,7 +908,7 @@ ShenandoahPhaseTimes* ShenandoahCollectorPolicy::phase_times() {
 
 
 uint ShenandoahCollectorPolicy::calc_workers_for_java_threads(uint application_workers) {
-  return (uint)ShenandoahGCWorkerPerJavaThread * application_workers;
+  return (uint)(ShenandoahGCWorkerPerJavaThread * application_workers);
 }
 
 uint ShenandoahCollectorPolicy::calc_workers_for_live_set(size_t live_data) {

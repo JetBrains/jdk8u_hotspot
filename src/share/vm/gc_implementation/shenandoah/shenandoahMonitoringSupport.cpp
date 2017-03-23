@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shared/hSpaceCounters.hpp"
 #include "gc_implementation/shared/collectorCounters.hpp"
 #include "gc_implementation/shared/generationCounters.hpp"
@@ -31,7 +32,7 @@
 class DummyGenerationCounters : public GenerationCounters {
 public:
   DummyGenerationCounters():
-    GenerationCounters("dummy", 0, 3, MinObjAlignmentInBytes * 3, MinObjAlignmentInBytes * 3, (size_t) 0) {
+    GenerationCounters("dummy", 0, 3, (size_t)(MinObjAlignmentInBytes * 3), (size_t)(MinObjAlignmentInBytes * 3), (size_t) 0) {
     _current_size->set_value(0);
     // Nothing to do.
   }

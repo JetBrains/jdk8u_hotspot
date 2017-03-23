@@ -89,9 +89,9 @@ inline bool ShenandoahHeap::need_update_refs() const {
   return _need_update_refs;
 }
 
-inline uint ShenandoahHeap::heap_region_index_containing(const void* addr) const {
+inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) const {
   uintptr_t region_start = ((uintptr_t) addr);
-  uintptr_t index = (region_start - (uintptr_t) _first_region_bottom) >> ShenandoahHeapRegion::RegionSizeShift;
+  uintptr_t index = (region_start - (uintptr_t) _first_region_bottom) >> ShenandoahHeapRegion::region_size_shift();
 #ifdef ASSERT
   if (!(index < _num_regions)) {
     tty->print_cr("heap region does not contain address, first_region_bottom: "PTR_FORMAT \
@@ -99,7 +99,7 @@ inline uint ShenandoahHeap::heap_region_index_containing(const void* addr) const
                   p2i(_first_region_bottom),
                   p2i(_ordered_regions->get(0)->bottom()),
                   _num_regions,
-                  ShenandoahHeapRegion::RegionSizeBytes);
+                  ShenandoahHeapRegion::region_size_bytes());
   }
 #endif
   assert(index < _num_regions, "heap region index must be in range");
@@ -107,7 +107,7 @@ inline uint ShenandoahHeap::heap_region_index_containing(const void* addr) const
 }
 
 inline ShenandoahHeapRegion* ShenandoahHeap::heap_region_containing(const void* addr) const {
-  uint index = heap_region_index_containing(addr);
+  size_t index = heap_region_index_containing(addr);
   ShenandoahHeapRegion* result = _ordered_regions->get(index);
 #ifdef ASSERT
   if (!(addr >= result->bottom() && addr < result->end())) {
@@ -201,15 +201,15 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(T* p, oop heap_oop) {
 }
 
 inline bool ShenandoahHeap::cancelled_concgc() const {
-  return (jbyte) OrderAccess::load_acquire((jbyte*) &_cancelled_concgc);
+  return OrderAccess::load_acquire((jbyte*) &_cancelled_concgc) == 1;
 }
 
-inline bool ShenandoahHeap::try_cancel_concgc() const {
-  return Atomic::cmpxchg(true, (jbyte*) &_cancelled_concgc, false) == false;
+inline bool ShenandoahHeap::try_cancel_concgc() {
+  return Atomic::cmpxchg(1, &_cancelled_concgc, 0) == 0;
 }
 
-inline void ShenandoahHeap::set_cancelled_concgc(bool v) {
-  OrderAccess::release_store_fence((jbyte*) &_cancelled_concgc, (jbyte) v);
+inline void ShenandoahHeap::clear_cancelled_concgc() {
+  OrderAccess::release_store_fence(&_cancelled_concgc, 0);
 }
 
 inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size) {
@@ -342,7 +342,7 @@ inline bool ShenandoahHeap::in_collection_set(T p) const {
 
   // no need to subtract the bottom of the heap from obj,
   // _in_cset_fast_test is biased
-  uintx index = ((uintx) obj) >> ShenandoahHeapRegion::RegionSizeShift;
+  uintx index = ((uintx) obj) >> ShenandoahHeapRegion::region_size_shift();
   return _in_cset_fast_test[index];
 }
 
@@ -359,14 +359,14 @@ inline bool ShenandoahHeap::is_evacuation_in_progress() {
 }
 
 inline bool ShenandoahHeap::allocated_after_next_mark_start(HeapWord* addr) const {
-  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::RegionSizeShift;
+  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_shift();
   HeapWord* top_at_mark_start = _next_top_at_mark_starts[index];
   bool alloc_after_mark_start = addr >= top_at_mark_start;
   return alloc_after_mark_start;
 }
 
 inline bool ShenandoahHeap::allocated_after_complete_mark_start(HeapWord* addr) const {
-  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::RegionSizeShift;
+  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_shift();
   HeapWord* top_at_mark_start = _complete_top_at_mark_starts[index];
   bool alloc_after_mark_start = addr >= top_at_mark_start;
   return alloc_after_mark_start;
@@ -398,7 +398,12 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
     // there is no point for prefetching the oop contents, as oop->size() will
     // touch it prematurely.
 
-    oop slots[dist];
+    // No variable-length arrays in standard C++, have enough slots to fit
+    // the prefetch distance.
+    static const int SLOT_COUNT = 256;
+    guarantee(dist <= SLOT_COUNT, "adjust slot count");
+    oop slots[SLOT_COUNT];
+
     bool aborting = false;
     int avail;
     do {

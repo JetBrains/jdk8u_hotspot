@@ -27,6 +27,11 @@
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "runtime/atomic.hpp"
 
+inline void ShenandoahHeapRegion::increase_live_data_words(size_t s) {
+  assert (s <= max_jint, "sanity");
+  increase_live_data_words((jint)s);
+}
+
 inline void ShenandoahHeapRegion::increase_live_data_words(jint s) {
   jint new_live_data = Atomic::add(s, &_live_data);
 #ifdef ASSERT

@@ -38,9 +38,6 @@ class STWGCTimer;
 class ConcurrentGCTimer;
 
 class ShenandoahCollectorPolicy: public CollectorPolicy {
-private:
-  static const float ShenandoahGCWorkerPerJavaThread = 0.5f;
-
 public:
   enum TimingPhase {
     total_pause_gross,

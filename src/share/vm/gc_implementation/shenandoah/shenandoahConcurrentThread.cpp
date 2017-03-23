@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
@@ -124,7 +125,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     // Setup workers for concurrent marking phase
     FlexibleWorkGang* workers = heap->workers();
     uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_marking(workers->active_workers(),
-      Threads::number_of_non_daemon_threads());
+                                                                              (uint) Threads::number_of_non_daemon_threads());
     ShenandoahWorkerScope scope(workers, n_workers);
 
     GCTraceTime time("Concurrent marking", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
@@ -138,7 +139,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     heap->shenandoahPolicy()->record_cm_cancelled();
     if (_full_gc_cause == GCCause::_allocation_failure &&
         heap->shenandoahPolicy()->handover_cancelled_marking()) {
-      heap->set_cancelled_concgc(false);
+      heap->clear_cancelled_concgc();
       clear_full_gc = true;
       heap->shenandoahPolicy()->record_cm_degenerated();
     } else {
@@ -173,7 +174,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     // Setup workers for concurrent evacuation phase
     FlexibleWorkGang* workers = heap->workers();
     uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_evacuation(workers->active_workers(),
-      Threads::number_of_non_daemon_threads());
+                                                                                 (uint) Threads::number_of_non_daemon_threads());
     ShenandoahWorkerScope scope(workers, n_workers);
 
     GCTraceTime time("Concurrent evacuation", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);

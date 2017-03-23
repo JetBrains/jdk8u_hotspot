@@ -112,6 +112,7 @@ public:
 #endif
 
   static oopDesc* write_barrier_c2(oopDesc* src);
+  static oopDesc* write_barrier_interp(oopDesc* src);
 
 private:
   bool need_update_refs_barrier();

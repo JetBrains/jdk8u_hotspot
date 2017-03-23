@@ -782,7 +782,7 @@ class StubGenerator: public StubCodeGenerator {
       __ mov(rax, rdi);
     }
     if (do_cset_test) {
-      __ shrptr(rdi, ShenandoahHeapRegion::RegionSizeShift);
+      __ shrptr(rdi, ShenandoahHeapRegion::region_size_shift_jint());
       // live: r8
       __ movptr(r8, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
       __ movbool(r8, Address(r8, rdi, Address::times_1));
@@ -4233,6 +4233,10 @@ class StubGenerator: public StubCodeGenerator {
                                                 throw_NullPointerException_at_call));
 
     // entry points that are platform specific
+    if (UseShenandoahGC && ShenandoahWriteBarrier) {
+      StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb(false, true);
+      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
+    }
     StubRoutines::x86::_f2i_fixup = generate_f2i_fixup();
     StubRoutines::x86::_f2l_fixup = generate_f2l_fixup();
     StubRoutines::x86::_d2i_fixup = generate_d2i_fixup();
@@ -4292,27 +4296,16 @@ class StubGenerator: public StubCodeGenerator {
 #endif // COMPILER2
   }
 
-  void generate_barriers() {
-    if (UseShenandoahGC) {
-      StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb(false, true);
-      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
-    }
-  }
-
  public:
-  StubGenerator(CodeBuffer* code, int phase) : StubCodeGenerator(code) {
-    if (phase == 2) {
+  StubGenerator(CodeBuffer* code, bool all) : StubCodeGenerator(code) {
+    if (all) {
       generate_all();
-    } else if (phase == 1) {
-      generate_initial();
-    } else if (phase == 3) {
-      generate_barriers();
     } else {
-      ShouldNotReachHere();
+      generate_initial();
     }
   }
 }; // end class declaration
 
-void StubGenerator_generate(CodeBuffer* code, int phase) {
-  StubGenerator g(code, phase);
+void StubGenerator_generate(CodeBuffer* code, bool all) {
+  StubGenerator g(code, all);
 }

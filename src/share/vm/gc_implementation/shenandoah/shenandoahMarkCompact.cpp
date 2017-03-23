@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "code/codeCache.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
@@ -168,7 +169,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     // Setup workers for phase 1
     {
       uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
-	workers->active_workers(), Threads::number_of_non_daemon_threads());
+              workers->active_workers(), (uint) Threads::number_of_non_daemon_threads());
       workers->set_active_workers(nworkers);
       ShenandoahWorkerScope scope(workers, nworkers);
 
@@ -182,14 +183,14 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     // Setup workers for the rest
     {
       uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_parallel_evacuation(
-        workers->active_workers(), Threads::number_of_non_daemon_threads());
-
+              workers->active_workers(), (uint)Threads::number_of_non_daemon_threads());
       ShenandoahWorkerScope scope(workers, nworkers);
 
       OrderAccess::fence();
 
+      ShenandoahHeapRegionSet** copy_queues = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, _heap->max_workers(), mtGC);
+
       policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
-      ShenandoahHeapRegionSet* copy_queues[_heap->max_workers()];
       phase2_calculate_target_addresses(copy_queues);
       policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
 
@@ -202,6 +203,8 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_copy_objects);
       phase4_compact_objects(copy_queues);
       policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_copy_objects);
+
+      FREE_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, copy_queues, mtGC);
 
       CodeCache::gc_epilogue();
       JvmtiExport::gc_epilogue();
@@ -388,8 +391,7 @@ public:
     assert(_from_region != NULL, "must set before work");
     assert(_heap->is_marked_complete(p), "must be marked");
     assert(! _heap->allocated_after_complete_mark_start((HeapWord*) p), "must be truly marked");
-    size_t size = p->size();
-    size_t obj_size = size + BrooksPointer::word_size();
+    size_t obj_size = p->size() + BrooksPointer::word_size();
     if (_compact_point + obj_size > _to_region->end()) {
       // Object doesn't fit. Pick next to-region and start compacting there.
       _to_region->set_new_top(_compact_point);
@@ -609,7 +611,7 @@ public:
   }
   void do_object(oop p) {
     assert(_heap->is_marked_complete(p), "must be marked");
-    size_t size = p->size();
+    size_t size = (size_t)p->size();
     HeapWord* compact_to = BrooksPointer::get_raw(p);
     HeapWord* compact_from = (HeapWord*) p;
     if (compact_from != compact_to) {
@@ -661,7 +663,7 @@ public:
     _heap->set_complete_top_at_mark_start(r->bottom(), r->bottom());
     r->set_in_collection_set(false);
     if (r->is_humongous()) {
-      _live += ShenandoahHeapRegion::RegionSizeBytes;
+      _live += ShenandoahHeapRegion::region_size_bytes();
     } else {
       size_t live = r->used();
       if (live == 0) {

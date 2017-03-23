@@ -21,6 +21,7 @@
  *
  */
 
+#include "precompiled.hpp"
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
@@ -121,8 +122,6 @@ void ShenandoahHeapRegion::set_in_collection_set(bool b) {
   }
 #endif
 }
-
-#include <sys/mman.h>
 
 #ifdef ASSERT
 
@@ -378,7 +377,7 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
 
   // Now, set up the globals.
   guarantee(RegionSizeShift == 0, "we should only set it once");
-  RegionSizeShift = region_size_log;
+  RegionSizeShift = (size_t)region_size_log;
 
   guarantee(RegionSizeBytes == 0, "we should only set it once");
   RegionSizeBytes = (size_t)region_size;

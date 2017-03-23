@@ -293,7 +293,7 @@ public:
   ShenandoahCollectorPolicy *shenandoahPolicy() { return _shenandoah_policy;}
 
   inline ShenandoahHeapRegion* heap_region_containing(const void* addr) const;
-  inline uint heap_region_index_containing(const void* addr) const;
+  inline size_t heap_region_index_containing(const void* addr) const;
   inline bool requires_marking(const void* entry) const;
   template <class T>
   inline oop maybe_update_oop_ref(T* p);
@@ -347,9 +347,8 @@ public:
 
   inline oop  evacuate_object(oop src, Thread* thread);
   inline bool cancelled_concgc() const;
-  inline void set_cancelled_concgc(bool v);
-  inline bool try_cancel_concgc() const;
-  void clear_cancelled_concgc();
+  inline bool try_cancel_concgc();
+  inline void clear_cancelled_concgc();
 
   ShenandoahHeapRegionSet* regions() { return _ordered_regions;}
   ShenandoahFreeSet* free_regions();

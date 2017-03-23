@@ -116,6 +116,10 @@
           "a new GC cycle is started. "                                     \
           "Applies to Shenandoah GC dynamic Heuristic mode only "           \
           "(ignored otherwise). Defauls to 0%.")                            \
+									    \
+  experimental(double, ShenandoahGCWorkerPerJavaThread, 0.5,                \
+          "Set GC worker to Java thread ratio when "                        \
+          "UseDynamicNumberOfGCThreads is enabled")                         \
                                                                             \
   experimental(uintx, ShenandoahInitFreeThreshold, 10,                      \
                "Initial remaininig free threshold for adaptive heuristics") \
