@@ -105,8 +105,30 @@ public:
     evac_cldg_roots,
     evac_jvmti_roots,
 
+    init_update_refs_gross,
+    init_update_refs,
+
+    final_update_refs_gross,
+    final_update_refs,
+
+    // Per-thread timer block, should have "roots" counters in consistent order
+    final_update_refs_roots,
+    final_update_refs_thread_roots,
+    final_update_refs_code_roots,
+    final_update_refs_string_table_roots,
+    final_update_refs_universe_roots,
+    final_update_refs_jni_roots,
+    final_update_refs_jni_weak_roots,
+    final_update_refs_synchronizer_roots,
+    final_update_refs_flat_profiler_roots,
+    final_update_refs_management_roots,
+    final_update_refs_system_dict_roots,
+    final_update_refs_cldg_roots,
+    final_update_refs_jvmti_roots,
+
     conc_mark,
     conc_evac,
+    conc_update_refs,
     reset_bitmaps,
 
     full_gc,
@@ -139,6 +161,9 @@ private:
   size_t _degenerated_cm;
   size_t _successful_cm;
 
+  size_t _degenerated_uprefs;
+  size_t _successful_uprefs;
+
   ShenandoahHeuristics* _heuristics;
   ShenandoahTracer* _tracer;
   STWGCTimer* _stw_timer;
@@ -169,6 +194,14 @@ public:
 
   void post_heap_initialize();
 
+  void record_gc_start();
+  void record_gc_end();
+
+  // TODO: This is different from gc_end: that one encompasses one VM operation.
+  // These two encompass the entire cycle.
+  void record_cycle_start();
+  void record_cycle_end();
+
   void record_phase_start(TimingPhase phase);
   void record_phase_end(TimingPhase phase);
 
@@ -185,12 +218,24 @@ public:
   void record_bytes_start_CM(size_t bytes);
   void record_bytes_end_CM(size_t bytes);
   bool should_start_concurrent_mark(size_t used, size_t capacity);
+
+  // Returns true when there should be a separate concurrent reference
+  // updating phase after evacuation.
+  bool should_start_update_refs();
+  bool update_refs();
+
   bool handover_cancelled_marking();
+  bool handover_cancelled_uprefs();
 
   void record_cm_cancelled();
   void record_cm_success();
   void record_cm_degenerated();
   void record_full_gc();
+  void record_uprefs_cancelled();
+  void record_uprefs_success();
+  void record_uprefs_degenerated();
+
+  void record_peak_occupancy();
 
   void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections=NULL);
   void choose_free_set(ShenandoahFreeSet* free_set);
@@ -207,7 +252,6 @@ public:
   void set_conc_gc_aborted() { _conc_gc_aborted = true;}
   void clear_conc_gc_aborted() {_conc_gc_aborted = false;}
 
-  void increase_cycle_counter();
   size_t cycle_counter() const;
 
 

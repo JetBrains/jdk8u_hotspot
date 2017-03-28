@@ -42,6 +42,7 @@
 #include "gc_implementation/shenandoah/shenandoahHumongous.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
+#include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
@@ -265,6 +266,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _concurrent_mark_in_progress(0),
   _evacuation_in_progress(0),
   _full_gc_in_progress(false),
+  _update_refs_in_progress(false),
   _free_regions(NULL),
   _collection_set(NULL),
   _bytes_allocated_since_cm(0),
@@ -1109,6 +1111,8 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
   log_develop_trace(gc)("Thread %d started prepare_for_concurrent_evacuation", Thread::current()->osthread()->thread_id());
 
   if (!cancelled_concgc()) {
+    // Allocations might have happened before we STWed here, record peak:
+    shenandoahPolicy()->record_peak_occupancy();
 
     recycle_dirty_regions();
 
@@ -2227,6 +2231,14 @@ bool ShenandoahHeap::is_full_gc_in_progress() const {
   return _full_gc_in_progress;
 }
 
+void ShenandoahHeap::set_update_refs_in_progress(bool in_progress) {
+  _update_refs_in_progress = in_progress;
+}
+
+bool ShenandoahHeap::is_update_refs_in_progress() const {
+  return _update_refs_in_progress;
+}
+
 class NMethodOopInitializer : public OopClosure {
 private:
   ShenandoahHeap* _heap;
@@ -2301,6 +2313,144 @@ size_t ShenandoahHeap::garbage() {
   ShenandoahCountGarbageClosure cl;
   heap_region_iterate(&cl);
   return cl.garbage();
+}
+
+ShenandoahUpdateHeapRefsClosure::ShenandoahUpdateHeapRefsClosure() :
+  _heap(ShenandoahHeap::heap()) {}
+
+class ShenandoahUpdateHeapRefsTask : public AbstractGangTask {
+private:
+  ShenandoahHeap* _heap;
+  ShenandoahHeapRegionSet* _regions;
+
+public:
+  ShenandoahUpdateHeapRefsTask(ShenandoahHeapRegionSet* regions) :
+    AbstractGangTask("Concurrent Update References Task"),
+    _heap(ShenandoahHeap::heap()),
+    _regions(regions) {
+  }
+
+  void work(uint worker_id) {
+    ShenandoahUpdateHeapRefsClosure cl;
+    ShenandoahHeapRegion* r = _regions->claim_next();
+    while (r != NULL) {
+      if (! _heap->in_collection_set(r) &&
+          ! r->is_empty()) {
+        _heap->marked_object_oop_safe_iterate(r, &cl);
+      } else if (_heap->in_collection_set(r)) {
+        HeapWord* bottom = r->bottom();
+        HeapWord* top = _heap->complete_top_at_mark_start(r->bottom());
+        if (top > bottom) {
+          _heap->complete_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
+        }
+      }
+      if (_heap->cancelled_concgc()) {
+        return;
+      }
+      r = _regions->claim_next();
+    }
+  }
+};
+
+void ShenandoahHeap::update_heap_references(ShenandoahHeapRegionSet* update_regions) {
+  ShenandoahUpdateHeapRefsTask task(update_regions);
+  workers()->run_task(&task);
+}
+
+void ShenandoahHeap::concurrent_update_heap_references() {
+  _shenandoah_policy->record_phase_start(ShenandoahCollectorPolicy::conc_update_refs);
+  ShenandoahHeapRegionSet* update_regions = regions();
+  update_regions->clear_current_index();
+  update_heap_references(update_regions);
+  _shenandoah_policy->record_phase_end(ShenandoahCollectorPolicy::conc_update_refs);
+}
+
+void ShenandoahHeap::prepare_update_refs() {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  set_evacuation_in_progress_at_safepoint(false);
+  set_update_refs_in_progress(true);
+  ensure_parsability(true);
+  for (uint i = 0; i < _num_regions; i++) {
+    ShenandoahHeapRegion* r = _ordered_regions->get(i);
+    r->set_concurrent_iteration_safe_limit(r->top());
+  }
+}
+
+void ShenandoahHeap::finish_update_refs() {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+
+  if (cancelled_concgc()) {
+    // Finish updating references where we left off.
+    clear_cancelled_concgc();
+    ShenandoahHeapRegionSet* update_regions = regions();
+    update_heap_references(update_regions);
+  }
+
+  assert(! cancelled_concgc(), "Should have been done right before");
+  concurrentMark()->update_roots(ShenandoahCollectorPolicy::final_update_refs_roots);
+
+  // Allocations might have happened before we STWed here, record peak:
+  shenandoahPolicy()->record_peak_occupancy();
+
+  recycle_dirty_regions();
+  set_need_update_refs(false);
+
+  if (ShenandoahVerify) {
+    verify_update_refs();
+  }
+
+  {
+    // Rebuild the free set
+    ShenandoahHeapLock hl(this);
+    _free_regions->clear();
+    size_t end = _ordered_regions->active_regions();
+    for (size_t i = 0; i < end; i++) {
+      ShenandoahHeapRegion* r = _ordered_regions->get(i);
+      if (!r->is_humongous()) {
+        assert (!in_collection_set(r), "collection set should be clear");
+        _free_regions->add_region(r);
+      }
+    }
+  }
+  set_update_refs_in_progress(false);
+}
+
+class ShenandoahVerifyUpdateRefsClosure : public ExtendedOopClosure {
+private:
+  template <class T>
+  void do_oop_work(T* p) {
+    T o = oopDesc::load_heap_oop(p);
+    if (! oopDesc::is_null(o)) {
+      oop obj = oopDesc::decode_heap_oop_not_null(o);
+      guarantee(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)),
+                "must not be forwarded");
+    }
+  }
+public:
+  void do_oop(oop* p) { do_oop_work(p); }
+  void do_oop(narrowOop* p) { do_oop_work(p); }
+};
+
+void ShenandoahHeap::verify_update_refs() {
+
+  ensure_parsability(false);
+
+  ShenandoahVerifyUpdateRefsClosure cl;
+
+  // Verify roots.
+  {
+    CodeBlobToOopClosure blobsCl(&cl, false);
+    CLDToOopClosure cldCl(&cl);
+    ClassLoaderDataGraph::clear_claimed_marks();
+    ShenandoahRootProcessor rp(this, 1);
+    rp.process_all_roots(&cl, &cl, &cldCl, &blobsCl, 0);
+  }
+
+  // Verify heap.
+  for (uint i = 0; i < num_regions(); i++) {
+    ShenandoahHeapRegion* r = regions()->get(i);
+    marked_object_oop_iterate(r, &cl);
+  }
 }
 
 #ifdef ASSERT

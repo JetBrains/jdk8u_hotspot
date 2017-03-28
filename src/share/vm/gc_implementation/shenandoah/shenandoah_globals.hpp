@@ -72,6 +72,10 @@
           "aggressive (run concurrent GC continuously, evacuate everything), " \
           "Defaults to adaptive")                                            \
                                                                             \
+  experimental(ccstr, ShenandoahUpdateRefsEarly, "adaptive",                \
+          "Run a separate concurrent reference updating phase after"        \
+          "concurrent evacuation. Possible values: 'on', 'off', 'adaptive'")\
+                                                                            \
   product(uintx, ShenandoahRefProcFrequency, 5,                             \
           "How often should (weak, soft, etc) references be processed. "    \
           "References get processed at every Nth GC cycle. "                \
@@ -121,6 +125,18 @@
           "Applies to Shenandoah GC dynamic Heuristic mode only "           \
           "(ignored otherwise). Defauls to 0%.")                            \
 									    \
+  experimental(uintx, ShenandoahMergeUpdateRefsMinGap, 100,                 \
+               "If GC is currently running in separate update-refs mode "   \
+               "this numbers gives the threshold when to switch to "        \
+               "merged update-refs mode. Number is percentage relative to"  \
+               "duration(marking)+duration(update-refs).")                  \
+                                                                            \
+  experimental(uintx, ShenandoahMergeUpdateRefsMaxGap, 200,                 \
+               "If GC is currently running in merged update-refs mode "     \
+               "this numbers gives the threshold when to switch to "        \
+               "separate update-refs mode. Number is percentage relative "  \
+               "to duration(marking)+duration(update-refs).")               \
+                                                                            \
   experimental(double, ShenandoahGCWorkerPerJavaThread, 0.5,                \
           "Set GC worker to Java thread ratio when "                        \
           "UseDynamicNumberOfGCThreads is enabled")                         \

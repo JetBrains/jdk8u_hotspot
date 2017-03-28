@@ -111,4 +111,18 @@ public:
   virtual bool do_metadata()        { return true; }
 };
 
+class ShenandoahUpdateHeapRefsClosure : public ExtendedOopClosure {
+private:
+  ShenandoahHeap* _heap;
+public:
+  ShenandoahUpdateHeapRefsClosure();
+
+  template <class T>
+  void do_oop_nv(T* p);
+
+  virtual void do_oop(narrowOop* p) { do_oop_nv(p); }
+  virtual void do_oop(oop* p)       { do_oop_nv(p); }
+};
+
+
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_HPP

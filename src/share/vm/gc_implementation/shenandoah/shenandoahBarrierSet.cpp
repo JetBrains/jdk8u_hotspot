@@ -24,6 +24,7 @@
 #include "precompiled.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "runtime/interfaceSupport.hpp"
 
@@ -161,7 +162,11 @@ bool ShenandoahBarrierSet::write_prim_needs_barrier(HeapWord* hw, size_t s, juin
 }
 
 bool ShenandoahBarrierSet::need_update_refs_barrier() {
-  return _heap->concurrent_mark_in_progress() && _heap->need_update_refs();
+  if (_heap->shenandoahPolicy()->update_refs()) {
+    return _heap->is_update_refs_in_progress();
+  } else {
+    return _heap->concurrent_mark_in_progress() && _heap->need_update_refs();
+  }
 }
 
 void ShenandoahBarrierSet::write_ref_array_work(MemRegion r) {

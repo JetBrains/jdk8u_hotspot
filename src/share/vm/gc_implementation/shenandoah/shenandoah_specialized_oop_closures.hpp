@@ -28,11 +28,13 @@ class ShenandoahMarkUpdateRefsClosure;
 class ShenandoahMarkUpdateRefsMetadataClosure;
 class ShenandoahMarkRefsClosure;
 class ShenandoahMarkRefsMetadataClosure;
+class ShenandoahUpdateHeapRefsClosure;
 
 #define SPECIALIZED_OOP_OOP_ITERATE_CLOSURES_SHENANDOAH(f) \
       f(ShenandoahMarkUpdateRefsClosure,_nv)               \
       f(ShenandoahMarkUpdateRefsMetadataClosure,_nv)       \
       f(ShenandoahMarkRefsClosure,_nv)                     \
-      f(ShenandoahMarkRefsMetadataClosure,_nv)
+      f(ShenandoahMarkRefsMetadataClosure,_nv)             \
+      f(ShenandoahUpdateHeapRefsClosure,_nv)
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAH_SPECIALIZED_OOP_CLOSURES_HPP

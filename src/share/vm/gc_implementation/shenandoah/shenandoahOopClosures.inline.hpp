@@ -32,4 +32,9 @@ inline void ShenandoahMarkRefsSuperClosure::work(T *p) {
   ShenandoahConcurrentMark::mark_through_ref<T, UPDATE_REFS>(p, _heap, _queue);
 }
 
+template <class T>
+inline void ShenandoahUpdateHeapRefsClosure::do_oop_nv(T* p) {
+  _heap->maybe_update_oop_ref(p);
+}
+
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_INLINE_HPP

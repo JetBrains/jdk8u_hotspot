@@ -191,6 +191,14 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(T* p, oop heap_oop) {
     if (oopDesc::unsafe_equals(result, heap_oop)) { // CAS successful.
       return forwarded_oop;
     } else {
+      // Note: we used to assert the following here. This doesn't work because sometimes, during
+      // marking/updating-refs, it can happen that a Java thread beats us with an arraycopy,
+      // which first copies the array, which potentially contains from-space refs, and only afterwards
+      // updates all from-space refs to to-space refs, which leaves a short window where the new array
+      // elements can be from-space.
+      // assert(oopDesc::is_null(result) ||
+      //        oopDesc::unsafe_equals(result, ShenandoahBarrierSet::resolve_oop_static_not_null(result)),
+      //       "expect not forwarded");
       return NULL;
     }
   } else {
@@ -330,6 +338,10 @@ inline address ShenandoahHeap::concurrent_mark_in_progress_addr() {
   return (address) &(ShenandoahHeap::heap()->_concurrent_mark_in_progress);
 }
 
+inline address ShenandoahHeap::update_refs_in_progress_addr() {
+  return (address) &(ShenandoahHeap::heap()->_update_refs_in_progress);
+}
+
 inline bool ShenandoahHeap::is_evacuation_in_progress() {
   return _evacuation_in_progress != 0;
 }
@@ -350,6 +362,16 @@ inline bool ShenandoahHeap::allocated_after_complete_mark_start(HeapWord* addr) 
 
 template<class T>
 inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, T* cl) {
+  marked_object_iterate(region, cl, region->top());
+}
+
+template<class T>
+inline void ShenandoahHeap::marked_object_safe_iterate(ShenandoahHeapRegion* region, T* cl) {
+  marked_object_iterate(region, cl, region->concurrent_iteration_safe_limit());
+}
+
+template<class T>
+inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, T* cl, HeapWord* limit) {
   assert(BrooksPointer::word_offset() < 0, "skip_delta calculation below assumes the forwarding ptr is before obj");
 
   CMBitMap* mark_bit_map = _complete_mark_bit_map;
@@ -359,7 +381,6 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
   size_t skip_objsize_delta = BrooksPointer::word_size() /* + actual obj.size() below */;
   HeapWord* start = region->bottom() + BrooksPointer::word_size();
 
-  HeapWord* limit = region->top();
   HeapWord* end = MIN2(top_at_mark_start + BrooksPointer::word_size(), _ordered_regions->end());
   HeapWord* addr = mark_bit_map->getNextMarkedWordAddress(start, end);
 
@@ -436,4 +457,58 @@ inline void ShenandoahHeap::do_marked_object(CMBitMap* bitmap, T* cl, oop obj) {
   cl->do_object(obj);
 }
 
+template <class T>
+class ShenandoahObjectToOopClosure : public ObjectClosure {
+  T* _cl;
+public:
+  ShenandoahObjectToOopClosure(T* cl) : _cl(cl) {}
+
+  void do_object(oop obj) {
+    obj->oop_iterate(_cl);
+  }
+};
+
+template <class T>
+class ShenandoahObjectToOopBoundedClosure : public ObjectClosure {
+  T* _cl;
+  MemRegion _bounds;
+public:
+  ShenandoahObjectToOopBoundedClosure(T* cl, HeapWord* bottom, HeapWord* top) :
+    _cl(cl), _bounds(bottom, top) {}
+
+  void do_object(oop obj) {
+    obj->oop_iterate(_cl, _bounds);
+  }
+};
+
+template<class T>
+inline void ShenandoahHeap::marked_object_oop_iterate(ShenandoahHeapRegion* region, T* cl, HeapWord* top) {
+  if (region->is_humongous()) {
+    HeapWord* bottom = region->bottom();
+    if (top > bottom) {
+      // Go to start of humongous region.
+      uint idx = region->region_number();
+      while (! region->is_humongous_start()) {
+        assert(idx > 0, "sanity");
+        idx--;
+        region = _ordered_regions->get(idx);
+      }
+      ShenandoahObjectToOopBoundedClosure<T> objs(cl, bottom, top);
+      marked_object_iterate(region, &objs);
+    }
+  } else {
+    ShenandoahObjectToOopClosure<T> objs(cl);
+    marked_object_iterate(region, &objs, top);
+  }
+}
+
+template<class T>
+inline void ShenandoahHeap::marked_object_oop_iterate(ShenandoahHeapRegion* region, T* cl) {
+  marked_object_oop_iterate(region, cl, region->top());
+}
+
+template<class T>
+inline void ShenandoahHeap::marked_object_oop_safe_iterate(ShenandoahHeapRegion* region, T* cl) {
+  marked_object_oop_iterate(region, cl, region->concurrent_iteration_safe_limit());
+}
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

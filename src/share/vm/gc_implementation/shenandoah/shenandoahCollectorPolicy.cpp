@@ -39,6 +39,9 @@ class ShenandoahHeuristics : public CHeapObj<mtGC> {
   size_t _bytes_reclaimed_this_cycle;
 
 protected:
+  bool _update_refs_early;
+  bool _update_refs_adaptive;
+
   typedef struct {
     size_t region_number;
     size_t garbage;
@@ -70,8 +73,13 @@ protected:
   size_t _bytes_allocated_start_CM;
   size_t _bytes_allocated_during_CM;
 
+  size_t _bytes_allocated_after_last_gc;
+
   uint _cancelled_cm_cycles_in_a_row;
   uint _successful_cm_cycles_in_a_row;
+
+  uint _cancelled_uprefs_cycles_in_a_row;
+  uint _successful_uprefs_cycles_in_a_row;
 
   size_t _bytes_in_cset;
 
@@ -85,6 +93,30 @@ public:
   void record_bytes_start_CM(size_t bytes);
   void record_bytes_end_CM(size_t bytes);
 
+  void record_gc_start() {
+    // Do nothing.
+  }
+
+  void record_gc_end() {
+    _bytes_allocated_after_last_gc = ShenandoahHeap::heap()->used();
+  }
+
+  virtual void record_cycle_start() {
+    // Do nothing
+  }
+
+  virtual void record_cycle_end() {
+    // Do nothing
+  }
+
+  virtual void record_phase_start(ShenandoahCollectorPolicy::TimingPhase phase) {
+    // Do nothing
+  }
+
+  virtual void record_phase_end(ShenandoahCollectorPolicy::TimingPhase phase) {
+    // Do nothing
+  }
+
   size_t bytes_in_cset() const { return _bytes_in_cset; }
 
   virtual void print_thresholds() {
@@ -92,8 +124,20 @@ public:
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const=0;
 
+  virtual bool should_start_update_refs() {
+    return _update_refs_early;
+  }
+
+  virtual bool update_refs() const {
+    return _update_refs_early;
+  }
+
   virtual bool handover_cancelled_marking() {
     return _cancelled_cm_cycles_in_a_row <= ShenandoahFullGCThreshold;
+  }
+
+  virtual bool handover_cancelled_uprefs() {
+    return _cancelled_uprefs_cycles_in_a_row <= ShenandoahFullGCThreshold;
   }
 
   virtual void record_cm_cancelled() {
@@ -106,8 +150,21 @@ public:
     _successful_cm_cycles_in_a_row++;
   }
 
+  virtual void record_uprefs_cancelled() {
+    _cancelled_uprefs_cycles_in_a_row++;
+    _successful_uprefs_cycles_in_a_row = 0;
+  }
+
+  virtual void record_uprefs_success() {
+    _cancelled_uprefs_cycles_in_a_row = 0;
+    _successful_uprefs_cycles_in_a_row++;
+  }
+
   virtual void record_full_gc() {
     _bytes_in_cset = 0;
+  }
+
+  virtual void record_peak_occupancy() {
   }
 
   virtual void start_choose_collection_set() {
@@ -147,12 +204,29 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   _bytes_reclaimed_this_cycle(0),
   _bytes_allocated_start_CM(0),
   _bytes_allocated_during_CM(0),
+  _bytes_allocated_after_last_gc(0),
   _bytes_in_cset(0),
   _cancelled_cm_cycles_in_a_row(0),
   _successful_cm_cycles_in_a_row(0),
+  _cancelled_uprefs_cycles_in_a_row(0),
+  _successful_uprefs_cycles_in_a_row(0),
   _region_garbage(NULL),
-  _region_garbage_size(0)
+  _region_garbage_size(0),
+  _update_refs_early(false),
+  _update_refs_adaptive(false)
 {
+  if (strcmp(ShenandoahUpdateRefsEarly, "on") == 0 ||
+      strcmp(ShenandoahUpdateRefsEarly, "true") == 0 ) {
+    _update_refs_early = true;
+  } else if (strcmp(ShenandoahUpdateRefsEarly, "off") == 0 ||
+             strcmp(ShenandoahUpdateRefsEarly, "false") == 0 ) {
+    _update_refs_early = false;
+  } else if (strcmp(ShenandoahUpdateRefsEarly, "adaptive") == 0) {
+    _update_refs_adaptive = true;
+    _update_refs_early = true;
+  } else {
+    vm_exit_during_initialization("Unknown -XX:ShenandoahUpdateRefsEarly option: %s", ShenandoahUpdateRefsEarly);
+  }
 }
 
 ShenandoahHeuristics::~ShenandoahHeuristics() {
@@ -272,6 +346,7 @@ void ShenandoahCollectorPolicy::record_workers_end(TimingPhase phase) {
   guarantee(phase == init_evac ||
             phase == scan_roots ||
             phase == update_roots ||
+            phase == final_update_refs_roots ||
             phase == _num_phases,
             "only in these phases we can add per-thread phase times");
   if (phase != _num_phases) {
@@ -285,13 +360,22 @@ void ShenandoahCollectorPolicy::record_workers_end(TimingPhase phase) {
 
 void ShenandoahCollectorPolicy::record_phase_start(TimingPhase phase) {
   _timing_data[phase]._start = os::elapsedTime();
-
+  _heuristics->record_phase_start(phase);
 }
 
 void ShenandoahCollectorPolicy::record_phase_end(TimingPhase phase) {
   double end = os::elapsedTime();
   double elapsed = end - _timing_data[phase]._start;
   _timing_data[phase]._secs.add(elapsed);
+  _heuristics->record_phase_end(phase);
+}
+
+void ShenandoahCollectorPolicy::record_gc_start() {
+  _heuristics->record_gc_start();
+}
+
+void ShenandoahCollectorPolicy::record_gc_end() {
+  _heuristics->record_gc_end();
 }
 
 void ShenandoahCollectorPolicy::report_concgc_cancelled() {
@@ -388,8 +472,14 @@ public:
     size_t free_capacity = heap->free_regions()->capacity();
     size_t free_used = heap->free_regions()->used();
     assert(free_used <= free_capacity, "must use less than capacity");
-    size_t cset = MIN2(_bytes_in_cset, (ShenandoahCSetThreshold * capacity) / 100);
-    size_t available =  free_capacity - free_used + cset;
+    size_t available =  free_capacity - free_used;
+
+    if (! update_refs()) {
+      // Count in the memory available after cset reclamation.
+      size_t cset = MIN2(_bytes_in_cset, (ShenandoahCSetThreshold * capacity) / 100);
+      available += cset;
+    }
+
     uintx threshold = ShenandoahFreeThreshold + ShenandoahCSetThreshold;
     size_t targetStartMarking = (capacity * threshold) / 100;
 
@@ -417,11 +507,24 @@ class AdaptiveHeuristics : public ShenandoahHeuristics {
 private:
   uintx _free_threshold;
   TruncatedSeq* _cset_history;
-
+  size_t _peak_occupancy;
+  double _last_cycle_end;
+  TruncatedSeq* _cycle_gap_history;
+  double _conc_mark_start;
+  TruncatedSeq* _conc_mark_duration_history;
+  double _conc_uprefs_start;
+  TruncatedSeq* _conc_uprefs_duration_history;
 public:
   AdaptiveHeuristics() :
     ShenandoahHeuristics(),
     _free_threshold(ShenandoahInitFreeThreshold),
+    _peak_occupancy(0),
+    _last_cycle_end(0),
+    _conc_mark_start(0),
+    _conc_mark_duration_history(new TruncatedSeq(5)),
+    _conc_uprefs_start(0),
+    _conc_uprefs_duration_history(new TruncatedSeq(5)),
+    _cycle_gap_history(new TruncatedSeq(5)),
     _cset_history(new TruncatedSeq((uint)ShenandoahHappyCyclesThreshold)) {
 
     _cset_history->add((double) ShenandoahCSetThreshold);
@@ -437,22 +540,96 @@ public:
     return r->garbage() > threshold;
   }
 
-  virtual void record_cm_cancelled() {
-    ShenandoahHeuristics::record_cm_cancelled();
+  void handle_cycle_success() {
+    ShenandoahHeap* heap = ShenandoahHeap::heap();
+    size_t capacity = heap->capacity();
+    size_t available = capacity - _peak_occupancy;
+    size_t available_threshold = ShenandoahMinFreeThreshold * capacity / 100;
+    log_info(gc, ergo)("Capacity: " SIZE_FORMAT "M, Peak Occupancy: " SIZE_FORMAT
+                              "M, Lowest Free: " SIZE_FORMAT "M, Free Threshold: " UINTX_FORMAT "M",
+                      capacity / M, _peak_occupancy / M, available / M, available_threshold / M);
+    if (available <= available_threshold) {
+      pessimize_free_threshold();
+    } else {
+      optimize_free_threshold();
+    }
+    _peak_occupancy = 0;
+  }
+
+  void record_cycle_end() {
+    ShenandoahHeuristics::record_cycle_end();
+    handle_cycle_success();
+    _last_cycle_end = os::elapsedTime();
+  }
+
+  void record_cycle_start() {
+    ShenandoahHeuristics::record_cycle_start();
+    double last_cycle_gap = (os::elapsedTime() - _last_cycle_end);
+    _cycle_gap_history->add(last_cycle_gap);
+  }
+
+  void record_phase_start(ShenandoahCollectorPolicy::TimingPhase phase) {
+    if (phase == ShenandoahCollectorPolicy::conc_mark) {
+      _conc_mark_start = os::elapsedTime();
+    } else if (phase == ShenandoahCollectorPolicy::conc_update_refs) {
+      _conc_uprefs_start = os::elapsedTime();
+    } // Else ignore
+
+  }
+
+  virtual void record_phase_end(ShenandoahCollectorPolicy::TimingPhase phase) {
+    if (phase == ShenandoahCollectorPolicy::conc_mark) {
+      _conc_mark_duration_history->add(os::elapsedTime() - _conc_mark_start);
+    } else if (phase == ShenandoahCollectorPolicy::conc_update_refs) {
+      _conc_uprefs_duration_history->add(os::elapsedTime() - _conc_uprefs_start);
+    } // Else ignore
+  }
+
+  void optimize_free_threshold() {
+    if (_successful_cm_cycles_in_a_row > ShenandoahHappyCyclesThreshold &&
+            (! update_refs() || (_successful_uprefs_cycles_in_a_row > ShenandoahHappyCyclesThreshold)) &&
+        _free_threshold > 0) {
+      _free_threshold--;
+      log_info(gc,ergo)("Reducing free threshold to: " UINTX_FORMAT "%% (" SIZE_FORMAT "M)",
+                        _free_threshold, _free_threshold * ShenandoahHeap::heap()->capacity() / 100 / M);
+      _successful_cm_cycles_in_a_row = 0;
+      _successful_uprefs_cycles_in_a_row = 0;
+    }
+  }
+
+  void pessimize_free_threshold() {
     if (_free_threshold < ShenandoahMaxFreeThreshold) {
       _free_threshold++;
-      log_info(gc,ergo)("increasing free threshold to: "UINTX_FORMAT, _free_threshold);
+      log_info(gc,ergo)("Increasing free threshold to: " UINTX_FORMAT "%% (" SIZE_FORMAT "M)",
+                        _free_threshold, _free_threshold * ShenandoahHeap::heap()->capacity() / 100 / M);
     }
+  }
+
+  virtual void record_cm_cancelled() {
+    ShenandoahHeuristics::record_cm_cancelled();
+    pessimize_free_threshold();
   }
 
   virtual void record_cm_success() {
     ShenandoahHeuristics::record_cm_success();
-    if (_successful_cm_cycles_in_a_row > ShenandoahHappyCyclesThreshold &&
-        _free_threshold > ShenandoahMinFreeThreshold) {
-      _free_threshold--;
-      log_info(gc,ergo)("reducing free threshold to: "UINTX_FORMAT, _free_threshold);
-      _successful_cm_cycles_in_a_row = 0;
-    }
+  }
+
+  virtual void record_uprefs_cancelled() {
+    ShenandoahHeuristics::record_uprefs_cancelled();
+    pessimize_free_threshold();
+  }
+
+  virtual void record_uprefs_success() {
+    ShenandoahHeuristics::record_uprefs_success();
+  }
+
+  virtual void record_full_gc() {
+    ShenandoahHeuristics::record_full_gc();
+    pessimize_free_threshold();
+  }
+
+  virtual void record_peak_occupancy() {
+    _peak_occupancy = MAX2(_peak_occupancy, ShenandoahHeap::heap()->used());
   }
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
@@ -462,36 +639,71 @@ public:
     size_t free_capacity = heap->free_regions()->capacity();
     size_t free_used = heap->free_regions()->used();
     assert(free_used <= free_capacity, "must use less than capacity");
-    // size_t cset_threshold = (size_t) _cset_history->maximum();
-    size_t cset_threshold = (size_t) _cset_history->davg();
-    size_t cset = MIN2(_bytes_in_cset, (cset_threshold * capacity) / 100);
-    size_t available =  free_capacity - free_used + cset;
-    uintx factor = _free_threshold + cset_threshold;
-    size_t targetStartMarking = (capacity * factor) / 100;
+    size_t available =  free_capacity - free_used;
+    uintx factor = _free_threshold;
+    size_t cset_threshold = 0;
+    if (! update_refs()) {
+      // Count in the memory available after cset reclamation.
+      cset_threshold = (size_t) _cset_history->davg();
+      size_t cset = MIN2(_bytes_in_cset, (cset_threshold * capacity) / 100);
+      available += cset;
+      factor += cset_threshold;
+    }
 
+    size_t threshold_available = (capacity * factor) / 100;
+    size_t bytes_allocated = heap->bytes_allocated_since_cm();
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
-    if (available < targetStartMarking &&
-        heap->bytes_allocated_since_cm() > threshold_bytes_allocated)
-    {
+
+    if (available < threshold_available &&
+            bytes_allocated > threshold_bytes_allocated) {
+      log_info(gc,ergo)("Concurrent marking triggered. Free: " SIZE_FORMAT "M, Free Threshold: " SIZE_FORMAT
+                                "M; Allocated: " SIZE_FORMAT "M, Alloc Threshold: " SIZE_FORMAT "M",
+                        available / M, threshold_available / M, available / M, threshold_bytes_allocated / M);
       // Need to check that an appropriate number of regions have
       // been allocated since last concurrent mark too.
       shouldStartConcurrentMark = true;
     }
 
     if (shouldStartConcurrentMark) {
-      log_info(gc,ergo)("predicted cset threshold: "SIZE_FORMAT, cset_threshold);
-      log_info(gc,ergo)("Starting concurrent mark at "SIZE_FORMAT"K CSet ("SIZE_FORMAT"%%)", _bytes_in_cset / K, _bytes_in_cset * 100 / capacity);
-      _cset_history->add((double) (_bytes_in_cset * 100 / capacity));
+      if (! update_refs()) {
+        log_info(gc,ergo)("Predicted cset threshold: " SIZE_FORMAT ", " SIZE_FORMAT "K CSet ("SIZE_FORMAT"%%)",
+                          cset_threshold, _bytes_in_cset / K, _bytes_in_cset * 100 / capacity);
+        _cset_history->add((double) (_bytes_in_cset * 100 / capacity));
+      }
     }
     return shouldStartConcurrentMark;
   }
 
+  virtual bool should_start_update_refs() {
+    if (! _update_refs_adaptive) {
+      return _update_refs_early;
+    }
+
+    double cycle_gap_avg = _cycle_gap_history->avg();
+    double conc_mark_avg = _conc_mark_duration_history->avg();
+    double conc_uprefs_avg = _conc_uprefs_duration_history->avg();
+
+    if (_update_refs_early) {
+      double threshold = ShenandoahMergeUpdateRefsMinGap / 100.0;
+      if (conc_mark_avg + conc_uprefs_avg > cycle_gap_avg * threshold) {
+        _update_refs_early = false;
+      }
+    } else {
+      double threshold = ShenandoahMergeUpdateRefsMaxGap / 100.0;
+      if (conc_mark_avg + conc_uprefs_avg < cycle_gap_avg * threshold) {
+        _update_refs_early = true;
+      }
+    }
+    return _update_refs_early;
+  }
 };
 
 ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _cycle_counter(0),
   _successful_cm(0),
-  _degenerated_cm(0)
+  _degenerated_cm(0),
+  _successful_uprefs(0),
+  _degenerated_uprefs(0)
 {
 
   ShenandoahHeapRegion::setup_heap_region_size(initial_heap_byte_size(), max_heap_byte_size());
@@ -578,6 +790,26 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
 
   _phase_names[conc_mark]                       = "Concurrent Marking";
   _phase_names[conc_evac]                       = "Concurrent Evacuation";
+
+  _phase_names[init_update_refs_gross]          = "Pause Init  Update Refs (G)";
+  _phase_names[init_update_refs]                = "Pause Init  Update Refs (N)";
+  _phase_names[conc_update_refs]                = "Concurrent Update Refs";
+  _phase_names[final_update_refs_gross]         = "Pause Final Update Refs (G)";
+  _phase_names[final_update_refs]               = "Pause Final Update Refs (N)";
+
+  _phase_names[final_update_refs_roots]                = "  Update Roots";
+  _phase_names[final_update_refs_thread_roots]         = "    UR: Thread Roots";
+  _phase_names[final_update_refs_code_roots]           = "    UR: Code Cache Roots";
+  _phase_names[final_update_refs_string_table_roots]   = "    UR: String Table Roots";
+  _phase_names[final_update_refs_universe_roots]       = "    UR: Universe Roots";
+  _phase_names[final_update_refs_jni_roots]            = "    UR: JNI Roots";
+  _phase_names[final_update_refs_jni_weak_roots]       = "    UR: JNI Weak Roots";
+  _phase_names[final_update_refs_synchronizer_roots]   = "    UR: Synchronizer Roots";
+  _phase_names[final_update_refs_flat_profiler_roots]  = "    UR: Flat Profiler Roots";
+  _phase_names[final_update_refs_management_roots]     = "    UR: Management Roots";
+  _phase_names[final_update_refs_system_dict_roots]    = "    UR: System Dict Roots";
+  _phase_names[final_update_refs_cldg_roots]           = "    UR: CLDG Roots";
+  _phase_names[final_update_refs_jvmti_roots]          = "    UR: JVMTI Roots";
 
   if (ShenandoahGCHeuristics != NULL) {
     if (strcmp(ShenandoahGCHeuristics, "aggressive") == 0) {
@@ -666,6 +898,18 @@ bool ShenandoahCollectorPolicy::handover_cancelled_marking() {
   return _heuristics->handover_cancelled_marking();
 }
 
+bool ShenandoahCollectorPolicy::handover_cancelled_uprefs() {
+  return _heuristics->handover_cancelled_uprefs();
+}
+
+bool ShenandoahCollectorPolicy::update_refs() {
+  return _heuristics->update_refs();
+}
+
+bool ShenandoahCollectorPolicy::should_start_update_refs() {
+  return _heuristics->should_start_update_refs();
+}
+
 void ShenandoahCollectorPolicy::record_cm_success() {
   _heuristics->record_cm_success();
   _successful_cm++;
@@ -679,8 +923,25 @@ void ShenandoahCollectorPolicy::record_cm_cancelled() {
   _heuristics->record_cm_cancelled();
 }
 
+void ShenandoahCollectorPolicy::record_uprefs_success() {
+  _heuristics->record_uprefs_success();
+  _successful_uprefs++;
+}
+
+void ShenandoahCollectorPolicy::record_uprefs_degenerated() {
+  _degenerated_uprefs++;
+}
+
+void ShenandoahCollectorPolicy::record_uprefs_cancelled() {
+  _heuristics->record_uprefs_cancelled();
+}
+
 void ShenandoahCollectorPolicy::record_full_gc() {
   _heuristics->record_full_gc();
+}
+
+void ShenandoahCollectorPolicy::record_peak_occupancy() {
+  _heuristics->record_peak_occupancy();
 }
 
 void ShenandoahCollectorPolicy::choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections) {
@@ -717,6 +978,7 @@ void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
   out->cr();
   out->print_cr("" SIZE_FORMAT " allocation failure and " SIZE_FORMAT " user requested GCs", _allocation_failure_gcs, _user_requested_gcs);
   out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated concurrent markings", _successful_cm, _degenerated_cm);
+  out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated update references  ", _successful_uprefs, _degenerated_uprefs);
   out->cr();
 }
 
@@ -732,10 +994,6 @@ void ShenandoahCollectorPolicy::print_summary_sd(outputStream* out, const char* 
           seq->percentile(75) * 1000000.0,
           seq->maximum() * 1000000.0
   );
-}
-
-void ShenandoahCollectorPolicy::increase_cycle_counter() {
-  _cycle_counter++;
 }
 
 size_t ShenandoahCollectorPolicy::cycle_counter() const {
@@ -909,6 +1167,15 @@ uint ShenandoahCollectorPolicy::calc_workers_for_evacuation(bool full_gc,
   return calc_default_active_workers(total_workers,
       (total_workers > 1 ? 2 : 1), active_workers,
       application_workers, 0, active_workers_by_liveset);
+}
+
+void ShenandoahCollectorPolicy::record_cycle_start() {
+  _cycle_counter++;
+  _heuristics->record_cycle_start();
+}
+
+void ShenandoahCollectorPolicy::record_cycle_end() {
+  _heuristics->record_cycle_end();
 }
 
 

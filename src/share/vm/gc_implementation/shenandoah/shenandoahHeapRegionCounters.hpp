@@ -38,12 +38,13 @@
  * - sun.gc.shenandoah.regions.status       current GC status:
  *     - bit 0 set when marking in progress
  *     - bit 1 set when evacuation in progress
+ *     - bit 2 set when update refs in progress
  *
  * one variable counter per region, with $max_regions (see above) counters:
  * - sun.gc.shenandoah.regions.region.$i.data
  * where $ is the region number from 0 <= i < $max_regions
  *
- * in the following format:
+ * .data is in the following format:
  * - bits 0-28   used memory in kilobytes
  * - bits 29-58  live memory in kilobytes
  * - bits 58-63  status

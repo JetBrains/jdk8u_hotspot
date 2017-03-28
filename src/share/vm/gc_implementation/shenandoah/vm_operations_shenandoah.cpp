@@ -62,11 +62,13 @@ void VM_ShenandoahFullGC::doit() {
 
   ShenandoahMarkCompact::do_mark_compact(_gc_cause);
   ShenandoahHeap *sh = ShenandoahHeap::heap();
+  sh->shenandoahPolicy()->record_gc_start();
   if (UseTLAB) {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
     sh->resize_all_tlabs();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::resize_tlabs);
   }
+  sh->shenandoahPolicy()->record_gc_end();
 }
 
 bool VM_ShenandoahReferenceOperation::doit_prologue() {
@@ -91,6 +93,7 @@ void VM_ShenandoahReferenceOperation::doit_epilogue() {
 void VM_ShenandoahFinalMarkStartEvac::doit() {
 
   ShenandoahHeap *sh = ShenandoahHeap::heap();
+  sh->shenandoahPolicy()->record_gc_start();
 
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark);
@@ -128,6 +131,28 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
   }
 
   sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark);
+  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
+
+  sh->shenandoahPolicy()->record_gc_end();
+}
+
+void VM_ShenandoahInitUpdateRefs::doit() {
+  ShenandoahHeap *sh = ShenandoahHeap::heap();
+  GCTraceTime time("Pause Init Update Refs", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id(), true);
+  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
+  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_update_refs);
+  sh->prepare_update_refs();
+  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_update_refs);
+  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
+}
+
+void VM_ShenandoahFinalUpdateRefs::doit() {
+  ShenandoahHeap *sh = ShenandoahHeap::heap();
+  GCTraceTime time("Pause Final Update Refs", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id(), true);
+  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
+  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_update_refs);
+  sh->finish_update_refs();
+  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_update_refs);
   sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
 }
 
