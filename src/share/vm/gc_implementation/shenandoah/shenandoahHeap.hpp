@@ -179,6 +179,7 @@ private:
   unsigned int _concurrent_mark_in_progress;
 
   bool _full_gc_in_progress;
+  bool _update_refs_in_progress;
 
   unsigned int _evacuation_in_progress;
   bool _need_update_refs;
@@ -296,6 +297,12 @@ public:
   void prepare_for_concurrent_evacuation();
   void evacuate_and_update_roots();
 
+  void update_heap_references(ShenandoahHeapRegionSet* regions);
+  void concurrent_update_heap_references();
+  void prepare_update_refs();
+  void finish_update_refs();
+  void verify_update_refs();
+
 private:
   void set_evacuation_in_progress(bool in_progress);
 public:
@@ -305,6 +312,10 @@ public:
 
   void set_full_gc_in_progress(bool in_progress);
   bool is_full_gc_in_progress() const;
+
+  void set_update_refs_in_progress(bool in_progress);
+  bool is_update_refs_in_progress() const;
+  static address update_refs_in_progress_addr();
 
   inline bool need_update_refs() const;
   void set_need_update_refs(bool update_refs);
@@ -410,8 +421,25 @@ public:
 
   // TODO: consider moving this into ShenandoahHeapRegion.
 
+private:
+  template<class T>
+  inline void marked_object_iterate(ShenandoahHeapRegion* region, T* cl, HeapWord* limit);
+
+  template<class T>
+  inline void marked_object_oop_iterate(ShenandoahHeapRegion* region, T* cl, HeapWord* limit);
+
+public:
   template<class T>
   inline void marked_object_iterate(ShenandoahHeapRegion* region, T* cl);
+
+  template<class T>
+  inline void marked_object_safe_iterate(ShenandoahHeapRegion* region, T* cl);
+
+  template<class T>
+  inline void marked_object_oop_iterate(ShenandoahHeapRegion* region, T* cl);
+
+  template<class T>
+  inline void marked_object_oop_safe_iterate(ShenandoahHeapRegion* region, T* cl);
 
   GCTimer* gc_timer() const;
   GCTracer* tracer();

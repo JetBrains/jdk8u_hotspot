@@ -74,6 +74,9 @@ void ShenandoahConcurrentThread::run() {
       if (heap->is_evacuation_in_progress()) {
         heap->set_evacuation_in_progress_concurrently(false);
       }
+      if (heap->is_update_refs_in_progress()) {
+        heap->set_update_refs_in_progress(false);
+      }
     } else {
       Thread::current()->_ParkEvent->park(10);
     }
@@ -101,7 +104,11 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   gc_timer->register_gc_start();
   gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
 
-  heap->shenandoahPolicy()->increase_cycle_counter();
+  // Cycle started
+  heap->shenandoahPolicy()->record_cycle_start();
+
+  // Capture peak occupancy right after starting the cycle
+  heap->shenandoahPolicy()->record_peak_occupancy();
 
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   TraceMemoryManagerStats tmms(false, GCCause::_no_cause_specified);
@@ -132,6 +139,9 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
     ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
   }
+
+  // Allocations happen during concurrent mark, record peak after the phase:
+  heap->shenandoahPolicy()->record_peak_occupancy();
 
   // Possibly hand over remaining marking work to final-mark phase.
   bool clear_full_gc = false;
@@ -182,8 +192,59 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     heap->do_evacuation();
   }
 
+  // Allocations happen during evacuation, record peak after the phase:
+  heap->shenandoahPolicy()->record_peak_occupancy();
+
+  // Do an update-refs phase if required.
+  if (check_cancellation()) return;
+
+  if (heap->shenandoahPolicy()->should_start_update_refs()) {
+
+    VM_ShenandoahInitUpdateRefs init_update_refs;
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_update_refs_gross);
+    VMThread::execute(&init_update_refs);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_update_refs_gross);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause_gross);
+
+    {
+      GCTraceTime time("Concurrent update references ", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
+      heap->concurrent_update_heap_references();
+    }
+
+    // Allocations happen during update-refs, record peak after the phase:
+    heap->shenandoahPolicy()->record_peak_occupancy();
+
+    clear_full_gc = false;
+    if (heap->cancelled_concgc()) {
+      heap->shenandoahPolicy()->record_uprefs_cancelled();
+      if (_full_gc_cause == GCCause::_allocation_failure &&
+          heap->shenandoahPolicy()->handover_cancelled_uprefs()) {
+        clear_full_gc = true;
+        heap->shenandoahPolicy()->record_uprefs_degenerated();
+      } else {
+        heap->gc_timer()->register_gc_end();
+        return;
+      }
+    } else {
+      heap->shenandoahPolicy()->record_uprefs_success();
+    }
+
+    VM_ShenandoahFinalUpdateRefs final_update_refs;
+
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_update_refs_gross);
+    VMThread::execute(&final_update_refs);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_update_refs_gross);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause_gross);
+  }
+
   // Prepare for the next normal cycle:
   if (check_cancellation()) return;
+
+  if (clear_full_gc) {
+    reset_full_gc();
+  }
 
   {
     GCTraceTime time("Concurrent reset bitmaps", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id());
@@ -193,6 +254,12 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     heap->reset_next_mark_bitmap(workers);
     heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
   }
+
+  // Allocations happen during bitmap cleanup, record peak after the phase:
+  heap->shenandoahPolicy()->record_peak_occupancy();
+
+  // Cycle is complete
+  heap->shenandoahPolicy()->record_cycle_end();
 
   gc_timer->register_gc_end();
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());

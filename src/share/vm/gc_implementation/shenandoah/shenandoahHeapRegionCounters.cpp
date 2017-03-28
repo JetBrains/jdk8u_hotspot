@@ -61,7 +61,6 @@ ShenandoahHeapRegionCounters::ShenandoahHeapRegionCounters() {
       assert(!PerfDataManager::exists(fullname), "must not exist");
       _regions_data[i] = PerfDataManager::create_long_variable(SUN_GC, data_name,
                                                                PerfData::U_None, CHECK);
-
     }
   }
 }
@@ -79,8 +78,9 @@ void ShenandoahHeapRegionCounters::update() {
 
       ShenandoahHeap* heap = ShenandoahHeap::heap();
       jlong status = 0;
-      if (heap->concurrent_mark_in_progress()) status |= 1;
-      if (heap->is_evacuation_in_progress()) status |= 2;
+      if (heap->concurrent_mark_in_progress()) status |= 1 << 0;
+      if (heap->is_evacuation_in_progress())   status |= 1 << 1;
+      if (heap->is_update_refs_in_progress())  status |= 1 << 2;
       _status->set_value(status);
 
       _timestamp->set_value(os::elapsed_counter());
