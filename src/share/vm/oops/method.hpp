@@ -445,7 +445,7 @@ class Method : public Metadata {
   address verified_code_entry();
   bool check_code() const;      // Not inline to avoid circular ref
   nmethod* volatile code() const                 { assert( check_code(), "" ); return (nmethod *)OrderAccess::load_ptr_acquire(&_code); }
-  void clear_code();            // Clear out any compiled code
+  void clear_code(bool acquire_lock = true);            // Clear out any compiled code
   static void set_code(methodHandle mh, nmethod* code);
   void set_adapter_entry(AdapterHandlerEntry* adapter) {  _adapter = adapter; }
   address get_i2c_entry();
@@ -471,12 +471,12 @@ class Method : public Metadata {
   DEBUG_ONLY(bool valid_vtable_index() const     { return _vtable_index >= nonvirtual_vtable_index; })
   bool has_vtable_index() const                  { return _vtable_index >= 0; }
   int  vtable_index() const                      { return _vtable_index; }
-  void set_vtable_index(int index)               { _vtable_index = index; }
+  void set_vtable_index(int index);
   DEBUG_ONLY(bool valid_itable_index() const     { return _vtable_index <= pending_itable_index; })
   bool has_itable_index() const                  { return _vtable_index <= itable_index_max; }
   int  itable_index() const                      { assert(valid_itable_index(), "");
                                                    return itable_index_max - _vtable_index; }
-  void set_itable_index(int index)               { _vtable_index = itable_index_max - index; assert(valid_itable_index(), ""); }
+  void set_itable_index(int index);
 
   // interpreter entry
   address interpreter_entry() const              { return _i2i_entry; }
@@ -627,6 +627,9 @@ class Method : public Metadata {
   // valid static initializer flags.
   bool is_static_initializer() const;
 
+  // returns true if the method name is <init>
+  bool is_object_initializer() const;
+
   // compiled code support
   // NOTE: code() is inherently racy as deopt can be clearing code
   // simultaneously. Use with caution.
@@ -768,6 +771,8 @@ class Method : public Metadata {
 
   // Helper routines for intrinsic_id() and vmIntrinsics::method().
   void init_intrinsic_id();     // updates from _none if a match
+  void clear_jmethod_id(ClassLoaderData* loader_data);
+
   static vmSymbols::SID klass_id_for_intrinsics(Klass* holder);
 
   bool     jfr_towrite()                { return _jfr_towrite;              }

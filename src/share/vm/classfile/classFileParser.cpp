@@ -537,6 +537,9 @@ constantPoolHandle ClassFileParser::parse_constant_pool(TRAPS) {
           int name_index = cp->name_ref_index_at(index);
           Symbol*  name = cp->symbol_at(name_index);
           Symbol*  sig = cp->symbol_at(sig_index);
+          guarantee_property(sig->utf8_length() != 0,
+            "Illegal zero length constant pool entry at %d in class %s",
+            sig_index, CHECK_(nullHandle));
           if (sig->byte_at(0) == JVM_SIGNATURE_FUNC) {
             verify_legal_method_signature(name, sig, CHECK_(nullHandle));
           } else {
@@ -560,8 +563,9 @@ constantPoolHandle ClassFileParser::parse_constant_pool(TRAPS) {
           verify_legal_field_name(name, CHECK_(nullHandle));
           if (_need_verify && _major_version >= JAVA_7_VERSION) {
             // Signature is verified above, when iterating NameAndType_info.
-            // Need only to be sure it's the right type.
-            if (signature->byte_at(0) == JVM_SIGNATURE_FUNC) {
+            // Need only to be sure it's non-zero length and the right type.
+            if (signature->utf8_length() == 0 ||
+                signature->byte_at(0) == JVM_SIGNATURE_FUNC) {
               throwIllegalSignature(
                   "Field", name, signature, CHECK_(nullHandle));
             }
@@ -572,8 +576,9 @@ constantPoolHandle ClassFileParser::parse_constant_pool(TRAPS) {
           verify_legal_method_name(name, CHECK_(nullHandle));
           if (_need_verify && _major_version >= JAVA_7_VERSION) {
             // Signature is verified above, when iterating NameAndType_info.
-            // Need only to be sure it's the right type.
-            if (signature->byte_at(0) != JVM_SIGNATURE_FUNC) {
+            // Need only to be sure it's non-zero length and the right type.
+            if (signature->utf8_length() == 0 ||
+                signature->byte_at(0) != JVM_SIGNATURE_FUNC) {
               throwIllegalSignature(
                   "Method", name, signature, CHECK_(nullHandle));
             }
@@ -584,8 +589,7 @@ constantPoolHandle ClassFileParser::parse_constant_pool(TRAPS) {
             // 4509014: If a class method name begins with '<', it must be "<init>".
             assert(name != NULL, "method name in constant pool is null");
             unsigned int name_len = name->utf8_length();
-            assert(name_len > 0, "bad method name");  // already verified as legal name
-            if (name->byte_at(0) == '<') {
+            if (name_len != 0 && name->byte_at(0) == '<') {
               if (name != vmSymbols::object_initializer_name()) {
                 classfile_parse_error(
                   "Bad method name at constant pool index %u in class file %s",
@@ -940,11 +944,12 @@ void ClassFileParser::parse_field_attributes(u2 attributes_count,
         runtime_visible_annotations_length = attribute_length;
         runtime_visible_annotations = cfs->get_u1_buffer();
         assert(runtime_visible_annotations != NULL, "null visible annotations");
+        cfs->guarantee_more(runtime_visible_annotations_length, CHECK);
         parse_annotations(runtime_visible_annotations,
                           runtime_visible_annotations_length,
                           parsed_annotations,
                           CHECK);
-        cfs->skip_u1(runtime_visible_annotations_length, CHECK);
+        cfs->skip_u1_fast(runtime_visible_annotations_length);
       } else if (PreserveAllAnnotations && attribute_name == vmSymbols::tag_runtime_invisible_annotations()) {
         runtime_invisible_annotations_length = attribute_length;
         runtime_invisible_annotations = cfs->get_u1_buffer();
@@ -1651,6 +1656,11 @@ int ClassFileParser::skip_annotation(u1* buffer, int limit, int index) {
   return index;
 }
 
+// Safely increment index by val if does not pass limit
+#define SAFE_ADD(index, limit, val) \
+if (index >= limit - val) return limit; \
+index += val;
+
 // Skip an annotation value.  Return >=limit if there is any problem.
 int ClassFileParser::skip_annotation_value(u1* buffer, int limit, int index) {
   // value := switch (tag:u1) {
@@ -1661,19 +1671,19 @@ int ClassFileParser::skip_annotation_value(u1* buffer, int limit, int index) {
   //   case @: annotation;
   //   case s: s_con:u2;
   // }
-  if ((index += 1) >= limit)  return limit;  // read tag
+  SAFE_ADD(index, limit, 1); // read tag
   u1 tag = buffer[index-1];
   switch (tag) {
   case 'B': case 'C': case 'I': case 'S': case 'Z':
   case 'D': case 'F': case 'J': case 'c': case 's':
-    index += 2;  // skip con or s_con
+    SAFE_ADD(index, limit, 2);  // skip con or s_con
     break;
   case 'e':
-    index += 4;  // skip e_class, e_name
+    SAFE_ADD(index, limit, 4);  // skip e_class, e_name
     break;
   case '[':
     {
-      if ((index += 2) >= limit)  return limit;  // read nval
+      SAFE_ADD(index, limit, 2);  // read nval
       int nval = Bytes::get_Java_u2(buffer+index-2);
       while (--nval >= 0 && index < limit) {
         index = skip_annotation_value(buffer, limit, index);
@@ -1695,8 +1705,8 @@ void ClassFileParser::parse_annotations(u1* buffer, int limit,
                                         ClassFileParser::AnnotationCollector* coll,
                                         TRAPS) {
   // annotations := do(nann:u2) {annotation}
-  int index = 0;
-  if ((index += 2) >= limit)  return;  // read nann
+  int index = 2;
+  if (index >= limit)  return;  // read nann
   int nann = Bytes::get_Java_u2(buffer+index-2);
   enum {  // initial annotation layout
     atype_off = 0,      // utf8 such as 'Ljava/lang/annotation/Retention;'
@@ -1715,7 +1725,8 @@ void ClassFileParser::parse_annotations(u1* buffer, int limit,
       s_size = 9,
     min_size = 6        // smallest possible size (zero members)
   };
-  while ((--nann) >= 0 && (index-2 + min_size <= limit)) {
+  // Cannot add min_size to index in case of overflow MAX_INT
+  while ((--nann) >= 0 && (index-2 <= limit - min_size)) {
     int index0 = index;
     index = skip_annotation(buffer, limit, index);
     u1* abase = buffer + index0;
@@ -2320,10 +2331,11 @@ methodHandle ClassFileParser::parse_method(bool is_interface,
         runtime_visible_annotations_length = method_attribute_length;
         runtime_visible_annotations = cfs->get_u1_buffer();
         assert(runtime_visible_annotations != NULL, "null visible annotations");
+        cfs->guarantee_more(runtime_visible_annotations_length, CHECK_(nullHandle));
         parse_annotations(runtime_visible_annotations,
             runtime_visible_annotations_length, &parsed_annotations,
             CHECK_(nullHandle));
-        cfs->skip_u1(runtime_visible_annotations_length, CHECK_(nullHandle));
+        cfs->skip_u1_fast(runtime_visible_annotations_length);
       } else if (PreserveAllAnnotations && method_attribute_name == vmSymbols::tag_runtime_invisible_annotations()) {
         runtime_invisible_annotations_length = method_attribute_length;
         runtime_invisible_annotations = cfs->get_u1_buffer();
@@ -2949,11 +2961,12 @@ void ClassFileParser::parse_classfile_attributes(ClassFileParser::ClassAnnotatio
         runtime_visible_annotations_length = attribute_length;
         runtime_visible_annotations = cfs->get_u1_buffer();
         assert(runtime_visible_annotations != NULL, "null visible annotations");
+        cfs->guarantee_more(runtime_visible_annotations_length, CHECK);
         parse_annotations(runtime_visible_annotations,
                           runtime_visible_annotations_length,
                           parsed_annotations,
                           CHECK);
-        cfs->skip_u1(runtime_visible_annotations_length, CHECK);
+        cfs->skip_u1_fast(runtime_visible_annotations_length);
       } else if (PreserveAllAnnotations && tag == vmSymbols::tag_runtime_invisible_annotations()) {
         runtime_invisible_annotations_length = attribute_length;
         runtime_invisible_annotations = cfs->get_u1_buffer();
@@ -3969,6 +3982,11 @@ instanceKlassHandle ClassFileParser::parseClassFile(Symbol* name,
     // Make sure this is the end of class file stream
     guarantee_property(cfs->at_eos(), "Extra bytes at the end of class file %s", CHECK_(nullHandle));
 
+    if (_class_name == vmSymbols::java_lang_Object()) {
+      check_property(_local_interfaces == Universe::the_empty_klass_array(),
+                     "java.lang.Object cannot implement an interface in class file %s",
+                     CHECK_(nullHandle));
+    }
     // We check super class after class file is parsed and format is checked
     if (super_class_index > 0 && super_klass.is_null()) {
       Symbol*  sk  = cp->klass_name_at(super_class_index);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -1084,15 +1084,18 @@ Klass* SystemDictionary::resolve_from_stream(Symbol* class_name,
                                                              THREAD);
 
   const char* pkg = "java/";
+  size_t pkglen = strlen(pkg);
   if (!HAS_PENDING_EXCEPTION &&
       !class_loader.is_null() &&
       parsed_name != NULL &&
-      !strncmp((const char*)parsed_name->bytes(), pkg, strlen(pkg))) {
+      parsed_name->utf8_length() >= (int)pkglen &&
+      !strncmp((const char*)parsed_name->bytes(), pkg, pkglen)) {
     // It is illegal to define classes in the "java." package from
     // JVM_DefineClass or jni_DefineClass unless you're the bootclassloader
     ResourceMark rm(THREAD);
     char* name = parsed_name->as_C_string();
     char* index = strrchr(name, '/');
+    assert(index != NULL, "must be");
     *index = '\0'; // chop to just the package name
     while ((index = strchr(name, '/')) != NULL) {
       *index = '.'; // replace '/' with '.' in package name
@@ -1198,8 +1201,13 @@ instanceKlassHandle SystemDictionary::load_shared_class(instanceKlassHandle ik,
 
     if (ik->super() != NULL) {
       Symbol*  cn = ik->super()->name();
-      resolve_super_or_fail(class_name, cn,
-                            class_loader, protection_domain, true, CHECK_(nh));
+      Klass *s = resolve_super_or_fail(class_name, cn,
+                                       class_loader, protection_domain, true, CHECK_(nh));
+      if (s != ik->super()) {
+        // The dynamically resolved super class is not the same as the one we used during dump time,
+        // so we cannot use ik.
+        return nh;
+      }
     }
 
     Array<Klass*>* interfaces = ik->local_interfaces();
@@ -1212,7 +1220,12 @@ instanceKlassHandle SystemDictionary::load_shared_class(instanceKlassHandle ik,
       // reinitialized yet (they will be once the interface classes
       // are loaded)
       Symbol*  name  = k->name();
-      resolve_super_or_fail(class_name, name, class_loader, protection_domain, false, CHECK_(nh));
+      Klass* i = resolve_super_or_fail(class_name, name, class_loader, protection_domain, false, CHECK_(nh));
+      if (k != i) {
+        // The dynamically resolved interface class is not the same as the one we used during dump time,
+        // so we cannot use ik.
+        return nh;
+      }
     }
 
     // Adjust methods to recover missing data.  They need addresses for
