@@ -59,7 +59,7 @@ Src_Dirs_I += $(GAMMADIR)/src/share/vm/adlc $(GENERATED)
 INCLUDES += $(Src_Dirs_I:%=-I%)
 
 # set flags for adlc compilation
-CXXFLAGS = $(SYSDEFS) $(INCLUDES)
+CXXFLAGS = $(SYSDEFS) $(INCLUDES) -std=gnu++98
 
 # Force assertions on.
 CXXFLAGS += -DASSERT
