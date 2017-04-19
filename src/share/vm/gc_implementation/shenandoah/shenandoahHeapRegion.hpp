@@ -68,13 +68,13 @@ public:
 
   // Convert to jint with sanity checking
   inline static jint region_size_bytes_jint() {
-    assert (ShenandoahHeapRegion::RegionSizeBytes <= max_jint, "sanity");
+    assert (ShenandoahHeapRegion::RegionSizeBytes <= (size_t)max_jint, "sanity");
     return (jint)ShenandoahHeapRegion::RegionSizeBytes;
   }
 
   // Convert to jint with sanity checking
   inline static jint region_size_shift_jint() {
-    assert (ShenandoahHeapRegion::RegionSizeShift <= max_jint, "sanity");
+    assert (ShenandoahHeapRegion::RegionSizeShift <= (size_t)max_jint, "sanity");
     return (jint)ShenandoahHeapRegion::RegionSizeShift;
   }
 
