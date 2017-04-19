@@ -28,7 +28,7 @@
 #include "runtime/atomic.hpp"
 
 inline void ShenandoahHeapRegion::increase_live_data_words(size_t s) {
-  assert (s <= max_jint, "sanity");
+  assert (s <= (size_t)max_jint, "sanity");
   increase_live_data_words((jint)s);
 }
 

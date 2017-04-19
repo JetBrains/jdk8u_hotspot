@@ -47,7 +47,7 @@ protected:
   static int compare_by_garbage(RegionGarbage a, RegionGarbage b) {
     if (a.garbage > b.garbage)
       return -1;
-    else if (b.garbage < a.garbage)
+    else if (a.garbage < b.garbage)
       return 1;
     else return 0;
   }
