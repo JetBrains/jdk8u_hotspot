@@ -696,7 +696,7 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
   //   and so we don't need to call the G1 pre-barrier. Thus we can use the
   //   regular method entry code to generate the NPE.
   //
-  // This code is based on generate_accessor_enty.
+  // This code is based on generate_accessor_entry.
   //
   // rmethod: Method*
   // r13: senderSP must preserve for slow path, set SP to it on fast path
@@ -721,6 +721,7 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
     const Address field_address(local_0, referent_offset);
     __ load_heap_oop(local_0, field_address);
 
+    __ mov(r19, r13);   // Move senderSP to a callee-saved register
     // Generate the G1 pre-barrier code to log the value of
     // the referent field in an SATB buffer.
     __ enter(); // g1_write may call runtime
