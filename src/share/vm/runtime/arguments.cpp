@@ -1768,12 +1768,14 @@ void Arguments::set_shenandoah_gc_flags() {
     FLAG_SET_DEFAULT(PerfDataMemorySize, 512*K);
   }
 
+#ifdef COMPILER2
   // Shenandoah cares more about pause times, rather than raw throughput.
   // Enabling safepoints in counted loops makes it more responsive with
   // long loops.
   if (FLAG_IS_DEFAULT(UseCountedLoopSafepoints)) {
     FLAG_SET_DEFAULT(UseCountedLoopSafepoints, true);
   }
+#endif
 
   if (AlwaysPreTouch) {
     // Shenandoah handles pre-touch on its own. It does not let the
