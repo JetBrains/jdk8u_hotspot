@@ -206,10 +206,9 @@ jint ShenandoahHeap::initialize() {
   }
   assert(((size_t) _ordered_regions->active_regions()) == _num_regions, "");
   _first_region = _ordered_regions->get(0);
-  _first_region_bottom = _first_region->bottom();
-  assert((((size_t) _first_region_bottom) &
+  assert((((size_t) base()) &
           (ShenandoahHeapRegion::region_size_bytes() - 1)) == 0,
-         err_msg("misaligned heap: "PTR_FORMAT, p2i(_first_region_bottom)));
+         err_msg("misaligned heap: "PTR_FORMAT, p2i(base())));
 
   _numAllocs = 0;
 
@@ -525,9 +524,9 @@ VirtualSpace* ShenandoahHeap::storage() const {
 }
 
 bool ShenandoahHeap::is_in(const void* p) const {
-  HeapWord* first_region_bottom = _first_region->bottom();
-  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * _num_regions;
-  return p >= _first_region_bottom && p < last_region_end;
+  HeapWord* heap_base = (HeapWord*) base();
+  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * _num_regions;
+  return p >= heap_base && p < last_region_end;
 }
 
 bool ShenandoahHeap::is_in_partial_collection(const void* p ) {
@@ -2034,11 +2033,11 @@ uint ShenandoahHeap::oop_extra_words() {
 }
 
 void ShenandoahHeap::grow_heap_by(size_t num_regions) {
-  size_t base = _num_regions;
+  size_t old_num_regions = _num_regions;
   ensure_new_regions(num_regions);
   for (size_t i = 0; i < num_regions; i++) {
-    size_t new_region_index = i + base;
-    HeapWord* start = _first_region_bottom + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * new_region_index;
+    size_t new_region_index = i + old_num_regions;
+    HeapWord* start = ((HeapWord*) base()) + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * new_region_index;
     ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion(this, start, ShenandoahHeapRegion::region_size_bytes() / HeapWordSize, new_region_index);
 
     if (ShenandoahLogTrace) {

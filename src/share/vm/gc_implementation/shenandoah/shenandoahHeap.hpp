@@ -133,7 +133,6 @@ private:
   ShenandoahCollectorPolicy* _shenandoah_policy;
   VirtualSpace _storage;
   ShenandoahHeapRegion* _first_region;
-  HeapWord* _first_region_bottom;
 
   // Sortable array of regions
   ShenandoahHeapRegionSet* _ordered_regions;
@@ -209,8 +208,6 @@ private:
 
 public:
   ShenandoahHeap(ShenandoahCollectorPolicy* policy);
-
-  HeapWord *first_region_bottom() { return _first_region_bottom; }
 
   const char* name() const /* override */;
   HeapWord* allocate_new_tlab(size_t word_size) /* override */;

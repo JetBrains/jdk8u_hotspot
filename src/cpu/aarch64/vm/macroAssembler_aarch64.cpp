@@ -5041,10 +5041,10 @@ void MacroAssembler::encode_iso_array(Register src, Register dst,
 void MacroAssembler::in_heap_check(Register r, Register tmp, Label &nope) {
   ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
 
-  HeapWord* first_region_bottom = h->first_region_bottom();
-  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();
+  HeapWord* heap_base = (HeapWord*) h->base();
+  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();
 
-  mov(tmp, (uintptr_t)first_region_bottom);
+  mov(tmp, (uintptr_t) heap_base);
   cmp(r, tmp);
   br(Assembler::LO, nope);
   mov(tmp, (uintptr_t)last_region_end);

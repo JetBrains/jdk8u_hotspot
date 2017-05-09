@@ -91,12 +91,12 @@ inline bool ShenandoahHeap::need_update_refs() const {
 
 inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) const {
   uintptr_t region_start = ((uintptr_t) addr);
-  uintptr_t index = (region_start - (uintptr_t) _first_region_bottom) >> ShenandoahHeapRegion::region_size_shift();
+  uintptr_t index = (region_start - (uintptr_t) base()) >> ShenandoahHeapRegion::region_size_shift();
 #ifdef ASSERT
   if (!(index < _num_regions)) {
-    tty->print_cr("heap region does not contain address, first_region_bottom: "PTR_FORMAT \
+    tty->print_cr("heap region does not contain address, heap base: "PTR_FORMAT \
                   ", real bottom of first region: "PTR_FORMAT", num_regions: "SIZE_FORMAT", region_size: "SIZE_FORMAT,
-                  p2i(_first_region_bottom),
+                  p2i(base()),
                   p2i(_ordered_regions->get(0)->bottom()),
                   _num_regions,
                   ShenandoahHeapRegion::region_size_bytes());
@@ -111,9 +111,9 @@ inline ShenandoahHeapRegion* ShenandoahHeap::heap_region_containing(const void* 
   ShenandoahHeapRegion* result = _ordered_regions->get(index);
 #ifdef ASSERT
   if (!(addr >= result->bottom() && addr < result->end())) {
-    tty->print_cr("heap region does not contain address, first_region_bottom: "PTR_FORMAT \
+    tty->print_cr("heap region does not contain address, heap base: "PTR_FORMAT \
                   ", real bottom of first region: "PTR_FORMAT", num_regions: "SIZE_FORMAT,
-                  p2i(_first_region_bottom),
+                  p2i(base()),
                   p2i(_ordered_regions->get(0)->bottom()),
                   _num_regions);
   }
