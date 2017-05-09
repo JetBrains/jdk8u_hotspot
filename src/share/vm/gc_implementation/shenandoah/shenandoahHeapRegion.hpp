@@ -73,6 +73,9 @@ public:
 
   size_t region_number() const;
 
+  // Allocation (return NULL if full)
+  inline HeapWord* allocate(size_t word_size);
+
   // Roll back the previous allocation of an object with specified size.
   // Returns TRUE when successful, FALSE if not successful or not supported.
   bool rollback_allocation(uint size);

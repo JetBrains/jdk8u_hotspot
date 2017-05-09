@@ -418,6 +418,7 @@ public:
   void cancel_concgc(ShenandoahCancelCause cause);
 
   void assert_heaplock_owned_by_current_thread() PRODUCT_RETURN;
+  void assert_heaplock_or_safepoint() PRODUCT_RETURN;
 
 private:
   HeapWord* allocate_new_tlab(size_t word_size, bool mark);
