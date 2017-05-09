@@ -1269,7 +1269,7 @@ void ShenandoahHeap::evacuate_and_update_roots() {
   assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
 
   {
-    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::evac_thread_roots);
+    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::init_evac);
     ShenandoahEvacuateUpdateRootsTask roots_task(&rp);
     workers()->run_task(&roots_task);
   }
@@ -1280,7 +1280,7 @@ void ShenandoahHeap::evacuate_and_update_roots() {
     // GC thread 1 cannot allocate anymore, thus evacuation fails, leaves from-space ptr of object X.
     // GC thread 2 evacuates the same object X to to-space
     // which leaves a truly dangling from-space reference in the first root oop*. This must not happen.
-    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::evac_thread_roots);
+    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::init_evac);
     ShenandoahFixRootsTask update_roots_task(&rp);
     workers()->run_task(&update_roots_task);
   }

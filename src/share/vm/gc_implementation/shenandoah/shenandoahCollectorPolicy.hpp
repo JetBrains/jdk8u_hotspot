@@ -48,6 +48,8 @@ public:
     accumulate_stats,
     make_parsable,
     clear_liveness,
+
+    // Per-thread timer block, should have "roots" counters in consistent order
     scan_roots,
     scan_thread_roots,
     scan_code_roots,
@@ -66,6 +68,8 @@ public:
 
     final_mark_gross,
     final_mark,
+
+    // Per-thread timer block, should have "roots" counters in consistent order
     update_roots,
     update_thread_roots,
     update_code_roots,
@@ -79,11 +83,14 @@ public:
     update_system_dictionary_roots,
     update_cldg_roots,
     update_jvmti_roots,
-    drain_satb,
+
+    finish_queues,
     weakrefs,
     class_unloading,
     prepare_evac,
     recycle_regions,
+
+    // Per-thread timer block, should have "roots" counters in consistent order
     init_evac,
     evac_thread_roots,
     evac_code_roots,
@@ -106,7 +113,7 @@ public:
     full_gc_heapdumps,
     full_gc_prepare,
     full_gc_mark,
-    full_gc_mark_drain_queues,
+    full_gc_mark_finish_queues,
     full_gc_mark_weakrefs,
     full_gc_mark_class_unloading,
     full_gc_calculate_addresses,
