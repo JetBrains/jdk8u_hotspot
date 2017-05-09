@@ -468,6 +468,15 @@ private:
 
   const char* cancel_cause_to_string(ShenandoahCancelCause cause);
 
+private:
+  size_t* _recycled_regions;
+  size_t _recycled_region_count;
+
+public:
+  void start_deferred_recycling();
+  void defer_recycle(ShenandoahHeapRegion* r);
+  void finish_deferred_recycle();
+
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP

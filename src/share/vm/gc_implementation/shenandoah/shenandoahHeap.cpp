@@ -205,6 +205,9 @@ jint ShenandoahHeap::initialize() {
     _free_regions->print(out);
   }
 
+  _recycled_regions = NEW_C_HEAP_ARRAY(size_t, _max_regions, mtGC);
+  _recycled_region_count = 0;
+
   // The call below uses stuff (the SATB* things) that are in G1, but probably
   // belong into a shared location.
   JavaThread::satb_mark_queue_set().initialize(SATB_Q_CBL_mon,
@@ -857,37 +860,29 @@ public:
   }
 };
 
-class RecycleDirtyRegionsClosure: public ShenandoahHeapRegionClosure {
-private:
-  ShenandoahHeap* _heap;
-  size_t _bytes_reclaimed;
-public:
-  RecycleDirtyRegionsClosure() : _heap(ShenandoahHeap::heap()) {}
-
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-
-    assert (! _heap->cancelled_concgc(), "no recycling after cancelled marking");
-
-    if (_heap->in_collection_set(r)) {
-      log_develop_trace(gc, region)("Recycling region " SIZE_FORMAT ":", r->region_number());
-      _heap->decrease_used(r->used());
-      _bytes_reclaimed += r->used();
-      r->recycle();
-    }
-
-    return false;
-  }
-  size_t bytes_reclaimed() { return _bytes_reclaimed;}
-  void clear_bytes_reclaimed() {_bytes_reclaimed = 0;}
-};
-
 void ShenandoahHeap::recycle_dirty_regions() {
-  RecycleDirtyRegionsClosure cl;
-  cl.clear_bytes_reclaimed();
+  ShenandoahHeapLock lock(this);
 
-  heap_region_iterate(&cl);
+  size_t bytes_reclaimed = 0;
 
-  _shenandoah_policy->record_bytes_reclaimed(cl.bytes_reclaimed());
+  ShenandoahHeapRegionSet* set = regions();
+  set->clear_current_index();
+
+  start_deferred_recycling();
+
+  ShenandoahHeapRegion* r = set->claim_next();
+  while (r != NULL) {
+    if (in_collection_set(r)) {
+      decrease_used(r->used());
+      bytes_reclaimed += r->used();
+      defer_recycle(r);
+    }
+    r = set->claim_next();
+  }
+
+  finish_deferred_recycle();
+
+  _shenandoah_policy->record_bytes_reclaimed(bytes_reclaimed);
   if (! cancelled_concgc()) {
     clear_cset_fast_test();
   }
@@ -2310,3 +2305,20 @@ void ShenandoahHeap::assert_heaplock_owned_by_current_thread() {
   assert(_heap_lock_owner == Thread::current(), "must be owned by current thread");
 }
 #endif
+
+void ShenandoahHeap::start_deferred_recycling() {
+  assert_heaplock_owned_by_current_thread();
+  _recycled_region_count = 0;
+}
+
+void ShenandoahHeap::defer_recycle(ShenandoahHeapRegion* r) {
+  assert_heaplock_owned_by_current_thread();
+  _recycled_regions[_recycled_region_count++] = r->region_number();
+}
+
+void ShenandoahHeap::finish_deferred_recycle() {
+  assert_heaplock_owned_by_current_thread();
+  for (size_t i = 0; i < _recycled_region_count; i++) {
+    regions()->get(_recycled_regions[i])->recycle();
+  }
+}

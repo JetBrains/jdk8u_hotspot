@@ -179,6 +179,8 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   size_t cand_idx = 0;
   _bytes_in_cset = 0;
 
+  heap->start_deferred_recycling();
+
   size_t immediate_garbage = 0;
   size_t immediate_regions = 0;
   for (size_t i = 0; i < active; i++) {
@@ -190,7 +192,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
         immediate_regions++;
         immediate_garbage += region->garbage();
         heap->decrease_used(region->used());
-        region->recycle();
+        heap->defer_recycle(region);
         log_develop_trace(gc)("Choose region " SIZE_FORMAT " for immediate reclaim with garbage = " SIZE_FORMAT
                               " and live = " SIZE_FORMAT "\n",
                               region->region_number(), region->garbage(), region->get_live_data_bytes());
@@ -207,6 +209,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
                             region->region_number(), region->garbage(), region->get_live_data_bytes());
     }
   }
+  heap->finish_deferred_recycle();
 
   // Step 2. Process the remanining candidates, if any.
 
