@@ -90,10 +90,14 @@ void VM_ShenandoahReferenceOperation::doit_epilogue() {
 
 void VM_ShenandoahFinalMarkStartEvac::doit() {
 
+  ShenandoahHeap *sh = ShenandoahHeap::heap();
+
+  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
+  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark);
+
   // It is critical that we
   // evacuate roots right after finishing marking, so that we don't
   // get unmarked objects in the roots.
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
   // Setup workers for final marking
   FlexibleWorkGang* workers = sh->workers();
   uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_final_marking(workers->active_workers(),
@@ -102,12 +106,8 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
 
   if (! sh->cancelled_concgc()) {
     GCTraceTime time("Pause Final Mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id(), true);
-    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
-    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark);
     sh->concurrentMark()->finish_mark_from_roots();
     sh->stop_concurrent_marking();
-    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark);
-    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
 
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::prepare_evac);
     sh->prepare_for_concurrent_evacuation();
@@ -121,12 +121,14 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
     sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_evac);
     sh->evacuate_and_update_roots();
     sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_evac);
-
   } else {
     GCTraceTime time("Cancel concurrent mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
   }
+
+  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark);
+  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
 }
 
 void VM_ShenandoahVerifyHeapAfterEvacuation::doit() {
