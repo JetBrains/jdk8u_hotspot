@@ -474,171 +474,6 @@ public:
 
 };
 
-class GlobalHeuristics : public DynamicHeuristics {
-private:
-  size_t _garbage;
-  size_t _min_garbage;
-public:
-  GlobalHeuristics() : DynamicHeuristics() {
-    if (FLAG_IS_DEFAULT(ShenandoahGarbageThreshold)) {
-      FLAG_SET_DEFAULT(ShenandoahGarbageThreshold, 90);
-    }
-  }
-  virtual ~GlobalHeuristics() {}
-
-  virtual void start_choose_collection_set() {
-    _garbage = 0;
-    size_t heap_garbage = ShenandoahHeap::heap()->garbage();
-    _min_garbage =  heap_garbage * ShenandoahGarbageThreshold / 100;
-  }
-
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    if (_garbage + immediate_garbage < _min_garbage && ! r->is_empty()) {
-      _garbage += r->garbage();
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  virtual bool needs_regions_sorted_by_garbage() {
-    return true;
-  }
-};
-
-class RatioHeuristics : public DynamicHeuristics {
-private:
-  size_t _garbage;
-  size_t _live;
-public:
-  RatioHeuristics() : DynamicHeuristics() {
-    if (FLAG_IS_DEFAULT(ShenandoahGarbageThreshold)) {
-      FLAG_SET_DEFAULT(ShenandoahGarbageThreshold, 95);
-    }
-  }
-  virtual ~RatioHeuristics() {}
-
-  virtual void start_choose_collection_set() {
-    _garbage = 0;
-    _live = 0;
-  }
-
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    size_t min_ratio = 100 - ShenandoahGarbageThreshold;
-    if (_live * 100 / MAX2(_garbage + immediate_garbage, (size_t)1) < min_ratio && ! r->is_empty()) {
-      _garbage += r->garbage();
-      _live += r->get_live_data_bytes();
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  virtual bool needs_regions_sorted_by_garbage() {
-    return true;
-  }
-};
-
-class ConnectionHeuristics : public ShenandoahHeuristics {
-private:
-  size_t _max_live_data;
-  double _used_threshold_factor;
-  double _garbage_threshold_factor;
-  double _allocation_threshold_factor;
-
-  uintx _used_threshold;
-  uintx _garbage_threshold;
-  uintx _allocation_threshold;
-
-public:
-  ConnectionHeuristics() : ShenandoahHeuristics() {
-    _max_live_data = 0;
-
-    _used_threshold = 0;
-    _garbage_threshold = 0;
-    _allocation_threshold = 0;
-
-    _used_threshold_factor = 0.;
-    _garbage_threshold_factor = 0.1;
-    _allocation_threshold_factor = 0.;
-  }
-
-  virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
-    size_t half_gig = 64 * 1024 * 1024;
-    size_t bytes_alloc = ShenandoahHeap::heap()->bytes_allocated_since_cm();
-    bool result =  bytes_alloc > half_gig;
-    if (result) tty->print("Starting a concurrent mark");
-    return result;
-  }
-
-  bool maybe_add_heap_region(ShenandoahHeapRegion* hr, ShenandoahCollectionSet* collection_set) {
-    if (!hr->is_humongous() && hr->has_live() && !collection_set->contains(hr)) {
-      collection_set->add_region_check_for_duplicates(hr);
-      hr->set_in_collection_set(true);
-      return true;
-    }
-    return false;
-  }
-
-  virtual void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections) {
-    ShenandoahHeapRegionSet* regions = ShenandoahHeap::heap()->regions();
-    size_t active = regions->active_regions();
-
-    RegionGarbage* sorted_by_garbage = get_region_garbage_cache(active);
-    for (size_t i = 0; i < active; i++) {
-      ShenandoahHeapRegion* r = regions->get_fast(i);
-      sorted_by_garbage[i].region_number = r->region_number();
-      sorted_by_garbage[i].garbage = r->garbage();
-    }
-
-    QuickSort::sort<RegionGarbage>(sorted_by_garbage, (int) active, compare_by_garbage, false);
-
-    size_t num = ShenandoahHeap::heap()->num_regions();
-    // simulate write heuristics by picking best region.
-    int r = 0;
-    ShenandoahHeapRegion* choosenOne = regions->get(sorted_by_garbage[0].region_number);
-
-    while (! maybe_add_heap_region(choosenOne, collection_set)) {
-      choosenOne = regions->get(sorted_by_garbage[++r].region_number);
-    }
-
-    size_t region_number = choosenOne->region_number();
-    log_develop_trace(gc)("Adding choosen region " SIZE_FORMAT, region_number);
-
-    // Add all the regions which point to this region.
-    for (size_t i = 0; i < num; i++) {
-      if (connections[i * num + region_number] > 0) {
-        ShenandoahHeapRegion* candidate = regions->get(sorted_by_garbage[i].region_number);
-        if (maybe_add_heap_region(candidate, collection_set)) {
-          log_develop_trace(gc)("Adding region " SIZE_FORMAT " which points to the choosen region", i);
-        }
-      }
-    }
-
-    // Add all the regions they point to.
-    for (size_t ci = 0; ci < collection_set->active_regions(); ci++) {
-      ShenandoahHeapRegion* cs_heap_region = collection_set->get(ci);
-      size_t cs_heap_region_number = cs_heap_region->region_number();
-      for (size_t i = 0; i < num; i++) {
-        if (connections[i * num + cs_heap_region_number] > 0) {
-          ShenandoahHeapRegion* candidate = regions->get(sorted_by_garbage[i].region_number);
-          if (maybe_add_heap_region(candidate, collection_set)) {
-            log_develop_trace(gc)
-              ("Adding region " SIZE_FORMAT " which is pointed to by region " SIZE_FORMAT, i, cs_heap_region_number);
-          }
-        }
-      }
-    }
-    _max_live_data = MAX2(_max_live_data, collection_set->live_data());
-    collection_set->print();
-  }
-
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    assert(false, "Shouldn't get here");
-    return false;
-  }
-};
-
 ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _cycle_counter(0),
   _successful_cm(0),
@@ -737,21 +572,12 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
     } else if (strcmp(ShenandoahGCHeuristics, "dynamic") == 0) {
       log_info(gc, init)("Shenandoah heuristics: dynamic");
       _heuristics = new DynamicHeuristics();
-    } else if (strcmp(ShenandoahGCHeuristics, "global") == 0) {
-      log_info(gc, init)("Shenandoah heuristics: global");
-      _heuristics = new GlobalHeuristics();
-    } else if (strcmp(ShenandoahGCHeuristics, "ratio") == 0) {
-      log_info(gc, init)("Shenandoah heuristics: ratio");
-      _heuristics = new RatioHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "adaptive") == 0) {
       log_info(gc, init)("Shenandoah heuristics: adaptive");
       _heuristics = new AdaptiveHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "passive") == 0) {
       log_info(gc, init)("Shenandoah heuristics: passive");
       _heuristics = new PassiveHeuristics();
-    } else if (strcmp(ShenandoahGCHeuristics, "connections") == 0) {
-      log_info(gc, init)("Shenandoah heuristics: connections");
-      _heuristics = new ConnectionHeuristics();
     } else {
       vm_exit_during_initialization("Unknown -XX:ShenandoahGCHeuristics option");
     }
