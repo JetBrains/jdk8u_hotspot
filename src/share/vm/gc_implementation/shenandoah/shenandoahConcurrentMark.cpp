@@ -237,7 +237,6 @@ void ShenandoahConcurrentMark::mark_roots() {
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  ClassLoaderDataGraph::clear_claimed_marks();
   WorkGang* workers = heap->workers();
   uint nworkers = workers->active_workers();
 

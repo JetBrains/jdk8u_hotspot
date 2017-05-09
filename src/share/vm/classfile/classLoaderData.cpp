@@ -78,7 +78,6 @@ ClassLoaderData::ClassLoaderData(Handle h_class_loader, bool is_anonymous, Depen
   // The null-class-loader should always be kept alive.
   _keep_alive(is_anonymous || h_class_loader.is_null()),
   _metaspace(NULL), _unloading(false), _klasses(NULL),
-  _parallel_cld_claimed(0),
   _claimed(0), _jmethod_ids(NULL), _handles(NULL), _deallocate_list(NULL),
   _next(NULL), _dependencies(dependencies),
   _metaspace_lock(new Mutex(Monitor::leaf+1, "Metaspace allocation lock", true)) {
@@ -103,11 +102,6 @@ bool ClassLoaderData::claim() {
   }
 
   return (int) Atomic::cmpxchg(1, &_claimed, 0) == 0;
-}
-
-bool ClassLoaderData::parallel_claim_cld() {
-  if (_parallel_cld_claimed == 1) return false;
-  return Atomic::cmpxchg(1, &_parallel_cld_claimed, 0) == 0;
 }
 
 void ClassLoaderData::oops_do(OopClosure* f, KlassClosure* klass_closure, bool must_claim) {
@@ -965,49 +959,5 @@ void ClassLoaderDataGraph::class_unload_event(Klass* const k) {
   event.commit();
 }
 
-
-// Implemenation of ParallelCLDRootIterator
-void ParallelCLDRootIterator::init(ClassLoaderData* head) {
-  assert(SafepointSynchronize::is_at_safepoint(), "Must at safepoint");
-  _head = head;
-  _end = head;
-  _cur = head;
-  while (_end != NULL) {
-    _end->clear_parallel_cld_claimed();
-    if (_end->next() == NULL) {
-      break;
-    } else {
-      _end = _end->next();
-    }
-  }
-}
-
-ClassLoaderData* ParallelCLDRootIterator::claim() {
-  ClassLoaderData* my_cur = _cur;
-  ClassLoaderData* next;
-  while (true) {
-    if (my_cur->parallel_claim_cld()) {
-      return my_cur;
-    }
-
-    if (my_cur == _end) return NULL;
-
-    next = my_cur->next();
-    my_cur = (ClassLoaderData*)Atomic::cmpxchg_ptr(next, &_cur, my_cur);
-  }
-
-}
-
-
-bool ParallelCLDRootIterator::root_cld_do(CLDClosure* strong, CLDClosure* weak) {
-  ClassLoaderData* cld = claim();
-  if (cld == NULL) return false;
-
-  CLDClosure* closure = cld->keep_alive() ? strong : weak;
-  if (closure != NULL) {
-      closure->do_cld(cld);
-  }
-  return true;
-}
 
 #endif // INCLUDE_TRACE

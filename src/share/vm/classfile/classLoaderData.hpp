@@ -55,27 +55,6 @@ class JNIMethodBlock;
 class JNIHandleBlock;
 class Metadebug;
 
-class ParallelCLDRootIterator VALUE_OBJ_CLASS_SPEC {
-  friend class ClassLoaderDataGraph;
-
-  private:
-    ClassLoaderData*    _head;
-    ClassLoaderData*    _end;
-
-    ClassLoaderData* volatile _cur;
-
-  public:
-    bool root_cld_do(CLDClosure* strong, CLDClosure* weak);
-
-
-    ParallelCLDRootIterator(ClassLoaderData* head) {
-      init(head);
-    }
-
-    void init(ClassLoaderData* head);
-    ClassLoaderData* claim();
-};
-
 // GC root for walking class loader data created
 
 class ClassLoaderDataGraph : public AllStatic {
@@ -108,10 +87,6 @@ class ClassLoaderDataGraph : public AllStatic {
   static void roots_cld_do(CLDClosure* strong, CLDClosure* weak);
   static void keep_alive_cld_do(CLDClosure* cl);
   static void always_strong_cld_do(CLDClosure* cl);
-
-  static ParallelCLDRootIterator parallel_cld_root_iterator() {
-      return ParallelCLDRootIterator(_head);
-  }
 
   // klass do
   static void classes_do(KlassClosure* klass_closure);
@@ -211,9 +186,6 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   // Support for walking class loader data objects
   ClassLoaderData* _next; /// Next loader_datas created
 
-  // Parallel class loader data support
-  volatile int _parallel_cld_claimed;
-
   // ReadOnly and ReadWrite metaspaces (static because only on the null
   // class loader for now).
   static Metaspace* _ro_metaspace;
@@ -236,11 +208,6 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   void clear_claimed()          { _claimed = 0; }
   bool claimed() const          { return _claimed == 1; }
   bool claim();
-
-  // Parallel GC support
-  void clear_parallel_cld_claimed() { _parallel_cld_claimed = 0; }
-  bool parallel_cld_claimed() const { return _parallel_cld_claimed == 1; }
-  bool parallel_claim_cld();
 
   void unload();
   bool keep_alive() const       { return _keep_alive; }

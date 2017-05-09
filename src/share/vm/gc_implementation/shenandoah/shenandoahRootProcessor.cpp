@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015, Red Hat, Inc. and/or its affiliates.
+ * Copyright (c) 2015, 2017, Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -40,7 +40,6 @@ ShenandoahRootProcessor::ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_wo
   _process_strong_tasks(new SubTasksDone(SHENANDOAH_RP_PS_NumElements)),
   _srs(heap, true),
   _phase(phase),
-  _cld_iterator(ClassLoaderDataGraph::parallel_cld_root_iterator()) ,
   _om_iterator(ObjectSynchronizer::parallel_iterator())
 {
   heap->shenandoahPolicy()->record_workers_start(_phase);
@@ -98,7 +97,7 @@ void ShenandoahRootProcessor::process_java_roots(OopClosure* strong_roots,
   // let the thread process the weak CLDs and nmethods.
   {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::CLDGRoots, worker_id);
-    while(_cld_iterator.root_cld_do(strong_clds, weak_clds));
+    _cld_iterator.root_cld_do(strong_clds, weak_clds);
   }
 
   {
@@ -202,4 +201,15 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
     oopDesc::bs()->write_barrier(pll);
   }
   _process_strong_tasks->all_tasks_completed();
+}
+
+
+// Implemenation of ParallelCLDRootIterator
+ParallelCLDRootIterator::ParallelCLDRootIterator() {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must at safepoint");
+  ClassLoaderDataGraph::clear_claimed_marks();
+}
+
+void ParallelCLDRootIterator::root_cld_do(CLDClosure* strong, CLDClosure* weak) {
+    ClassLoaderDataGraph::roots_cld_do(strong, weak);
 }

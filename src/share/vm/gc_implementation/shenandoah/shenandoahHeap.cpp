@@ -1307,7 +1307,6 @@ void ShenandoahHeap::evacuate_and_update_roots() {
   COMPILER2_PRESENT(DerivedPointerTable::clear());
 
   assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
-  ClassLoaderDataGraph::clear_claimed_marks();
 
   {
     ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::evac_thread_roots);
@@ -1438,8 +1437,6 @@ void ShenandoahHeap::roots_iterate(OopClosure* cl) {
 
   CodeBlobToOopClosure blobsCl(cl, false);
   CLDToOopClosure cldCl(cl);
-
-  ClassLoaderDataGraph::clear_claimed_marks();
 
   ShenandoahRootProcessor rp(this, 1);
   rp.process_all_roots(cl, NULL, &cldCl, &blobsCl, 0);

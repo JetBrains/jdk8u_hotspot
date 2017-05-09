@@ -41,6 +41,12 @@ class Monitor;
 class OopClosure;
 class SubTasksDone;
 
+class ParallelCLDRootIterator VALUE_OBJ_CLASS_SPEC {
+public:
+  ParallelCLDRootIterator();
+  void root_cld_do(CLDClosure* strong, CLDClosure* weak);
+};
+
 enum Shenandoah_process_roots_tasks {
   SHENANDOAH_RP_PS_Universe_oops_do,
   SHENANDOAH_RP_PS_JNIHandles_oops_do,
