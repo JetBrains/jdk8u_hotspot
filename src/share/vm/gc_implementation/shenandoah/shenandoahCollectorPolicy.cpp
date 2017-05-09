@@ -491,12 +491,12 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _allocation_failure_gcs = 0;
   _conc_gc_aborted = false;
 
-  _phase_names[total_pause]                     = "Total Pauses (net)";
-  _phase_names[total_pause_gross]               = "Total Pauses (gross)";
-  _phase_names[init_mark]                       = "Initial Mark Pauses (net)";
-  _phase_names[init_mark_gross]                 = "Initial Mark Pauses (gross)";
-  _phase_names[final_mark]                      = "Final Mark Pauses (net)";
-  _phase_names[final_mark_gross]                = "Final Mark Pauses (gross)";
+  _phase_names[total_pause]                     = "Total Pauses (N)";
+  _phase_names[total_pause_gross]               = "Total Pauses (G)";
+  _phase_names[init_mark]                       = "Initial Mark Pauses (N)";
+  _phase_names[init_mark_gross]                 = "Initial Mark Pauses (G)";
+  _phase_names[final_mark]                      = "Final Mark Pauses (N)";
+  _phase_names[final_mark_gross]                = "Final Mark Pauses (G)";
   _phase_names[accumulate_stats]                = "  Accumulate Stats";
   _phase_names[make_parsable]                   = "  Make Parsable";
   _phase_names[clear_liveness]                  = "  Clear Liveness";
@@ -689,7 +689,7 @@ bool ShenandoahCollectorPolicy::unload_classes() {
 void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
   out->cr();
   out->print_cr("GC STATISTICS:");
-  out->print_cr("  \"gross\" pauses include time to safepoint. \"net\" pauses are times spent in GC.");
+  out->print_cr("  \"(G)\" (gross) pauses include time to safepoint. \"(N)\" (net) pauses are times spent in GC.");
   out->print_cr("  \"a\" is average time for each phase, look at levels to see if average makes sense.");
   out->print_cr("  \"lvls\" are quantiles: 0%% (minimum), 25%%, 50%% (median), 75%%, 100%% (maximum).");
   out->cr();
