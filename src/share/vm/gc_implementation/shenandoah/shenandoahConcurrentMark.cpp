@@ -452,7 +452,7 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   if (unload_classes()) {
     ShenandoahForwardedIsAliveClosure is_alive;
     // Unload classes and purge SystemDictionary.
-    bool purged_class = SystemDictionary::do_unloading(&is_alive, false);
+    bool purged_class = SystemDictionary::do_unloading(&is_alive, true);
     ParallelCleaningTask unlink_task(&is_alive, true, true, nworkers, purged_class);
     sh->workers()->run_task(&unlink_task);
     ClassLoaderDataGraph::purge();
