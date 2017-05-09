@@ -50,6 +50,8 @@ public:
 
   size_t used();
 
+  size_t unsafe_peek_next_no_humongous() const;
+
   ShenandoahHeapRegion* allocate_contiguous(size_t num);
   void clear();
 
