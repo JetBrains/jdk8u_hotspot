@@ -213,7 +213,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
     }
 
     for (size_t i = 0; i < cand_idx; i++) {
-      ShenandoahHeapRegion *region = regions->get_fast(candidates[i].region_number);
+      ShenandoahHeapRegion *region = regions->get(candidates[i].region_number);
       if (region_in_collection_set(region, immediate_garbage)) {
         log_develop_trace(gc)("Choose region " SIZE_FORMAT " with garbage = " SIZE_FORMAT
                                       " and live = " SIZE_FORMAT "\n",
@@ -884,7 +884,7 @@ uint ShenandoahCollectorPolicy::calc_workers_for_evacuation(bool full_gc,
   if (full_gc) {
     ShenandoahHeapRegionSet* regions = heap->regions();
     for (size_t index = 0; index < regions->active_regions(); index ++) {
-      live_data += regions->get_fast(index)->get_live_data_bytes();
+      live_data += regions->get(index)->get_live_data_bytes();
     }
   } else {
     ShenandoahCollectorPolicy* policy = (ShenandoahCollectorPolicy*)heap->collector_policy();

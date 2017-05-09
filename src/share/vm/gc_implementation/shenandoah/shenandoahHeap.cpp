@@ -1460,7 +1460,7 @@ bool ShenandoahHeap::supports_tlab_allocation() const {
 
 size_t  ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
   size_t idx = _free_regions->current_index();
-  ShenandoahHeapRegion* current = _free_regions->get(idx);
+  ShenandoahHeapRegion* current = _free_regions->get_or_null(idx);
   if (current == NULL) {
     return 0;
   } else if (current->free() >= MinTLABSize) {

@@ -83,12 +83,12 @@ inline void ShenandoahConcurrentMark::count_liveness(jushort* live_data, oop obj
   int max = (1 << (sizeof(jushort) * 8)) - 1;
   if (size >= max) {
     // too big, add to region data directly
-    _heap->regions()->get_fast(region_idx)->increase_live_data_words(size);
+    _heap->regions()->get(region_idx)->increase_live_data_words(size);
   } else {
     int new_val = cur + size;
     if (new_val >= max) {
       // overflow, flush to region data
-      _heap->regions()->get_fast(region_idx)->increase_live_data_words(new_val);
+      _heap->regions()->get(region_idx)->increase_live_data_words(new_val);
       live_data[region_idx] = 0;
     } else {
       // still good, remember in locals

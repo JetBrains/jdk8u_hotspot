@@ -71,8 +71,8 @@ public:
 
   size_t count() const;
 
-  ShenandoahHeapRegion* get(size_t i) const;
-  inline ShenandoahHeapRegion* get_fast(size_t i) const {
+  ShenandoahHeapRegion* get_or_null(size_t i) const;
+  inline ShenandoahHeapRegion* get(size_t i) const {
     assert (i < _active_end, "sanity");
     return _regions[i];
   }
