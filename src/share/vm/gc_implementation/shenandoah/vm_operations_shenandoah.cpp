@@ -88,7 +88,7 @@ void VM_ShenandoahReferenceOperation::doit_epilogue() {
   }
 }
 
-void VM_ShenandoahStartEvacuation::doit() {
+void VM_ShenandoahFinalMarkStartEvac::doit() {
 
   // It is critical that we
   // evacuate roots right after finishing marking, so that we don't

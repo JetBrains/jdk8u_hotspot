@@ -30,20 +30,6 @@
 #define __ masm->
 
 #ifndef CC_INTERP
-void ShenandoahBarrierSet::compile_resolve_oop_runtime(MacroAssembler* masm, Register dst) {
-  __ enter();
-  __ push_call_clobbered_registers();
-
-  __ mov(c_rarg0, dst);
-  __ mov(rscratch1, CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::resolve_oop_static));
-  __ blrt(rscratch1, 1, 0, 1);
-  __ mov(rscratch1, r0);
-
-  __ pop_call_clobbered_registers();
-  __ mov(dst, rscratch1);
-  __ leave();
-}
-
 void ShenandoahBarrierSet::interpreter_read_barrier(MacroAssembler* masm, Register dst) {
   if (ShenandoahReadBarrier) {
     Label is_null;

@@ -206,10 +206,9 @@ jint ShenandoahHeap::initialize() {
   }
   assert(((size_t) _ordered_regions->active_regions()) == _num_regions, "");
   _first_region = _ordered_regions->get(0);
-  _first_region_bottom = _first_region->bottom();
-  assert((((size_t) _first_region_bottom) &
+  assert((((size_t) base()) &
           (ShenandoahHeapRegion::region_size_bytes() - 1)) == 0,
-         err_msg("misaligned heap: "PTR_FORMAT, p2i(_first_region_bottom)));
+         err_msg("misaligned heap: "PTR_FORMAT, p2i(base())));
 
   _numAllocs = 0;
 
@@ -525,9 +524,9 @@ VirtualSpace* ShenandoahHeap::storage() const {
 }
 
 bool ShenandoahHeap::is_in(const void* p) const {
-  HeapWord* first_region_bottom = _first_region->bottom();
-  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * _num_regions;
-  return p >= _first_region_bottom && p < last_region_end;
+  HeapWord* heap_base = (HeapWord*) base();
+  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * _num_regions;
+  return p >= heap_base && p < last_region_end;
 }
 
 bool ShenandoahHeap::is_in_partial_collection(const void* p ) {
@@ -2031,11 +2030,11 @@ uint ShenandoahHeap::oop_extra_words() {
 }
 
 void ShenandoahHeap::grow_heap_by(size_t num_regions) {
-  size_t base = _num_regions;
+  size_t old_num_regions = _num_regions;
   ensure_new_regions(num_regions);
   for (size_t i = 0; i < num_regions; i++) {
-    size_t new_region_index = i + base;
-    HeapWord* start = _first_region_bottom + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * new_region_index;
+    size_t new_region_index = i + old_num_regions;
+    HeapWord* start = ((HeapWord*) base()) + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * new_region_index;
     ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion(this, start, ShenandoahHeapRegion::region_size_bytes() / HeapWordSize, new_region_index);
 
     if (ShenandoahLogTrace) {
@@ -2179,14 +2178,13 @@ void ShenandoahHeap::stop() {
   _concurrent_gc_thread->stop();
 }
 
-void ShenandoahHeap::unlink_string_and_symbol_table(BoolObjectClosure* is_alive, bool process_strings, bool process_symbols) {
-
-  StringSymbolTableUnlinkTask shenandoah_unlink_task(is_alive, process_strings, process_symbols);
-  workers()->run_task(&shenandoah_unlink_task);
-
-  //  if (G1StringDedup::is_enabled()) {
-  //    G1StringDedup::unlink(is_alive);
-  //  }
+void ShenandoahHeap::unload_classes_and_cleanup_tables() {
+  ShenandoahForwardedIsAliveClosure is_alive;
+  // Unload classes and purge SystemDictionary.
+  bool purged_class = SystemDictionary::do_unloading(&is_alive, true);
+  ParallelCleaningTask unlink_task(&is_alive, true, true, _workers->active_workers(), purged_class);
+  _workers->run_task(&unlink_task);
+  ClassLoaderDataGraph::purge();
 }
 
 void ShenandoahHeap::set_need_update_refs(bool need_update_refs) {

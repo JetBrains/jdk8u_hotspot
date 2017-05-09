@@ -32,7 +32,7 @@
 // VM_ShenandoahOperation
 //   - VM_ShenandoahInitMark: initiate concurrent marking
 //   - VM_ShenandoahReferenceOperation:
-//       - VM_ShenandoahStartEvacuation: finish up concurrent marking, and start evacuation
+//       - VM_ShenandoahFinalMarkStartEvac: finish up concurrent marking, and start evacuation
 //       - VM_ShenandoahFullGC: do full GC
 
 class VM_ShenandoahOperation : public VM_Operation {
@@ -53,15 +53,15 @@ class VM_ShenandoahInitMark: public VM_ShenandoahOperation {
 public:
   VM_ShenandoahInitMark() : VM_ShenandoahOperation() {};
   VM_Operation::VMOp_Type type() const { return VMOp_ShenandoahInitMark; }
-  const char* name()             const { return "Shenandoah Initial Marking"; }
+  const char* name()             const { return "Shenandoah Init Marking"; }
   virtual void doit();
 };
 
-class VM_ShenandoahStartEvacuation: public VM_ShenandoahReferenceOperation {
+class VM_ShenandoahFinalMarkStartEvac: public VM_ShenandoahReferenceOperation {
 public:
-  VM_ShenandoahStartEvacuation() : VM_ShenandoahReferenceOperation() {};
-  VM_Operation::VMOp_Type type() const { return VMOp_ShenandoahStartEvacuation; }
-  const char* name()             const { return "Start Shenandoah evacuation"; }
+  VM_ShenandoahFinalMarkStartEvac() : VM_ShenandoahReferenceOperation() {};
+  VM_Operation::VMOp_Type type() const { return VMOp_ShenandoahFinalMarkStartEvac; }
+  const char* name()             const { return "Shenandoah Final Mark and Start Evacuation"; }
   virtual  void doit();
 };
 
