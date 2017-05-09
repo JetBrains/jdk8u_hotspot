@@ -766,7 +766,7 @@ uint ShenandoahCollectorPolicy::calc_default_active_workers(
   uint max_active_workers =
     MAX2(active_workers_by_JT, active_workers_by_liveset);
 
-  new_active_workers = MIN2(max_active_workers, total_workers);
+  new_active_workers = MIN2(max_active_workers, new_active_workers);
 
   // Increase GC workers instantly but decrease them more
   // slowly.
