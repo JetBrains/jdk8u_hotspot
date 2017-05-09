@@ -242,7 +242,7 @@ void ShenandoahConcurrentMark::mark_roots() {
 
   assert(nworkers <= task_queues()->size(), "Just check");
 
-  ShenandoahRootProcessor root_proc(heap, nworkers, ShenandoahCollectorPolicy::scan_thread_roots);
+  ShenandoahRootProcessor root_proc(heap, nworkers, ShenandoahCollectorPolicy::scan_roots);
   TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
   task_queues()->reserve(nworkers);
 
@@ -267,16 +267,24 @@ void ShenandoahConcurrentMark::init_mark_roots() {
   mark_roots();
 }
 
-void ShenandoahConcurrentMark::update_roots() {
+void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  if (root_phase != ShenandoahCollectorPolicy::_num_phases) {
+    heap->shenandoahPolicy()->record_phase_start(root_phase);
+  }
 
   ClassLoaderDataGraph::clear_claimed_marks();
   uint nworkers = heap->workers()->active_workers();
 
-  ShenandoahRootProcessor root_proc(heap, nworkers, ShenandoahCollectorPolicy::update_thread_roots);
+  ShenandoahRootProcessor root_proc(heap, nworkers, root_phase);
   ShenandoahUpdateRootsTask update_roots(&root_proc);
   heap->workers()->run_task(&update_roots);
+
+  if (root_phase != ShenandoahCollectorPolicy::_num_phases) {
+    heap->shenandoahPolicy()->record_phase_end(root_phase);
+  }
 }
 
 void ShenandoahConcurrentMark::final_update_roots() {
@@ -285,7 +293,7 @@ void ShenandoahConcurrentMark::final_update_roots() {
 
   COMPILER2_PRESENT(DerivedPointerTable::clear());
 
-  update_roots();
+  update_roots(ShenandoahCollectorPolicy::update_roots);
 
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
 }
@@ -367,11 +375,9 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
 
   shared_finish_mark_from_roots(/* full_gc = */ false);
 
-  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::update_roots);
   if (sh->need_update_refs()) {
     final_update_roots();
   }
-  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::update_roots);
 
   TASKQUEUE_STATS_ONLY(print_taskqueue_stats());
 
@@ -411,8 +417,8 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   // The implementation is the same, so it's shared here.
   {
     policy->record_phase_start(full_gc ?
-                               ShenandoahCollectorPolicy::full_gc_mark_drain_queues :
-                               ShenandoahCollectorPolicy::drain_satb);
+                               ShenandoahCollectorPolicy::full_gc_mark_finish_queues :
+                               ShenandoahCollectorPolicy::finish_queues);
     bool count_live = !(ShenandoahNoLivenessFullGC && full_gc); // we do not need liveness data for full GC
     task_queues()->reserve(nworkers);
 
@@ -427,8 +433,8 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
       sh->workers()->run_task(&task);
     }
     policy->record_phase_end(full_gc ?
-                             ShenandoahCollectorPolicy::full_gc_mark_drain_queues :
-                             ShenandoahCollectorPolicy::drain_satb);
+                             ShenandoahCollectorPolicy::full_gc_mark_finish_queues :
+                             ShenandoahCollectorPolicy::finish_queues);
   }
 
   assert(task_queues()->is_empty(), "Should be empty");

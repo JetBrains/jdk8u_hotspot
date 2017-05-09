@@ -27,6 +27,7 @@
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 
 typedef ObjArrayChunkedTask SCMTask;
 typedef BufferedOverflowTaskQueue<SCMTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
@@ -150,7 +151,7 @@ public:
   // them into the marking task queue.
   void init_mark_roots();
   void mark_roots();
-  void update_roots();
+  void update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase = ShenandoahCollectorPolicy::_num_phases);
   void final_update_roots();
 
   void shared_finish_mark_from_roots(bool full_gc);

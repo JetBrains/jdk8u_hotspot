@@ -269,10 +269,16 @@ void ShenandoahCollectorPolicy::record_workers_start(TimingPhase phase) {
 }
 
 void ShenandoahCollectorPolicy::record_workers_end(TimingPhase phase) {
+  guarantee(phase == init_evac ||
+            phase == scan_roots ||
+            phase == update_roots ||
+            phase == _num_phases,
+            "only in these phases we can add per-thread phase times");
   if (phase != _num_phases) {
+    // Merge _phase_time to counters below the given phase.
     for (uint i = 0; i < ShenandoahPhaseTimes::GCParPhasesSentinel; i++) {
       double t = _phase_times->average(i);
-      _timing_data[phase + i]._secs.add(t);
+      _timing_data[phase + i + 1]._secs.add(t);
     }
   }
 }
@@ -508,14 +514,12 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[accumulate_stats]                = "  Accumulate Stats";
   _phase_names[make_parsable]                   = "  Make Parsable";
   _phase_names[clear_liveness]                  = "  Clear Liveness";
-  _phase_names[scan_roots]                      = "  Scan Roots";
-  _phase_names[update_roots]                    = "  Update Roots";
-  _phase_names[drain_satb]                      = "  Drain SATB";
+  _phase_names[finish_queues]                   = "  Finish Queues";
   _phase_names[weakrefs]                        = "  Weak References";
   _phase_names[class_unloading]                 = "  Class Unloading";
   _phase_names[prepare_evac]                    = "  Prepare Evacuation";
-  _phase_names[init_evac]                       = "  Initial Evacuation";
 
+  _phase_names[scan_roots]                      = "  Scan Roots";
   _phase_names[scan_thread_roots]               = "    S: Thread Roots";
   _phase_names[scan_code_roots]                 = "    S: Code Cache Roots";
   _phase_names[scan_string_table_roots]         = "    S: String Table Roots";
@@ -529,6 +533,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[scan_cldg_roots]                 = "    S: CLDG Roots";
   _phase_names[scan_jvmti_roots]                = "    S: JVMTI Roots";
 
+  _phase_names[update_roots]                    = "  Update Roots";
   _phase_names[update_thread_roots]             = "    U: Thread Roots";
   _phase_names[update_code_roots]               = "    U: Code Cache Roots";
   _phase_names[update_string_table_roots]       = "    U: String Table Roots";
@@ -542,6 +547,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[update_cldg_roots]               = "    U: CLDG Roots";
   _phase_names[update_jvmti_roots]              = "    U: JVMTI Roots";
 
+  _phase_names[init_evac]                       = "  Initial Evacuation";
   _phase_names[evac_thread_roots]               = "    E: Thread Roots";
   _phase_names[evac_code_roots]                 = "    E: Code Cache Roots";
   _phase_names[evac_string_table_roots]         = "    E: String Table Roots";
@@ -563,7 +569,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[full_gc_heapdumps]               = "  Heap Dumps";
   _phase_names[full_gc_prepare]                 = "  Prepare";
   _phase_names[full_gc_mark]                    = "  Mark";
-  _phase_names[full_gc_mark_drain_queues]       = "    Drain Queues";
+  _phase_names[full_gc_mark_finish_queues]      = "    Finish Queues";
   _phase_names[full_gc_mark_weakrefs]           = "    Weak References";
   _phase_names[full_gc_mark_class_unloading]    = "    Class Unloading";
   _phase_names[full_gc_calculate_addresses]     = "  Calculate Addresses";
