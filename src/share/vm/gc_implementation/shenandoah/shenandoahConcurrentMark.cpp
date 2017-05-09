@@ -450,12 +450,7 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
                              ShenandoahCollectorPolicy::full_gc_mark_class_unloading :
                              ShenandoahCollectorPolicy::class_unloading);
   if (unload_classes()) {
-    ShenandoahForwardedIsAliveClosure is_alive;
-    // Unload classes and purge SystemDictionary.
-    bool purged_class = SystemDictionary::do_unloading(&is_alive, true);
-    ParallelCleaningTask unlink_task(&is_alive, true, true, nworkers, purged_class);
-    sh->workers()->run_task(&unlink_task);
-    ClassLoaderDataGraph::purge();
+    sh->unload_classes_and_cleanup_tables();
   }
 
   // Mark finished. All recently allocated regions are not recent anymore.

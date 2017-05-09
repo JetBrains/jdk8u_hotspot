@@ -2181,14 +2181,13 @@ void ShenandoahHeap::stop() {
   _concurrent_gc_thread->stop();
 }
 
-void ShenandoahHeap::unlink_string_and_symbol_table(BoolObjectClosure* is_alive, bool process_strings, bool process_symbols) {
-
-  StringSymbolTableUnlinkTask shenandoah_unlink_task(is_alive, process_strings, process_symbols);
-  workers()->run_task(&shenandoah_unlink_task);
-
-  //  if (G1StringDedup::is_enabled()) {
-  //    G1StringDedup::unlink(is_alive);
-  //  }
+void ShenandoahHeap::unload_classes_and_cleanup_tables() {
+  ShenandoahForwardedIsAliveClosure is_alive;
+  // Unload classes and purge SystemDictionary.
+  bool purged_class = SystemDictionary::do_unloading(&is_alive, true);
+  ParallelCleaningTask unlink_task(&is_alive, true, true, _workers->active_workers(), purged_class);
+  _workers->run_task(&unlink_task);
+  ClassLoaderDataGraph::purge();
 }
 
 void ShenandoahHeap::set_need_update_refs(bool need_update_refs) {

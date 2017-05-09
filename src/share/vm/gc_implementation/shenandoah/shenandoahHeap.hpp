@@ -413,7 +413,7 @@ public:
 
   // Delete entries for dead interned string and clean up unreferenced symbols
   // in symbol table, possibly in parallel.
-  void unlink_string_and_symbol_table(BoolObjectClosure* is_alive, bool unlink_strings = true, bool unlink_symbols = true);
+  void unload_classes_and_cleanup_tables();
 
   size_t num_regions();
   size_t max_regions();
