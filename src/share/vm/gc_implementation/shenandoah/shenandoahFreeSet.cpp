@@ -178,6 +178,22 @@ ShenandoahHeapRegion* ShenandoahFreeSet::next_no_humongous() {
   return current_no_humongous();
 }
 
+size_t ShenandoahFreeSet::unsafe_peek_next_no_humongous() const {
+  size_t index = _current_index;
+  size_t end   = _active_end;
+  ShenandoahHeapRegion* r;
+
+  for (; index < end; index ++) {
+    r = get(index);
+    if (!r->is_humongous() && r->free() >= MinTLABSize) {
+      return r->free();
+    }
+  }
+
+  return ShenandoahHeapRegion::region_size_bytes();
+}
+
+
 void ShenandoahFreeSet::assert_heaplock_owned_by_current_thread() {
 #ifdef ASSERT
   ShenandoahHeap::heap()->assert_heaplock_owned_by_current_thread();

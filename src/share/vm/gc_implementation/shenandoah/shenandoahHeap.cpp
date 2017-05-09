@@ -581,14 +581,21 @@ HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) 
 }
 
 HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size) {
+#ifdef ASSERT
+  log_debug(gc, alloc)("Allocate new tlab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
+#endif
   return allocate_new_tlab(word_size, false);
 }
 
 HeapWord* ShenandoahHeap::allocate_new_gclab(size_t word_size) {
+#ifdef ASSERT
+  log_debug(gc, alloc)("Allocate new gclab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
+#endif
   return allocate_new_tlab(word_size, true);
 }
 
 HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size, bool evacuating) {
+
   HeapWord* result = allocate_memory(word_size, evacuating);
 
   if (result != NULL) {
@@ -701,6 +708,11 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
 
   while (result == NULL) {
     // 2nd attempt. Try next region.
+#ifdef ASSERT
+    if (my_current_region->free() > 0) {
+      log_debug(gc, alloc)("Retire region with " SIZE_FORMAT " bytes free", my_current_region->free());
+    }
+#endif
     _free_regions->increase_used(my_current_region->free());
     ShenandoahHeapRegion* next_region = _free_regions->next_no_humongous();
     assert(next_region != my_current_region, "must not get current again");
@@ -1451,13 +1463,12 @@ size_t  ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
   ShenandoahHeapRegion* current = _free_regions->get(idx);
   if (current == NULL) {
     return 0;
-  } else if (current->free() > MinTLABSize) {
+  } else if (current->free() >= MinTLABSize) {
     // Current region has enough space left, can use it.
     return current->free();
   } else {
-    // No more space in current region, we will take next free region
-    // on the next TLAB allocation.
-    return ShenandoahHeapRegion::region_size_bytes();
+    // No more space in current region, peek next region
+    return _free_regions->unsafe_peek_next_no_humongous();
   }
 }
 
