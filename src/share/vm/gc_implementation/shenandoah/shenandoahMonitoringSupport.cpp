@@ -29,16 +29,6 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionCounters.hpp"
 
-class DummyGenerationCounters : public GenerationCounters {
-public:
-  DummyGenerationCounters():
-    GenerationCounters("dummy", 0, 3, (size_t)(MinObjAlignmentInBytes * 3), (size_t)(MinObjAlignmentInBytes * 3), (size_t) 0) {
-    _current_size->set_value(0);
-    // Nothing to do.
-  }
-};
-
-
 ShenandoahMonitoringSupport::ShenandoahMonitoringSupport(ShenandoahHeap* heap) :
 _concurrent_collection_counters(NULL),
 _stw_collection_counters(NULL),

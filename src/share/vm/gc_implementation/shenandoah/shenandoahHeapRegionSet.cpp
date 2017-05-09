@@ -39,23 +39,6 @@ ShenandoahHeapRegionSet::~ShenandoahHeapRegionSet() {
   FREE_C_HEAP_ARRAY(ShenandoahHeapRegion*, _regions, mtGC);
 }
 
-class PrintHeapRegionClosure : public ShenandoahHeapRegionClosure {
- public:
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    r->print();
-    return false;
-  }
-};
-
-class PrintHeapRegionSummaryClosure : public ShenandoahHeapRegionClosure {
- public:
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    tty->print(""SIZE_FORMAT, r->region_number());
-    return false;
-  }
-};
-
-
 size_t ShenandoahHeapRegionSet::count() const {
   return _active_end - _current_index;
 }

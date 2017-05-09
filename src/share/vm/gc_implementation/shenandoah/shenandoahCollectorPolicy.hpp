@@ -132,7 +132,6 @@ private:
   size_t _degenerated_cm;
   size_t _successful_cm;
 
-  ShenandoahHeap* _pgc;
   ShenandoahHeuristics* _heuristics;
   ShenandoahTracer* _tracer;
   STWGCTimer* _stw_timer;

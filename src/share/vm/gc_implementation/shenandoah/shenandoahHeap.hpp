@@ -129,17 +129,14 @@ public:
   };
 private:
 
-  static ShenandoahHeap* _pgc;
   ShenandoahCollectorPolicy* _shenandoah_policy;
   VirtualSpace _storage;
   ShenandoahHeapRegion* _first_region;
 
   // Sortable array of regions
   ShenandoahHeapRegionSet* _ordered_regions;
-  ShenandoahHeapRegionSet* _sorted_regions;
   ShenandoahFreeSet* _free_regions;
   ShenandoahCollectionSet* _collection_set;
-  ShenandoahHeapRegion* _currentAllocationRegion;
   ShenandoahConcurrentMark* _scm;
 
 
@@ -151,13 +148,9 @@ private:
   size_t _num_regions;
   size_t _max_regions;
   size_t _initialSize;
-#ifndef NDEBUG
-  uint _numAllocs;
-#endif
   uint _max_workers;
 
   FlexibleWorkGang* _workers;
-
 
   volatile size_t _used;
 
@@ -180,8 +173,6 @@ private:
 
   size_t _bytes_allocated_since_cm;
   size_t _bytes_allocated_during_cm;
-  size_t _bytes_allocated_during_cm_start;
-  size_t _max_allocated_gc;
   size_t _allocated_last_gc;
   size_t _used_start_gc;
 
@@ -383,13 +374,8 @@ public:
   void print_all_refs(const char* prefix);
   void print_heap_locations(HeapWord* start, HeapWord* end);
 
-  void calculate_matrix(int* connections);
-  void print_matrix(int* connections);
-
   size_t bytes_allocated_since_cm();
   void set_bytes_allocated_since_cm(size_t bytes);
-
-  size_t max_allocated_gc();
 
   void reclaim_humongous_region_at(ShenandoahHeapRegion* r);
 
@@ -456,8 +442,6 @@ private:
   inline oop atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c);
   inline oop atomic_compare_exchange_oop(oop n, oop* addr, oop c);
 
-  void evacuate_region(ShenandoahHeapRegion* from_region, ShenandoahHeapRegion* to_region);
-
 #ifdef ASSERT
   void verify_evacuated_region(ShenandoahHeapRegion* from_region);
 #endif
@@ -466,14 +450,11 @@ private:
   void verify_copy(oop p, oop c);
   void verify_heap_size_consistency();
   void verify_heap_after_marking();
-  void verify_heap_after_update_refs();
-  void verify_regions_after_update_refs();
 
   void ref_processing_init();
 
   ShenandoahCollectionSet* collection_set() { return _collection_set; }
 
-  bool call_from_write_barrier(bool evacuating);
   void grow_heap_by(size_t num_regions);
   void ensure_new_regions(size_t num_new_regions);
 
@@ -481,9 +462,6 @@ private:
   void set_concurrent_mark_in_progress(bool in_progress);
 
   void oom_during_evacuation();
-
-  void verify_live();
-  void verify_liveness_after_concurrent_mark();
 
   HeapWord* allocate_memory_work(size_t word_size);
   HeapWord* allocate_large_memory(size_t word_size);

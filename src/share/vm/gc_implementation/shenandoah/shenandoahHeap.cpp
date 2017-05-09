@@ -77,20 +77,6 @@ void ShenandoahHeap::print_heap_locations(HeapWord* start, HeapWord* end) {
   }
 }
 
-class PrintHeapRegionsClosure : public
-   ShenandoahHeapRegionClosure {
-private:
-  outputStream* _st;
-public:
-  PrintHeapRegionsClosure() : _st(tty) {}
-  PrintHeapRegionsClosure(outputStream* st) : _st(st) {}
-
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    r->print_on(_st);
-    return false;
-  }
-};
-
 class ShenandoahPretouchTask : public AbstractGangTask {
 private:
   ShenandoahHeapRegionSet* _regions;
@@ -210,8 +196,6 @@ jint ShenandoahHeap::initialize() {
           (ShenandoahHeapRegion::region_size_bytes() - 1)) == 0,
          err_msg("misaligned heap: "PTR_FORMAT, p2i(base())));
 
-  _numAllocs = 0;
-
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
@@ -282,7 +266,6 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _collection_set(NULL),
   _bytes_allocated_since_cm(0),
   _bytes_allocated_during_cm(0),
-  _max_allocated_gc(0),
   _allocated_last_gc(0),
   _used_start_gc(0),
   _max_workers((uint)MAX2(ConcGCThreads, ParallelGCThreads)),
@@ -672,10 +655,6 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
   return result;
 }
 
-bool ShenandoahHeap::call_from_write_barrier(bool evacuating) {
-  return evacuating && Thread::current()->is_Java_thread();
-}
-
 HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
   assert_heaplock_owned_by_current_thread();
 
@@ -760,12 +739,6 @@ HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
 HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
                                         bool*  gc_overhead_limit_was_exceeded) {
 
-#ifdef ASSERT
-  if (ShenandoahVerify && _numAllocs > 1000000) {
-    _numAllocs = 0;
-  }
-  _numAllocs++;
-#endif
   HeapWord* filler = allocate_memory(size + BrooksPointer::word_size(), false);
   HeapWord* result = filler + BrooksPointer::word_size();
   if (filler != NULL) {
@@ -1171,17 +1144,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
       _ordered_regions->heap_region_iterate(&ccsc);
 #endif
 
-      if (UseShenandoahMatrix) {
-        size_t num = num_regions();
-        int *connections = NEW_C_HEAP_ARRAY(int, num * num, mtGC);
-        calculate_matrix(connections);
-        print_matrix(connections);
-        _shenandoah_policy->choose_collection_set(_collection_set, connections);
-        FREE_C_HEAP_ARRAY(int,connections,mtGC);
-      } else {
-        _shenandoah_policy->choose_collection_set(_collection_set);
-      }
-
+      _shenandoah_policy->choose_collection_set(_collection_set);
       _shenandoah_policy->choose_free_set(_free_regions);
     }
 
@@ -1645,15 +1608,6 @@ public:
   }
 };
 
-class ShenandoahVerifyKlassClosure: public KlassClosure {
-  OopClosure *_oop_closure;
- public:
-  ShenandoahVerifyKlassClosure(OopClosure* cl) : _oop_closure(cl) {}
-  void do_klass(Klass* k) {
-    k->oops_do(_oop_closure);
-  }
-};
-
 void ShenandoahHeap::verify(bool silent, VerifyOption vo) {
   if (SafepointSynchronize::is_at_safepoint() || ! UseTLAB) {
 
@@ -1918,14 +1872,6 @@ void ShenandoahHeap::verify_heap_after_evacuation() {
   object_iterate(&objs);
 
 }
-
-class VerifyRegionsAfterUpdateRefsClosure : public ShenandoahHeapRegionClosure {
-public:
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    assert(! ShenandoahHeap::heap()->in_collection_set(r), "no region must be in collection set");
-    return false;
-  }
-};
 
 void ShenandoahHeap::swap_mark_bitmaps() {
   // Swap bitmaps.
@@ -2254,10 +2200,6 @@ void ShenandoahHeap::set_bytes_allocated_since_cm(size_t bytes) {
   _bytes_allocated_since_cm = bytes;
 }
 
-size_t ShenandoahHeap::max_allocated_gc() {
-  return _max_allocated_gc;
-}
-
 void ShenandoahHeap::set_next_top_at_mark_start(HeapWord* region_base, HeapWord* addr) {
   uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_shift();
   _next_top_at_mark_starts[index] = addr;
@@ -2335,114 +2277,6 @@ void ShenandoahHeap::unpin_object(oop o) {
 
 GCTimer* ShenandoahHeap::gc_timer() const {
   return _gc_timer;
-}
-
-class RecordAllRefsOopClosure: public ExtendedOopClosure {
-private:
-  size_t _x;
-  int *_matrix;
-  size_t _num_regions;
-  oop _p;
-
-public:
-  RecordAllRefsOopClosure(int *matrix, size_t x, size_t num_regions, oop p) :
-          _matrix(matrix), _x(x), _num_regions(num_regions), _p(p) {}
-
-  template <class T>
-  void do_oop_work(T* p) {
-    oop o = oopDesc::load_decode_heap_oop(p);
-    if (o != NULL) {
-      if (ShenandoahHeap::heap()->is_in(o) && o->is_oop() ) {
-        size_t y = ShenandoahHeap::heap()->heap_region_containing(o)->region_number();
-        _matrix[_x * _num_regions + y]++;
-      }
-    }
-  }
-  void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
-};
-
-class RecordAllRefsObjectClosure : public ObjectClosure {
-  int *_matrix;
-  size_t _num_regions;
-
-public:
-  RecordAllRefsObjectClosure(int *matrix, size_t num_regions) :
-          _matrix(matrix), _num_regions(num_regions) {}
-
-  void do_object(oop p) {
-    if (ShenandoahHeap::heap()->is_in(p) && ShenandoahHeap::heap()->is_marked_next(p)  && p->is_oop()) {
-      size_t x = ShenandoahHeap::heap()->heap_region_containing(p)->region_number();
-      RecordAllRefsOopClosure cl(_matrix, x, _num_regions, p);
-      p->oop_iterate(&cl);
-    }
-  }
-};
-void ShenandoahHeap::calculate_matrix(int* connections) {
-  log_develop_trace(gc)("calculating matrix");
-  ensure_parsability(false);
-  size_t num = num_regions();
-
-  for (size_t i = 0; i < num; i++) {
-    for (size_t j = 0; j < num; j++) {
-      connections[i * num + j] = 0;
-    }
-  }
-
-  RecordAllRefsOopClosure cl(connections, 0, num, NULL);
-  roots_iterate(&cl);
-
-  RecordAllRefsObjectClosure cl2(connections, num);
-  object_iterate(&cl2);
-
-}
-
-void ShenandoahHeap::print_matrix(int* connections) {
-  size_t num = num_regions();
-  int cs_regions = 0;
-  int referenced = 0;
-
-  for (size_t i = 0; i < num; i++) {
-    size_t liveData = ShenandoahHeap::heap()->regions()->get(i)->get_live_data_bytes();
-
-    int numReferencedRegions = 0;
-    int numReferencedByRegions = 0;
-
-    for (size_t j = 0; j < num; j++) {
-      if (connections[i * num + j] > 0)
-        numReferencedRegions++;
-
-      if (connections [j * num + i] > 0)
-        numReferencedByRegions++;
-
-      cs_regions++;
-      referenced += numReferencedByRegions;
-    }
-
-    if (ShenandoahHeap::heap()->regions()->get(i)->has_live()) {
-      tty->print("Region " SIZE_FORMAT " is referenced by %d regions {", i, numReferencedByRegions);
-      int col_count = 0;
-      for (size_t j = 0; j < num; j++) {
-        int foo = connections[j * num + i];
-        if (foo > 0) {
-          col_count++;
-          if ((col_count % 10) == 0)
-            tty->print("\n");
-          tty->print("" SIZE_FORMAT "(%d), ", j, foo);
-        }
-      }
-      tty->print("} \n");
-    }
-  }
-
-  double avg = (double)referenced / (double) cs_regions;
-  tty->print("Average Number of regions scanned / region = %lf\n", avg);
 }
 
 class ShenandoahCountGarbageClosure : public ShenandoahHeapRegionClosure {
