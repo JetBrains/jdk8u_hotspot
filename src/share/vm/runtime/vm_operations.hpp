@@ -95,7 +95,7 @@
   template(JFRCheckpoint)                         \
   template(ShenandoahFullGC)                      \
   template(ShenandoahInitMark)                    \
-  template(ShenandoahStartEvacuation)             \
+  template(ShenandoahFinalMarkStartEvac)          \
   template(ShenandoahVerifyHeapAfterEvacuation)   \
   template(Exit)                                  \
   template(LinuxDllLoad)                          \
