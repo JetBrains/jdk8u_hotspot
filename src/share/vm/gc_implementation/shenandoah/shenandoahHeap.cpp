@@ -474,17 +474,19 @@ size_t ShenandoahHeap::used() const {
 }
 
 void ShenandoahHeap::increase_used(size_t bytes) {
-  Atomic::add_ptr(bytes, (intptr_t*) &_used);
+  assert_heaplock_or_safepoint();
+  _used += bytes;
 }
 
 void ShenandoahHeap::set_used(size_t bytes) {
+  assert_heaplock_or_safepoint();
   _used = bytes;
-  OrderAccess::release();
 }
 
 void ShenandoahHeap::decrease_used(size_t bytes) {
+  assert_heaplock_or_safepoint();
   assert(_used >= bytes, "never decrease heap size by more than we've left");
-  Atomic::add_ptr(-((intptr_t)bytes), (intptr_t*) &_used);
+  _used -= bytes;
 }
 
 size_t ShenandoahHeap::capacity() const {
