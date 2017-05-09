@@ -73,7 +73,10 @@ ShenandoahHeapRegionCounters::~ShenandoahHeapRegionCounters() {
 void ShenandoahHeapRegionCounters::update() {
   if (ShenandoahRegionSampling) {
     jlong current = os::javaTimeMillis();
-    if (current - _last_sample_millis > ShenandoahRegionSamplingRate) {
+    jlong last = _last_sample_millis;
+    if (current - last > ShenandoahRegionSamplingRate &&
+            Atomic::cmpxchg(current, &_last_sample_millis, last) == last) {
+
       ShenandoahHeap* heap = ShenandoahHeap::heap();
       jlong status = 0;
       if (heap->concurrent_mark_in_progress()) status |= 1;
@@ -103,7 +106,6 @@ void ShenandoahHeapRegionCounters::update() {
           _regions_data[i]->set_value(flags);
         }
       }
-      _last_sample_millis = current;
     }
   }
 }
