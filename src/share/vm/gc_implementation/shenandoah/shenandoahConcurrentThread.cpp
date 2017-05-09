@@ -152,9 +152,9 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   // Proceed to complete marking under STW, and start evacuation:
   {
-    // Workers are setup by VM_ShenandoahStartEvacuation
+    // Workers are setup by VM_ShenandoahFinalMarkStartEvac
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-    VM_ShenandoahStartEvacuation finishMark;
+    VM_ShenandoahFinalMarkStartEvac finishMark;
     heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
     heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark_gross);
     VMThread::execute(&finishMark);
