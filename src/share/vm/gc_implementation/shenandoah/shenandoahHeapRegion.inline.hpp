@@ -24,8 +24,23 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_INLINE_HPP
 
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "runtime/atomic.hpp"
+
+HeapWord* ShenandoahHeapRegion::allocate(size_t size) {
+  ShenandoahHeap::heap()->assert_heaplock_or_safepoint();
+
+  HeapWord* obj = top();
+  if (pointer_delta(end(), obj) >= size) {
+    HeapWord* new_top = obj + size;
+    set_top(new_top);
+    assert(is_aligned(obj) && is_aligned(new_top), "checking alignment");
+    return obj;
+  } else {
+    return NULL;
+  }
+}
 
 inline void ShenandoahHeapRegion::increase_live_data_words(size_t s) {
   assert (s <= (size_t)max_jint, "sanity");

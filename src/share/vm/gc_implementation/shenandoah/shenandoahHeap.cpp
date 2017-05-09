@@ -685,7 +685,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
   assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
   assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
 
-  HeapWord* result = my_current_region->par_allocate(word_size);
+  HeapWord* result = my_current_region->allocate(word_size);
 
   while (result == NULL) {
     // 2nd attempt. Try next region.
@@ -705,7 +705,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
     assert(my_current_region != NULL, "should have a region at this point");
     assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
     assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
-    result = my_current_region->par_allocate(word_size);
+    result = my_current_region->allocate(word_size);
   }
 
   my_current_region->increase_live_data_words(word_size);
@@ -2303,6 +2303,13 @@ size_t ShenandoahHeap::garbage() {
 void ShenandoahHeap::assert_heaplock_owned_by_current_thread() {
   assert(_heap_lock == locked, "must be locked");
   assert(_heap_lock_owner == Thread::current(), "must be owned by current thread");
+}
+
+void ShenandoahHeap::assert_heaplock_or_safepoint() {
+  Thread* thr = Thread::current();
+  assert((_heap_lock == locked && _heap_lock_owner == thr) ||
+         (SafepointSynchronize::is_at_safepoint() && thr->is_VM_thread()),
+  "must own heap lock or by VM thread at safepoint");
 }
 #endif
 
