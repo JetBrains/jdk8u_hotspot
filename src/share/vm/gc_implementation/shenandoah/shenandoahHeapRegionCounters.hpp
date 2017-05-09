@@ -68,7 +68,7 @@ private:
   PerfLongVariable** _regions_data;
   PerfLongVariable* _timestamp;
   PerfLongVariable* _status;
-  jlong _last_sample_millis;
+  volatile jlong _last_sample_millis;
 
 public:
   ShenandoahHeapRegionCounters();
