@@ -57,7 +57,6 @@ private:
   static void phase3_update_references();
   static void phase4_compact_objects(ShenandoahHeapRegionSet** copy_queues);
 
-  static void allocate_stacks();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHMARKCOMPACT_HPP

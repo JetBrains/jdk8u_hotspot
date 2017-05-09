@@ -117,11 +117,6 @@ public:
   bool is_humongous_start() const;
   bool is_humongous_continuation() const;
 
-  // The following are for humongous regions.  We need to save the
-  markOop saved_mark_word;
-  void save_mark_word(oop obj) {saved_mark_word = obj->mark();}
-  markOop mark_word() {return saved_mark_word;}
-
   void set_new_top(HeapWord* new_top) { _new_top = new_top; }
   HeapWord* new_top() const { return _new_top; }
 

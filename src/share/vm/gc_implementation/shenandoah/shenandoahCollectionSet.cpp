@@ -49,7 +49,6 @@ size_t ShenandoahCollectionSet::live_data() {
 }
 
 void ShenandoahCollectionSet::clear() {
-  size_t end = _active_end;
   ShenandoahHeapRegionSet::clear();
   ShenandoahHeap::heap()->clear_cset_fast_test();
   _garbage = 0;
