@@ -382,7 +382,7 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
     do {
       avail = 0;
       for (int c = 0; (c < dist) && (addr < limit); c++) {
-        Prefetch::read(addr, 1);
+        Prefetch::read(addr, BrooksPointer::byte_offset());
         oop obj = oop(addr);
         slots[avail++] = obj;
         if (addr < top_at_mark_start) {
