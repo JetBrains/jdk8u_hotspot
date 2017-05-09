@@ -161,7 +161,7 @@ void ShenandoahHeapRegionSet::next() {
 ShenandoahHeapRegion* ShenandoahHeapRegionSet::claim_next() {
   size_t next = (size_t) Atomic::add_ptr(1, (intptr_t*) &_current_index) - 1;
   if (next < _active_end) {
-    return get(next);
+    return _regions[next];
   } else {
     return NULL;
   }
@@ -190,14 +190,14 @@ bool ShenandoahHeapRegionSet::contains(ShenandoahHeapRegion* r) {
 }
 
 HeapWord* ShenandoahHeapRegionSet::bottom() const {
-  return get(0)->bottom();
+  return _regions[0]->bottom();
 }
 
 HeapWord* ShenandoahHeapRegionSet::end() const {
-  return get(_active_end - 1)->end();
+  return _regions[_active_end - 1]->end();
 }
 
-ShenandoahHeapRegion* ShenandoahHeapRegionSet::get(size_t i) const {
+ShenandoahHeapRegion* ShenandoahHeapRegionSet::get_or_null(size_t i) const {
   if (i < _active_end) {
     return _regions[i];
   } else {
@@ -207,7 +207,7 @@ ShenandoahHeapRegion* ShenandoahHeapRegionSet::get(size_t i) const {
 
 ShenandoahHeapRegion* ShenandoahHeapRegionSet::current() const {
   if (_current_index < _active_end) {
-    return get(_current_index);
+    return _regions[_current_index];
   } else {
     return NULL;
   }

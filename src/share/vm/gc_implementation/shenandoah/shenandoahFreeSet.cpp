@@ -133,7 +133,7 @@ ShenandoahHeapRegion* ShenandoahFreeSet::allocate_contiguous(size_t num) {
 
     initialize_humongous_regions(first, num);
 
-    return get(first);
+    return get_or_null(first);
 
   }
   return NULL;
