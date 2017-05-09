@@ -5360,10 +5360,10 @@ void MacroAssembler::verify_oop(Register reg, const char* s) {
 void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
   ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
 
-  HeapWord* first_region_bottom = h->first_region_bottom();
-  HeapWord* last_region_end = first_region_bottom + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();
-  guarantee(first_region_bottom < last_region_end, err_msg("sanity: %p < %p", first_region_bottom, last_region_end));
-  movptr(tmp, (intptr_t) first_region_bottom);
+  HeapWord* heap_base = (HeapWord*) h->base();
+  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();
+  guarantee(heap_base < last_region_end, err_msg("sanity: %p < %p", heap_base, last_region_end));
+  movptr(tmp, (intptr_t) heap_base);
   cmpptr(raddr, tmp);
   jcc(Assembler::below, done);
   movptr(tmp, (intptr_t) last_region_end);
