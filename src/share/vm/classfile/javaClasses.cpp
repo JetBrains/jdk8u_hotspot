@@ -432,9 +432,6 @@ bool java_lang_String::equals(oop java_string, jchar* chars, int len) {
   assert(java_string->klass() == SystemDictionary::String_klass(),
          "must be java_string");
   typeArrayOop value  = java_lang_String::value(java_string);
-  if (ShenandoahVerifyReadsToFromSpace) {
-    value = (typeArrayOop) oopDesc::bs()->read_barrier(value);
-  }
   int          offset = java_lang_String::offset(java_string);
   int          length = java_lang_String::length(java_string);
   if (length != len) {
@@ -3052,9 +3049,6 @@ void java_lang_ClassLoader::compute_offsets() {
 }
 
 oop java_lang_ClassLoader::parent(oop loader) {
-  if (ShenandoahVerifyReadsToFromSpace) {
-    loader = oopDesc::bs()->read_barrier(loader);
-  }
   assert(is_instance(loader), "loader must be oop");
   return loader->obj_field(parent_offset);
 }

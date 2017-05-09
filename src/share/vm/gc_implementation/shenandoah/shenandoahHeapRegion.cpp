@@ -33,15 +33,11 @@
 #include "runtime/os.hpp"
 #include "runtime/safepoint.hpp"
 
-Monitor ShenandoahHeapRegion::_mem_protect_lock(Mutex::special, "ShenandoahMemProtect_lock", true);
 size_t ShenandoahHeapRegion::RegionSizeShift = 0;
 size_t ShenandoahHeapRegion::RegionSizeBytes = 0;
 
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
                                            size_t regionSizeWords, size_t index) :
-#ifdef ASSERT
-  _mem_protection_level(0),
-#endif
   _heap(heap),
   _region_number(index),
   _live_data(0),
@@ -109,54 +105,7 @@ void ShenandoahHeapRegion::set_in_collection_set(bool b) {
   assert(! (is_humongous() && b), "never ever enter a humongous region into the collection set");
 
   _heap->set_region_in_collection_set(_region_number, b);
-
-#ifdef ASSERT
-  if (ShenandoahVerifyWritesToFromSpace || ShenandoahVerifyReadsToFromSpace) {
-    if (b) {
-      memProtectionOn();
-      assert(_mem_protection_level == 0, "need to be protected here");
-    } else {
-      assert(_mem_protection_level == 0, "need to be protected here");
-      memProtectionOff();
-    }
-  }
-#endif
 }
-
-#ifdef ASSERT
-
-void ShenandoahHeapRegion::memProtectionOn() {
-  /*
-  log_develop_trace(gc)("Protect memory on region level: "INT32_FORMAT, _mem_protection_level);
-  print(tty);
-  */
-  MutexLockerEx ml(&_mem_protect_lock, true);
-  assert(_mem_protection_level >= 1, "invariant");
-
-  if (--_mem_protection_level == 0) {
-    if (ShenandoahVerifyWritesToFromSpace) {
-      assert(! ShenandoahVerifyReadsToFromSpace, "can't verify from-space reads when verifying from-space writes");
-      os::protect_memory((char*) bottom(), end() - bottom(), os::MEM_PROT_READ);
-    } else {
-      assert(ShenandoahVerifyReadsToFromSpace, "need to be verifying reads here");
-      os::protect_memory((char*) bottom(), end() - bottom(), os::MEM_PROT_NONE);
-    }
-  }
-}
-
-void ShenandoahHeapRegion::memProtectionOff() {
-  /*
-  tty->print_cr("unprotect memory on region level: "INT32_FORMAT, _mem_protection_level);
-  print(tty);
-  */
-  MutexLockerEx ml(&_mem_protect_lock, true);
-  assert(_mem_protection_level >= 0, "invariant");
-  if (_mem_protection_level++ == 0) {
-    os::protect_memory((char*) bottom(), end() - bottom(), os::MEM_PROT_RW);
-  }
-}
-
-#endif
 
 void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("ShenandoahHeapRegion: "PTR_FORMAT"/"SIZE_FORMAT, p2i(this), _region_number);
@@ -204,17 +153,7 @@ void ShenandoahHeapRegion::object_iterate_interruptible(ObjectClosure* blk, bool
   HeapWord* p = bottom() + BrooksPointer::word_size();
   while (p < top() && !(allow_cancel && _heap->cancelled_concgc())) {
     blk->do_object(oop(p));
-#ifdef ASSERT
-    if (ShenandoahVerifyReadsToFromSpace) {
-      memProtectionOff();
-      p += oop(p)->size() + BrooksPointer::word_size();
-      memProtectionOn();
-    } else {
-      p += oop(p)->size() + BrooksPointer::word_size();
-    }
-#else
-      p += oop(p)->size() + BrooksPointer::word_size();
-#endif
+    p += oop(p)->size() + BrooksPointer::word_size();
   }
 }
 

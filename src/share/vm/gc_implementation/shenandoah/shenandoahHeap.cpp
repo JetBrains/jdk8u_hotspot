@@ -1295,12 +1295,6 @@ void ShenandoahHeap::evacuate_and_update_roots() {
 
   COMPILER2_PRESENT(DerivedPointerTable::clear());
 
-#ifdef ASSERT
-  if (ShenandoahVerifyReadsToFromSpace) {
-    set_from_region_protection(false);
-  }
-#endif
-
   assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
   ClassLoaderDataGraph::clear_claimed_marks();
 
@@ -1320,12 +1314,6 @@ void ShenandoahHeap::evacuate_and_update_roots() {
     ShenandoahFixRootsTask update_roots_task(&rp);
     workers()->run_task(&update_roots_task);
   }
-
-#ifdef ASSERT
-  if (ShenandoahVerifyReadsToFromSpace) {
-    set_from_region_protection(true);
-  }
-#endif
 
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
 
@@ -2115,21 +2103,6 @@ void ShenandoahHeap::ref_processing_init() {
                            // Reference discovery is not atomic
                            &isAlive);
 }
-
-#ifdef ASSERT
-void ShenandoahHeap::set_from_region_protection(bool protect) {
-  for (uint i = 0; i < _num_regions; i++) {
-    ShenandoahHeapRegion* region = _ordered_regions->get(i);
-    if (region != NULL && in_collection_set(region)) {
-      if (protect) {
-        region->memProtectionOn();
-      } else {
-        region->memProtectionOff();
-      }
-    }
-  }
-}
-#endif
 
 void ShenandoahHeap::acquire_pending_refs_lock() {
   _concurrent_gc_thread->slt()->manipulatePLL(SurrogateLockerThread::acquirePLL);

@@ -86,18 +86,7 @@ inline oop BrooksPointer::forwardee(oop obj) {
   assert(UseShenandoahGC, "must only be called when Shenandoah is used.");
   assert(Universe::heap()->is_in(obj), err_msg("We shouldn't be calling this on objects not in the heap: "PTR_FORMAT, p2i(obj)));
 
-  oop forwardee;
-  if (ShenandoahVerifyReadsToFromSpace) {
-    ShenandoahHeap* heap = (ShenandoahHeap *) Universe::heap();
-    ShenandoahHeapRegion* region = heap->heap_region_containing(obj);
-    {
-      region->memProtectionOff();
-      forwardee = oop(*brooks_ptr_addr(obj));
-      region->memProtectionOn();
-    }
-  } else {
-    forwardee = oop(*brooks_ptr_addr(obj));
-  }
+  oop forwardee = oop(*brooks_ptr_addr(obj));
 
   assert(forwardee != NULL, "forwardee is not NULL");
   assert(ShenandoahHeap::heap()->is_in(forwardee), "forwardee must point to a heap address");
@@ -122,7 +111,7 @@ inline oop BrooksPointer::forwardee(oop obj) {
 }
 
 inline oop BrooksPointer::try_update_forwardee(oop holder, oop update) {
- #ifdef ASSERT
+#ifdef ASSERT
   assert(holder != NULL, "holder should not be NULL");
   assert(update != NULL, "update should not be NULL");
   assert(!oopDesc::unsafe_equals(holder, update), "forwarding should make progress");
@@ -133,21 +122,11 @@ inline oop BrooksPointer::try_update_forwardee(oop holder, oop update) {
   assert( ShenandoahHeap::heap()->in_collection_set(holder), "holder should be in collection set");
   assert(!ShenandoahHeap::heap()->in_collection_set(update), "update should not be in collection set");
   assert (holder->klass() == update->klass(), "klasses should match");
+#endif
 
-  oop result;
-  if (ShenandoahVerifyWritesToFromSpace || ShenandoahVerifyReadsToFromSpace) {
-    ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
-    ShenandoahHeapRegion* hr = sh->heap_region_containing(holder);
+  oop result = (oop) Atomic::cmpxchg_ptr(update, brooks_ptr_addr(holder), holder);
 
-    {
-      hr->memProtectionOff();
-      result = (oop) Atomic::cmpxchg_ptr(update, brooks_ptr_addr(holder), holder);
-      hr->memProtectionOn();
-    }
-  } else {
-   result = (oop) Atomic::cmpxchg_ptr(update, brooks_ptr_addr(holder), holder);
-  }
-
+#ifdef ASSERT
   assert(result != NULL, "CAS result is not NULL");
   assert(ShenandoahHeap::heap()->is_in(result), "CAS result must point to a heap address");
 
@@ -156,8 +135,6 @@ inline oop BrooksPointer::try_update_forwardee(oop holder, oop update) {
   } else {
     log_develop_trace(gc)("Failed to set forwardee for "PTR_FORMAT" to "PTR_FORMAT", was already "PTR_FORMAT, p2i(holder), p2i(update), p2i(result));
   }
-#else
-  oop result = (oop) Atomic::cmpxchg_ptr(update, brooks_ptr_addr(holder), holder);
 #endif
 
   return result;

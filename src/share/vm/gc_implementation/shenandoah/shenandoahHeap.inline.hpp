@@ -237,23 +237,7 @@ inline void ShenandoahHeap::copy_object(oop p, HeapWord* s, size_t words) {
 }
 
 inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
-  size_t required;
-
-#ifdef ASSERT
-  ShenandoahHeapRegion* hr = NULL;
-  if (ShenandoahVerifyReadsToFromSpace) {
-    hr = heap_region_containing(p);
-    {
-      hr->memProtectionOff();
-      required  = BrooksPointer::word_size() + p->size();
-      hr->memProtectionOn();
-    }
-  } else {
-    required  = BrooksPointer::word_size() + p->size();
-  }
-#else
-    required  = BrooksPointer::word_size() + p->size();
-#endif
+  size_t required  = BrooksPointer::word_size() + p->size();
 
   assert(! heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
 
@@ -282,18 +266,7 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
   }
 
   HeapWord* copy = filler + BrooksPointer::word_size();
-
-#ifdef ASSERT
-  if (ShenandoahVerifyReadsToFromSpace) {
-    hr->memProtectionOff();
-    copy_object(p, filler, required - BrooksPointer::word_size());
-    hr->memProtectionOn();
-  } else {
-    copy_object(p, filler, required - BrooksPointer::word_size());
-  }
-#else
-    copy_object(p, filler, required - BrooksPointer::word_size());
-#endif
+  copy_object(p, filler, required - BrooksPointer::word_size());
 
   oop copy_val = oop(copy);
   oop result = BrooksPointer::try_update_forwardee(p, copy_val);
