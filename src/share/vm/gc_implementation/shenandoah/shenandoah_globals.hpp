@@ -65,7 +65,11 @@
                                                                             \
   product(ccstr, ShenandoahGCHeuristics, "adaptive",                        \
           "The heuristics to use in Shenandoah GC. Possible values: "       \
-          "dynamic, adaptive, aggressive."                                  \
+          "adaptive (adapt to maintain the given amount of free memory), "  \
+          "dynamic (start concurrent GC based on amount of free memory, "   \
+          "allocation threshold, etc), "                                    \
+          "passive (do not start concurrent GC, wait for Full GC) "         \
+          "aggressive (run concurrent GC continuously, evacuate everything), " \
           "Defaults to adaptive")                                            \
                                                                             \
   product(uintx, ShenandoahRefProcFrequency, 5,                             \
@@ -122,13 +126,13 @@
           "UseDynamicNumberOfGCThreads is enabled")                         \
                                                                             \
   experimental(uintx, ShenandoahInitFreeThreshold, 10,                      \
-               "Initial remaininig free threshold for adaptive heuristics") \
+               "Initial remaining free threshold for adaptive heuristics")  \
                                                                             \
   experimental(uintx, ShenandoahMinFreeThreshold, 3,                        \
-               "Minimum remaininig free threshold for adaptive heuristics") \
+               "Minimum remaining free threshold for adaptive heuristics")  \
                                                                             \
   experimental(uintx, ShenandoahMaxFreeThreshold, 70,                       \
-               "Maximum remaininig free threshold for adaptive heuristics") \
+               "Maximum remaining free threshold for adaptive heuristics")  \
                                                                             \
   experimental(uintx, ShenandoahHappyCyclesThreshold, 5,                    \
           "How many successful marking cycles before improving free "       \
