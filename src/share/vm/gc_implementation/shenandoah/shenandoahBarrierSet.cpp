@@ -341,7 +341,8 @@ oop ShenandoahBarrierSet::resolve_and_maybe_copy_oop_work2(oop src) {
   assert(_heap->in_collection_set(src), "only evacuate objects in collection set");
   assert(! _heap->heap_region_containing(src)->is_humongous(), "never evacuate humongous objects");
   // TODO: Consider passing thread from caller.
-  oop dst = _heap->evacuate_object(src, Thread::current());
+  bool evac;
+  oop dst = _heap->evacuate_object(src, Thread::current(), evac);
 
   log_develop_trace(gc, compaction)("src = "PTR_FORMAT" dst = "PTR_FORMAT" src-2 = "PTR_FORMAT,
                                     p2i(src), p2i(dst), p2i(((HeapWord*) src) - 2));

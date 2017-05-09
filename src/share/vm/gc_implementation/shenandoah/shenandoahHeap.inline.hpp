@@ -236,7 +236,9 @@ inline void ShenandoahHeap::copy_object(oop p, HeapWord* s, size_t words) {
   log_develop_trace(gc, compaction)("copy object from "PTR_FORMAT" to: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy));
 }
 
-inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
+inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuated) {
+  evacuated = false;
+
   size_t required  = BrooksPointer::word_size() + p->size();
 
   assert(! heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
@@ -273,6 +275,7 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread) {
 
   oop return_val;
   if (oopDesc::unsafe_equals(result, p)) {
+    evacuated = true;
     return_val = copy_val;
 
     log_develop_trace(gc, compaction)("Copy of "PTR_FORMAT" to "PTR_FORMAT" succeeded \n",

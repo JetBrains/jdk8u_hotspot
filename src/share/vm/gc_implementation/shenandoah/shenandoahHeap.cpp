@@ -781,7 +781,8 @@ private:
 
     assert(_heap->is_marked_complete(p), "expect only marked objects");
     if (oopDesc::unsafe_equals(p, ShenandoahBarrierSet::resolve_oop_static_not_null(p))) {
-      _heap->evacuate_object(p, _thread);
+      bool evac;
+      _heap->evacuate_object(p, _thread, evac);
     }
   }
 };
@@ -1199,7 +1200,8 @@ private:
 						       _heap->is_marked_complete(obj), _heap->is_marked_complete(ShenandoahBarrierSet::resolve_oop_static_not_null(obj))));
         oop resolved = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
         if (oopDesc::unsafe_equals(resolved, obj)) {
-          resolved = _heap->evacuate_object(obj, _thread);
+          bool evac;
+          resolved = _heap->evacuate_object(obj, _thread, evac);
         }
         oopDesc::encode_store_heap_oop(p, resolved);
       }

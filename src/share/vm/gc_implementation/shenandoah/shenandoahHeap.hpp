@@ -333,7 +333,11 @@ public:
   void set_complete_top_at_mark_start(HeapWord* region_base, HeapWord* addr);
   HeapWord* complete_top_at_mark_start(HeapWord* region_base);
 
-  inline oop  evacuate_object(oop src, Thread* thread);
+  // Evacuates object src. Returns the evacuated object if this thread
+  // succeeded, otherwise rolls back the evacuation and returns the
+  // evacuated object by the competing thread. 'succeeded' is an out
+  // param and set to true if this thread succeeded, otherwise to false.
+  inline oop  evacuate_object(oop src, Thread* thread, bool& evacuated);
   inline bool cancelled_concgc() const;
   inline bool try_cancel_concgc();
   inline void clear_cancelled_concgc();
