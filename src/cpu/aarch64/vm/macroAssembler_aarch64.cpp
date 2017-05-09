@@ -1411,10 +1411,6 @@ void MacroAssembler::null_check(Register reg, int offset) {
     // accessing M[reg] w/o changing any registers
     // NOTE: this is plenty to provoke a segv
 
-    if (ShenandoahVerifyReadsToFromSpace) {
-      oopDesc::bs()->interpreter_read_barrier(this, reg);
-    }
-
     ldr(zr, Address(reg));
   } else {
     // nothing to do, (later) access of M[reg + offset]

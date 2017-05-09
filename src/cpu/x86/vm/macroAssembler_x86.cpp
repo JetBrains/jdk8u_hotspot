@@ -3763,10 +3763,6 @@ void MacroAssembler::null_check(Register reg, int offset) {
     // accessing M[reg] w/o changing any (non-CC) registers
     // NOTE: cmpl is plenty here to provoke a segv
 
-    if (ShenandoahVerifyReadsToFromSpace) {
-      oopDesc::bs()->interpreter_read_barrier(this, reg);
-    }
-
     cmpptr(rax, Address(reg, 0));
     // Note: should probably use testl(rax, Address(reg, 0));
     //       may be shorter code (however, this version of
@@ -6045,9 +6041,6 @@ void MacroAssembler::restore_cpu_control_state_after_jni() {
 
 
 void MacroAssembler::load_klass(Register dst, Register src) {
-  if (ShenandoahVerifyReadsToFromSpace) {
-    oopDesc::bs()->interpreter_read_barrier(this, src);
-  }
 #ifdef _LP64
   if (UseCompressedClassPointers) {
     movl(dst, Address(src, oopDesc::klass_offset_in_bytes()));

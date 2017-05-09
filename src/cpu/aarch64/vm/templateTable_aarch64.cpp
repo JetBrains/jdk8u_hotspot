@@ -654,10 +654,6 @@ void TemplateTable::index_check(Register array, Register index)
   // destroys r1, rscratch1
   // check array
 
-  if (ShenandoahVerifyReadsToFromSpace) {
-    oopDesc::bs()->interpreter_read_barrier(_masm, array);
-  }
-
   __ null_check(array, arrayOopDesc::length_offset_in_bytes());
   // sign extend index for use by indexed load
   // __ movl2ptr(index, index);
@@ -3552,10 +3548,6 @@ void TemplateTable::anewarray() {
 void TemplateTable::arraylength() {
   transition(atos, itos);
   __ null_check(r0, arrayOopDesc::length_offset_in_bytes());
-
-  if (ShenandoahVerifyReadsToFromSpace) {
-    oopDesc::bs()->interpreter_read_barrier(_masm, r0);
-  }
   __ ldrw(r0, Address(r0, arrayOopDesc::length_offset_in_bytes()));
 }
 

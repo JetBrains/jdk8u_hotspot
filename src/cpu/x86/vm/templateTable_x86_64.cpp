@@ -613,10 +613,6 @@ void TemplateTable::index_check(Register array, Register index) {
   // destroys rbx
   // check array
 
-  if (ShenandoahVerifyReadsToFromSpace) {
-    oopDesc::bs()->interpreter_read_barrier(_masm, array);
-  }
-
   __ null_check(array, arrayOopDesc::length_offset_in_bytes());
   // sign extend index for use by indexed load
   __ movl2ptr(index, index);
@@ -3522,9 +3518,6 @@ void TemplateTable::anewarray() {
 
 void TemplateTable::arraylength() {
   transition(atos, itos);
-  if (ShenandoahVerifyReadsToFromSpace) {
-    oopDesc::bs()->interpreter_read_barrier(_masm, rax);
-  }
   __ null_check(rax, arrayOopDesc::length_offset_in_bytes());
   __ movl(rax, Address(rax, arrayOopDesc::length_offset_in_bytes()));
 }
@@ -3549,11 +3542,7 @@ void TemplateTable::checkcast() {
   // vm_result_2 has metadata result
   __ get_vm_result_2(rax, r15_thread);
   __ pop_ptr(rdx); // restore receiver
-  if (ShenandoahVerifyReadsToFromSpace) {
-    __ jmp(resolved);
-  } else {
-    __ jmpb(resolved);
-  }
+  __ jmpb(resolved);
 
   // Get superklass in rax and subklass in rbx
   __ bind(quicked);

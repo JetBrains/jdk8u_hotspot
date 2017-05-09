@@ -491,10 +491,6 @@ private:
   HeapWord* allocate_memory_work(size_t word_size);
   HeapWord* allocate_large_memory(size_t word_size);
 
-#ifdef ASSERT
-  void set_from_region_protection(bool protect);
-#endif
-
   const char* cancel_cause_to_string(ShenandoahCancelCause cause);
 
 };

@@ -28,9 +28,6 @@
 
 class ShenandoahHeapRegion : public ContiguousSpace {
 private:
-  static Monitor _mem_protect_lock;
-
-private:
   static size_t RegionSizeBytes;
   static size_t RegionSizeShift;
 
@@ -48,10 +45,6 @@ private:
   HeapWord* _new_top;
 
   volatile jint _critical_pins;
-
-#ifdef ASSERT
-  int _mem_protection_level;
-#endif
 
 public:
   ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t regionSize, size_t index);
@@ -123,11 +116,6 @@ public:
   bool is_humongous() const;
   bool is_humongous_start() const;
   bool is_humongous_continuation() const;
-
-#ifdef ASSERT
-  void memProtectionOn();
-  void memProtectionOff();
-#endif
 
   // The following are for humongous regions.  We need to save the
   markOop saved_mark_word;

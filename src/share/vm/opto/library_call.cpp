@@ -3532,11 +3532,6 @@ bool LibraryCallKit::inline_native_Class_query(vmIntrinsics::ID id) {
   enum { _normal_path = 1, _prim_path = 2, PATH_LIMIT };
 
   Node* mirror = argument(0);
-
-  if (ShenandoahVerifyReadsToFromSpace) {
-    mirror = shenandoah_read_barrier(mirror);
-  }
-
   Node* obj    = top();
 
   switch (id) {
@@ -3544,9 +3539,6 @@ bool LibraryCallKit::inline_native_Class_query(vmIntrinsics::ID id) {
     // nothing is an instance of a primitive type
     prim_return_value = intcon(0);
     obj = argument(1);
-    if (ShenandoahVerifyReadsToFromSpace) {
-      obj = shenandoah_read_barrier(obj);
-    }
     break;
   case vmIntrinsics::_getModifiers:
     prim_return_value = intcon(JVM_ACC_ABSTRACT | JVM_ACC_FINAL | JVM_ACC_PUBLIC);
@@ -4177,10 +4169,6 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
     obj = null_check_oop(obj, &null_ctl);
     result_reg->init_req(_null_path, null_ctl);
     result_val->init_req(_null_path, _gvn.intcon(0));
-  }
-
-  if (ShenandoahVerifyReadsToFromSpace) {
-    obj = shenandoah_read_barrier(obj);
   }
 
   // Unconditionally null?  Then return right away.
@@ -6364,10 +6352,6 @@ bool LibraryCallKit::inline_reference_get() {
   // Get the argument:
   Node* reference_obj = null_check_receiver();
   if (stopped()) return true;
-
-  if (ShenandoahVerifyReadsToFromSpace) {
-    reference_obj = shenandoah_read_barrier(reference_obj);
-  }
 
   Node* adr = basic_plus_adr(reference_obj, reference_obj, referent_offset);
 

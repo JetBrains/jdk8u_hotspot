@@ -185,12 +185,6 @@
   develop(bool, ShenandoahDumpHeapAfterConcurrentMark, false,               \
           "Dump the ShenanodahHeap After Each Concurrent Mark")             \
                                                                             \
-  develop(bool, ShenandoahVerifyWritesToFromSpace, false,                   \
-          "Use Memory Protection to signal illegal writes to from space")   \
-                                                                            \
-  develop(bool, ShenandoahVerifyReadsToFromSpace, false,                    \
-          "Use Memory Protection to signal illegal reads to from space")    \
-                                                                            \
   develop(bool, ShenandoahVerify, false,                                    \
           "Verify the  Shenandoah garbage collector")                       \
                                                                             \

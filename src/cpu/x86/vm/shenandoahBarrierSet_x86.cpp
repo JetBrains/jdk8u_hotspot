@@ -186,10 +186,6 @@ void ShenandoahBarrierSet::interpreter_read_barrier(MacroAssembler* masm, Regist
 
 void ShenandoahBarrierSet::interpreter_read_barrier_not_null(MacroAssembler* masm, Register dst) {
   if (ShenandoahReadBarrier) {
-    if (ShenandoahVerifyReadsToFromSpace) {
-      compile_resolve_oop_runtime(masm, dst);
-      return;
-    }
     __ movptr(dst, Address(dst, BrooksPointer::byte_offset()));
   }
 }
