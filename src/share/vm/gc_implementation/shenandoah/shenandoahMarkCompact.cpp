@@ -581,7 +581,7 @@ public:
 
 void ShenandoahMarkCompact::phase3_update_references() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  GCTraceTime time("Phase 2: Adjust pointers", ShenandoahLogDebug, _gc_timer, heap->tracer()->gc_id());
+  GCTraceTime time("Phase 3: Adjust pointers", ShenandoahLogDebug, _gc_timer, heap->tracer()->gc_id());
 
   // Need cleared claim bits for the roots processing
   ClassLoaderDataGraph::clear_claimed_marks();
