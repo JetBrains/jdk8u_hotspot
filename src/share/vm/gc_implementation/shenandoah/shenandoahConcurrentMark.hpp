@@ -29,10 +29,6 @@
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 
-typedef ObjArrayChunkedTask SCMTask;
-typedef BufferedOverflowTaskQueue<SCMTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
-typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
-
 class ShenandoahConcurrentMark;
 
 #ifdef ASSERT
