@@ -166,6 +166,9 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
+  // Poll this before populating collection set.
+  size_t total_garbage = heap->garbage();
+
   // Step 1. Build up the region candidates we care about, rejecting losers and accepting winners right away.
 
   ShenandoahHeapRegionSet* regions = heap->regions();
@@ -227,14 +230,16 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 
   end_choose_collection_set();
 
-  size_t total_garbage = heap->garbage();
-  log_debug(gc)("Total Garbage: "SIZE_FORMAT, total_garbage);
-  log_debug(gc)("Immediate Garbage: "SIZE_FORMAT, immediate_garbage);
-  log_debug(gc)("Immediate Garbage regions: "SIZE_FORMAT, immediate_regions);
-  log_debug(gc)("Garbage to be collected: "SIZE_FORMAT, collection_set->garbage());
-  log_debug(gc)("Objects to be evacuated: "SIZE_FORMAT, collection_set->live_data());
-  log_debug(gc)("Live / Garbage ratio: "SIZE_FORMAT"%%", collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
-  log_debug(gc)("Collected-Garbage ratio / Total-garbage: "SIZE_FORMAT"%%", collection_set->garbage() * 100 / MAX2(total_garbage, (size_t)1));
+  log_info(gc, ergo)("Total Garbage: "SIZE_FORMAT"M",
+                     total_garbage / M);
+  log_info(gc, ergo)("Immediate Garbage: "SIZE_FORMAT"M, "SIZE_FORMAT" regions",
+                     immediate_garbage / M, immediate_regions);
+  log_info(gc, ergo)("Garbage to be collected: "SIZE_FORMAT"M ("SIZE_FORMAT"%% of total), "SIZE_FORMAT" regions",
+                     collection_set->garbage() / M, collection_set->garbage() * 100 / MAX2(total_garbage, (size_t)1), collection_set->count());
+  log_info(gc, ergo)("Live objects to be evacuated: "SIZE_FORMAT"M",
+                     collection_set->live_data() / M);
+  log_info(gc, ergo)("Live/garbage ratio in collected regions: "SIZE_FORMAT"%%",
+                     collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
 }
 
 void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
