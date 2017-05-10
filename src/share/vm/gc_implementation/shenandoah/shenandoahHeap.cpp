@@ -217,20 +217,29 @@ jint ShenandoahHeap::initialize() {
                                                Shared_SATB_Q_lock);
 
   // Reserve space for prev and next bitmap.
-  size_t bitmap_size = CMBitMap::compute_size(heap_rs.size());
-  MemRegion heap_region = MemRegion((HeapWord*) heap_rs.base(), heap_rs.size() / HeapWordSize);
+  _bitmap_size = CMBitMap::compute_size(heap_rs.size());
+  _heap_region = MemRegion((HeapWord*) heap_rs.base(), heap_rs.size() / HeapWordSize);
 
   size_t page_size = UseLargePages ? (size_t)os::large_page_size() : (size_t)os::vm_page_size();
 
-  ReservedSpace bitmap0(bitmap_size, page_size);
+  ReservedSpace bitmap0(_bitmap_size, page_size);
   os::commit_memory_or_exit(bitmap0.base(), bitmap0.size(), false, "couldn't allocate mark bitmap");
   MemTracker::record_virtual_memory_type(bitmap0.base(), mtGC);
   MemRegion bitmap_region0 = MemRegion((HeapWord*) bitmap0.base(), bitmap0.size() / HeapWordSize);
 
-  ReservedSpace bitmap1(bitmap_size, page_size);
+  ReservedSpace bitmap1(_bitmap_size, page_size);
   os::commit_memory_or_exit(bitmap1.base(), bitmap1.size(), false, "couldn't allocate mark bitmap");
   MemTracker::record_virtual_memory_type(bitmap1.base(), mtGC);
   MemRegion bitmap_region1 = MemRegion((HeapWord*) bitmap1.base(), bitmap1.size() / HeapWordSize);
+
+  if (ShenandoahVerify) {
+    ReservedSpace verify_bitmap(_bitmap_size, page_size);
+    os::commit_memory_or_exit(verify_bitmap.base(), verify_bitmap.size(), false,
+                              "couldn't allocate verification bitmap");
+    MemTracker::record_virtual_memory_type(verify_bitmap.base(), mtGC);
+    MemRegion verify_bitmap_region = MemRegion((HeapWord *) verify_bitmap.base(), verify_bitmap.size() / HeapWordSize);
+    _verification_bit_map.initialize(_heap_region, verify_bitmap_region);
+  }
 
   if (ShenandoahAlwaysPreTouch) {
     assert (!AlwaysPreTouch, "Should have been overridden");
@@ -241,14 +250,14 @@ jint ShenandoahHeap::initialize() {
 
     log_info(gc, heap)("Parallel pretouch " SIZE_FORMAT " regions with " SIZE_FORMAT " byte pages",
                        _ordered_regions->count(), page_size);
-    ShenandoahPretouchTask cl(_ordered_regions, bitmap0.base(), bitmap1.base(), bitmap_size, page_size);
+    ShenandoahPretouchTask cl(_ordered_regions, bitmap0.base(), bitmap1.base(), _bitmap_size, page_size);
     _workers->run_task(&cl);
   }
 
-  _mark_bit_map0.initialize(heap_region, bitmap_region0);
+  _mark_bit_map0.initialize(_heap_region, bitmap_region0);
   _complete_mark_bit_map = &_mark_bit_map0;
 
-  _mark_bit_map1.initialize(heap_region, bitmap_region1);
+  _mark_bit_map1.initialize(_heap_region, bitmap_region1);
   _next_mark_bit_map = &_mark_bit_map1;
 
   _monitoring_support = new ShenandoahMonitoringSupport(this);
@@ -1118,6 +1127,10 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
 
     ensure_parsability(true);
 
+    if (ShenandoahVerify) {
+      verify_heap_reachable_at_safepoint();
+    }
+
 #ifdef ASSERT
     if (ShenandoahVerify) {
       verify_heap_after_marking();
@@ -1894,6 +1907,83 @@ void ShenandoahHeap::swap_mark_bitmaps() {
   HeapWord** tmp3 = _complete_top_at_mark_starts_base;
   _complete_top_at_mark_starts_base = _next_top_at_mark_starts_base;
   _next_top_at_mark_starts_base = tmp3;
+}
+
+class VerifyReachableHeapClosure : public ExtendedOopClosure {
+private:
+  SCMObjToScanQueue* _queue;
+  ShenandoahHeap* _heap;
+  CMBitMap* _map;
+  oop _obj;
+public:
+  VerifyReachableHeapClosure(SCMObjToScanQueue* queue, CMBitMap* map) :
+          _queue(queue), _heap(ShenandoahHeap::heap()), _map(map) {};
+  template <class T>
+  void do_oop_work(T* p) {
+    T o = oopDesc::load_heap_oop(p);
+    if (!oopDesc::is_null(o)) {
+      oop obj = oopDesc::decode_heap_oop_not_null(o);
+      guarantee(check_obj_alignment(obj), "sanity");
+
+      guarantee(!oopDesc::is_null(obj), "sanity");
+      guarantee(_heap->is_in(obj), "sanity");
+
+      oop forw = BrooksPointer::forwardee(obj);
+      guarantee(!oopDesc::is_null(forw), "sanity");
+      guarantee(_heap->is_in(forw), "sanity");
+
+      guarantee(oopDesc::unsafe_equals(obj, forw), "should not be forwarded");
+
+      if (_map->parMark((HeapWord*) obj)) {
+        _queue->push(SCMTask(obj));
+      }
+    }
+  }
+
+  void do_oop(oop* p) { do_oop_work(p); }
+  void do_oop(narrowOop* p) { do_oop_work(p); }
+  void set_obj(oop o) { _obj = o; }
+};
+
+void ShenandoahHeap::verify_heap_reachable_at_safepoint() {
+  guarantee(SafepointSynchronize::is_at_safepoint(), "only when nothing else happens");
+  guarantee(ShenandoahVerify,
+            "only when these are enabled, and bitmap is initialized in ShenandoahHeap::initialize");
+
+  OrderAccess::fence();
+  ensure_parsability(false);
+
+  // Allocate temporary bitmap for storing marking wavefront:
+  MemRegion mr = MemRegion(_verification_bit_map.startWord(), _verification_bit_map.endWord());
+  _verification_bit_map.clear_range_large(mr);
+
+  // Initialize a single queue
+  SCMObjToScanQueue* q = new SCMObjToScanQueue();
+  q->initialize();
+
+  // Scan root set
+  ShenandoahRootProcessor rp(this, 1);
+
+  {
+    VerifyReachableHeapClosure cl(q, &_verification_bit_map);
+    CLDToOopClosure cld_cl(&cl);
+    CodeBlobToOopClosure code_cl(&cl, ! CodeBlobToOopClosure::FixRelocations);
+    rp.process_all_roots(&cl, &cl, &cld_cl, &code_cl, 0);
+  }
+
+  // Finish the scan
+  {
+    VerifyReachableHeapClosure cl(q, &_verification_bit_map);
+    SCMTask task;
+    while ((q->pop_buffer(task) ||
+            q->pop_local(task) ||
+            q->pop_overflow(task))) {
+      oop obj = task.obj();
+      assert(!oopDesc::is_null(obj), "must not be null");
+      cl.set_obj(obj);
+      obj->oop_iterate(&cl);
+    }
+  }
 }
 
 void ShenandoahHeap::stop_concurrent_marking() {

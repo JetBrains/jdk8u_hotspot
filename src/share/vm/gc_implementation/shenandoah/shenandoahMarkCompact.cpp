@@ -314,6 +314,10 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
 
   _heap->swap_mark_bitmaps();
 
+  if (ShenandoahVerify) {
+    _heap->verify_heap_reachable_at_safepoint();
+  }
+
   if (VerifyDuringGC) {
     HandleMark hm;  // handle scope
     //    Universe::heap()->prepare_for_verify();

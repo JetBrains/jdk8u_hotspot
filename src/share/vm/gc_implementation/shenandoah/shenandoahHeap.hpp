@@ -131,6 +131,9 @@ private:
 
   ShenandoahCollectorPolicy* _shenandoah_policy;
   VirtualSpace _storage;
+  size_t _bitmap_size;
+  MemRegion _heap_region;
+
   ShenandoahHeapRegion* _first_region;
 
   // Sortable array of regions
@@ -154,6 +157,7 @@ private:
 
   volatile size_t _used;
 
+  CMBitMap _verification_bit_map;
   CMBitMap _mark_bit_map0;
   CMBitMap _mark_bit_map1;
   CMBitMap* _complete_mark_bit_map;
@@ -411,6 +415,8 @@ public:
   void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_dirty_regions = false, bool skip_humongous_continuation = false) const;
 
   void verify_heap_after_evacuation();
+  void verify_heap_after_marking();
+  void verify_heap_reachable_at_safepoint();
 
   // Delete entries for dead interned string and clean up unreferenced symbols
   // in symbol table, possibly in parallel.
@@ -482,7 +488,6 @@ private:
   inline void copy_object(oop p, HeapWord* s, size_t words);
   void verify_copy(oop p, oop c);
   void verify_heap_size_consistency();
-  void verify_heap_after_marking();
 
   void ref_processing_init();
 
