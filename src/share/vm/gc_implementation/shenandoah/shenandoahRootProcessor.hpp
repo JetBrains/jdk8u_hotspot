@@ -68,6 +68,7 @@ class ShenandoahRootProcessor : public StackObj {
   SharedHeap::StrongRootsScope _srs;
   ShenandoahCollectorPolicy::TimingPhase _phase;
   ParallelCLDRootIterator   _cld_iterator;
+  ParallelCodeCacheIterator _codecache_iterator;
   ParallelObjectSynchronizerIterator _om_iterator;
 
   void process_java_roots(OopClosure* scan_non_heap_roots,
@@ -107,6 +108,7 @@ class ShenandoahRootEvacuator : public StackObj {
   SubTasksDone* _process_strong_tasks;
   SharedHeap::StrongRootsScope _srs;
   ShenandoahCollectorPolicy::TimingPhase _phase;
+  ParallelCodeCacheIterator _codecache_iterator;
 
 public:
   ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers,

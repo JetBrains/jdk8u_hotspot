@@ -975,3 +975,34 @@ void CodeCache::log_state(outputStream* st) {
             unallocated_capacity());
 }
 
+ParallelCodeCacheIterator::ParallelCodeCacheIterator() :
+        _chunk(-1) {
+  _blobs = GrowableArray<CodeBlob*>();
+  for (CodeBlob* cb = CodeCache::first() ; cb != NULL; cb = CodeCache::next(cb)) {
+    if (cb->is_alive()) {
+      _blobs.append(cb);
+#ifdef ASSERT
+      if (cb->is_nmethod())
+        ((nmethod*)cb)->verify_scavenge_root_oops();
+#endif
+    }
+  }
+}
+
+void ParallelCodeCacheIterator::parallel_blobs_do(CodeBlobClosure* f) {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must be at safepoint");
+
+  int stride = 200; // educated guess
+  int chunks = _blobs.length() / stride + 1;
+
+  int chunk = Atomic::add(1, &_chunk);
+  while (chunk < chunks) {
+    int begin = chunk*stride;
+    int end = MIN2(_blobs.length(), (chunk + 1)*stride);
+    for (int c = begin; c < end; c++) {
+      CodeBlob *cb = _blobs.at(c);
+      f->do_code_blob(cb);
+    }
+    chunk = Atomic::add(1, &_chunk);
+  }
+}
