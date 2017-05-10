@@ -1958,7 +1958,8 @@ void ShenandoahHeap::oom_during_evacuation() {
   cancel_concgc(_oom_evacuation);
 
   if ((! Thread::current()->is_GC_task_thread()) && (! Thread::current()->is_ConcurrentGC_thread())) {
-    assert(! Threads_lock->owned_by_self(), "must not hold Threads_lock here");
+    assert(! Threads_lock->owned_by_self()
+           || SafepointSynchronize::is_at_safepoint(), "must not hold Threads_lock here");
     log_warning(gc)("OOM during evacuation. Let Java thread wait until evacuation finishes.");
     while (_evacuation_in_progress) { // wait.
       Thread::current()->_ParkEvent->park(1);

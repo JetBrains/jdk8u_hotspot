@@ -262,7 +262,8 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuate
   // Checking that current Java thread does not hold Threads_lock when we get here.
   // If that ever be the case, we'd deadlock in oom_during_evacuation.
   if ((! Thread::current()->is_GC_task_thread()) && (! Thread::current()->is_ConcurrentGC_thread())) {
-    assert(! Threads_lock->owned_by_self(), "must not hold Threads_lock here");
+    assert(! Threads_lock->owned_by_self()
+           || SafepointSynchronize::is_at_safepoint(), "must not hold Threads_lock here");
   }
 #endif
 
