@@ -138,7 +138,7 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
 
 void VM_ShenandoahInitUpdateRefs::doit() {
   ShenandoahHeap *sh = ShenandoahHeap::heap();
-  GCTraceTime time("Pause Init Update Refs", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id(), true);
+  GCTraceTime time("Pause Init Update Refs", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause);
   sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_update_refs);
   sh->prepare_update_refs();

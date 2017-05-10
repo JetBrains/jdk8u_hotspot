@@ -247,7 +247,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   }
 
   {
-    GCTraceTime time("Concurrent reset bitmaps", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id());
+    GCTraceTime time("Concurrent reset bitmaps", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
     heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
     FlexibleWorkGang* workers = heap->workers();
     ShenandoahPushWorkerScope scope(workers, heap->max_workers());
