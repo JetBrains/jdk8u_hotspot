@@ -1280,18 +1280,22 @@ void ShenandoahHeap::evacuate_and_update_roots() {
     workers()->run_task(&roots_task);
   }
 
+  COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
+
   if (cancelled_concgc()) {
     // If initial evacuation has been cancelled, we need to update all references
     // after all workers have finished. Otherwise we might run into the following problem:
     // GC thread 1 cannot allocate anymore, thus evacuation fails, leaves from-space ptr of object X.
     // GC thread 2 evacuates the same object X to to-space
     // which leaves a truly dangling from-space reference in the first root oop*. This must not happen.
+    // clear() and update_pointers() must always be called in pairs,
+    // cannot nest with above clear()/update_pointers().
+    COMPILER2_PRESENT(DerivedPointerTable::clear());
     ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::init_evac);
     ShenandoahFixRootsTask update_roots_task(&rp);
     workers()->run_task(&update_roots_task);
+    COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
   }
-
-  COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
 
 #ifdef ASSERT
   {
