@@ -275,7 +275,6 @@ void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPha
     heap->shenandoahPolicy()->record_phase_start(root_phase);
   }
 
-  ClassLoaderDataGraph::clear_claimed_marks();
   uint nworkers = heap->workers()->active_workers();
 
   ShenandoahRootProcessor root_proc(heap, nworkers, root_phase);
@@ -497,7 +496,6 @@ void ShenandoahConcurrentMark::verify_roots() {
   ShenandoahVerifyRootsClosure1 cl;
   CodeBlobToOopClosure blobsCl(&cl, false);
   CLDToOopClosure cldCl(&cl);
-  ClassLoaderDataGraph::clear_claimed_marks();
   ShenandoahRootProcessor rp(ShenandoahHeap::heap(), 1);
   rp.process_all_roots(&cl, &cl, &cldCl, &blobsCl, 0);
 

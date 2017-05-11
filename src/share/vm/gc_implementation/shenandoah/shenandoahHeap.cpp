@@ -2512,7 +2512,6 @@ void ShenandoahHeap::verify_update_refs() {
   {
     CodeBlobToOopClosure blobsCl(&cl, false);
     CLDToOopClosure cldCl(&cl);
-    ClassLoaderDataGraph::clear_claimed_marks();
     ShenandoahRootProcessor rp(this, 1);
     rp.process_all_roots(&cl, &cl, &cldCl, &blobsCl, 0);
   }
