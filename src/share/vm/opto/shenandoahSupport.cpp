@@ -23,8 +23,8 @@
 
 #include "precompiled.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "opto/callnode.hpp"
 #include "opto/connode.hpp"
 #include "opto/phaseX.hpp"

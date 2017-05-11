@@ -456,10 +456,15 @@ public:
   void assert_heaplock_owned_by_current_thread() PRODUCT_RETURN;
   void assert_heaplock_or_safepoint() PRODUCT_RETURN;
 
+public:
+  typedef enum {
+    _lab_thread,
+    _lab_gc,
+  } LabType;
 private:
-  HeapWord* allocate_new_tlab(size_t word_size, bool mark);
-  HeapWord* allocate_memory_under_lock(size_t word_size);
-  HeapWord* allocate_memory(size_t word_size, bool evacuating);
+  HeapWord* allocate_new_lab(size_t word_size, LabType type);
+  HeapWord* allocate_memory_under_lock(size_t word_size, LabType type);
+  HeapWord* allocate_memory(size_t word_size, LabType type);
   // Shenandoah functionality.
   inline HeapWord* allocate_from_gclab(Thread* thread, size_t size);
   HeapWord* allocate_from_gclab_slow(Thread* thread, size_t size);
@@ -499,7 +504,7 @@ private:
 
   void oom_during_evacuation();
 
-  HeapWord* allocate_memory_work(size_t word_size);
+  HeapWord* allocate_memory_work(size_t word_size, LabType type);
   HeapWord* allocate_large_memory(size_t word_size);
 
   const char* cancel_cause_to_string(ShenandoahCancelCause cause);

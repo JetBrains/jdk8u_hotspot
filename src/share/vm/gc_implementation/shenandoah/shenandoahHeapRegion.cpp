@@ -24,8 +24,9 @@
 #include "precompiled.hpp"
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "memory/space.inline.hpp"
 #include "memory/universe.hpp"
 #include "oops/oop.inline.hpp"
@@ -41,10 +42,11 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start
   _heap(heap),
   _region_number(index),
   _live_data(0),
+  _tlab_allocs(0),
+  _gclab_allocs(0),
   reserved(MemRegion(start, regionSizeWords)),
   _humongous_start(false),
   _humongous_continuation(false),
-  _recycled(true),
   _new_top(NULL),
   _critical_pins(0) {
 
@@ -65,12 +67,20 @@ void ShenandoahHeapRegion::clear_live_data() {
   _live_data = 0;
 }
 
-void ShenandoahHeapRegion::set_recently_allocated(bool value) {
-  _recycled = value;
+void ShenandoahHeapRegion::reset_lab_stats() {
+  assert (ShenandoahRegionSampling, "Should only call when sampling is enabled");
+  _tlab_allocs = 0;
+  _gclab_allocs = 0;
 }
 
-bool ShenandoahHeapRegion::is_recently_allocated() const {
-  return _recycled && used() > 0;
+size_t ShenandoahHeapRegion::get_tlab_allocs() const {
+  assert (ShenandoahRegionSampling, "Sampling should be enabled to get this");
+  return _tlab_allocs * HeapWordSize;
+}
+
+size_t ShenandoahHeapRegion::get_gclab_allocs() const {
+  assert (ShenandoahRegionSampling, "Sampling should be enabled to get this");
+  return _gclab_allocs * HeapWordSize;
 }
 
 void ShenandoahHeapRegion::set_live_data(size_t s) {
@@ -180,8 +190,8 @@ void ShenandoahHeapRegion::fill_region() {
   ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
 
   if (free() > (BrooksPointer::word_size() + CollectedHeap::min_fill_size())) {
-    HeapWord* filler = allocate(BrooksPointer::word_size());
-    HeapWord* obj = allocate(end() - top());
+    HeapWord* filler = allocate_lab(BrooksPointer::word_size(), ShenandoahHeap::_lab_thread);
+    HeapWord* obj = allocate_lab(end() - top(), ShenandoahHeap::_lab_thread);
     sh->fill_with_object(obj, end() - obj);
     BrooksPointer::initialize(oop(obj));
   }
@@ -212,7 +222,8 @@ void ShenandoahHeapRegion::recycle() {
   clear_live_data();
   _humongous_start = false;
   _humongous_continuation = false;
-  _recycled = true;
+  _tlab_allocs = 0;
+  _gclab_allocs = 0;
   set_in_collection_set(false);
   // Reset C-TAMS pointer to ensure size-based iteration, everything
   // in that regions is going to be new objects.

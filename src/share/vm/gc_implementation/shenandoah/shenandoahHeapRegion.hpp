@@ -40,7 +40,8 @@ private:
   bool _humongous_start;
   bool _humongous_continuation;
 
-  bool _recycled;
+  size_t _tlab_allocs;
+  size_t _gclab_allocs;
 
   HeapWord* _new_top;
 
@@ -74,7 +75,12 @@ public:
   size_t region_number() const;
 
   // Allocation (return NULL if full)
-  inline HeapWord* allocate(size_t word_size);
+  inline HeapWord* allocate_lab(size_t word_size, ShenandoahHeap::LabType type);
+  HeapWord* allocate(size_t word_size) {
+    // ContiguousSpace wants us to have this method. But it is an error to call this with Shenandoah.
+    ShouldNotCallThis();
+    return NULL;
+  }
 
   // Roll back the previous allocation of an object with specified size.
   // Returns TRUE when successful, FALSE if not successful or not supported.
@@ -85,8 +91,9 @@ public:
   inline void increase_live_data_words(size_t s);
   inline void increase_live_data_words(jint s);
 
-  void set_recently_allocated(bool value);
-  bool is_recently_allocated() const;
+  void reset_lab_stats();
+  size_t get_tlab_allocs() const;
+  size_t get_gclab_allocs() const;
 
   bool has_live() const;
   size_t get_live_data_bytes() const;
