@@ -134,8 +134,6 @@ private:
   size_t _bitmap_size;
   MemRegion _heap_region;
 
-  ShenandoahHeapRegion* _first_region;
-
   // Sortable array of regions
   ShenandoahHeapRegionSet* _ordered_regions;
   ShenandoahFreeSet* _free_regions;

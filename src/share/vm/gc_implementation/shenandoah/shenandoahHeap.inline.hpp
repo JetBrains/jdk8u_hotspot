@@ -448,13 +448,11 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
 
 template<class T>
 inline void ShenandoahHeap::do_marked_object(CMBitMap* bitmap, T* cl, oop obj) {
-#ifdef ASSERT
   assert(!oopDesc::is_null(obj), "sanity");
   assert(obj->is_oop(), "sanity");
   assert(is_in(obj), "sanity");
   assert(bitmap == _complete_mark_bit_map, "only iterate completed mark bitmap");
   assert(is_marked_complete(obj), "object expected to be marked");
-#endif
   cl->do_object(obj);
 }
 
@@ -488,7 +486,7 @@ inline void ShenandoahHeap::marked_object_oop_iterate(ShenandoahHeapRegion* regi
     HeapWord* bottom = region->bottom();
     if (top > bottom) {
       // Go to start of humongous region.
-      uint idx = region->region_number();
+      size_t idx = region->region_number();
       while (! region->is_humongous_start()) {
         assert(idx > 0, "sanity");
         idx--;

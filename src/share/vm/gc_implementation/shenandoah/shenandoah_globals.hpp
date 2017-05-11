@@ -199,12 +199,6 @@
           "Emit additional code that checks objects are written to only"    \
           " in to-space")                                                   \
                                                                             \
-  develop(bool, ShenandoahDumpHeapBeforeConcurrentMark, false,              \
-          "Dump the ShenanodahHeap Before Each ConcurrentMark")             \
-                                                                            \
-  develop(bool, ShenandoahDumpHeapAfterConcurrentMark, false,               \
-          "Dump the ShenanodahHeap After Each Concurrent Mark")             \
-                                                                            \
   develop(bool, ShenandoahVerify, false,                                    \
           "Verify the  Shenandoah garbage collector")                       \
                                                                             \

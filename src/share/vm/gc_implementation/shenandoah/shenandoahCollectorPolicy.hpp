@@ -166,10 +166,6 @@ private:
 
   ShenandoahHeuristics* _heuristics;
   ShenandoahTracer* _tracer;
-  STWGCTimer* _stw_timer;
-  ConcurrentGCTimer* _conc_timer;
-
-  bool _conc_gc_aborted;
 
   size_t _cycle_counter;
 
@@ -245,12 +241,7 @@ public:
 
   void print_tracing_info(outputStream* out);
 
-  GCTimer* conc_timer();
-  GCTimer* stw_timer();
   ShenandoahTracer* tracer() {return _tracer;}
-
-  void set_conc_gc_aborted() { _conc_gc_aborted = true;}
-  void clear_conc_gc_aborted() {_conc_gc_aborted = false;}
 
   size_t cycle_counter() const;
 
