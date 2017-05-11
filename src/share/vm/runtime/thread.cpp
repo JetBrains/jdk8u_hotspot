@@ -841,6 +841,10 @@ void Thread::oops_do(OopClosure* f, CLDClosure* cld_f, CodeBlobClosure* cf) {
   // Do oop for ThreadShadow
   f->do_oop((oop*)&_pending_exception);
   handle_area()->oops_do(f);
+  // TODO: Either need better abstractions or have all GCs use this.
+  if (UseShenandoahGC && ShenandoahFastSyncRoots && MonitorInUseLists) {
+    ObjectSynchronizer::thread_local_used_oops_do(this, f);
+  }
 }
 
 void Thread::nmethods_do(CodeBlobClosure* cf) {

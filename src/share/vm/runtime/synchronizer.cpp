@@ -1720,3 +1720,23 @@ bool ParallelObjectSynchronizerIterator::parallel_oops_do(OopClosure* f) {
   }
   return false;
 }
+
+void ObjectSynchronizer::list_oops_do(ObjectMonitor* list, OopClosure* f) {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  ObjectMonitor* mid;
+  for (mid = list; mid != NULL; mid = mid->FreeNext) {
+    if (mid->object() != NULL) {
+      f->do_oop((oop*)mid->object_addr());
+    }
+  }
+}
+
+void ObjectSynchronizer::thread_local_used_oops_do(Thread* thread, OopClosure* f) {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  list_oops_do(thread->omInUseList, f);
+}
+
+void ObjectSynchronizer::global_used_oops_do(OopClosure* f) {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  list_oops_do(gOmInUseList, f);
+}
