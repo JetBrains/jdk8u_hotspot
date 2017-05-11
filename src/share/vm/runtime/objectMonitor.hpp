@@ -185,7 +185,6 @@ public:
   void*     object() const;
   void*     object_addr();
   void      set_object(void* obj);
-  void*     cas_set_object(void* obj, void* expected_obj);
 
   bool      check(TRAPS);       // true if the thread owns the monitor.
   void      check_slow(TRAPS);
