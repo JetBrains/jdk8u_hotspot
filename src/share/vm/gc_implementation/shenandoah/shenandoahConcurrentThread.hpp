@@ -49,8 +49,6 @@ private:
   volatile jbyte _graceful_shutdown;
   GCCause::Cause _full_gc_cause;
 
-  void sleepBeforeNextCycle();
-
   bool check_cancellation();
   void service_normal_cycle();
   void service_fullgc_cycle();

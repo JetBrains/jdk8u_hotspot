@@ -38,16 +38,7 @@ void ShenandoahConcurrentMark::do_task(SCMObjToScanQueue* q, T* cl, jushort* liv
   oop obj = task->obj();
 
   assert(obj != NULL, "expect non-null object");
-
   assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "expect forwarded obj in queue");
-
-#ifdef ASSERT
-  if (! oopDesc::bs()->is_safe(obj)) {
-    tty->print_cr("trying to mark obj: "PTR_FORMAT" (%s) in dirty region: ", p2i((HeapWord*) obj), BOOL_TO_STR(_heap->is_marked_next(obj)));
-    //      _heap->heap_region_containing(obj)->print();
-    //      _heap->print_heap_regions();
-  }
-#endif
   assert(_heap->cancelled_concgc()
          || oopDesc::bs()->is_safe(obj),
          "we don't want to mark objects in from-space");

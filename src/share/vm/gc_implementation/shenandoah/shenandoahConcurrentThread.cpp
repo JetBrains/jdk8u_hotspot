@@ -362,10 +362,6 @@ void ShenandoahConcurrentThread::print_on(outputStream* st) const {
   st->cr();
 }
 
-void ShenandoahConcurrentThread::sleepBeforeNextCycle() {
-  assert(false, "Wake up in the GC thread that never sleeps :-)");
-}
-
 void ShenandoahConcurrentThread::start() {
   create_and_start();
 }

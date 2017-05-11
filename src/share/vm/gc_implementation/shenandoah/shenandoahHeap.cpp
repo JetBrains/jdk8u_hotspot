@@ -192,7 +192,6 @@ jint ShenandoahHeap::initialize() {
     }
   }
   assert(((size_t) _ordered_regions->active_regions()) == _num_regions, "");
-  _first_region = _ordered_regions->get(0);
   assert((((size_t) base()) &
           (ShenandoahHeapRegion::region_size_bytes() - 1)) == 0,
          err_msg("misaligned heap: "PTR_FORMAT, p2i(base())));
@@ -689,12 +688,6 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
     return NULL; // No more room to make a new region. OOM.
   }
   assert(my_current_region != NULL, "should have a region at this point");
-
-#ifdef ASSERT
-  if (in_collection_set(my_current_region)) {
-    print_heap_regions();
-  }
-#endif
   assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
   assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
 
@@ -1223,16 +1216,6 @@ private:
         oopDesc::encode_store_heap_oop(p, resolved);
       }
     }
-#ifdef ASSERT
-    else {
-      // tty->print_cr("not updating root at: "PTR_FORMAT" with object: "PTR_FORMAT", is_in_heap: %s, is_in_cset: %s, is_marked: %s",
-      //               p2i(p),
-      //               p2i((HeapWord*) obj),
-      //               BOOL_TO_STR(_heap->is_in(obj)),
-      //               BOOL_TO_STR(_heap->in_cset_fast_test(obj)),
-      //               BOOL_TO_STR(_heap->is_marked_complete(obj)));
-    }
-#endif
   }
 
 public:
@@ -1822,13 +1805,6 @@ void ShenandoahHeap::start_concurrent_marking() {
 
   _shenandoah_policy->record_bytes_allocated(_bytes_allocated_since_cm);
   _used_start_gc = used();
-
-#ifdef ASSERT
-  if (ShenandoahDumpHeapBeforeConcurrentMark) {
-    ensure_parsability(false);
-    print_all_refs("pre-mark");
-  }
-#endif
 
   shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::clear_liveness);
   ClearLivenessClosure clc(this);

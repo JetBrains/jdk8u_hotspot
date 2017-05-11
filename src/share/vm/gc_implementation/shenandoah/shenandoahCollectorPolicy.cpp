@@ -86,7 +86,7 @@ protected:
 public:
 
   ShenandoahHeuristics();
-  ~ShenandoahHeuristics();
+  virtual ~ShenandoahHeuristics();
 
   void record_bytes_allocated(size_t bytes);
   void record_bytes_reclaimed(size_t bytes);
@@ -711,11 +711,8 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   initialize_all();
 
   _tracer = new (ResourceObj::C_HEAP, mtGC) ShenandoahTracer();
-  _stw_timer = new (ResourceObj::C_HEAP, mtGC) STWGCTimer();
-  _conc_timer = new (ResourceObj::C_HEAP, mtGC) ConcurrentGCTimer();
   _user_requested_gcs = 0;
   _allocation_failure_gcs = 0;
-  _conc_gc_aborted = false;
 
   _phase_names[total_pause]                     = "Total Pauses (N)";
   _phase_names[total_pause_gross]               = "Total Pauses (G)";
@@ -1178,6 +1175,3 @@ void ShenandoahCollectorPolicy::record_cycle_end() {
   _heuristics->record_cycle_end();
 }
 
-
-GCTimer* ShenandoahCollectorPolicy::conc_timer() {return _conc_timer;}
-GCTimer* ShenandoahCollectorPolicy::stw_timer() {return _stw_timer;}

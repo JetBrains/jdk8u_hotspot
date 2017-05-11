@@ -193,9 +193,8 @@ size_t ShenandoahFreeSet::unsafe_peek_next_no_humongous() const {
   return ShenandoahHeapRegion::region_size_bytes();
 }
 
-
-void ShenandoahFreeSet::assert_heaplock_owned_by_current_thread() {
 #ifdef ASSERT
+void ShenandoahFreeSet::assert_heaplock_owned_by_current_thread() {
   ShenandoahHeap::heap()->assert_heaplock_owned_by_current_thread();
-#endif
 }
+#endif

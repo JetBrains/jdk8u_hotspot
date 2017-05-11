@@ -38,7 +38,7 @@ private:
   void initialize_humongous_regions(size_t first, size_t num);
   ShenandoahHeapRegion* skip_humongous(ShenandoahHeapRegion* r);
 
-  void assert_heaplock_owned_by_current_thread();
+  void assert_heaplock_owned_by_current_thread() PRODUCT_RETURN;
 
 public:
   ShenandoahFreeSet(size_t max_regions);
