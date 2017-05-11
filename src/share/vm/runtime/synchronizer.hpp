@@ -134,6 +134,8 @@ class ObjectSynchronizer : AllStatic {
   static bool deflate_monitor(ObjectMonitor* mid, oop obj, ObjectMonitor** FreeHeadp,
                               ObjectMonitor** FreeTailp);
   static void oops_do(OopClosure* f);
+  static void thread_local_used_oops_do(Thread* thread, OopClosure* f);
+  static void global_used_oops_do(OopClosure* f);
 
   // Parallel GC support
   static ParallelObjectSynchronizerIterator parallel_iterator();
@@ -151,6 +153,7 @@ class ObjectSynchronizer : AllStatic {
   static ObjectMonitor * volatile gOmInUseList; // for moribund thread, so monitors they inflated still get scanned
   static int gOmInUseCount;
 
+  static void list_oops_do(ObjectMonitor* list, OopClosure* f);
 };
 
 // ObjectLocker enforced balanced locking and can never thrown an

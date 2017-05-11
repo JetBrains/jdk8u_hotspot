@@ -148,7 +148,11 @@ void ShenandoahRootProcessor::process_vm_roots(OopClosure* strong_roots,
 
   {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::ObjectSynchronizerRoots, worker_id);
-    while(_om_iterator.parallel_oops_do(strong_roots));
+    if (ShenandoahFastSyncRoots && MonitorInUseLists) {
+      ObjectSynchronizer::global_used_oops_do(strong_roots);
+    } else {
+      while(_om_iterator.parallel_oops_do(strong_roots));
+    }
   }
   // All threads execute the following. A specific chunk of buckets
   // from the StringTable are the individual tasks.

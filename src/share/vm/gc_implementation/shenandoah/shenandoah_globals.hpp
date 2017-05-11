@@ -224,6 +224,10 @@
   experimental(intx, ShenandoahFullGCTries, 3,                              \
           "How many times to try to do Full GC on allocation failure."      \
           "Set to 0 to never try, and fail instead.")                       \
+                                                                            \
+  experimental(bool, ShenandoahFastSyncRoots, true,                         \
+          "Enable fast synchronizer roots scanning")                        \
+                                                                            \
 
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
