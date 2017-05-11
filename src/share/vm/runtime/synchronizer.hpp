@@ -38,15 +38,13 @@ class ParallelObjectSynchronizerIterator VALUE_OBJ_CLASS_SPEC {
   friend class ObjectSynchronizer;
 
   private:
-    ObjectMonitor*  _head;
     ObjectMonitor*  volatile _cur;
 
   private:
     ParallelObjectSynchronizerIterator(ObjectMonitor* head);
-    void* claim();
+    ObjectMonitor* claim();
 
   public:
-    ~ParallelObjectSynchronizerIterator();
     bool parallel_oops_do(OopClosure* f);
 };
 

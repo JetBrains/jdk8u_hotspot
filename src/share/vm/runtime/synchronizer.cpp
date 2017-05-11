@@ -157,7 +157,6 @@ static volatile intptr_t ListLock = 0 ;      // protects global monitor free-lis
 static volatile int MonitorFreeCount  = 0 ;      // # on gFreeList
 static volatile int MonitorPopulation = 0 ;      // # Extant -- in circulation
 #define CHAINMARKER (cast_to_oop<intptr_t>(-1))
-#define CLAIMEDMARKER (cast_to_oop<intptr_t>(-2))
 
 // -----------------------------------------------------------------------------
 //  Fast Monitor Enter/Exit
@@ -845,9 +844,9 @@ void ObjectSynchronizer::monitors_iterate(MonitorClosure* closure) {
 
 // Get the next block in the block list.
 static inline ObjectMonitor* next(ObjectMonitor* block) {
-  assert(block->object() == CHAINMARKER || block->object() == CLAIMEDMARKER, "must be a valid block header");
+  assert(block->object() == CHAINMARKER, "must be a block header");
   block = block->FreeNext ;
-  assert(block == NULL || block->object() == CHAINMARKER || block->object() == CLAIMEDMARKER, "must be a valid block header");
+  assert(block == NULL || block->object() == CHAINMARKER, "must be a block header");
   return block;
 }
 
@@ -1687,44 +1686,30 @@ ParallelObjectSynchronizerIterator ObjectSynchronizer::parallel_iterator() {
 
 // ParallelObjectSynchronizerIterator implementation
 ParallelObjectSynchronizerIterator::ParallelObjectSynchronizerIterator(ObjectMonitor * head)
-  : _head(head), _cur(head) {
+  : _cur(head) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must at safepoint");
 }
 
-ParallelObjectSynchronizerIterator::~ParallelObjectSynchronizerIterator() {
-  assert(SafepointSynchronize::is_at_safepoint(), "Must at safepoint");
-  ObjectMonitor* block = _head;
-  for (; block != NULL; block = next(block)) {
-    assert(block->object() == CLAIMEDMARKER, "Must be a claimed block");
-    // Restore chainmarker
-    block->set_object(CHAINMARKER);
-  }
-}
-
-void* ParallelObjectSynchronizerIterator::claim() {
+ObjectMonitor* ParallelObjectSynchronizerIterator::claim() {
   ObjectMonitor* my_cur = _cur;
-  ObjectMonitor* next_block;
 
   while (true) {
     if (my_cur == NULL) return NULL;
-
-    if (my_cur->object() == CHAINMARKER) {
-      if (my_cur->cas_set_object(CLAIMEDMARKER, CHAINMARKER) == CHAINMARKER) {
-        return (void*)my_cur;
-      }
+    ObjectMonitor* next_block = next(my_cur);
+    ObjectMonitor* cas_result = (ObjectMonitor*) Atomic::cmpxchg_ptr(next_block, &_cur, my_cur);
+    if (my_cur == cas_result) {
+      // We succeeded.
+      return my_cur;
     } else {
-      assert(my_cur->object() == CLAIMEDMARKER, "Must be");
+      // We failed. Retry with offending CAS result.
+      my_cur = cas_result;
     }
-
-    next_block = next(my_cur);
-    my_cur = (ObjectMonitor*) Atomic::cmpxchg_ptr(next_block, &_cur, my_cur);
   }
 }
 
 bool ParallelObjectSynchronizerIterator::parallel_oops_do(OopClosure* f) {
-  ObjectMonitor* block = (ObjectMonitor*) claim();
+  ObjectMonitor* block = claim();
   if (block != NULL) {
-    assert(block->object() == CLAIMEDMARKER, "Must be a claimed block");
     for (int i = 1; i < ObjectSynchronizer::_BLOCKSIZE; i++) {
       ObjectMonitor* mid = &block[i];
       if (mid->object() != NULL) {
