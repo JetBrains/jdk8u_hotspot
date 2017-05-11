@@ -28,8 +28,9 @@
 #include "gc_implementation/shenandoah/shenandoahHeapRegionCounters.hpp"
 #include "runtime/perfData.hpp"
 
-ShenandoahHeapRegionCounters::ShenandoahHeapRegionCounters() {
-
+ShenandoahHeapRegionCounters::ShenandoahHeapRegionCounters() :
+  _last_sample_millis(0)
+{
   if (UsePerfData) {
     EXCEPTION_MARK;
     ResourceMark rm;
