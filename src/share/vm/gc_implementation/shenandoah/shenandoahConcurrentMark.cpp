@@ -231,6 +231,15 @@ public:
   }
 };
 
+class ResetLABStatsClosure : public ShenandoahHeapRegionClosure {
+public:
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    ShenandoahHeap* sh = ShenandoahHeap::heap();
+    r->reset_lab_stats();
+    return false;
+  }
+};
+
 void ShenandoahConcurrentMark::mark_roots() {
   assert(Thread::current()->is_VM_thread(), "can only do this in VMThread");
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
@@ -250,6 +259,12 @@ void ShenandoahConcurrentMark::mark_roots() {
   workers->run_task(&mark_roots);
   if (ShenandoahConcurrentCodeRoots) {
     clear_claim_codecache();
+  }
+
+  // Mark is about to start. Treat all regions as allocated in previous epoch.
+  if (ShenandoahRegionSampling) {
+    ResetLABStatsClosure cl;
+    heap->heap_region_iterate(&cl);
   }
 }
 
@@ -385,15 +400,6 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
 #endif
 }
 
-class ResetRecentlyAllocated : public ShenandoahHeapRegionClosure {
-public:
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    ShenandoahHeap* sh = ShenandoahHeap::heap();
-    r->set_recently_allocated(false);
-    return false;
-  }
-};
-
 void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
@@ -450,12 +456,6 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
                              ShenandoahCollectorPolicy::class_unloading);
   if (unload_classes()) {
     sh->unload_classes_and_cleanup_tables();
-  }
-
-  // Mark finished. All recently allocated regions are not recent anymore.
-  {
-    ResetRecentlyAllocated cl;
-    sh->heap_region_iterate(&cl);
   }
 
   policy->record_phase_end(full_gc ?

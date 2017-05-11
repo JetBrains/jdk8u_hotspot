@@ -88,16 +88,19 @@ void ShenandoahHeapRegionCounters::update() {
       size_t num_regions = heap->num_regions();
       size_t max_regions = heap->max_regions();
       ShenandoahHeapRegionSet* regions = heap->regions();
+      size_t rs = ShenandoahHeapRegion::region_size_bytes();
       for (uint i = 0; i < max_regions; i++) {
         if (i < num_regions) {
           ShenandoahHeapRegion* r = regions->get(i);
-          jlong data = ((r->used() >> 10) & USED_MASK) << USED_SHIFT;
-          data |= ((r->get_live_data_bytes() >> 10) & LIVE_MASK) << LIVE_SHIFT;
+          jlong data = 0;
+          data |= ((100 * r->used() / rs)                & PERCENT_MASK) << USED_SHIFT;
+          data |= ((100 * r->get_live_data_bytes() / rs) & PERCENT_MASK) << LIVE_SHIFT;
+          data |= ((100 * r->get_tlab_allocs()  / rs)    & PERCENT_MASK) << TLAB_SHIFT;
+          data |= ((100 * r->get_gclab_allocs() / rs)    & PERCENT_MASK) << GCLAB_SHIFT;
           jlong flags = 0;
           if (r->in_collection_set())     flags |= 1 << 1;
           if (r->is_humongous())          flags |= 1 << 2;
-          if (r->is_recently_allocated()) flags |= 1 << 3;
-          if (r->is_pinned())             flags |= 1 << 4;
+          if (r->is_pinned())             flags |= 1 << 3;
           data |= (flags & FLAGS_MASK) << FLAGS_SHIFT;
           _regions_data[i]->set_value(data);
         } else {

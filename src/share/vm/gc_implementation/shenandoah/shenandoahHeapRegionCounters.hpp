@@ -45,25 +45,31 @@
  * where $ is the region number from 0 <= i < $max_regions
  *
  * .data is in the following format:
- * - bits 0-28   used memory in kilobytes
- * - bits 29-58  live memory in kilobytes
+ * - bits 0-6    used memory in percent
+ * - bits 7-13   live memory in percent
+ * - bits 14-20  tlab allocated memory in percent
+ * - bits 21-27  gclab allocated memory in percent
+ * - bits 28-34  <reserved>
+ * - bits 35-41  <reserved>
+ * - bits 42-50  <reserved>
+ * - bits 51-57  <reserved>
  * - bits 58-63  status
  *      - bit 58 set when region is not used yet
  *      - bit 59 set when region in collection set
  *      - bit 60 set when region is humongous
- *      - bit 61 set when region is recently allocated
- *      - bit 62 set when region is pinned
+ *      - bit 61 set when region is pinned
  */
 class ShenandoahHeapRegionCounters : public CHeapObj<mtGC>  {
 private:
-  static const jlong USED_MASK   = 0x1fffffff; // bits 0-28
-  static const jlong USED_SHIFT  = 0;
+  static const jlong PERCENT_MASK = 0x7f;
+  static const jlong FLAGS_MASK   = 0x3f;
 
-  static const jlong LIVE_MASK   = 0x1fffffff; // bits 29-58
-  static const jlong LIVE_SHIFT  = 29;
+  static const jlong USED_SHIFT   = 0;
+  static const jlong LIVE_SHIFT   = 7;
+  static const jlong TLAB_SHIFT   = 14;
+  static const jlong GCLAB_SHIFT  = 21;
 
-  static const jlong FLAGS_MASK  = 0x3f;       // bits 58-63
-  static const jlong FLAGS_SHIFT = 58;         // bits 58-63
+  static const jlong FLAGS_SHIFT  = 58;
 
   char* _name_space;
   PerfLongVariable** _regions_data;

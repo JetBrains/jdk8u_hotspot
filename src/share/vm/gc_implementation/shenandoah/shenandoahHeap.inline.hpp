@@ -254,7 +254,7 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuate
   bool alloc_from_gclab = true;
   HeapWord* filler = allocate_from_gclab(thread, required);
   if (filler == NULL) {
-    filler = allocate_memory(required, true);
+    filler = allocate_memory(required, _lab_gc);
     alloc_from_gclab = false;
   }
 

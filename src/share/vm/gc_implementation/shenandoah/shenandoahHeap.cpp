@@ -581,19 +581,19 @@ HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size) {
 #ifdef ASSERT
   log_debug(gc, alloc)("Allocate new tlab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
 #endif
-  return allocate_new_tlab(word_size, false);
+  return allocate_new_lab(word_size, _lab_thread);
 }
 
 HeapWord* ShenandoahHeap::allocate_new_gclab(size_t word_size) {
 #ifdef ASSERT
   log_debug(gc, alloc)("Allocate new gclab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
 #endif
-  return allocate_new_tlab(word_size, true);
+  return allocate_new_lab(word_size, _lab_gc);
 }
 
-HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size, bool evacuating) {
+HeapWord* ShenandoahHeap::allocate_new_lab(size_t word_size, LabType type) {
 
-  HeapWord* result = allocate_memory(word_size, evacuating);
+  HeapWord* result = allocate_memory(word_size, type);
 
   if (result != NULL) {
     assert(! in_collection_set(result), "Never allocate in dirty region");
@@ -617,26 +617,26 @@ ShenandoahHeap* ShenandoahHeap::heap_no_check() {
   return (ShenandoahHeap*) heap;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size) {
+HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, LabType type) {
 
   ShenandoahHeapLock heap_lock(this);
 
-  HeapWord* result = allocate_memory_under_lock(word_size);
+  HeapWord* result = allocate_memory_under_lock(word_size, type);
   size_t grow_by = (word_size * HeapWordSize + ShenandoahHeapRegion::region_size_bytes() - 1) / ShenandoahHeapRegion::region_size_bytes();
 
   while (result == NULL && _num_regions + grow_by <= _max_regions) {
     grow_heap_by(grow_by);
-    result = allocate_memory_under_lock(word_size);
+    result = allocate_memory_under_lock(word_size, type);
   }
 
   return result;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
+HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, LabType type) {
   HeapWord* result = NULL;
-  result = allocate_memory_work(word_size);
+  result = allocate_memory_work(word_size, type);
 
-  if (!evacuating) {
+  if (type == _lab_thread) {
     // Allocation failed, try full-GC, then retry allocation.
     //
     // It might happen that one of the threads requesting allocation would unblock
@@ -652,7 +652,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
       log_debug(gc)("[" PTR_FORMAT " Failed to allocate " SIZE_FORMAT " bytes, doing full GC, try %d",
                     p2i(Thread::current()), word_size * HeapWordSize, tries);
       collect(GCCause::_allocation_failure);
-      result = allocate_memory_work(word_size);
+      result = allocate_memory_work(word_size, type);
     }
   }
 
@@ -660,7 +660,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
   // Otherwise we might attempt to grab the Service_lock, which we must
   // not do when coming from a write-barrier (because the thread might
   // already hold the Compile_lock).
-  if (! evacuating) {
+  if (type == _lab_thread) {
     monitoring_support()->update_counters();
   }
 
@@ -670,7 +670,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, bool evacuating) {
   return result;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
+HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, LabType type) {
   assert_heaplock_owned_by_current_thread();
 
   if (word_size * HeapWordSize > ShenandoahHeapRegion::region_size_bytes()) {
@@ -691,7 +691,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
   assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
   assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
 
-  HeapWord* result = my_current_region->allocate(word_size);
+  HeapWord* result = my_current_region->allocate_lab(word_size, type);
 
   while (result == NULL) {
     // 2nd attempt. Try next region.
@@ -711,7 +711,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size) {
     assert(my_current_region != NULL, "should have a region at this point");
     assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
     assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
-    result = my_current_region->allocate(word_size);
+    result = my_current_region->allocate_lab(word_size, type);
   }
 
   my_current_region->increase_live_data_words(word_size);
@@ -748,7 +748,7 @@ HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
 HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
                                         bool*  gc_overhead_limit_was_exceeded) {
 
-  HeapWord* filler = allocate_memory(size + BrooksPointer::word_size(), false);
+  HeapWord* filler = allocate_memory(size + BrooksPointer::word_size(), _lab_thread);
   HeapWord* result = filler + BrooksPointer::word_size();
   if (filler != NULL) {
     BrooksPointer::initialize(oop(result));
