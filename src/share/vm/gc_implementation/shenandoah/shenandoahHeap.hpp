@@ -197,7 +197,7 @@ private:
   volatile jbyte _heap_lock;
 
 #ifdef ASSERT
-  volatile Thread* _heap_lock_owner;
+  Thread* volatile _heap_lock_owner;
 #endif
 
 public:
