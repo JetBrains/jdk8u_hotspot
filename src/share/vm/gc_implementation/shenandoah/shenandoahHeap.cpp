@@ -2405,14 +2405,15 @@ public:
     ShenandoahUpdateHeapRefsClosure cl;
     ShenandoahHeapRegion* r = _regions->claim_next();
     while (r != NULL) {
-      if (! _heap->in_collection_set(r) &&
-          ! r->is_empty()) {
-        _heap->marked_object_oop_safe_iterate(r, &cl);
-      } else if (_heap->in_collection_set(r)) {
+      if (_heap->in_collection_set(r)) {
         HeapWord* bottom = r->bottom();
         HeapWord* top = _heap->complete_top_at_mark_start(r->bottom());
         if (top > bottom) {
           _heap->complete_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
+        }
+      } else {
+        if (!r->is_empty()) {
+          _heap->marked_object_oop_safe_iterate(r, &cl);
         }
       }
       if (_heap->cancelled_concgc()) {
