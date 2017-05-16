@@ -1811,18 +1811,10 @@ void ShenandoahHeap::start_concurrent_marking() {
   heap_region_iterate(&clc);
   shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::clear_liveness);
 
-  // print_all_refs("pre -mark");
-
-  // oopDesc::_debug = true;
-
   // Make above changes visible to worker threads
   OrderAccess::fence();
 
-  shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::scan_roots);
   concurrentMark()->init_mark_roots();
-  shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::scan_roots);
-
-  //  print_all_refs("pre-mark2");
 }
 
 class VerifyAfterEvacuationClosure : public ExtendedOopClosure {

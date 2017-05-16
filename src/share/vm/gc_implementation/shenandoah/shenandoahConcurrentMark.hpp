@@ -146,8 +146,8 @@ public:
   // Prepares unmarked root objects by marking them and putting
   // them into the marking task queue.
   void init_mark_roots();
-  void mark_roots();
-  void update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase = ShenandoahCollectorPolicy::_num_phases);
+  void mark_roots(ShenandoahCollectorPolicy::TimingPhase root_phase);
+  void update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase);
   void final_update_roots();
 
   void shared_finish_mark_from_roots(bool full_gc);

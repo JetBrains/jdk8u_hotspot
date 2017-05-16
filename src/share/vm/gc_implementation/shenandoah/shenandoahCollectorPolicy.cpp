@@ -347,6 +347,7 @@ void ShenandoahCollectorPolicy::record_workers_end(TimingPhase phase) {
             phase == scan_roots ||
             phase == update_roots ||
             phase == final_update_refs_roots ||
+            phase == full_gc_roots ||
             phase == _num_phases,
             "only in these phases we can add per-thread phase times");
   if (phase != _num_phases) {
@@ -789,6 +790,19 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[full_gc]                         = "Full GC";
   _phase_names[full_gc_heapdumps]               = "  Heap Dumps";
   _phase_names[full_gc_prepare]                 = "  Prepare";
+  _phase_names[full_gc_roots]                   = "  Roots";
+  _phase_names[full_gc_thread_roots]            = "    F: Thread Roots";
+  _phase_names[full_gc_code_roots]              = "    F: Code Cache Roots";
+  _phase_names[full_gc_string_table_roots]      = "    F: String Table Roots";
+  _phase_names[full_gc_universe_roots]          = "    F: Universe Roots";
+  _phase_names[full_gc_jni_roots]               = "    F: JNI Roots";
+  _phase_names[full_gc_jni_weak_roots]          = "    F: JNI Weak Roots";
+  _phase_names[full_gc_synchronizer_roots]      = "    F: Synchronizer Roots";
+  _phase_names[full_gc_flat_profiler_roots]     = "    F: Flat Profiler Roots";
+  _phase_names[full_gc_management_roots]        = "    F: Management Roots";
+  _phase_names[full_gc_system_dictionary_roots] = "    F: System Dict Roots";
+  _phase_names[full_gc_cldg_roots]              = "    F: CLDG Roots";
+  _phase_names[full_gc_jvmti_roots]             = "    F: JVMTI Roots";
   _phase_names[full_gc_mark]                    = "  Mark";
   _phase_names[full_gc_mark_finish_queues]      = "    Finish Queues";
   _phase_names[full_gc_mark_weakrefs]           = "    Weak References";
