@@ -42,6 +42,7 @@
 #include "oops/oop.inline.hpp"
 #include "utilities/taskqueue.hpp"
 
+template<UpdateRefsMode UPDATE_REFS>
 class ShenandoahInitMarkRootsClosure : public OopClosure {
 private:
   SCMObjToScanQueue* _queue;
@@ -49,7 +50,7 @@ private:
 
   template <class T>
   inline void do_oop_nv(T* p) {
-    ShenandoahConcurrentMark::mark_through_ref<T, RESOLVE>(p, _heap, _queue);
+    ShenandoahConcurrentMark::mark_through_ref<T, UPDATE_REFS>(p, _heap, _queue);
   }
 
 public:
@@ -67,6 +68,7 @@ ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(SCMObjToScanQueue
 {
 }
 
+template<UpdateRefsMode UPDATE_REFS>
 class ShenandoahInitMarkRootsTask : public AbstractGangTask {
 private:
   ShenandoahRootProcessor* _rp;
@@ -86,7 +88,7 @@ public:
     assert(queues->get_reserved() > worker_id, err_msg("Queue has not been reserved for worker id: %d", worker_id));
 
     SCMObjToScanQueue* q = queues->queue(worker_id);
-    ShenandoahInitMarkRootsClosure mark_cl(q);
+    ShenandoahInitMarkRootsClosure<UPDATE_REFS> mark_cl(q);
     CLDToOopClosure cldCl(&mark_cl);
     MarkingCodeBlobClosure blobsCl(&mark_cl, ! CodeBlobToOopClosure::FixRelocations);
 
@@ -176,10 +178,16 @@ public:
     }
     if (ShenandoahConcurrentCodeRoots && _cm->claim_codecache()) {
       if (! _cm->unload_classes()) {
-        ShenandoahMarkResolveRefsClosure cl(q, rp);
-        CodeBlobToOopClosure blobs(&cl, ! CodeBlobToOopClosure::FixRelocations);
         MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-        CodeCache::blobs_do(&blobs);
+        if (_update_refs) {
+          ShenandoahMarkResolveRefsClosure cl(q, rp);
+          CodeBlobToOopClosure blobs(&cl, !CodeBlobToOopClosure::FixRelocations);
+          CodeCache::blobs_do(&blobs);
+        } else {
+          ShenandoahMarkRefsClosure cl(q, rp);
+          CodeBlobToOopClosure blobs(&cl, !CodeBlobToOopClosure::FixRelocations);
+          CodeCache::blobs_do(&blobs);
+        }
       }
     }
 
@@ -255,8 +263,16 @@ void ShenandoahConcurrentMark::mark_roots() {
   TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
   task_queues()->reserve(nworkers);
 
-  ShenandoahInitMarkRootsTask mark_roots(&root_proc, process_references());
-  workers->run_task(&mark_roots);
+  if (heap->need_update_refs()) {
+    ShenandoahInitMarkRootsTask<RESOLVE> mark_roots(&root_proc, process_references());
+    workers->run_task(&mark_roots);
+  } else {
+    // No need to update references, which means the heap is clean.
+    // Can save time not walking through forwarding pointers.
+    ShenandoahInitMarkRootsTask<NONE> mark_roots(&root_proc, process_references());
+    workers->run_task(&mark_roots);
+  }
+
   if (ShenandoahConcurrentCodeRoots) {
     clear_claim_codecache();
   }
