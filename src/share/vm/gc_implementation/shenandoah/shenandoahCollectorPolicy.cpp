@@ -540,18 +540,39 @@ public:
     return r->garbage() > threshold;
   }
 
+  static const intx MaxNormalStep = 5;      // max step towards goal under normal conditions
+  static const intx CancelledGC_Hit = 10;   // how much to step on cancelled GC
+  static const intx FullGC_Hit = 20;        // how much to step on full GC (probably allocation failure)
+
   void handle_cycle_success() {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     size_t capacity = heap->capacity();
-    size_t available = capacity - _peak_occupancy;
-    size_t available_threshold = ShenandoahMinFreeThreshold * capacity / 100;
+
+    size_t current_threshold = (capacity - _peak_occupancy) * 100 / capacity;
+    size_t min_threshold = ShenandoahMinFreeThreshold;
+    intx step = min_threshold - current_threshold;
+    step = MAX2(step, (intx) -MaxNormalStep);
+    step = MIN2(step, (intx) MaxNormalStep);
+
     log_info(gc, ergo)("Capacity: " SIZE_FORMAT "M, Peak Occupancy: " SIZE_FORMAT
                               "M, Lowest Free: " SIZE_FORMAT "M, Free Threshold: " UINTX_FORMAT "M",
-                      capacity / M, _peak_occupancy / M, available / M, available_threshold / M);
-    if (available <= available_threshold) {
-      pessimize_free_threshold();
+                       capacity / M, _peak_occupancy / M,
+                       (capacity - _peak_occupancy) / M, ShenandoahMinFreeThreshold * capacity / 100 / M);
+
+    if (step > 0) {
+      // Pessimize
+      adjust_free_threshold(step);
+    } else if (step < 0) {
+      // Optimize, if enough happy cycles happened
+      if (_successful_cm_cycles_in_a_row > ShenandoahHappyCyclesThreshold &&
+          (! update_refs() || (_successful_uprefs_cycles_in_a_row > ShenandoahHappyCyclesThreshold)) &&
+          _free_threshold > 0) {
+        adjust_free_threshold(step);
+        _successful_cm_cycles_in_a_row = 0;
+        _successful_uprefs_cycles_in_a_row = 0;
+      }
     } else {
-      optimize_free_threshold();
+      // do nothing
     }
     _peak_occupancy = 0;
   }
@@ -585,29 +606,20 @@ public:
     } // Else ignore
   }
 
-  void optimize_free_threshold() {
-    if (_successful_cm_cycles_in_a_row > ShenandoahHappyCyclesThreshold &&
-            (! update_refs() || (_successful_uprefs_cycles_in_a_row > ShenandoahHappyCyclesThreshold)) &&
-        _free_threshold > 0) {
-      _free_threshold--;
-      log_info(gc,ergo)("Reducing free threshold to: " UINTX_FORMAT "%% (" SIZE_FORMAT "M)",
-                        _free_threshold, _free_threshold * ShenandoahHeap::heap()->capacity() / 100 / M);
-      _successful_cm_cycles_in_a_row = 0;
-      _successful_uprefs_cycles_in_a_row = 0;
-    }
-  }
-
-  void pessimize_free_threshold() {
-    if (_free_threshold < ShenandoahMaxFreeThreshold) {
-      _free_threshold++;
-      log_info(gc,ergo)("Increasing free threshold to: " UINTX_FORMAT "%% (" SIZE_FORMAT "M)",
+  void adjust_free_threshold(intx adj) {
+    uintx new_threshold = _free_threshold + adj;
+    new_threshold = MAX2(new_threshold, ShenandoahMinFreeThreshold);
+    new_threshold = MIN2(new_threshold, ShenandoahMaxFreeThreshold);
+    if (new_threshold != _free_threshold) {
+      _free_threshold = new_threshold;
+      log_info(gc,ergo)("Adjusting free threshold to: " UINTX_FORMAT "%% (" SIZE_FORMAT "M)",
                         _free_threshold, _free_threshold * ShenandoahHeap::heap()->capacity() / 100 / M);
     }
   }
 
   virtual void record_cm_cancelled() {
     ShenandoahHeuristics::record_cm_cancelled();
-    pessimize_free_threshold();
+    adjust_free_threshold(CancelledGC_Hit);
   }
 
   virtual void record_cm_success() {
@@ -616,7 +628,7 @@ public:
 
   virtual void record_uprefs_cancelled() {
     ShenandoahHeuristics::record_uprefs_cancelled();
-    pessimize_free_threshold();
+    adjust_free_threshold(CancelledGC_Hit);
   }
 
   virtual void record_uprefs_success() {
@@ -625,7 +637,7 @@ public:
 
   virtual void record_full_gc() {
     ShenandoahHeuristics::record_full_gc();
-    pessimize_free_threshold();
+    adjust_free_threshold(FullGC_Hit);
   }
 
   virtual void record_peak_occupancy() {

@@ -141,7 +141,7 @@
           "Set GC worker to Java thread ratio when "                        \
           "UseDynamicNumberOfGCThreads is enabled")                         \
                                                                             \
-  experimental(uintx, ShenandoahInitFreeThreshold, 10,                      \
+  experimental(uintx, ShenandoahInitFreeThreshold, 30,                      \
                "Initial remaining free threshold for adaptive heuristics")  \
                                                                             \
   experimental(uintx, ShenandoahMinFreeThreshold, 3,                        \
@@ -150,7 +150,7 @@
   experimental(uintx, ShenandoahMaxFreeThreshold, 70,                       \
                "Maximum remaining free threshold for adaptive heuristics")  \
                                                                             \
-  experimental(uintx, ShenandoahHappyCyclesThreshold, 5,                    \
+  experimental(uintx, ShenandoahHappyCyclesThreshold, 3,                    \
           "How many successful marking cycles before improving free "       \
                "threshold for adaptive heuristics")                    \
                                                                             \
