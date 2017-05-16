@@ -306,10 +306,10 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
   rp->set_active_mt_degree(_heap->workers()->active_workers());
 
   COMPILER2_PRESENT(DerivedPointerTable::clear());
-  cm->update_roots();
+  cm->update_roots(ShenandoahCollectorPolicy::full_gc_roots);
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
 
-  cm->mark_roots();
+  cm->mark_roots(ShenandoahCollectorPolicy::full_gc_roots);
   cm->shared_finish_mark_from_roots(/* full_gc = */ true);
 
   _heap->swap_mark_bitmaps();

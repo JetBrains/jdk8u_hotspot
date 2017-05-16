@@ -248,18 +248,20 @@ public:
   }
 };
 
-void ShenandoahConcurrentMark::mark_roots() {
+void ShenandoahConcurrentMark::mark_roots(ShenandoahCollectorPolicy::TimingPhase root_phase) {
   assert(Thread::current()->is_VM_thread(), "can only do this in VMThread");
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  heap->shenandoahPolicy()->record_phase_start(root_phase);
 
   WorkGang* workers = heap->workers();
   uint nworkers = workers->active_workers();
 
   assert(nworkers <= task_queues()->size(), "Just check");
 
-  ShenandoahRootProcessor root_proc(heap, nworkers, ShenandoahCollectorPolicy::scan_roots);
+  ShenandoahRootProcessor root_proc(heap, nworkers, root_phase);
   TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
   task_queues()->reserve(nworkers);
 
@@ -282,6 +284,8 @@ void ShenandoahConcurrentMark::mark_roots() {
     ResetLABStatsClosure cl;
     heap->heap_region_iterate(&cl);
   }
+
+  heap->shenandoahPolicy()->record_phase_end(root_phase);
 }
 
 void ShenandoahConcurrentMark::init_mark_roots() {
@@ -295,16 +299,14 @@ void ShenandoahConcurrentMark::init_mark_roots() {
   set_process_references(policy->process_references());
   set_unload_classes(policy->unload_classes());
 
-  mark_roots();
+  mark_roots(ShenandoahCollectorPolicy::scan_roots);
 }
 
 void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  if (root_phase != ShenandoahCollectorPolicy::_num_phases) {
-    heap->shenandoahPolicy()->record_phase_start(root_phase);
-  }
+  heap->shenandoahPolicy()->record_phase_start(root_phase);
 
   uint nworkers = heap->workers()->active_workers();
 
@@ -312,9 +314,7 @@ void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPha
   ShenandoahUpdateRootsTask update_roots(&root_proc);
   heap->workers()->run_task(&update_roots);
 
-  if (root_phase != ShenandoahCollectorPolicy::_num_phases) {
-    heap->shenandoahPolicy()->record_phase_end(root_phase);
-  }
+  heap->shenandoahPolicy()->record_phase_end(root_phase);
 }
 
 void ShenandoahConcurrentMark::final_update_roots() {

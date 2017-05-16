@@ -134,6 +134,22 @@ public:
     full_gc,
     full_gc_heapdumps,
     full_gc_prepare,
+
+    // Per-thread timer block, should have "roots" counters in consistent order
+    full_gc_roots,
+    full_gc_thread_roots,
+    full_gc_code_roots,
+    full_gc_string_table_roots,
+    full_gc_universe_roots,
+    full_gc_jni_roots,
+    full_gc_jni_weak_roots,
+    full_gc_synchronizer_roots,
+    full_gc_flat_profiler_roots,
+    full_gc_management_roots,
+    full_gc_system_dictionary_roots,
+    full_gc_cldg_roots,
+    full_gc_jvmti_roots,
+
     full_gc_mark,
     full_gc_mark_finish_queues,
     full_gc_mark_weakrefs,
