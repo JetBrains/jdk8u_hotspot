@@ -242,7 +242,6 @@ public:
   void record_cm_cancelled();
   void record_cm_success();
   void record_cm_degenerated();
-  void record_full_gc();
   void record_uprefs_cancelled();
   void record_uprefs_success();
   void record_uprefs_degenerated();

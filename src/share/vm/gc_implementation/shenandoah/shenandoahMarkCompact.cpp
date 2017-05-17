@@ -227,8 +227,6 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   _gc_timer->register_gc_end();
   _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());
 
-  policy->record_full_gc();
-
   policy->record_phase_start(ShenandoahCollectorPolicy::full_gc_heapdumps);
   _heap->post_full_gc_dump(_gc_timer);
   policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_heapdumps);

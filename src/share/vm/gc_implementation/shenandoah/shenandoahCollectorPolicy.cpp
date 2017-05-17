@@ -160,7 +160,11 @@ public:
     _successful_uprefs_cycles_in_a_row++;
   }
 
-  virtual void record_full_gc() {
+  virtual void record_allocation_failure_gc() {
+    _bytes_in_cset = 0;
+  }
+
+  virtual void record_user_requested_gc() {
     _bytes_in_cset = 0;
   }
 
@@ -543,7 +547,8 @@ public:
 
   static const intx MaxNormalStep = 5;      // max step towards goal under normal conditions
   static const intx CancelledGC_Hit = 10;   // how much to step on cancelled GC
-  static const intx FullGC_Hit = 20;        // how much to step on full GC (probably allocation failure)
+  static const intx AllocFailure_Hit = 20;  // how much to step on allocation failure full GC
+  static const intx UserRequested_Hit = 0;  // how much to step on user requested full GC
 
   void handle_cycle_success() {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
@@ -636,9 +641,14 @@ public:
     ShenandoahHeuristics::record_uprefs_success();
   }
 
-  virtual void record_full_gc() {
-    ShenandoahHeuristics::record_full_gc();
-    adjust_free_threshold(FullGC_Hit);
+  virtual void record_user_requested_gc() {
+    ShenandoahHeuristics::record_user_requested_gc();
+    adjust_free_threshold(UserRequested_Hit);
+  }
+
+  virtual void record_allocation_failure_gc() {
+    ShenandoahHeuristics::record_allocation_failure_gc();
+    adjust_free_threshold(AllocFailure_Hit);
   }
 
   virtual void record_peak_occupancy() {
@@ -905,10 +915,12 @@ void ShenandoahCollectorPolicy::record_bytes_reclaimed(size_t bytes) {
 }
 
 void ShenandoahCollectorPolicy::record_user_requested_gc() {
+  _heuristics->record_user_requested_gc();
   _user_requested_gcs++;
 }
 
 void ShenandoahCollectorPolicy::record_allocation_failure_gc() {
+  _heuristics->record_allocation_failure_gc();
   _allocation_failure_gcs++;
 }
 
@@ -957,10 +969,6 @@ void ShenandoahCollectorPolicy::record_uprefs_degenerated() {
 
 void ShenandoahCollectorPolicy::record_uprefs_cancelled() {
   _heuristics->record_uprefs_cancelled();
-}
-
-void ShenandoahCollectorPolicy::record_full_gc() {
-  _heuristics->record_full_gc();
 }
 
 void ShenandoahCollectorPolicy::record_peak_occupancy() {
