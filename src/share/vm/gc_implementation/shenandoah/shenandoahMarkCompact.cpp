@@ -589,8 +589,7 @@ void ShenandoahMarkCompact::phase3_update_references() {
   uint nworkers = workers->active_workers();
   {
     COMPILER2_PRESENT(DerivedPointerTable::clear());
-
-    ShenandoahRootProcessor rp(heap, nworkers);
+    ShenandoahRootProcessor rp(heap, nworkers, ShenandoahCollectorPolicy::full_gc_roots);
     ShenandoahAdjustRootPointersTask task(&rp);
     workers->run_task(&task);
     COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
