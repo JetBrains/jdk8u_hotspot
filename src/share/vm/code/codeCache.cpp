@@ -976,33 +976,52 @@ void CodeCache::log_state(outputStream* st) {
 }
 
 ParallelCodeCacheIterator::ParallelCodeCacheIterator() :
-        _chunk(-1) {
-  _blobs = GrowableArray<CodeBlob*>();
-  for (CodeBlob* cb = CodeCache::first() ; cb != NULL; cb = CodeCache::next(cb)) {
-    if (cb->is_alive()) {
-      _blobs.append(cb);
-#ifdef ASSERT
-      if (cb->is_nmethod())
-        ((nmethod*)cb)->verify_scavenge_root_oops();
-#endif
-    }
-  }
-}
+        _claimed_idx(0), _finished(false) {
+};
+
 
 void ParallelCodeCacheIterator::parallel_blobs_do(CodeBlobClosure* f) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at safepoint");
 
-  int stride = 200; // educated guess
-  int chunks = _blobs.length() / stride + 1;
+  /*
+   * Parallel code heap walk.
+   *
+   * This code makes all threads scan all code heaps, but only one thread would execute the
+   * closure on given blob. This is achieved by recording the "claimed" blocks: if a thread
+   * had claimed the block, it can process all blobs in it. Others have to fast-forward to
+   * next attempt without processing.
+   *
+   * Late threads would return immediately if iterator is finished.
+   */
 
-  int chunk = Atomic::add(1, &_chunk);
-  while (chunk < chunks) {
-    int begin = chunk*stride;
-    int end = MIN2(_blobs.length(), (chunk + 1)*stride);
-    for (int c = begin; c < end; c++) {
-      CodeBlob *cb = _blobs.at(c);
-      f->do_code_blob(cb);
-    }
-    chunk = Atomic::add(1, &_chunk);
+  if (_finished) {
+    return;
   }
+
+  int stride = 256; // educated guess
+  int stride_mask = stride - 1;
+  assert (is_power_of_2(stride), "sanity");
+
+  int count = 0;
+  bool process_block = true;
+
+  for (CodeBlob *cb = CodeCache::first(); cb != NULL; cb = CodeCache::next(cb)) {
+    int current = count++;
+    if ((current & stride_mask) == 0) {
+      process_block = (current >= _claimed_idx) &&
+                      (Atomic::cmpxchg(current + stride, &_claimed_idx, current) == current);
+    }
+    if (process_block) {
+      if (cb->is_alive()) {
+        f->do_code_blob(cb);
+#ifdef ASSERT
+        if (cb->is_nmethod())
+          ((nmethod*)cb)->verify_scavenge_root_oops();
+#endif
+      }
+    }
+  }
+
+  _finished = true;
 }
+

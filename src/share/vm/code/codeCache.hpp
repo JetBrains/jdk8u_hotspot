@@ -47,12 +47,10 @@ class DepChange;
 class ParallelCodeCacheIterator VALUE_OBJ_CLASS_SPEC {
   friend class CodeCache;
 private:
-  GrowableArray<CodeBlob*> _blobs;
-  volatile int             _chunk;
+  volatile int  _claimed_idx;
+  volatile bool _finished;
 public:
   ParallelCodeCacheIterator();
-
-public:
   void parallel_blobs_do(CodeBlobClosure* f);
 };
 
