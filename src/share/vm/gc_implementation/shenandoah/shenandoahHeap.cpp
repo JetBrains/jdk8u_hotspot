@@ -1297,7 +1297,7 @@ void ShenandoahHeap::evacuate_and_update_roots() {
   {
     AssertToSpaceClosure cl;
     CodeBlobToOopClosure code_cl(&cl, !CodeBlobToOopClosure::FixRelocations);
-    ShenandoahRootEvacuator rp(this, 1);
+    ShenandoahRootEvacuator rp(this, 1, ShenandoahCollectorPolicy::_num_phases);
     rp.process_evacuate_roots(&cl, &code_cl, 0);
   }
 #endif
@@ -1404,7 +1404,7 @@ void ShenandoahHeap::roots_iterate(OopClosure* cl) {
   CodeBlobToOopClosure blobsCl(cl, false);
   CLDToOopClosure cldCl(cl);
 
-  ShenandoahRootProcessor rp(this, 1);
+  ShenandoahRootProcessor rp(this, 1, ShenandoahCollectorPolicy::_num_phases);
   rp.process_all_roots(cl, NULL, &cldCl, &blobsCl, 0);
 }
 
@@ -1930,7 +1930,8 @@ void ShenandoahHeap::verify_heap_reachable_at_safepoint() {
   q->initialize();
 
   // Scan root set
-  ShenandoahRootProcessor rp(this, 1);
+  ShenandoahRootProcessor rp(this, 1,
+                             ShenandoahCollectorPolicy::_num_phases); // no need for stats
 
   {
     VerifyReachableHeapClosure cl(q, &_verification_bit_map);
@@ -2505,7 +2506,7 @@ void ShenandoahHeap::verify_update_refs() {
   {
     CodeBlobToOopClosure blobsCl(&cl, false);
     CLDToOopClosure cldCl(&cl);
-    ShenandoahRootProcessor rp(this, 1);
+    ShenandoahRootProcessor rp(this, 1, ShenandoahCollectorPolicy::_num_phases);
     rp.process_all_roots(&cl, &cl, &cldCl, &blobsCl, 0);
   }
 

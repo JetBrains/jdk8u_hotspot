@@ -512,7 +512,7 @@ void ShenandoahConcurrentMark::verify_roots() {
   ShenandoahVerifyRootsClosure1 cl;
   CodeBlobToOopClosure blobsCl(&cl, false);
   CLDToOopClosure cldCl(&cl);
-  ShenandoahRootProcessor rp(ShenandoahHeap::heap(), 1);
+  ShenandoahRootProcessor rp(ShenandoahHeap::heap(), 1, ShenandoahCollectorPolicy::_num_phases);
   rp.process_all_roots(&cl, &cl, &cldCl, &blobsCl, 0);
 
 }

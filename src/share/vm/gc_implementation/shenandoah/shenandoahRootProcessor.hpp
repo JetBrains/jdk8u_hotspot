@@ -85,7 +85,7 @@ class ShenandoahRootProcessor : public StackObj {
 
 public:
   ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_workers,
-                          ShenandoahCollectorPolicy::TimingPhase phase = ShenandoahCollectorPolicy::_num_phases);
+                          ShenandoahCollectorPolicy::TimingPhase phase);
   ~ShenandoahRootProcessor();
 
   // Apply oops, clds and blobs to all strongly reachable roots in the system
@@ -112,7 +112,7 @@ class ShenandoahRootEvacuator : public StackObj {
 
 public:
   ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers,
-                          ShenandoahCollectorPolicy::TimingPhase phase = ShenandoahCollectorPolicy::_num_phases);
+                          ShenandoahCollectorPolicy::TimingPhase phase);
   ~ShenandoahRootEvacuator();
 
   void process_evacuate_roots(OopClosure* oops,
