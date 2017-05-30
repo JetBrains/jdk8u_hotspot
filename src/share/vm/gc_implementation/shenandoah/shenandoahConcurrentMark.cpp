@@ -176,6 +176,9 @@ public:
     } else {
       rp = NULL;
     }
+
+    ReferenceProcessorMaybeNullIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
+
     if (ShenandoahConcurrentCodeRoots && _cm->claim_codecache()) {
       if (! _cm->unload_classes()) {
         MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
@@ -227,6 +230,8 @@ public:
     } else {
       rp = NULL;
     }
+
+    ReferenceProcessorMaybeNullIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
 
     _cm->mark_loop(worker_id, _terminator, rp,
                    false, // not cancellable
@@ -616,6 +621,8 @@ public:
       rp = NULL;
     }
 
+    ReferenceProcessorMaybeNullIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
+
     scm->mark_loop(_worker_id, _terminator, rp,
                    false, // not cancellable
                    false, // do not drain SATBs
@@ -679,12 +686,13 @@ public:
   void work(uint worker_id) {
     assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    ShenandoahForwardedIsAliveClosure is_alive;
     ShenandoahCMDrainMarkingStackClosure complete_gc(worker_id, _terminator);
     if (heap->need_update_refs()) {
+      ShenandoahForwardedIsAliveClosure is_alive;
       ShenandoahCMKeepAliveUpdateClosure keep_alive(heap->concurrentMark()->get_queue(worker_id));
       _proc_task.work(worker_id, is_alive, keep_alive, complete_gc);
     } else {
+      ShenandoahIsAliveClosure is_alive;
       ShenandoahCMKeepAliveClosure keep_alive(heap->concurrentMark()->get_queue(worker_id));
       _proc_task.work(worker_id, is_alive, keep_alive, complete_gc);
     }
@@ -749,6 +757,8 @@ void ShenandoahConcurrentMark::weak_refs_work() {
   assert(process_references(), "sanity");
   ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
   ReferenceProcessor* rp = sh->ref_processor();
+  ReferenceProcessorIsAliveMutator fix_alive(rp, sh->is_alive_closure());
+
   WorkGang* workers = sh->workers();
   uint nworkers = workers->active_workers();
 
@@ -759,7 +769,6 @@ void ShenandoahConcurrentMark::weak_refs_work() {
   rp->set_active_mt_degree(nworkers);
 
   uint serial_worker_id = 0;
-  ShenandoahForwardedIsAliveClosure is_alive;
 
   assert(task_queues()->is_empty(), "Should be empty");
 
@@ -770,11 +779,13 @@ void ShenandoahConcurrentMark::weak_refs_work() {
   log_develop_trace(gc, ref)("start processing references");
 
   if (sh->need_update_refs()) {
+    ShenandoahForwardedIsAliveClosure is_alive;
     ShenandoahCMKeepAliveUpdateClosure keep_alive(get_queue(serial_worker_id));
     rp->process_discovered_references(&is_alive, &keep_alive,
                                       &complete_gc, &executor,
                                       NULL, sh->shenandoahPolicy()->tracer()->gc_id());
   } else {
+    ShenandoahIsAliveClosure is_alive;
     ShenandoahCMKeepAliveClosure keep_alive(get_queue(serial_worker_id));
     rp->process_discovered_references(&is_alive, &keep_alive,
                                       &complete_gc, &executor,
