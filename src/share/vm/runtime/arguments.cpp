@@ -1383,6 +1383,7 @@ void Arguments::set_cms_and_parnew_gc_flags() {
   if (!ClassUnloading) {
     FLAG_SET_CMDLINE(bool, CMSClassUnloadingEnabled, false);
     FLAG_SET_CMDLINE(bool, ExplicitGCInvokesConcurrentAndUnloadsClasses, false);
+    FLAG_SET_CMDLINE(uintx, ShenandoahUnloadClassesFrequency, 0);
   }
 
   if (PrintGCDetails && Verbose) {

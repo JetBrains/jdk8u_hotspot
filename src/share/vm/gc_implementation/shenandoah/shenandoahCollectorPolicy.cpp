@@ -426,6 +426,7 @@ public:
   }
 
   virtual bool unload_classes() {
+    if (ShenandoahUnloadClassesFrequency == 0) return false;
     // Randomly unload classes with 50% chance.
     return (os::random() & 1) == 1;
   }
@@ -450,6 +451,7 @@ public:
   }
 
   virtual bool unload_classes() {
+    if (ShenandoahUnloadClassesFrequency == 0) return false;
     // Randomly unload classes with 50% chance.
     return (os::random() & 1) == 1;
   }
