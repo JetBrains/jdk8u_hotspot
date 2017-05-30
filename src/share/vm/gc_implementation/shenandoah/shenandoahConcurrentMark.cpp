@@ -313,26 +313,18 @@ void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPha
 
   heap->shenandoahPolicy()->record_phase_start(root_phase);
 
+  COMPILER2_PRESENT(DerivedPointerTable::clear());
+
   uint nworkers = heap->workers()->active_workers();
 
   ShenandoahRootProcessor root_proc(heap, nworkers, root_phase);
   ShenandoahUpdateRootsTask update_roots(&root_proc);
   heap->workers()->run_task(&update_roots);
 
+  COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
+
   heap->shenandoahPolicy()->record_phase_end(root_phase);
 }
-
-void ShenandoahConcurrentMark::final_update_roots() {
-  assert(Thread::current()->is_VM_thread(), "can only do this in VMThread");
-  assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
-
-  COMPILER2_PRESENT(DerivedPointerTable::clear());
-
-  update_roots(ShenandoahCollectorPolicy::update_roots);
-
-  COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
-}
-
 
 void ShenandoahConcurrentMark::initialize(uint workers) {
   _heap = ShenandoahHeap::heap();
@@ -411,7 +403,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
   shared_finish_mark_from_roots(/* full_gc = */ false);
 
   if (sh->need_update_refs()) {
-    final_update_roots();
+    update_roots(ShenandoahCollectorPolicy::update_roots);
   }
 
   TASKQUEUE_STATS_ONLY(print_taskqueue_stats());

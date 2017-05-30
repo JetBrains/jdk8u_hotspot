@@ -148,7 +148,6 @@ public:
   void init_mark_roots();
   void mark_roots(ShenandoahCollectorPolicy::TimingPhase root_phase);
   void update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase);
-  void final_update_roots();
 
   void shared_finish_mark_from_roots(bool full_gc);
   void finish_mark_from_roots();
