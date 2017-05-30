@@ -461,27 +461,14 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   assert(task_queues()->is_empty(), "Should be empty");
 
   // When we're done marking everything, we process weak references.
-  policy->record_phase_start(full_gc ?
-                             ShenandoahCollectorPolicy::full_gc_mark_weakrefs :
-                             ShenandoahCollectorPolicy::weakrefs);
   if (process_references()) {
-    weak_refs_work();
+    weak_refs_work(full_gc);
   }
-  policy->record_phase_end(full_gc ?
-                           ShenandoahCollectorPolicy::full_gc_mark_weakrefs :
-                           ShenandoahCollectorPolicy::weakrefs);
 
   // And finally finish class unloading
-  policy->record_phase_start(full_gc ?
-                             ShenandoahCollectorPolicy::full_gc_mark_class_unloading :
-                             ShenandoahCollectorPolicy::class_unloading);
   if (unload_classes()) {
-    sh->unload_classes_and_cleanup_tables();
+    sh->unload_classes_and_cleanup_tables(full_gc);
   }
-
-  policy->record_phase_end(full_gc ?
-                           ShenandoahCollectorPolicy::full_gc_mark_class_unloading :
-                           ShenandoahCollectorPolicy::class_unloading);
 
   assert(task_queues()->is_empty(), "Should be empty");
 
@@ -753,9 +740,28 @@ public:
 };
 
 
-void ShenandoahConcurrentMark::weak_refs_work() {
+void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
   assert(process_references(), "sanity");
+
   ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
+
+  ShenandoahCollectorPolicy::TimingPhase phase_root =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_weakrefs :
+          ShenandoahCollectorPolicy::weakrefs;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_process =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_weakrefs_process :
+          ShenandoahCollectorPolicy::weakrefs_process;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_enqueue =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_weakrefs_enqueue :
+          ShenandoahCollectorPolicy::weakrefs_enqueue;
+
+  sh->shenandoahPolicy()->record_phase_start(phase_root);
+
   ReferenceProcessor* rp = sh->ref_processor();
   ReferenceProcessorIsAliveMutator fix_alive(rp, sh->is_alive_closure());
 
@@ -776,7 +782,7 @@ void ShenandoahConcurrentMark::weak_refs_work() {
   ShenandoahCMDrainMarkingStackClosure complete_gc(serial_worker_id, &terminator);
   ShenandoahRefProcTaskExecutor executor(workers);
 
-  log_develop_trace(gc, ref)("start processing references");
+  sh->shenandoahPolicy()->record_phase_start(phase_process);
 
   if (sh->need_update_refs()) {
     ShenandoahForwardedIsAliveClosure is_alive;
@@ -793,16 +799,16 @@ void ShenandoahConcurrentMark::weak_refs_work() {
   }
 
   assert(task_queues()->is_empty(), "Should be empty");
+  sh->shenandoahPolicy()->record_phase_end(phase_process);
 
-  log_develop_trace(gc, ref)("finished processing references");
-  log_develop_trace(gc, ref)("start enqueuing references");
-
+  sh->shenandoahPolicy()->record_phase_start(phase_enqueue);
   rp->enqueue_discovered_references(&executor);
-
-  log_develop_trace(gc, ref)("finished enqueueing references");
+  sh->shenandoahPolicy()->record_phase_end(phase_enqueue);
 
   rp->verify_no_references_recorded();
   assert(!rp->discovery_enabled(), "Post condition");
+
+  sh->shenandoahPolicy()->record_phase_end(phase_root);
 }
 
 void ShenandoahConcurrentMark::cancel() {

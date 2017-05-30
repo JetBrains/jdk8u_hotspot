@@ -184,7 +184,7 @@ private:
   void verify_roots();
 #endif
 
-  void weak_refs_work();
+  void weak_refs_work(bool full_gc);
 
 #if TASKQUEUE_STATS
   static void print_taskqueue_stats_hdr(outputStream* const st = tty);
