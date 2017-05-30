@@ -421,14 +421,15 @@ public:
   }
 
   virtual bool process_references() {
-    // Randomly process refs with 50% chance.
-    return (os::random() & 1) == 1;
+    if (ShenandoahRefProcFrequency == 0) return false;
+    // Always process references.
+    return true;
   }
 
   virtual bool unload_classes() {
     if (ShenandoahUnloadClassesFrequency == 0) return false;
-    // Randomly unload classes with 50% chance.
-    return (os::random() & 1) == 1;
+    // Always unload classes.
+    return true;
   }
 };
 
@@ -446,6 +447,7 @@ public:
   }
 
   virtual bool process_references() {
+    if (ShenandoahRefProcFrequency == 0) return false;
     // Randomly process refs with 50% chance.
     return (os::random() & 1) == 1;
   }
