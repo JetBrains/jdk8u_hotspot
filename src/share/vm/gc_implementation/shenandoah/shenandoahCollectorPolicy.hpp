@@ -86,7 +86,13 @@ public:
 
     finish_queues,
     weakrefs,
-    class_unloading,
+    weakrefs_process,
+    weakrefs_enqueue,
+    purge,
+    purge_class_unload,
+    purge_tables_cc,
+    purge_cldg,
+
     prepare_evac,
     recycle_regions,
 
@@ -155,8 +161,13 @@ public:
 
     full_gc_mark,
     full_gc_mark_finish_queues,
-    full_gc_mark_weakrefs,
-    full_gc_mark_class_unloading,
+    full_gc_weakrefs,
+    full_gc_weakrefs_process,
+    full_gc_weakrefs_enqueue,
+    full_gc_purge,
+    full_gc_purge_class_unload,
+    full_gc_purge_tables_cc,
+    full_gc_purge_cldg,
     full_gc_calculate_addresses,
     full_gc_adjust_pointers,
     full_gc_copy_objects,

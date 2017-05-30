@@ -428,7 +428,7 @@ public:
 
   // Delete entries for dead interned string and clean up unreferenced symbols
   // in symbol table, possibly in parallel.
-  void unload_classes_and_cleanup_tables();
+  void unload_classes_and_cleanup_tables(bool full_gc);
 
   size_t num_regions();
   size_t max_regions();

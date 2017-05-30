@@ -2208,13 +2208,54 @@ void ShenandoahHeap::stop() {
   _concurrent_gc_thread->stop();
 }
 
-void ShenandoahHeap::unload_classes_and_cleanup_tables() {
+void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
+  ShenandoahCollectorPolicy::TimingPhase phase_root =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge :
+          ShenandoahCollectorPolicy::purge;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_unload =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_class_unload :
+          ShenandoahCollectorPolicy::purge_class_unload;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_cldg =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_cldg :
+          ShenandoahCollectorPolicy::purge_cldg;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_tables_cc =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_tables_cc :
+          ShenandoahCollectorPolicy::purge_tables_cc;
+
+  _shenandoah_policy->record_phase_start(phase_root);
+
   BoolObjectClosure* is_alive = is_alive_closure();
+
+  bool purged_class = false;
+
   // Unload classes and purge SystemDictionary.
-  bool purged_class = SystemDictionary::do_unloading(is_alive, true);
-  ParallelCleaningTask unlink_task(is_alive, true, true, _workers->active_workers(), purged_class);
-  _workers->run_task(&unlink_task);
-  ClassLoaderDataGraph::purge();
+  {
+    _shenandoah_policy->record_phase_start(phase_unload);
+    purged_class = SystemDictionary::do_unloading(is_alive, true);
+    _shenandoah_policy->record_phase_end(phase_unload);
+  }
+
+  {
+    _shenandoah_policy->record_phase_start(phase_tables_cc);
+    ParallelCleaningTask unlink_task(is_alive, true, true, _workers->active_workers(), purged_class);
+    _workers->run_task(&unlink_task);
+    _shenandoah_policy->record_phase_end(phase_tables_cc);
+  }
+
+  {
+    _shenandoah_policy->record_phase_start(phase_cldg);
+    ClassLoaderDataGraph::purge();
+    _shenandoah_policy->record_phase_end(phase_cldg);
+  }
+
+  _shenandoah_policy->record_phase_end(phase_root);
 }
 
 void ShenandoahHeap::set_need_update_refs(bool need_update_refs) {
