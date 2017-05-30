@@ -830,6 +830,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[final_update_refs_gross]         = "Pause Final Update Refs (G)";
   _phase_names[final_update_refs]               = "Pause Final Update Refs (N)";
 
+  _phase_names[final_update_refs_finish_work]          = "  Finish Work";
   _phase_names[final_update_refs_roots]                = "  Update Roots";
   _phase_names[final_update_refs_thread_roots]         = "    UR: Thread Roots";
   _phase_names[final_update_refs_code_roots]           = "    UR: Code Cache Roots";
@@ -843,6 +844,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[final_update_refs_system_dict_roots]    = "    UR: System Dict Roots";
   _phase_names[final_update_refs_cldg_roots]           = "    UR: CLDG Roots";
   _phase_names[final_update_refs_jvmti_roots]          = "    UR: JVMTI Roots";
+  _phase_names[final_update_refs_recycle]              = "  Recycle";
 
   if (ShenandoahGCHeuristics != NULL) {
     if (strcmp(ShenandoahGCHeuristics, "aggressive") == 0) {

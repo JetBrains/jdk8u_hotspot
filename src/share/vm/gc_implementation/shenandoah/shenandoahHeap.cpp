@@ -2462,10 +2462,14 @@ void ShenandoahHeap::finish_update_refs() {
   assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
 
   if (cancelled_concgc()) {
+    shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_update_refs_finish_work);
+
     // Finish updating references where we left off.
     clear_cancelled_concgc();
     ShenandoahHeapRegionSet* update_regions = regions();
     update_heap_references(update_regions);
+
+    shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_update_refs_finish_work);
   }
 
   assert(! cancelled_concgc(), "Should have been done right before");
@@ -2473,6 +2477,8 @@ void ShenandoahHeap::finish_update_refs() {
 
   // Allocations might have happened before we STWed here, record peak:
   shenandoahPolicy()->record_peak_occupancy();
+
+  shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_update_refs_recycle);
 
   recycle_dirty_regions();
   set_need_update_refs(false);
@@ -2495,6 +2501,8 @@ void ShenandoahHeap::finish_update_refs() {
     }
   }
   set_update_refs_in_progress(false);
+
+  shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_update_refs_recycle);
 }
 
 class ShenandoahVerifyUpdateRefsClosure : public ExtendedOopClosure {

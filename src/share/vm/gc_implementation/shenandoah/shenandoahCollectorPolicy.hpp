@@ -110,6 +110,7 @@ public:
 
     final_update_refs_gross,
     final_update_refs,
+    final_update_refs_finish_work,
 
     // Per-thread timer block, should have "roots" counters in consistent order
     final_update_refs_roots,
@@ -125,6 +126,8 @@ public:
     final_update_refs_system_dict_roots,
     final_update_refs_cldg_roots,
     final_update_refs_jvmti_roots,
+
+    final_update_refs_recycle,
 
     conc_mark,
     conc_evac,
