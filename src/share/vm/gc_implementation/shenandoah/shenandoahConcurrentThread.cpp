@@ -323,10 +323,23 @@ void ShenandoahConcurrentThread::do_full_gc(GCCause::Cause cause) {
     // Now that full GC is scheduled, we can abort everything else
     ShenandoahHeap::heap()->cancel_concgc(cause);
   } else {
-    if (_full_gc_cause != cause) {
-      log_info(gc)("Full GC is already pending with cause: %s; new cause is %s",
-                   GCCause::to_string(_full_gc_cause),
-                   GCCause::to_string(cause));
+    GCCause::Cause last_cause = _full_gc_cause;
+    if (last_cause != cause) {
+      switch (cause) {
+        // These GC causes take precedence:
+        case GCCause::_allocation_failure:
+          log_info(gc)("Full GC was already pending with cause: %s; new cause is %s, overwriting",
+                       GCCause::to_string(last_cause),
+                       GCCause::to_string(cause));
+          _full_gc_cause = cause;
+          break;
+        // Other GC causes can be ignored
+        default:
+          log_info(gc)("Full GC is already pending with cause: %s; new cause was %s, ignoring",
+                       GCCause::to_string(last_cause),
+                       GCCause::to_string(cause));
+          break;
+      }
     }
   }
 
