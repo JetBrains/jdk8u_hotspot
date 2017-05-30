@@ -2103,25 +2103,42 @@ bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
   return _heap->is_marked_next(obj);
 }
 
+ShenandoahIsAliveClosure::ShenandoahIsAliveClosure() :
+  _heap(ShenandoahHeap::heap_no_check()) {
+}
+
+void ShenandoahIsAliveClosure::init(ShenandoahHeap* heap) {
+  _heap = heap;
+}
+
+bool ShenandoahIsAliveClosure::do_object_b(oop obj) {
+  assert(_heap != NULL, "sanity");
+  assert(!oopDesc::is_null(obj), "null");
+  assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "only query to-space");
+  return _heap->is_marked_next(obj);
+}
+
+BoolObjectClosure* ShenandoahHeap::is_alive_closure() {
+  return need_update_refs() ?
+         (BoolObjectClosure*) &_forwarded_is_alive :
+         (BoolObjectClosure*) &_is_alive;
+}
+
 void ShenandoahHeap::ref_processing_init() {
   MemRegion mr = reserved_region();
 
-  isAlive.init(ShenandoahHeap::heap());
+  _forwarded_is_alive.init(ShenandoahHeap::heap());
+  _is_alive.init(ShenandoahHeap::heap());
   assert(_max_workers > 0, "Sanity");
 
   _ref_processor =
     new ReferenceProcessor(mr,    // span
-                           ParallelRefProcEnabled,
-                           // mt processing
-                           _max_workers,
-                           // degree of mt processing
-                           true,
-                           // mt discovery
-                           _max_workers,
-                           // degree of mt discovery
-                           false,
-                           // Reference discovery is not atomic
-                           &isAlive);
+                           ParallelRefProcEnabled,  // MT processing
+                           _max_workers,            // Degree of MT processing
+                           true,                    // MT discovery
+                           _max_workers,            // Degree of MT discovery
+                           false,                   // Reference discovery is not atomic
+                           &_forwarded_is_alive);   // Pessimistically assume "forwarded"
 }
 
 void ShenandoahHeap::acquire_pending_refs_lock() {
@@ -2192,10 +2209,10 @@ void ShenandoahHeap::stop() {
 }
 
 void ShenandoahHeap::unload_classes_and_cleanup_tables() {
-  ShenandoahForwardedIsAliveClosure is_alive;
+  BoolObjectClosure* is_alive = is_alive_closure();
   // Unload classes and purge SystemDictionary.
-  bool purged_class = SystemDictionary::do_unloading(&is_alive, true);
-  ParallelCleaningTask unlink_task(&is_alive, true, true, _workers->active_workers(), purged_class);
+  bool purged_class = SystemDictionary::do_unloading(is_alive, true);
+  ParallelCleaningTask unlink_task(is_alive, true, true, _workers->active_workers(), purged_class);
   _workers->run_task(&unlink_task);
   ClassLoaderDataGraph::purge();
 }
