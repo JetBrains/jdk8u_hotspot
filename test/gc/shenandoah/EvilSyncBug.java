@@ -28,7 +28,7 @@
  * @library /testlibrary
  * @modules java.base/jdk.internal.misc
  *          java.management
- * @run driver EvilSyncBug
+ * @run driver/timeout=240 EvilSyncBug
  */
 
 import java.util.*;
