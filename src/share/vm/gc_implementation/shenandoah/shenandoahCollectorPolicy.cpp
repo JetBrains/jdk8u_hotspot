@@ -760,7 +760,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[weakrefs_enqueue]                = "    Enqueue";
   _phase_names[purge]                           = "  System Purge";
   _phase_names[purge_class_unload]              = "    Unload Classes";
-  _phase_names[purge_tables_cc]                 = "    String/Symbol/CodeCache";
+  _phase_names[purge_tables_cc]                 = "    Str/Sym, Code Cache";
   _phase_names[purge_cldg]                      = "    CLDG";
   _phase_names[prepare_evac]                    = "  Prepare Evacuation";
 
@@ -833,7 +833,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[full_gc_weakrefs_enqueue]        = "      Enqueue";
   _phase_names[full_gc_purge]                   = "    System Purge";
   _phase_names[full_gc_purge_class_unload]      = "      Unload Classes";
-  _phase_names[full_gc_purge_tables_cc]         = "      String/Symbol/CodeCache";
+  _phase_names[full_gc_purge_tables_cc]         = "      Str/Sym, Code Cache";
   _phase_names[full_gc_purge_cldg]              = "      CLDG";
   _phase_names[full_gc_calculate_addresses]     = "  Calculate Addresses";
   _phase_names[full_gc_adjust_pointers]         = "  Adjust Pointers";
