@@ -35,20 +35,17 @@ ShenandoahCollectionSet::~ShenandoahCollectionSet() {
 }
 
 void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
   ShenandoahHeapRegionSet::add_region(r);
+  r->set_in_collection_set(true);
+
   _garbage += r->garbage();
   _live_data += r->get_live_data_bytes();
 }
 
-size_t ShenandoahCollectionSet::garbage() {
-  return _garbage;
-}
-
-size_t ShenandoahCollectionSet::live_data() {
-  return _live_data;
-}
-
 void ShenandoahCollectionSet::clear() {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
+
   ShenandoahHeapRegionSet::clear();
   ShenandoahHeap::heap()->clear_cset_fast_test();
   _garbage = 0;

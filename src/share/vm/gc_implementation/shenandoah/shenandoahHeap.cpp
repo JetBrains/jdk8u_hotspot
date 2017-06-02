@@ -872,27 +872,24 @@ void ShenandoahHeap::recycle_dirty_regions() {
 
   size_t bytes_reclaimed = 0;
 
-  ShenandoahHeapRegionSet* set = regions();
-  set->clear_current_index();
+  debug_only(verify_collection_set(););
+
+  ShenandoahHeapRegionSet* set = collection_set();
 
   start_deferred_recycling();
 
-  ShenandoahHeapRegion* r = set->claim_next();
-  while (r != NULL) {
-    if (in_collection_set(r)) {
-      decrease_used(r->used());
-      bytes_reclaimed += r->used();
-      defer_recycle(r);
-    }
-    r = set->claim_next();
+  for (size_t index = 0; index < set->active_regions(); index ++) {
+    ShenandoahHeapRegion* r = set->get(index);
+    assert(in_collection_set(r), "Must match");
+    decrease_used(r->used());
+    bytes_reclaimed += r->used();
+    defer_recycle(r);
   }
 
   finish_deferred_recycle();
 
   _shenandoah_policy->record_bytes_reclaimed(bytes_reclaimed);
-  if (! cancelled_concgc()) {
-    clear_cset_fast_test();
-  }
+  collection_set()->clear();
 }
 
 ShenandoahFreeSet* ShenandoahHeap::free_regions() {
@@ -2148,13 +2145,6 @@ void ShenandoahHeap::acquire_pending_refs_lock() {
 void ShenandoahHeap::release_pending_refs_lock() {
   _concurrent_gc_thread->slt()->manipulatePLL(SurrogateLockerThread::releaseAndNotifyPLL);
 }
-size_t ShenandoahHeap::num_regions() {
-  return _num_regions;
-}
-
-size_t ShenandoahHeap::max_regions() {
-  return _max_regions;
-}
 
 GCTracer* ShenandoahHeap::tracer() {
   return shenandoahPolicy()->tracer();
@@ -2613,6 +2603,24 @@ void ShenandoahHeap::finish_deferred_recycle() {
     regions()->get(_recycled_regions[i])->recycle();
   }
 }
+
+
+#ifdef ASSERT
+void ShenandoahHeap::verify_collection_set() const {
+  const ShenandoahCollectionSet* cset = _collection_set;
+  for (size_t index = 0; index < cset->active_regions(); index ++) {
+    ShenandoahHeapRegion* r = cset->get(index);
+    assert(in_collection_set(r), "Must match");
+  }
+
+  const bool* fast_test = _in_cset_fast_test_base;
+  for (size_t index = 0; index < num_regions(); index ++) {
+    if (fast_test[index]) {
+      assert(region_in_collection_set(index), "Must be in cset");
+    }
+  }
+}
+#endif
 
 void ShenandoahHeap::print_extended_on(outputStream *st) const {
   st->print_cr("Heap Regions:");
