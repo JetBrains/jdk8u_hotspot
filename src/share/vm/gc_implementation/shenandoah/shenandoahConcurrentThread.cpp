@@ -158,6 +158,20 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     }
   } else {
     heap->shenandoahPolicy()->record_cm_success();
+
+    // If not cancelled, can try to concurrently pre-clean
+    if (ShenandoahPreclean) {
+      if (heap->concurrentMark()->process_references()) {
+        GCTraceTime time("Concurrent precleaning", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
+
+        heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::conc_preclean);
+        heap->concurrentMark()->preclean_weak_refs();
+        heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::conc_preclean);
+
+        // Allocations happen during concurrent preclean, record peak after the phase:
+        heap->shenandoahPolicy()->record_peak_occupancy();
+      }
+    }
   }
 
   // Proceed to complete marking under STW, and start evacuation:

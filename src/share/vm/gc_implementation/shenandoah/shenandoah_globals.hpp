@@ -222,7 +222,9 @@
   experimental(bool, ShenandoahFastSyncRoots, true,                         \
           "Enable fast synchronizer roots scanning")                        \
                                                                             \
-
+  experimental(bool, ShenandoahPreclean, true,                              \
+              "Do preclean phase before final mark")                        \
+                                                                            \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \
