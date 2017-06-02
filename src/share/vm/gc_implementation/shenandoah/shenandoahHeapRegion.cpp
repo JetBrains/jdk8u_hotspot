@@ -50,7 +50,7 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start
   _new_top(NULL),
   _critical_pins(0) {
 
-  ContiguousSpace::initialize(reserved, true, false);
+  ContiguousSpace::initialize(reserved, true, true);
 }
 
 size_t ShenandoahHeapRegion::region_number() const {
@@ -226,7 +226,7 @@ bool ShenandoahHeapRegion::is_humongous_continuation() const {
 }
 
 void ShenandoahHeapRegion::recycle() {
-  ContiguousSpace::initialize(reserved, true, false);
+  ContiguousSpace::clear(true);
   clear_live_data();
   _humongous_start = false;
   _humongous_continuation = false;
