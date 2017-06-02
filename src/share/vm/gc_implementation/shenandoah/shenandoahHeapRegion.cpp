@@ -118,21 +118,29 @@ void ShenandoahHeapRegion::set_in_collection_set(bool b) {
 }
 
 void ShenandoahHeapRegion::print_on(outputStream* st) const {
-  st->print("ShenandoahHeapRegion: "PTR_FORMAT"/"SIZE_FORMAT, p2i(this), _region_number);
-
-  if (in_collection_set())
-    st->print("C");
+  st->print("|" PTR_FORMAT, p2i(this));
+  st->print("|" SIZE_FORMAT_W(5), this->_region_number);
+  st->print("|BTE " PTR_FORMAT ", " PTR_FORMAT ", " PTR_FORMAT,
+            p2i(bottom()), p2i(top()), p2i(end()));
+  st->print("|U %3d%%", (int) ((double) used() * 100 / capacity()));
+  st->print("|G %3d%%", (int) ((double) garbage() * 100 / capacity()));
   if (is_humongous_start()) {
-    st->print("H");
+    st->print("|H ");
+  } else if (is_humongous_continuation()) {
+    st->print("|HC");
+  } else {
+    st->print("|  ");
   }
-  if (is_humongous_continuation()) {
-    st->print("h");
+  if (in_collection_set()) {
+    st->print("|CS");
+  } else {
+    st->print("|  ");
   }
-  //else
-    st->print(" ");
+  st->print("|CP %3d", _critical_pins);
 
-  st->print_cr("live = "SIZE_FORMAT" garbage = "SIZE_FORMAT" bottom = "PTR_FORMAT" end = "PTR_FORMAT" top = "PTR_FORMAT,
-               get_live_data_bytes(), garbage(), p2i(bottom()), p2i(end()), p2i(top()));
+  st->print_cr("|TAMS " PTR_FORMAT ", " PTR_FORMAT "|",
+               p2i(ShenandoahHeap::heap()->complete_top_at_mark_start(_bottom)),
+               p2i(ShenandoahHeap::heap()->next_top_at_mark_start(_bottom)));
 }
 
 
