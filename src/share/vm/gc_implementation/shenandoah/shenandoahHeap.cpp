@@ -2613,3 +2613,15 @@ void ShenandoahHeap::finish_deferred_recycle() {
     regions()->get(_recycled_regions[i])->recycle();
   }
 }
+
+void ShenandoahHeap::print_extended_on(outputStream *st) const {
+  st->print_cr("Heap Regions:");
+  st->print_cr("BTE=bottom/top/end, U=used, G=garbage, "
+               "HS=humongous(starts), HC=humongous(continuation),");
+  st->print_cr("CS=collection set, R=root, CP=critical pins, "
+               "TAMS=top-at-mark-start (previous, next)");
+
+  for (size_t c = 0; c < _num_regions; c++) {
+    _ordered_regions->get(c)->print_on(st);
+  }
+}

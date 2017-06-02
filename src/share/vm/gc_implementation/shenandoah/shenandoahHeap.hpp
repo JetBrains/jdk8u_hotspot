@@ -216,6 +216,7 @@ public:
   const char* name() const /* override */;
   HeapWord* allocate_new_tlab(size_t word_size) /* override */;
   void print_on(outputStream* st) const /* override */;
+  void print_extended_on(outputStream *st) const /* override */;
 
   ShenandoahHeap::Name kind() const  /* override */{
     return CollectedHeap::ShenandoahHeap;
