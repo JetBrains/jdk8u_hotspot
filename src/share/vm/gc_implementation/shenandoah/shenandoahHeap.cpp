@@ -905,7 +905,7 @@ ShenandoahFreeSet* ShenandoahHeap::free_regions() {
 
 void ShenandoahHeap::print_heap_regions(outputStream* st) const {
   st->print_cr("Heap Regions:");
-  st->print_cr("BTE=bottom/top/end, U=used, G=garbage, "
+  st->print_cr("BTE=bottom/top/end, U=used, T=TLAB allocs, G=GC allocs, L=live data, "
                        "HS=humongous(starts), HC=humongous(continuation),");
   st->print_cr("CS=collection set, R=root, CP=critical pins, "
                        "TAMS=top-at-mark-start (previous, next)");
