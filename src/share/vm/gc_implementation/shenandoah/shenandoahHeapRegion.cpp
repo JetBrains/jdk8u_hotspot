@@ -68,18 +68,15 @@ void ShenandoahHeapRegion::clear_live_data() {
 }
 
 void ShenandoahHeapRegion::reset_lab_stats() {
-  assert (ShenandoahRegionSampling, "Should only call when sampling is enabled");
   _tlab_allocs = 0;
   _gclab_allocs = 0;
 }
 
 size_t ShenandoahHeapRegion::get_tlab_allocs() const {
-  assert (ShenandoahRegionSampling, "Sampling should be enabled to get this");
   return _tlab_allocs * HeapWordSize;
 }
 
 size_t ShenandoahHeapRegion::get_gclab_allocs() const {
-  assert (ShenandoahRegionSampling, "Sampling should be enabled to get this");
   return _gclab_allocs * HeapWordSize;
 }
 
@@ -123,7 +120,9 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|BTE " PTR_FORMAT ", " PTR_FORMAT ", " PTR_FORMAT,
             p2i(bottom()), p2i(top()), p2i(end()));
   st->print("|U %3d%%", (int) ((double) used() * 100 / capacity()));
-  st->print("|G %3d%%", (int) ((double) garbage() * 100 / capacity()));
+  st->print("|T %3d%%", (int) ((double) get_tlab_allocs() * 100 / capacity()));
+  st->print("|G %3d%%", (int) ((double) get_gclab_allocs() * 100 / capacity()));
+  st->print("|L %3d%%", (int) ((double) get_live_data_bytes() * 100 / capacity()));
   if (is_humongous_start()) {
     st->print("|H ");
   } else if (is_humongous_continuation()) {
@@ -230,8 +229,7 @@ void ShenandoahHeapRegion::recycle() {
   clear_live_data();
   _humongous_start = false;
   _humongous_continuation = false;
-  _tlab_allocs = 0;
-  _gclab_allocs = 0;
+  reset_lab_stats();
   set_in_collection_set(false);
   // Reset C-TAMS pointer to ensure size-based iteration, everything
   // in that regions is going to be new objects.

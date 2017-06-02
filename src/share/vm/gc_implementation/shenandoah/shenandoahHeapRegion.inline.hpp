@@ -37,17 +37,15 @@ HeapWord* ShenandoahHeapRegion::allocate_lab(size_t size, ShenandoahHeap::LabTyp
     set_top(new_top);
     assert(is_aligned(obj) && is_aligned(new_top), "checking alignment");
 
-    if (ShenandoahRegionSampling) {
-      switch (type) {
-        case ShenandoahHeap::_lab_thread:
-          _tlab_allocs += size;
-          break;
-        case ShenandoahHeap::_lab_gc:
-          _gclab_allocs += size;
-          break;
-        default:
-          ShouldNotReachHere();
-      }
+    switch (type) {
+      case ShenandoahHeap::_lab_thread:
+        _tlab_allocs += size;
+        break;
+      case ShenandoahHeap::_lab_gc:
+        _gclab_allocs += size;
+        break;
+      default:
+        ShouldNotReachHere();
     }
 
     return obj;
