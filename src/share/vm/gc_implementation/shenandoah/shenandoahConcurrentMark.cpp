@@ -593,14 +593,10 @@ public:
 
     ShenandoahHeap* sh = ShenandoahHeap::heap();
     ShenandoahConcurrentMark* scm = sh->concurrentMark();
-    ReferenceProcessor* rp;
-    if (scm->process_references()) {
-      rp = ShenandoahHeap::heap()->ref_processor();
-    } else {
-      rp = NULL;
-    }
+    assert(scm->process_references(), "why else would we be here?");
+    ReferenceProcessor* rp = sh->ref_processor();
 
-    ReferenceProcessorMaybeNullIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
+    ReferenceProcessorIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
 
     scm->mark_loop(_worker_id, _terminator, rp,
                    false, // not cancellable
@@ -801,6 +797,91 @@ void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
   assert(!rp->discovery_enabled(), "Post condition");
 
   sh->shenandoahPolicy()->record_phase_end(phase_root);
+}
+
+class ShenandoahCancelledGCYieldClosure : public YieldClosure {
+private:
+  ShenandoahHeap* const _heap;
+public:
+  ShenandoahCancelledGCYieldClosure() : _heap(ShenandoahHeap::heap()) {};
+  virtual bool should_return() { return _heap->cancelled_concgc(); }
+};
+
+class ShenandoahPrecleanCompleteGCClosure : public VoidClosure {
+public:
+  void do_void() {
+    ShenandoahHeap* sh = ShenandoahHeap::heap();
+    ShenandoahConcurrentMark* scm = sh->concurrentMark();
+    assert(scm->process_references(), "why else would we be here?");
+    ReferenceProcessor* rp = sh->ref_processor();
+    ParallelTaskTerminator terminator(1, scm->task_queues());
+    ReferenceProcessorIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
+
+    scm->mark_loop(0, &terminator, rp,
+                   false, // not cancellable
+                   true,  // drain SATBs
+                   true,  // count liveness
+                   scm->unload_classes(),
+                   sh->need_update_refs());
+  }
+};
+
+class ShenandoahPrecleanKeepAliveUpdateClosure : public OopClosure {
+private:
+  SCMObjToScanQueue* _queue;
+  ShenandoahHeap* _heap;
+
+  template <class T>
+  inline void do_oop_nv(T* p) {
+    ShenandoahConcurrentMark::mark_through_ref<T, CONCURRENT>(p, _heap, _queue);
+  }
+
+public:
+  ShenandoahPrecleanKeepAliveUpdateClosure(SCMObjToScanQueue* q) :
+    _queue(q), _heap(ShenandoahHeap::heap()) {}
+
+  void do_oop(narrowOop* p) { do_oop_nv(p); }
+  void do_oop(oop* p)       { do_oop_nv(p); }
+};
+
+void ShenandoahConcurrentMark::preclean_weak_refs() {
+  // Pre-cleaning weak references before diving into STW makes sense at the
+  // end of concurrent mark. This will filter out the references which referents
+  // are alive. Note that ReferenceProcessor already filters out these on reference
+  // discovery, and the bulk of work is done here. This phase processes leftovers
+  // that missed the initial filtering, i.e. when referent was marked alive after
+  // reference was discovered by RP.
+
+  assert(process_references(), "sanity");
+
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
+  ReferenceProcessor* rp = sh->ref_processor();
+  ReferenceProcessorMTDiscoveryMutator fix_mt_discovery(rp, false);
+  ReferenceProcessorIsAliveMutator fix_alive(rp, sh->is_alive_closure());
+
+  // Interrupt on cancelled GC
+  ShenandoahCancelledGCYieldClosure yield;
+
+  assert(task_queues()->is_empty(), "Should be empty");
+
+  ShenandoahPrecleanCompleteGCClosure complete_gc;
+  if (sh->need_update_refs()) {
+    ShenandoahForwardedIsAliveClosure is_alive;
+    ShenandoahPrecleanKeepAliveUpdateClosure keep_alive(get_queue(0));
+    ResourceMark rm;
+    rp->preclean_discovered_references(&is_alive, &keep_alive,
+                                       &complete_gc, &yield,
+                                       NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+  } else {
+    ShenandoahIsAliveClosure is_alive;
+    ShenandoahCMKeepAliveClosure keep_alive(get_queue(0));
+    ResourceMark rm;
+    rp->preclean_discovered_references(&is_alive, &keep_alive,
+                                       &complete_gc, &yield,
+                                       NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+  }
+
+  assert(task_queues()->is_empty(), "Should be empty");
 }
 
 void ShenandoahConcurrentMark::cancel() {

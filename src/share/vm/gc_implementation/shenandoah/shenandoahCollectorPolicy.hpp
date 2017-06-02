@@ -136,6 +136,7 @@ public:
     final_update_refs_recycle,
 
     conc_mark,
+    conc_preclean,
     conc_evac,
     conc_update_refs,
     reset_bitmaps,

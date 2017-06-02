@@ -836,6 +836,7 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[full_gc_copy_objects]            = "  Copy Objects";
 
   _phase_names[conc_mark]                       = "Concurrent Marking";
+  _phase_names[conc_preclean]                   = "Concurrent Precleaning";
   _phase_names[conc_evac]                       = "Concurrent Evacuation";
 
   _phase_names[init_update_refs_gross]          = "Pause Init  Update Refs (G)";

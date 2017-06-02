@@ -177,6 +177,8 @@ public:
 
   void cancel();
 
+  void preclean_weak_refs();
+
 private:
 
 #ifdef ASSERT
