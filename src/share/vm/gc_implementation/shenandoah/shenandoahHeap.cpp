@@ -390,23 +390,30 @@ bool ShenandoahHeap::is_complete_bitmap_clear_range(HeapWord* start, HeapWord* e
 }
 
 void ShenandoahHeap::print_on(outputStream* st) const {
-  st->print("Shenandoah Heap");
-  st->print(" total = " SIZE_FORMAT " K, used " SIZE_FORMAT " K ", capacity()/ K, used() /K);
-  st->print(" [" PTR_FORMAT ", " PTR_FORMAT ") ",
-            p2i(reserved_region().start()),
-            p2i(reserved_region().end()));
-  st->print("Region size = " SIZE_FORMAT "K ", ShenandoahHeapRegion::region_size_bytes() / K);
+  st->print_cr("Shenandoah Heap");
+  st->print_cr(" " SIZE_FORMAT "K total, " SIZE_FORMAT "K used", capacity() / K, used() / K);
+  st->print_cr(" " SIZE_FORMAT "K regions, " SIZE_FORMAT " active, " SIZE_FORMAT " total",
+            ShenandoahHeapRegion::region_size_bytes() / K, _num_regions, _max_regions);
+
+  st->print("Status: ");
   if (_concurrent_mark_in_progress) {
     st->print("marking ");
-  }
-  if (_evacuation_in_progress) {
+  } else if (_evacuation_in_progress) {
     st->print("evacuating ");
+  } else if (_update_refs_in_progress) {
+    st->print("updating refs ");
+  } else {
+    st->print("idle ");
   }
   if (cancelled_concgc()) {
     st->print("cancelled ");
   }
-  st->print("\n");
+  st->cr();
 
+  st->print_cr("Reserved region:");
+  st->print_cr(" - [" PTR_FORMAT ", " PTR_FORMAT ") ",
+               p2i(reserved_region().start()),
+               p2i(reserved_region().end()));
   // Adapted from VirtualSpace::print_on(), which is non-PRODUCT only
   st->print   ("Virtual space:");
   if (_storage.special()) st->print(" (pinned in memory)");
@@ -897,6 +904,12 @@ ShenandoahFreeSet* ShenandoahHeap::free_regions() {
 }
 
 void ShenandoahHeap::print_heap_regions(outputStream* st) const {
+  st->print_cr("Heap Regions:");
+  st->print_cr("BTE=bottom/top/end, U=used, G=garbage, "
+                       "HS=humongous(starts), HC=humongous(continuation),");
+  st->print_cr("CS=collection set, R=root, CP=critical pins, "
+                       "TAMS=top-at-mark-start (previous, next)");
+
   _ordered_regions->print(st);
 }
 
@@ -2623,13 +2636,6 @@ void ShenandoahHeap::verify_collection_set() const {
 #endif
 
 void ShenandoahHeap::print_extended_on(outputStream *st) const {
-  st->print_cr("Heap Regions:");
-  st->print_cr("BTE=bottom/top/end, U=used, G=garbage, "
-               "HS=humongous(starts), HC=humongous(continuation),");
-  st->print_cr("CS=collection set, R=root, CP=critical pins, "
-               "TAMS=top-at-mark-start (previous, next)");
-
-  for (size_t c = 0; c < _num_regions; c++) {
-    _ordered_regions->get(c)->print_on(st);
-  }
+  print_on(st);
+  print_heap_regions(st);
 }
