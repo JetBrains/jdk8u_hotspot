@@ -101,6 +101,9 @@ public:
 // //      ShenandoahHeap
 
 class ShenandoahHeap : public SharedHeap {
+  friend class ShenandoahHeapRegion;
+  friend class ShenandoahCollectionSet;
+
   enum LockState { unlocked = 0, locked = 1 };
 
 public:
@@ -318,6 +321,12 @@ public:
 
 private:
   void set_evacuation_in_progress(bool in_progress);
+
+  // Only set/unset via ShenandoahHeapRegion
+  void set_region_in_collection_set(size_t region_index, bool b);
+
+  // Only via ShenandoahCollectionSet
+  void clear_cset_fast_test();
 public:
   inline bool is_evacuation_in_progress();
   void set_evacuation_in_progress_concurrently(bool in_progress);
@@ -335,8 +344,6 @@ public:
 
   inline bool region_in_collection_set(size_t region_index) const;
 
-  void set_region_in_collection_set(size_t region_index, bool b);
-
   void acquire_pending_refs_lock();
   void release_pending_refs_lock();
 
@@ -346,8 +353,6 @@ public:
 
   template <class T>
   inline bool in_collection_set(T obj) const;
-
-  void clear_cset_fast_test();
 
   inline bool allocated_after_next_mark_start(HeapWord* addr) const;
   void set_next_top_at_mark_start(HeapWord* region_base, HeapWord* addr);
@@ -368,6 +373,7 @@ public:
 
   ShenandoahHeapRegionSet* regions() { return _ordered_regions;}
   ShenandoahFreeSet* free_regions();
+  ShenandoahCollectionSet* collection_set() { return _collection_set; }
   void clear_free_regions();
   void add_free_region(ShenandoahHeapRegion* r);
 
@@ -431,8 +437,8 @@ public:
   // in symbol table, possibly in parallel.
   void unload_classes_and_cleanup_tables(bool full_gc);
 
-  size_t num_regions();
-  size_t max_regions();
+  size_t num_regions() const { return _num_regions; }
+  size_t max_regions() const { return _max_regions; }
 
   // TODO: consider moving this into ShenandoahHeapRegion.
 
@@ -507,8 +513,6 @@ private:
 
   void ref_processing_init();
 
-  ShenandoahCollectionSet* collection_set() { return _collection_set; }
-
   void grow_heap_by(size_t num_regions);
   void ensure_new_regions(size_t num_new_regions);
 
@@ -531,6 +535,10 @@ public:
   void defer_recycle(ShenandoahHeapRegion* r);
   void finish_deferred_recycle();
 
+#ifdef ASSERT
+  // Verify collection set matches cset fast test
+  void verify_collection_set() const;
+#endif
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP

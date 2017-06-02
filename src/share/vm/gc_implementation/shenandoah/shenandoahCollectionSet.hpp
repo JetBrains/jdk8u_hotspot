@@ -34,8 +34,8 @@ public:
   ShenandoahCollectionSet(size_t max_regions);
   ~ShenandoahCollectionSet();
   void add_region(ShenandoahHeapRegion* r);
-  size_t live_data();
-  size_t garbage();
+  size_t live_data() const { return _live_data; }
+  size_t garbage()   const { return _garbage;   }
   void clear();
 };
 

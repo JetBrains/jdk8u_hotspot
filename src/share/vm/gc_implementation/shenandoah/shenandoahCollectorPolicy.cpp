@@ -240,6 +240,7 @@ ShenandoahHeuristics::~ShenandoahHeuristics() {
 }
 
 void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections) {
+  assert(collection_set->count() == 0, "Must be empty");
   start_choose_collection_set();
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
@@ -310,6 +311,9 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   }
 
   end_choose_collection_set();
+
+  // Make sure cset fast test map matches collection set
+  debug_only(heap->verify_collection_set();)
 
   log_info(gc, ergo)("Total Garbage: "SIZE_FORMAT"M",
                      total_garbage / M);

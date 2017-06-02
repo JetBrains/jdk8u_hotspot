@@ -51,9 +51,9 @@ public:
 class ShenandoahHeapRegionSet: public CHeapObj<mtGC> {
 protected:
   ShenandoahHeapRegion** _regions;
-  size_t _active_end;
-  size_t _reserved_end;
-  size_t _current_index;
+  size_t                 _active_end;
+  size_t                 _reserved_end;
+  volatile size_t        _current_index;
 
 public:
 
@@ -61,8 +61,8 @@ public:
 
   virtual ~ShenandoahHeapRegionSet();
 
-  size_t   max_regions()     { return _reserved_end;}
-  size_t   active_regions()  { return _active_end;}
+  size_t   max_regions()     const { return _reserved_end;}
+  size_t   active_regions()  const { return _active_end;}
 
   HeapWord* bottom() const;
   HeapWord* end() const;
