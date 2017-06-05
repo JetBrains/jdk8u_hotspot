@@ -596,7 +596,6 @@ public:
     // the complete marking bitmap is no longer valid. This ensures
     // size-based iteration in marked_object_iterate().
     _heap->set_complete_top_at_mark_start(r->bottom(), r->bottom());
-    r->set_in_collection_set(false);
     if (r->is_humongous()) {
       _live += ShenandoahHeapRegion::region_size_bytes();
     } else {

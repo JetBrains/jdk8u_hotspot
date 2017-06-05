@@ -25,29 +25,104 @@
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
+#include "runtime/atomic.hpp"
 
-ShenandoahCollectionSet::ShenandoahCollectionSet(size_t max_regions) :
-  ShenandoahHeapRegionSet(max_regions),
-  _garbage(0), _live_data(0) {
+ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, char* cset_fast_test) :
+  _garbage(0), _live_data(0), _heap(heap), _cset_map(cset_fast_test), _region_count(0),
+  _current_index(0) {
 }
 
-ShenandoahCollectionSet::~ShenandoahCollectionSet() {
+bool ShenandoahCollectionSet::is_in(ShenandoahHeapRegion* r) const {
+  return is_in(r->region_number());
+}
+
+bool ShenandoahCollectionSet::is_in(size_t region_number) const {
+  assert(region_number < _heap->num_regions(), "Sanity");
+  return _cset_map[region_number] == 1;
 }
 
 void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
-  ShenandoahHeapRegionSet::add_region(r);
-  r->set_in_collection_set(true);
-
+  assert(Thread::current()->is_VM_thread(), "Must be VMThread");
+  assert(!is_in(r), "Already in collection set");
+  _cset_map[r->region_number()] = 1;
+  _region_count ++;
   _garbage += r->garbage();
   _live_data += r->get_live_data_bytes();
+}
+
+void ShenandoahCollectionSet::remove_region(ShenandoahHeapRegion* r) {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
+  assert(Thread::current()->is_VM_thread(), "Must be VMThread");
+  assert(is_in(r), "Not in collection set");
+  _cset_map[r->region_number()] = 0;
+  _region_count --;
 }
 
 void ShenandoahCollectionSet::clear() {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
-  ShenandoahHeapRegionSet::clear();
   ShenandoahHeap::heap()->clear_cset_fast_test();
   _garbage = 0;
   _live_data = 0;
+
+  _region_count = 0;
+  _current_index = 0;
+}
+
+ShenandoahHeapRegion* ShenandoahCollectionSet::claim_next() {
+  size_t num_regions = _heap->num_regions();
+  if (_current_index >= (jint)num_regions) {
+    return NULL;
+  }
+
+  jint saved_current = _current_index;
+  size_t index = (size_t)saved_current;
+
+  while(index < num_regions) {
+    if (is_in(index)) {
+      jint cur = Atomic::cmpxchg((jint)(index + 1), &_current_index, saved_current);
+      assert(cur >= (jint)saved_current, "Must move forward");
+      if (cur == saved_current) {
+        assert(is_in(index), "Invariant");
+        return _heap->regions()->get(index);
+      } else {
+        index = (size_t)cur;
+        saved_current = cur;
+      }
+    } else {
+      index ++;
+    }
+  }
+  return NULL;
+}
+
+
+ShenandoahHeapRegion* ShenandoahCollectionSet::next() {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
+  assert(Thread::current()->is_VM_thread(), "Must be VMThread");
+  size_t num_regions = _heap->num_regions();
+  for (size_t index = (size_t)_current_index; index < num_regions; index ++) {
+    if (is_in(index)) {
+      _current_index = (jint)(index + 1);
+      return _heap->regions()->get(index);
+    }
+  }
+
+  return NULL;
+}
+
+
+void ShenandoahCollectionSet::print(outputStream* out) const {
+  out->print_cr("Collection Set : " SIZE_FORMAT "", count());
+
+  debug_only(size_t regions = 0;)
+  for (size_t index = 0; index < _heap->num_regions(); index ++) {
+    if (_cset_map[index]) {
+      _heap->regions()->get(index)->print_on(out);
+      debug_only(regions ++;)
+    }
+  }
+  assert(regions == count(), "Must match");
 }
