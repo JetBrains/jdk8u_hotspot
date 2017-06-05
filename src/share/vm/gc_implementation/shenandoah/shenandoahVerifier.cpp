@@ -32,9 +32,35 @@
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
 
+class VerifierTask {
+public:
+  VerifierTask(oop o = NULL, int idx = 0): _obj(o) { }
+  VerifierTask(oop o, size_t idx): _obj(o) { }
+  VerifierTask(const VerifierTask& t): _obj(t._obj) { }
+
+  VerifierTask& operator =(const VerifierTask& t) {
+    _obj = t._obj;
+    return *this;
+  }
+  volatile VerifierTask&
+  operator =(const volatile VerifierTask& t) volatile {
+    (void)const_cast<oop&>(_obj = t._obj);
+    return *this;
+  }
+
+  inline oop obj()  const { return _obj; }
+
+  DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
+
+private:
+  oop _obj;
+};
+
+typedef Stack<VerifierTask, mtGC> ShenandoahVerifierStack;
+
 class VerifyReachableHeapClosure : public ExtendedOopClosure {
 private:
-  SCMObjToScanQueue* _queue;
+  ShenandoahVerifierStack* _stack;
   ShenandoahHeap* _heap;
   CMBitMap* _map;
   const char* _phase;
@@ -43,12 +69,12 @@ private:
   ShenandoahVerifier::VerifyMatrix _verify_matrix;
   oop _loc;
 public:
-  VerifyReachableHeapClosure(SCMObjToScanQueue* queue, CMBitMap* map,
+  VerifyReachableHeapClosure(ShenandoahVerifierStack* stack, CMBitMap* map,
                              const char* phase,
                              ShenandoahVerifier::VerifyForwarded forwarded,
                              ShenandoahVerifier::VerifyMarked marked,
                              ShenandoahVerifier::VerifyMatrix matrix) :
-          _queue(queue), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _phase(phase),
+          _stack(stack), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _phase(phase),
           _verify_forwarded(forwarded), _verify_marked(marked), _verify_matrix(matrix) {};
 
   typedef FormatBuffer<8192> large_buf;
@@ -67,42 +93,47 @@ public:
   }
 
   template <class T>
+  void print_failure(T* p, oop obj, const char* label) {
+    bool loc_in_heap = (_loc != NULL && _heap->is_in(_loc));
+
+    large_buf msg("%s: %s \n\n", _phase, label);
+
+    msg.append("Referenced from: \n");
+    msg.append("  interior location: " PTR_FORMAT "\n", p2i(p));
+
+    if (loc_in_heap) {
+      print_obj(msg, _loc);
+    } else {
+      msg.append("  outside of Java heap\n");
+    }
+    msg.append("\n");
+
+    msg.append("Object: \n");
+    print_obj(msg, obj);
+    msg.append("\n");
+
+    oop fwd = BrooksPointer::forwardee(obj);
+    if (!oopDesc::unsafe_equals(obj, fwd)) {
+      msg.append("Forwardee: \n");
+      print_obj(msg, fwd);
+      msg.append("\n");
+    }
+
+    oop fwd2 = BrooksPointer::forwardee(fwd);
+    if (!oopDesc::unsafe_equals(fwd, fwd2)) {
+      msg.append("Second forwardee: \n");
+      print_obj(msg, fwd2);
+      msg.append("\n");
+    }
+
+    bool verification_passed = false;
+    guarantee(verification_passed, msg.buffer());
+  }
+
+  template <class T>
   void verify(T* p, oop obj, bool test, const char* label) {
     if (!test) {
-      bool loc_in_heap = (_loc != NULL && _heap->is_in(_loc));
-
-      large_buf msg("%s: %s \n\n", _phase, label);
-
-      msg.append("Referenced from: \n");
-      msg.append("  interior location: " PTR_FORMAT "\n", p2i(p));
-
-      if (loc_in_heap) {
-        print_obj(msg, _loc);
-      } else {
-        msg.append("  outside of Java heap\n");
-      }
-      msg.append("\n");
-
-      msg.append("Object: \n");
-      print_obj(msg, obj);
-      msg.append("\n");
-
-      oop fwd = BrooksPointer::forwardee(obj);
-      if (!oopDesc::unsafe_equals(obj, fwd)) {
-        msg.append("Forwardee: \n");
-        print_obj(msg, fwd);
-        msg.append("\n");
-      }
-
-      oop fwd2 = BrooksPointer::forwardee(fwd);
-      if (!oopDesc::unsafe_equals(fwd, fwd2)) {
-        msg.append("Second forwardee: \n");
-        print_obj(msg, fwd2);
-        msg.append("\n");
-      }
-
-      bool verification_passed = false;
-      guarantee(verification_passed, msg.buffer());
+      print_failure(p, obj, label);
     }
   }
 
@@ -125,7 +156,7 @@ public:
                 err_msg("klass pointer must go to metaspace: "
                         "obj = " PTR_FORMAT ", klass = " PTR_FORMAT, p2i(obj), p2i(obj->klass())));
 
-      oop fwd = BrooksPointer::forwardee(obj);
+      oop fwd = (oop) BrooksPointer::get_raw(obj);
       if (!oopDesc::unsafe_equals(obj, fwd)) {
         guarantee(_heap->is_in(fwd),
                   err_msg("Forwardee must be in heap: "
@@ -148,7 +179,7 @@ public:
                           "fwd = " PTR_FORMAT ", fwd-klass = " PTR_FORMAT,
                   p2i(obj), p2i(obj->klass()), p2i(fwd), p2i(fwd->klass())));
 
-        oop fwd2 = BrooksPointer::forwardee(fwd);
+        oop fwd2 = (oop) BrooksPointer::get_raw(fwd);
         verify(p, obj, oopDesc::unsafe_equals(fwd, fwd2),
                "Double forwarding");
       }
@@ -198,7 +229,7 @@ public:
       HeapWord* addr = (HeapWord*) obj;
       if (!_map->isMarked(addr)) {
         _map->mark(addr);
-        _queue->push(SCMTask(obj));
+        _stack->push(VerifierTask(obj));
       }
     }
   }
@@ -233,15 +264,14 @@ void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
   _verification_bit_map->clear_range_large(mr);
 
   // Initialize a single queue
-  SCMObjToScanQueue* q = new SCMObjToScanQueue();
-  q->initialize();
+  ShenandoahVerifierStack stack;
 
   // Scan root set
   ShenandoahRootProcessor rp(_heap, 1,
                              ShenandoahCollectorPolicy::_num_phases); // no need for stats
 
   {
-    VerifyReachableHeapClosure cl(q, _verification_bit_map, label, forwarded, marked, _verify_matrix_disable);
+    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, label, forwarded, marked, _verify_matrix_disable);
     CLDToOopClosure cld_cl(&cl);
     CodeBlobToOopClosure code_cl(&cl, ! CodeBlobToOopClosure::FixRelocations);
     rp.process_all_roots(&cl, &cl, &cld_cl, &code_cl, 0);
@@ -249,11 +279,9 @@ void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
 
   // Finish the scan
   {
-    VerifyReachableHeapClosure cl(q, _verification_bit_map, label, forwarded, marked, matrix);
-    SCMTask task;
-    while ((q->pop_buffer(task) ||
-            q->pop_local(task) ||
-            q->pop_overflow(task))) {
+    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, label, forwarded, marked, matrix);
+    while (!stack.is_empty()) {
+      VerifierTask task = stack.pop();
       oop obj = task.obj();
       assert(!oopDesc::is_null(obj), "must not be null");
       cl.set_loc(obj);
