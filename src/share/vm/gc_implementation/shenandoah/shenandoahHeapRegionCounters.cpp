@@ -31,7 +31,7 @@
 ShenandoahHeapRegionCounters::ShenandoahHeapRegionCounters() :
   _last_sample_millis(0)
 {
-  if (UsePerfData) {
+  if (UsePerfData && ShenandoahRegionSampling) {
     EXCEPTION_MARK;
     ResourceMark rm;
     ShenandoahHeap* heap = ShenandoahHeap::heap();

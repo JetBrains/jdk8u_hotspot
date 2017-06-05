@@ -130,6 +130,7 @@ jint ShenandoahHeap::initialize() {
 
   size_t init_byte_size = collector_policy()->initial_heap_byte_size();
   size_t max_byte_size = collector_policy()->max_heap_byte_size();
+  size_t heap_alignment = collector_policy()->heap_alignment();
 
   Universe::check_alignment(max_byte_size,
                             ShenandoahHeapRegion::region_size_bytes(),
@@ -139,7 +140,7 @@ jint ShenandoahHeap::initialize() {
                             "shenandoah heap");
 
   ReservedSpace heap_rs = Universe::reserve_heap(max_byte_size,
-                                                 Arguments::conservative_max_heap_alignment());
+                                                 heap_alignment);
 
   _reserved.set_word_size(0);
   _reserved.set_start((HeapWord*)heap_rs.base());
