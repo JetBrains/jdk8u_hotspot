@@ -73,9 +73,25 @@ public:
     _verify_forwarded_allow,
   } VerifyForwarded;
 
+  typedef enum {
+    // Disable collection set verification.
+    _verify_cset_disable,
+
+    // Should have no references to cset.
+    _verify_cset_none,
+
+    // May have references to cset, all should be forwarded.
+    // Note: Allowing non-forwarded references to cset is equivalent
+    // to _verify_cset_disable.
+    _verify_cset_forwarded,
+  } VerifyCollectionSet;
+
 private:
   void verify_reachable_at_safepoint(const char *label,
-                                     VerifyForwarded forwarded, VerifyMarked marked, VerifyMatrix matrix);
+                                     VerifyForwarded forwarded,
+                                     VerifyMarked marked,
+                                     VerifyMatrix matrix,
+                                     VerifyCollectionSet cset);
 
 public:
   ShenandoahVerifier(ShenandoahHeap* heap, CMBitMap* verification_bitmap) :
