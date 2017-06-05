@@ -24,13 +24,25 @@
 /*
  * @test AllocObjects
  * @summary Acceptance tests: collector can withstand allocation
- * @run main/othervm -XX:+UseShenandoahGC AllocObjects
- * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g AllocObjects
+ *
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g                                       AllocObjects
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=passive    AllocObjects
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=adaptive   AllocObjects
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    AllocObjects
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=aggressive AllocObjects
+ *
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g                                       -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjects
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=passive    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjects
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=adaptive   -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjects
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjects
+ *
+ * Skip, this runs for too long with back-to-back GCs and verification:
+ *  run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=aggressive -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjects
  */
 
 public class AllocObjects {
 
-  static final long TARGET_MB = Long.getLong("target", 50_000); // 50 Gb allocation
+  static final long TARGET_MB = Long.getLong("target", 20_000); // 20 Gb allocation
 
   static volatile Object sink;
 

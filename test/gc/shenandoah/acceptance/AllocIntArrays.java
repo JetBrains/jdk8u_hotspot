@@ -24,8 +24,20 @@
 /*
  * @test AllocIntArrays
  * @summary Acceptance tests: collector can withstand allocation
- * @run main/othervm -XX:+UseShenandoahGC AllocIntArrays
- * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g AllocIntArrays
+ *
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g                                       AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=passive    AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=adaptive   AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=aggressive AllocIntArrays
+ *
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g                                       -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=passive    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=adaptive   -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocIntArrays
+ *
+ * Skip, this runs for too long with back-to-back GCs and verification:
+ *  run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=aggressive -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocIntArrays
  */
 
 public class AllocIntArrays {
@@ -45,6 +57,5 @@ public class AllocIntArrays {
          }
      }
   }
-
 
 }
