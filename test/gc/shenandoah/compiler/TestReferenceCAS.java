@@ -24,17 +24,17 @@
 /*
  * @test Shenandoah reference CAS test
  *
- * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC ReferenceCAS
- * @run testng/othervm -Diters=100   -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -Xint ReferenceCAS
- * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-TieredCompilation ReferenceCAS
- * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:TieredStopAtLevel=1 ReferenceCAS
- * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:TieredStopAtLevel=4 ReferenceCAS
+ * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC                                                 TestReferenceCAS
+ * @run testng/othervm -Diters=100   -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -Xint                                           TestReferenceCAS
+ * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-TieredCompilation                          TestReferenceCAS
+ * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:TieredStopAtLevel=1                         TestReferenceCAS
+ * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:TieredStopAtLevel=4                         TestReferenceCAS
  *
- * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops ReferenceCAS
- * @run testng/othervm -Diters=100   -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops -Xint ReferenceCAS
- * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops -XX:-TieredCompilation ReferenceCAS
- * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops -XX:TieredStopAtLevel=1 ReferenceCAS
- * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops -XX:TieredStopAtLevel=4 ReferenceCAS
+ * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops                          TestReferenceCAS
+ * @run testng/othervm -Diters=100   -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops -Xint                    TestReferenceCAS
+ * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops -XX:-TieredCompilation   TestReferenceCAS
+ * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops -XX:TieredStopAtLevel=1  TestReferenceCAS
+ * @run testng/othervm -Diters=20000 -XX:ShenandoahGCHeuristics=aggressive -XX:+UseShenandoahGC -XX:-UseCompressedOops -XX:TieredStopAtLevel=4  TestReferenceCAS
  */
 
 import org.testng.annotations.Test;
@@ -43,7 +43,7 @@ import java.lang.reflect.Field;
 
 import static org.testng.Assert.*;
 
-public class ReferenceCAS {
+public class TestReferenceCAS {
 
     static final int ITERS = Integer.getInteger("iters", 1);
     static final int WEAK_ATTEMPTS = Integer.getInteger("weakAttempts", 10);
@@ -61,7 +61,7 @@ public class ReferenceCAS {
         }
 
         try {
-            Field vField = ReferenceCAS.class.getDeclaredField("v");
+            Field vField = TestReferenceCAS.class.getDeclaredField("v");
             V_OFFSET = UNSAFE.objectFieldOffset(vField);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -72,7 +72,7 @@ public class ReferenceCAS {
 
     @Test
     public void testFieldInstance() {
-        ReferenceCAS t = new ReferenceCAS();
+        TestReferenceCAS t = new TestReferenceCAS();
         for (int c = 0; c < ITERS; c++) {
             testAccess(t, V_OFFSET);
         }

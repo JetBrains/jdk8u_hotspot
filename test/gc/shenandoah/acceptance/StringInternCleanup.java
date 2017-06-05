@@ -24,12 +24,20 @@
 /*
  * @test StringInternCleanup
  * @summary Check that Shenandoah cleans up interned strings
+ *
  * @run main/othervm -XX:+UseShenandoahGC                                       -Xmx64m -Xms64m StringInternCleanup
- * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=aggressive -Xmx64m -Xms64m StringInternCleanup
  * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=dynamic    -Xmx64m -Xms64m StringInternCleanup
  * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=adaptive   -Xmx64m -Xms64m StringInternCleanup
  * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=passive    -Xmx64m -Xms64m StringInternCleanup
- * @run main/othervm -XX:ShenandoahGCHeuristics=partial    -Xmx64m -Xms64m StringInternCleanup
+ * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=aggressive -Xmx64m -Xms64m StringInternCleanup
+ *
+ * @run main/othervm -XX:+UseShenandoahGC                                       -Xmx64m -Xms64m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify StringInternCleanup
+ * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=dynamic    -Xmx64m -Xms64m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify StringInternCleanup
+ * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=adaptive   -Xmx64m -Xms64m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify StringInternCleanup
+ * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=passive    -Xmx64m -Xms64m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify StringInternCleanup
+ *
+ * Skip, this runs for too long with back-to-back GCs and verification:
+ *  run main/othervm -Xlog:gc -Xlog:gc+stringtable -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=aggressive -Xmx64m -Xms64m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify StringInternCleanup
  */
 
 public class StringInternCleanup {
