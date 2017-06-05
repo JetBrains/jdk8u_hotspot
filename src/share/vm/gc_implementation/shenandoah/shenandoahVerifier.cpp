@@ -67,15 +67,17 @@ private:
   ShenandoahVerifier::VerifyForwarded _verify_forwarded;
   ShenandoahVerifier::VerifyMarked _verify_marked;
   ShenandoahVerifier::VerifyMatrix _verify_matrix;
+  ShenandoahVerifier::VerifyCollectionSet _verify_cset;
   oop _loc;
 public:
   VerifyReachableHeapClosure(ShenandoahVerifierStack* stack, CMBitMap* map,
                              const char* phase,
                              ShenandoahVerifier::VerifyForwarded forwarded,
                              ShenandoahVerifier::VerifyMarked marked,
-                             ShenandoahVerifier::VerifyMatrix matrix) :
+                             ShenandoahVerifier::VerifyMatrix matrix,
+                             ShenandoahVerifier::VerifyCollectionSet cset) :
           _stack(stack), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _phase(phase),
-          _verify_forwarded(forwarded), _verify_marked(marked), _verify_matrix(matrix) {};
+          _verify_forwarded(forwarded), _verify_marked(marked), _verify_matrix(matrix), _verify_cset(cset) {};
 
   typedef FormatBuffer<8192> large_buf;
 
@@ -215,14 +217,29 @@ public:
           if (!oopDesc::unsafe_equals(obj, fwd)) {
             verify(p, obj, _heap->heap_region_containing(obj) != _heap->heap_region_containing(fwd),
                    "Forwardee should be in another region");
-          } else {
-            verify(p, obj, !_heap->in_collection_set(obj),
-                   "Object in collection set, should have forwardee");
           }
           break;
         }
         default:
           assert(false, "Unhandled forwarding verification");
+      }
+
+      switch (_verify_cset) {
+        case ShenandoahVerifier::_verify_cset_disable:
+          // skip
+          break;
+        case ShenandoahVerifier::_verify_cset_none:
+          verify(p, obj, !_heap->in_collection_set(obj),
+                 "Should not have references to collection set");
+          break;
+        case ShenandoahVerifier::_verify_cset_forwarded:
+          if (_heap->in_collection_set(obj)) {
+            verify(p, obj, !oopDesc::unsafe_equals(obj, fwd),
+                   "Object in collection set, should have forwardee");
+          }
+          break;
+        default:
+          assert(false, "Unhandled cset verification");
       }
 
       // Single threaded verification can use faster non-atomic version:
@@ -241,7 +258,7 @@ public:
 
 void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
                                                        VerifyForwarded forwarded, VerifyMarked marked,
-                                                       VerifyMatrix matrix) {
+                                                       VerifyMatrix matrix, VerifyCollectionSet cset) {
   guarantee(SafepointSynchronize::is_at_safepoint(), "only when nothing else happens");
   guarantee(ShenandoahVerify, "only when enabled, and bitmap is initialized in ShenandoahHeap::initialize");
 
@@ -271,7 +288,7 @@ void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
                              ShenandoahCollectorPolicy::_num_phases); // no need for stats
 
   {
-    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, label, forwarded, marked, _verify_matrix_disable);
+    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, label, forwarded, marked, _verify_matrix_disable, cset);
     CLDToOopClosure cld_cl(&cl);
     CodeBlobToOopClosure code_cl(&cl, ! CodeBlobToOopClosure::FixRelocations);
     rp.process_all_roots(&cl, &cl, &cld_cl, &code_cl, 0);
@@ -279,7 +296,7 @@ void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
 
   // Finish the scan
   {
-    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, label, forwarded, marked, matrix);
+    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, label, forwarded, marked, matrix, cset);
     while (!stack.is_empty()) {
       VerifierTask task = stack.pop();
       oop obj = task.obj();
@@ -314,7 +331,8 @@ void ShenandoahVerifier::verify_generic(VerifyOption vo) {
           "Generic Verification",
           _verify_forwarded_allow,     // conservatively allow forwarded
           mark_verify,                 // (selector above)
-          _verify_matrix_disable       // matrix can be inconsistent here
+          _verify_matrix_disable,      // matrix can be inconsistent here
+          _verify_cset_disable         // cset may be inconsistent
   );
 }
 
@@ -324,14 +342,16 @@ void ShenandoahVerifier::verify_before_concmark() {
             "Before Mark",
             _verify_forwarded_allow,     // may have forwarded references
             _verify_marked_disable,      // bitmaps are foobared
-            _verify_matrix_disable       // matrix is foobared
+            _verify_matrix_disable,      // matrix is foobared
+            _verify_cset_forwarded       // allow forwarded references to cset
     );
   } else {
     verify_reachable_at_safepoint(
             "Before Mark",
             _verify_forwarded_none,      // UR should have fixed up
             _verify_marked_disable,      // bitmaps are foobared
-            _verify_matrix_conservative  // UR should have fixed matrix
+            _verify_matrix_conservative, // UR should have fixed matrix
+            _verify_cset_none            // UR should have fixed this
     );
   }
 }
@@ -345,7 +365,8 @@ void ShenandoahVerifier::verify_before_evacuation() {
           "Before Evacuation",
           _verify_forwarded_none,      // no forwarded references
           _verify_marked_complete,     // all objects are marked
-          _verify_matrix_disable       // matrix might be foobared
+          _verify_matrix_disable,      // matrix might be foobared
+          _verify_cset_none            // no cset, no references to it
   );
 }
 
@@ -354,7 +375,8 @@ void ShenandoahVerifier::verify_after_evacuation() {
           "After Evacuation",
           _verify_forwarded_allow,     // objects are still forwarded
           _verify_marked_disable,      // cannot trust bitmaps
-          _verify_matrix_disable       // matrix is inconsistent here
+          _verify_matrix_disable,      // matrix is inconsistent here
+          _verify_cset_forwarded       // all cset refs are fully forwarded
   );
 }
 
@@ -363,7 +385,8 @@ void ShenandoahVerifier::verify_before_updaterefs() {
           "Before Updating References",
           _verify_forwarded_allow,     // forwarded references allowed
           _verify_marked_complete,     // all objects are marked
-          _verify_matrix_disable       // matrix is inconsistent here
+          _verify_matrix_disable,      // matrix is inconsistent here
+          _verify_cset_forwarded       // all cset refs are fully forwarded
   );
 }
 
@@ -372,7 +395,8 @@ void ShenandoahVerifier::verify_after_updaterefs() {
           "After Updating References",
           _verify_forwarded_none,      // no forwarded references
           _verify_marked_complete,     // all objects are marked
-          _verify_matrix_conservative  // matrix is conservatively consistent
+          _verify_matrix_conservative, // matrix is conservatively consistent
+          _verify_cset_none            // no cset references, all updated
   );
 }
 
@@ -381,7 +405,8 @@ void ShenandoahVerifier::verify_before_partial() {
           "Before Partial GC",
           _verify_forwarded_none,      // cannot have forwarded objects
           _verify_marked_disable,      // cannot trust bitmaps
-          _verify_matrix_conservative  // matrix is conservatively consistent
+          _verify_matrix_conservative, // matrix is conservatively consistent
+          _verify_cset_none            // no cset references before partial
   );
 }
 
@@ -390,7 +415,8 @@ void ShenandoahVerifier::verify_after_partial() {
           "After Partial GC",
           _verify_forwarded_none,      // cannot have forwarded objects
           _verify_marked_disable,      // cannot trust bitmaps
-          _verify_matrix_conservative  // matrix is conservatively consistent
+          _verify_matrix_conservative, // matrix is conservatively consistent
+          _verify_cset_none            // no cset references left after partial
   );
 }
 
@@ -399,7 +425,8 @@ void ShenandoahVerifier::verify_before_fullgc() {
           "Before Full GC",
           _verify_forwarded_allow,     // can have forwarded objects
           _verify_marked_disable,      // bitmaps might be foobared
-          _verify_matrix_disable       // matrix might be foobared
+          _verify_matrix_disable,      // matrix might be foobared
+          _verify_cset_disable         // cset might be foobared
   );
 }
 
@@ -408,7 +435,8 @@ void ShenandoahVerifier::verify_after_fullgc() {
           "After Full GC",
           _verify_forwarded_none,      // all objects are non-forwarded
           _verify_marked_complete,     // all objects are marked in complete bitmap
-          _verify_matrix_conservative  // matrix is conservatively consistent
+          _verify_matrix_conservative, // matrix is conservatively consistent
+          _verify_cset_none            // no cset references
   );
 }
 
