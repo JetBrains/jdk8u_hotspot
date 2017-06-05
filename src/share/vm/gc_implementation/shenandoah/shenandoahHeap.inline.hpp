@@ -312,7 +312,7 @@ inline bool ShenandoahHeap::requires_marking(const void* entry) const {
 }
 
 bool ShenandoahHeap::region_in_collection_set(size_t region_index) const {
-  return _in_cset_fast_test_base[region_index];
+  return _in_cset_fast_test_base[region_index] == 1;
 }
 
 bool ShenandoahHeap::in_collection_set(ShenandoahHeapRegion* r) const {

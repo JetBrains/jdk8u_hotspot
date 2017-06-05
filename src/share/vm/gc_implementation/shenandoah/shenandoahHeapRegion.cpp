@@ -108,12 +108,6 @@ bool ShenandoahHeapRegion::in_collection_set() const {
   return _heap->region_in_collection_set(_region_number);
 }
 
-void ShenandoahHeapRegion::set_in_collection_set(bool b) {
-  assert(! (is_humongous() && b), "never ever enter a humongous region into the collection set");
-
-  _heap->set_region_in_collection_set(_region_number, b);
-}
-
 void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|" PTR_FORMAT, p2i(this));
   st->print("|" SIZE_FORMAT_W(5), this->_region_number);
@@ -230,7 +224,6 @@ void ShenandoahHeapRegion::recycle() {
   _humongous_start = false;
   _humongous_continuation = false;
   reset_lab_stats();
-  set_in_collection_set(false);
   // Reset C-TAMS pointer to ensure size-based iteration, everything
   // in that regions is going to be new objects.
   _heap->set_complete_top_at_mark_start(bottom(), bottom());

@@ -156,15 +156,18 @@ jint ShenandoahHeap::initialize() {
   size_t regionSizeWords = ShenandoahHeapRegion::region_size_bytes() / HeapWordSize;
   assert(init_byte_size == _initialSize, "tautology");
   _ordered_regions = new ShenandoahHeapRegionSet(_max_regions);
-  _collection_set = new ShenandoahCollectionSet(_max_regions);
   _free_regions = new ShenandoahFreeSet(_max_regions);
 
   // Initialize fast collection set test structure.
   _in_cset_fast_test_length = _max_regions;
   _in_cset_fast_test_base =
-                   NEW_C_HEAP_ARRAY(bool, _in_cset_fast_test_length, mtGC);
+                   NEW_C_HEAP_ARRAY(char, _in_cset_fast_test_length, mtGC);
   _in_cset_fast_test = _in_cset_fast_test_base -
                ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_shift());
+
+
+  _collection_set = new ShenandoahCollectionSet(this, _in_cset_fast_test_base);
+
 
   _next_top_at_mark_starts_base =
                    NEW_C_HEAP_ARRAY(HeapWord*, _max_regions, mtGC);
@@ -843,15 +846,13 @@ void ShenandoahHeap::recycle_dirty_regions() {
 
   size_t bytes_reclaimed = 0;
 
-  debug_only(verify_collection_set(););
-
-  ShenandoahHeapRegionSet* set = collection_set();
+  ShenandoahCollectionSet* set = collection_set();
 
   start_deferred_recycling();
 
-  for (size_t index = 0; index < set->active_regions(); index ++) {
-    ShenandoahHeapRegion* r = set->get(index);
-    assert(in_collection_set(r), "Must match");
+  ShenandoahHeapRegion* r;
+  set->clear_current_index();
+  while ((r = set->next()) != NULL) {
     decrease_used(r->used());
     bytes_reclaimed += r->used();
     defer_recycle(r);
@@ -975,6 +976,7 @@ void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
       region->print_on(out);
     }
 
+    assert(!in_collection_set(region), "Humongous region should not be in collection set");
     region->recycle();
     ShenandoahHeap::heap()->decrease_used(ShenandoahHeapRegion::region_size_bytes());
   }
@@ -2069,7 +2071,7 @@ GCTimer* ShenandoahHeap::gc_timer() const {
 
 class ShenandoahCountGarbageClosure : public ShenandoahHeapRegionClosure {
 private:
-  size_t _garbage;
+  size_t            _garbage;
 public:
   ShenandoahCountGarbageClosure() : _garbage(0) {
   }
@@ -2243,23 +2245,6 @@ void ShenandoahHeap::finish_deferred_recycle() {
   }
 }
 
-
-#ifdef ASSERT
-void ShenandoahHeap::verify_collection_set() const {
-  const ShenandoahCollectionSet* cset = _collection_set;
-  for (size_t index = 0; index < cset->active_regions(); index ++) {
-    ShenandoahHeapRegion* r = cset->get(index);
-    assert(in_collection_set(r), "Must match");
-  }
-
-  const bool* fast_test = _in_cset_fast_test_base;
-  for (size_t index = 0; index < num_regions(); index ++) {
-    if (fast_test[index]) {
-      assert(region_in_collection_set(index), "Must be in cset");
-    }
-  }
-}
-#endif
 
 void ShenandoahHeap::print_extended_on(outputStream *st) const {
   print_on(st);

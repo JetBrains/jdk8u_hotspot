@@ -102,7 +102,6 @@ public:
 // //      ShenandoahHeap
 
 class ShenandoahHeap : public SharedHeap {
-  friend class ShenandoahHeapRegion;
   friend class ShenandoahCollectionSet;
 
   enum LockState { unlocked = 0, locked = 1 };
@@ -175,8 +174,8 @@ private:
   CMBitMap* _complete_mark_bit_map;
   CMBitMap* _next_mark_bit_map;
 
-  bool* _in_cset_fast_test;
-  bool* _in_cset_fast_test_base;
+  char* _in_cset_fast_test;
+  char* _in_cset_fast_test_base;
   size_t _in_cset_fast_test_length;
 
   HeapWord** _complete_top_at_mark_starts;
@@ -526,10 +525,6 @@ public:
   void defer_recycle(ShenandoahHeapRegion* r);
   void finish_deferred_recycle();
 
-#ifdef ASSERT
-  // Verify collection set matches cset fast test
-  void verify_collection_set() const;
-#endif
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP

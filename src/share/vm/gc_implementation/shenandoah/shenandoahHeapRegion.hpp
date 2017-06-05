@@ -118,8 +118,6 @@ public:
 
   bool in_collection_set() const;
 
-  void set_in_collection_set(bool b);
-
   void set_humongous_start(bool start);
   void set_humongous_continuation(bool continuation);
 

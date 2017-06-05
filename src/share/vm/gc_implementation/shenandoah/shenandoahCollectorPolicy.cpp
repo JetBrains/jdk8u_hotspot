@@ -304,16 +304,12 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
                                       " and live = " SIZE_FORMAT "\n",
                               region->region_number(), region->garbage(), region->get_live_data_bytes());
         collection_set->add_region(region);
-        region->set_in_collection_set(true);
         _bytes_in_cset += region->used();
       }
     }
   }
 
   end_choose_collection_set();
-
-  // Make sure cset fast test map matches collection set
-  debug_only(heap->verify_collection_set();)
 
   log_info(gc, ergo)("Total Garbage: "SIZE_FORMAT"M",
                      total_garbage / M);

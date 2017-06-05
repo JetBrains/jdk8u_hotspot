@@ -21,19 +21,51 @@
  *
  */
 
-#include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_HPP
 
-class ShenandoahCollectionSet: public ShenandoahHeapRegionSet {
+#include "memory/allocation.hpp"
+
+class ShenandoahHeap;
+class ShenandoahHeapRegion;
+
+class ShenandoahCollectionSet : public CHeapObj<mtGC> {
 private:
-  size_t _garbage;
-  size_t _live_data;
+  char* const           _cset_map;
+  ShenandoahHeap* const _heap;
+
+  size_t                _garbage;
+  size_t                _live_data;
+  size_t                _region_count;
+
+  volatile jint         _current_index;
 public:
-  ShenandoahCollectionSet(size_t max_regions);
-  ~ShenandoahCollectionSet();
+  ShenandoahCollectionSet(ShenandoahHeap* heap, char* cset_fast_test);
+
+  // Add region to collection set
   void add_region(ShenandoahHeapRegion* r);
+
+  // Remove region from collection set
+  void remove_region(ShenandoahHeapRegion* r);
+
+  // MT version
+  ShenandoahHeapRegion* claim_next();
+
+  // Single-thread version
+  ShenandoahHeapRegion* next();
+
+  size_t count() const { return _region_count; }
+
+  void clear_current_index() {
+    _current_index = 0;
+  }
+
+  bool is_in(ShenandoahHeapRegion* r) const;
+  bool is_in(size_t region_number)    const;
+
+  void print(outputStream* out = tty) const;
+
   size_t live_data() const { return _live_data; }
   size_t garbage()   const { return _garbage;   }
   void clear();
