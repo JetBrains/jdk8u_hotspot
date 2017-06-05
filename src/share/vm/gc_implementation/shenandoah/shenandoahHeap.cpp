@@ -44,6 +44,7 @@
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 #include "runtime/vmThread.hpp"
@@ -238,6 +239,7 @@ jint ShenandoahHeap::initialize() {
     MemTracker::record_virtual_memory_type(verify_bitmap.base(), mtGC);
     MemRegion verify_bitmap_region = MemRegion((HeapWord *) verify_bitmap.base(), verify_bitmap.size() / HeapWordSize);
     _verification_bit_map.initialize(_heap_region, verify_bitmap_region);
+    _verifier = new ShenandoahVerifier(this, &_verification_bit_map);
   }
 
   if (ShenandoahAlwaysPreTouch) {
@@ -294,6 +296,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _cancelled_concgc(false),
   _need_update_refs(false),
   _need_reset_bitmaps(false),
+  _verifier(NULL),
   _heap_lock(0),
 #ifdef ASSERT
   _heap_lock_owner(NULL),
@@ -477,12 +480,6 @@ size_t ShenandoahHeap::calculateUsed() {
   CalculateUsedRegionClosure cl;
   heap_region_iterate(&cl);
   return cl.getResult();
-}
-
-void ShenandoahHeap::verify_heap_size_consistency() {
-
-  assert(calculateUsed() == used(),
-         err_msg("heap used size must be consistent heap-used: "SIZE_FORMAT" regions-used: "SIZE_FORMAT, used(), calculateUsed()));
 }
 
 size_t ShenandoahHeap::used() const {
@@ -798,34 +795,6 @@ private:
   }
 };
 
-#ifdef ASSERT
-class VerifyEvacuatedObjectClosure : public ObjectClosure {
-
-public:
-
-  void do_object(oop p) {
-    if (ShenandoahHeap::heap()->is_marked_complete(p)) {
-      oop p_prime = oopDesc::bs()->read_barrier(p);
-      assert(! oopDesc::unsafe_equals(p, p_prime), "Should point to evacuated copy");
-      if (p->klass() != p_prime->klass()) {
-        tty->print_cr("copy has different class than original:");
-        p->klass()->print_on(tty);
-        p_prime->klass()->print_on(tty);
-      }
-      assert(p->klass() == p_prime->klass(), err_msg("Should have the same class p: "PTR_FORMAT", p_prime: "PTR_FORMAT, p2i(p), p2i(p_prime)));
-      //      assert(p->mark() == p_prime->mark(), "Should have the same mark");
-      assert(p->size() == p_prime->size(), "Should be the same size");
-      assert(oopDesc::unsafe_equals(p_prime, oopDesc::bs()->read_barrier(p_prime)), "One forward once");
-    }
-  }
-};
-
-void ShenandoahHeap::verify_evacuated_region(ShenandoahHeapRegion* from_region) {
-  VerifyEvacuatedObjectClosure verify_evacuation;
-  marked_object_iterate(from_region, &verify_evacuation);
-}
-#endif
-
 void ShenandoahHeap::parallel_evacuate_region(ShenandoahHeapRegion* from_region) {
 
   assert(from_region->has_live(), "all-garbage regions are reclaimed earlier");
@@ -833,12 +802,6 @@ void ShenandoahHeap::parallel_evacuate_region(ShenandoahHeapRegion* from_region)
   ParallelEvacuateRegionObjectClosure evacuate_region(this);
 
   marked_object_iterate(from_region, &evacuate_region);
-
-#ifdef ASSERT
-  if (ShenandoahVerify && ! cancelled_concgc()) {
-    verify_evacuated_region(from_region);
-  }
-#endif
 }
 
 class ParallelEvacuationTask : public AbstractGangTask {
@@ -986,82 +949,6 @@ void ShenandoahHeap::print_all_refs(const char* prefix) {
   object_iterate(&cl2);
 }
 
-class VerifyAfterMarkingOopClosure: public ExtendedOopClosure {
-private:
-  ShenandoahHeap*  _heap;
-
-public:
-  VerifyAfterMarkingOopClosure() :
-    _heap(ShenandoahHeap::heap()) { }
-
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    oop o = oopDesc::load_decode_heap_oop(p);
-    if (o != NULL) {
-      if (! _heap->is_marked_complete(o)) {
-        _heap->print_heap_regions();
-        _heap->print_all_refs("post-mark");
-        tty->print_cr("oop not marked, although referrer is marked: "PTR_FORMAT": in_heap: %s, is_marked: %s",
-                      p2i((HeapWord*) o), BOOL_TO_STR(_heap->is_in(o)), BOOL_TO_STR(_heap->is_marked_complete(o)));
-        _heap->print_heap_locations((HeapWord*) o, (HeapWord*) o + o->size());
-
-        tty->print_cr("oop class: %s", o->klass()->internal_name());
-        if (_heap->is_in(p)) {
-          oop referrer = oop(_heap->heap_region_containing(p)->block_start_const(p));
-          tty->print_cr("Referrer starts at addr "PTR_FORMAT, p2i((HeapWord*) referrer));
-          referrer->print();
-          _heap->print_heap_locations((HeapWord*) referrer, (HeapWord*) referrer + referrer->size());
-        }
-        tty->print_cr("heap region containing object:");
-        _heap->heap_region_containing(o)->print();
-        tty->print_cr("heap region containing referrer:");
-        _heap->heap_region_containing(p)->print();
-        tty->print_cr("heap region containing forwardee:");
-        _heap->heap_region_containing(oopDesc::bs()->read_barrier(o))->print();
-      }
-      assert(o->is_oop(), "oop must be an oop");
-      assert(Metaspace::contains(o->klass()), "klass pointer must go to metaspace");
-      if (! oopDesc::unsafe_equals(o, oopDesc::bs()->read_barrier(o))) {
-        tty->print_cr("oops has forwardee: p: "PTR_FORMAT" (%s), o = "PTR_FORMAT" (%s), new-o: "PTR_FORMAT" (%s)",
-                      p2i(p),
-                      BOOL_TO_STR(_heap->in_collection_set(p)),
-                      p2i(o),
-                      BOOL_TO_STR(_heap->in_collection_set(o)),
-                      p2i((HeapWord*) oopDesc::bs()->read_barrier(o)),
-                      BOOL_TO_STR(_heap->in_collection_set(oopDesc::bs()->read_barrier(o))));
-        tty->print_cr("oop class: %s", o->klass()->internal_name());
-      }
-      assert(oopDesc::unsafe_equals(o, oopDesc::bs()->read_barrier(o)), "oops must not be forwarded");
-      assert(! _heap->in_collection_set(o), "references must not point to dirty heap regions");
-      assert(_heap->is_marked_complete(o), "live oops must be marked current");
-    }
-  }
-
-public:
-  void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
-};
-
-void ShenandoahHeap::verify_heap_after_marking() {
-
-  verify_heap_size_consistency();
-
-  log_trace(gc)("verifying heap after marking");
-
-  VerifyAfterMarkingOopClosure cl;
-  roots_iterate(&cl);
-  ObjectToOopClosure objs(&cl);
-  object_iterate(&objs);
-}
-
-
 void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
   assert(r->is_humongous_start(), "reclaim regions starting with the first one");
 
@@ -1131,14 +1018,9 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
     ensure_parsability(true);
 
     if (ShenandoahVerify) {
-      verify_heap_reachable_at_safepoint();
+      verifier()->verify_after_concmark();
+      verifier()->verify_before_evacuation();
     }
-
-#ifdef ASSERT
-    if (ShenandoahVerify) {
-      verify_heap_after_marking();
-    }
-#endif
 
     // NOTE: This needs to be done during a stop the world pause, because
     // putting regions into the collection set concurrently with Java threads
@@ -1318,7 +1200,7 @@ void ShenandoahHeap::do_evacuation() {
 
   parallel_evacuate();
 
-  if (ShenandoahVerify && ! cancelled_concgc()) {
+  if (ShenandoahVerify && !_shenandoah_policy->update_refs() && !cancelled_concgc()) {
     VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
     if (Thread::current()->is_VM_thread()) {
       verify_after_evacuation.doit();
@@ -1379,34 +1261,6 @@ void ShenandoahHeap::parallel_evacuate() {
   _shenandoah_policy->record_phase_end(ShenandoahCollectorPolicy::conc_evac);
 }
 
-class VerifyEvacuationClosure: public ExtendedOopClosure {
-private:
-  ShenandoahHeap*  _heap;
-  ShenandoahHeapRegion* _from_region;
-
-public:
-  VerifyEvacuationClosure(ShenandoahHeapRegion* from_region) :
-    _heap(ShenandoahHeap::heap()), _from_region(from_region) { }
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    oop heap_oop = oopDesc::load_decode_heap_oop(p);
-    if (! oopDesc::is_null(heap_oop)) {
-      guarantee(! _from_region->is_in(heap_oop), err_msg("no references to from-region allowed after evacuation: "PTR_FORMAT, p2i((HeapWord*) heap_oop)));
-    }
-  }
-
-public:
-  void do_oop(oop* p)       {
-    do_oop_work(p);
-  }
-
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
-};
-
 void ShenandoahHeap::roots_iterate(OopClosure* cl) {
 
   assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
@@ -1416,13 +1270,6 @@ void ShenandoahHeap::roots_iterate(OopClosure* cl) {
 
   ShenandoahRootProcessor rp(this, 1, ShenandoahCollectorPolicy::_num_phases);
   rp.process_all_roots(cl, NULL, &cldCl, &blobsCl, 0);
-}
-
-void ShenandoahHeap::verify_evacuation(ShenandoahHeapRegion* from_region) {
-
-  VerifyEvacuationClosure rootsCl(from_region);
-  roots_iterate(&rootsCl);
-
 }
 
 bool ShenandoahHeap::supports_tlab_allocation() const {
@@ -1568,78 +1415,14 @@ void ShenandoahHeap::print_tracing_info() const {
   }
 }
 
-class ShenandoahVerifyRootsClosure: public ExtendedOopClosure {
-private:
-  ShenandoahHeap*  _heap;
-  VerifyOption     _vo;
-  bool             _failures;
-public:
-  // _vo == UsePrevMarking -> use "prev" marking information,
-  // _vo == UseNextMarking -> use "next" marking information,
-  // _vo == UseMarkWord    -> use mark word from object header.
-  ShenandoahVerifyRootsClosure(VerifyOption vo) :
-    _heap(ShenandoahHeap::heap()),
-    _vo(vo),
-    _failures(false) { }
-
-  bool failures() { return _failures; }
-
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    oop obj = oopDesc::load_decode_heap_oop(p);
-    if (! oopDesc::is_null(obj) && ! obj->is_oop()) {
-      { // Just for debugging.
-        tty->print_cr("Root location "PTR_FORMAT
-                      "verified "PTR_FORMAT, p2i(p), p2i((void*) obj));
-        //      obj->print_on(tty);
-      }
-    }
-    guarantee(obj->is_oop_or_null(), "is oop or null");
-  }
-
-public:
-  void do_oop(oop* p)       {
-    do_oop_work(p);
-  }
-
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
-};
-
-class ShenandoahVerifyHeapClosure: public ObjectClosure {
-private:
-  ShenandoahVerifyRootsClosure _rootsCl;
-public:
-  ShenandoahVerifyHeapClosure(ShenandoahVerifyRootsClosure rc) :
-    _rootsCl(rc) {};
-
-  void do_object(oop p) {
-    _rootsCl.do_oop(&p);
-  }
-};
-
 void ShenandoahHeap::verify(bool silent, VerifyOption vo) {
   if (SafepointSynchronize::is_at_safepoint() || ! UseTLAB) {
-
-    ShenandoahVerifyRootsClosure rootsCl(vo);
-
-    assert(Thread::current()->is_VM_thread(),
-           "Expected to be executed serially by the VM thread at this point");
-
-    roots_iterate(&rootsCl);
-
-    bool failures = rootsCl.failures();
-    log_trace(gc)("verify failures: %s", BOOL_TO_STR(failures));
-
-    ShenandoahVerifyHeapClosure heapCl(rootsCl);
-
-    object_iterate(&heapCl);
-    // TODO: Implement rest of it.
-  } else {
-    tty->print("(SKIPPING roots, heapRegions, remset) ");
+    if (ShenandoahVerify) {
+      verifier()->verify_generic(vo);
+    } else {
+      // TODO: Consider allocating verification bitmaps on demand,
+      // and turn this on unconditionally.
+    }
   }
 }
 size_t ShenandoahHeap::tlab_capacity(Thread *thr) const {
@@ -1800,6 +1583,9 @@ public:
 
 
 void ShenandoahHeap::start_concurrent_marking() {
+  if (ShenandoahVerify) {
+    verifier()->verify_before_concmark();
+  }
 
   shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::accumulate_stats);
   accumulate_statistics_all_tlabs();
@@ -1827,50 +1613,6 @@ void ShenandoahHeap::start_concurrent_marking() {
   concurrentMark()->init_mark_roots();
 }
 
-class VerifyAfterEvacuationClosure : public ExtendedOopClosure {
-
-  ShenandoahHeap* _sh;
-
-public:
-  VerifyAfterEvacuationClosure() : _sh ( ShenandoahHeap::heap() ) {}
-
-  template<class T> void do_oop_nv(T* p) {
-    T heap_oop = oopDesc::load_heap_oop(p);
-    if (!oopDesc::is_null(heap_oop)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
-      guarantee(_sh->in_collection_set(obj) == (! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj))),
-                err_msg("forwarded objects can only exist in dirty (from-space) regions is_dirty: %s, is_forwarded: %s obj-klass: %s, marked: %s",
-                BOOL_TO_STR(_sh->in_collection_set(obj)),
-                BOOL_TO_STR(! oopDesc::unsafe_equals(obj, oopDesc::bs()->read_barrier(obj))),
-                obj->klass()->external_name(),
-                BOOL_TO_STR(_sh->is_marked_complete(obj)))
-                );
-      obj = oopDesc::bs()->read_barrier(obj);
-      guarantee(! _sh->in_collection_set(obj), "forwarded oops must not point to dirty regions");
-      guarantee(obj->is_oop(), "is_oop");
-      guarantee(Metaspace::contains(obj->klass()), "klass pointer must go to metaspace");
-    }
-  }
-
-  void do_oop(oop* p)       { do_oop_nv(p); }
-  void do_oop(narrowOop* p) { do_oop_nv(p); }
-
-};
-
-void ShenandoahHeap::verify_heap_after_evacuation() {
-
-  verify_heap_size_consistency();
-
-  ensure_parsability(false);
-
-  VerifyAfterEvacuationClosure cl;
-  roots_iterate(&cl);
-
-  ObjectToOopClosure objs(&cl);
-  object_iterate(&objs);
-
-}
-
 void ShenandoahHeap::swap_mark_bitmaps() {
   // Swap bitmaps.
   CMBitMap* tmp1 = _complete_mark_bit_map;
@@ -1885,84 +1627,6 @@ void ShenandoahHeap::swap_mark_bitmaps() {
   HeapWord** tmp3 = _complete_top_at_mark_starts_base;
   _complete_top_at_mark_starts_base = _next_top_at_mark_starts_base;
   _next_top_at_mark_starts_base = tmp3;
-}
-
-class VerifyReachableHeapClosure : public ExtendedOopClosure {
-private:
-  SCMObjToScanQueue* _queue;
-  ShenandoahHeap* _heap;
-  CMBitMap* _map;
-  oop _obj;
-public:
-  VerifyReachableHeapClosure(SCMObjToScanQueue* queue, CMBitMap* map) :
-          _queue(queue), _heap(ShenandoahHeap::heap()), _map(map) {};
-  template <class T>
-  void do_oop_work(T* p) {
-    T o = oopDesc::load_heap_oop(p);
-    if (!oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      guarantee(check_obj_alignment(obj), "sanity");
-
-      guarantee(!oopDesc::is_null(obj), "sanity");
-      guarantee(_heap->is_in(obj), "sanity");
-
-      oop forw = BrooksPointer::forwardee(obj);
-      guarantee(!oopDesc::is_null(forw), "sanity");
-      guarantee(_heap->is_in(forw), "sanity");
-
-      guarantee(oopDesc::unsafe_equals(obj, forw), "should not be forwarded");
-
-      if (_map->parMark((HeapWord*) obj)) {
-        _queue->push(SCMTask(obj));
-      }
-    }
-  }
-
-  void do_oop(oop* p) { do_oop_work(p); }
-  void do_oop(narrowOop* p) { do_oop_work(p); }
-  void set_obj(oop o) { _obj = o; }
-};
-
-void ShenandoahHeap::verify_heap_reachable_at_safepoint() {
-  guarantee(SafepointSynchronize::is_at_safepoint(), "only when nothing else happens");
-  guarantee(ShenandoahVerify,
-            "only when these are enabled, and bitmap is initialized in ShenandoahHeap::initialize");
-
-  OrderAccess::fence();
-  ensure_parsability(false);
-
-  // Allocate temporary bitmap for storing marking wavefront:
-  MemRegion mr = MemRegion(_verification_bit_map.startWord(), _verification_bit_map.endWord());
-  _verification_bit_map.clear_range_large(mr);
-
-  // Initialize a single queue
-  SCMObjToScanQueue* q = new SCMObjToScanQueue();
-  q->initialize();
-
-  // Scan root set
-  ShenandoahRootProcessor rp(this, 1,
-                             ShenandoahCollectorPolicy::_num_phases); // no need for stats
-
-  {
-    VerifyReachableHeapClosure cl(q, &_verification_bit_map);
-    CLDToOopClosure cld_cl(&cl);
-    CodeBlobToOopClosure code_cl(&cl, ! CodeBlobToOopClosure::FixRelocations);
-    rp.process_all_roots(&cl, &cl, &cld_cl, &code_cl, 0);
-  }
-
-  // Finish the scan
-  {
-    VerifyReachableHeapClosure cl(q, &_verification_bit_map);
-    SCMTask task;
-    while ((q->pop_buffer(task) ||
-            q->pop_local(task) ||
-            q->pop_overflow(task))) {
-      oop obj = task.obj();
-      assert(!oopDesc::is_null(obj), "must not be null");
-      cl.set_obj(obj);
-      obj->oop_iterate(&cl);
-    }
-  }
 }
 
 void ShenandoahHeap::stop_concurrent_marking() {
@@ -2007,19 +1671,6 @@ void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
   _evacuation_in_progress = in_progress ? 1 : 0;
   OrderAccess::fence();
 }
-
-void ShenandoahHeap::verify_copy(oop p,oop c){
-    assert(! oopDesc::unsafe_equals(p, oopDesc::bs()->read_barrier(p)), "forwarded correctly");
-    assert(oopDesc::unsafe_equals(oopDesc::bs()->read_barrier(p), c), "verify pointer is correct");
-    if (p->klass() != c->klass()) {
-      print_heap_regions();
-    }
-    assert(p->klass() == c->klass(), err_msg("verify class p-size: "INT32_FORMAT" c-size: "INT32_FORMAT, p->size(), c->size()));
-    assert(p->size() == c->size(), "verify size");
-    // Object may have been locked between copy and verification
-    //    assert(p->mark() == c->mark(), "verify mark");
-    assert(oopDesc::unsafe_equals(c, oopDesc::bs()->read_barrier(c)), "verify only forwarded once");
-  }
 
 void ShenandoahHeap::oom_during_evacuation() {
   log_develop_trace(gc)("Out of memory during evacuation, cancel evacuation, schedule full GC by thread %d",
@@ -2443,6 +2094,12 @@ size_t ShenandoahHeap::garbage() {
 ShenandoahUpdateHeapRefsClosure::ShenandoahUpdateHeapRefsClosure() :
   _heap(ShenandoahHeap::heap()) {}
 
+ShenandoahVerifier* ShenandoahHeap::verifier() {
+  guarantee(ShenandoahVerify, "Should be enabled");
+  assert (_verifier != NULL, "sanity");
+  return _verifier;
+}
+
 class ShenandoahUpdateHeapRefsTask : public AbstractGangTask {
 private:
   ShenandoahHeap* _heap;
@@ -2493,6 +2150,11 @@ void ShenandoahHeap::concurrent_update_heap_references() {
 
 void ShenandoahHeap::prepare_update_refs() {
   assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+
+  if (ShenandoahVerify) {
+    verifier()->verify_before_updaterefs();
+  }
+
   set_evacuation_in_progress_at_safepoint(false);
   set_update_refs_in_progress(true);
   ensure_parsability(true);
@@ -2528,7 +2190,7 @@ void ShenandoahHeap::finish_update_refs() {
   set_need_update_refs(false);
 
   if (ShenandoahVerify) {
-    verify_update_refs();
+    verifier()->verify_after_updaterefs();
   }
 
   {
@@ -2547,43 +2209,6 @@ void ShenandoahHeap::finish_update_refs() {
   set_update_refs_in_progress(false);
 
   shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_update_refs_recycle);
-}
-
-class ShenandoahVerifyUpdateRefsClosure : public ExtendedOopClosure {
-private:
-  template <class T>
-  void do_oop_work(T* p) {
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      guarantee(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)),
-                "must not be forwarded");
-    }
-  }
-public:
-  void do_oop(oop* p) { do_oop_work(p); }
-  void do_oop(narrowOop* p) { do_oop_work(p); }
-};
-
-void ShenandoahHeap::verify_update_refs() {
-
-  ensure_parsability(false);
-
-  ShenandoahVerifyUpdateRefsClosure cl;
-
-  // Verify roots.
-  {
-    CodeBlobToOopClosure blobsCl(&cl, false);
-    CLDToOopClosure cldCl(&cl);
-    ShenandoahRootProcessor rp(this, 1, ShenandoahCollectorPolicy::_num_phases);
-    rp.process_all_roots(&cl, &cl, &cldCl, &blobsCl, 0);
-  }
-
-  // Verify heap.
-  for (uint i = 0; i < num_regions(); i++) {
-    ShenandoahHeapRegion* r = regions()->get(i);
-    marked_object_oop_iterate(r, &cl);
-  }
 }
 
 #ifdef ASSERT

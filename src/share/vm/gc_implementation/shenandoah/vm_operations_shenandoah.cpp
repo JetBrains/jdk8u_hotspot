@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
@@ -159,8 +160,6 @@ void VM_ShenandoahFinalUpdateRefs::doit() {
 }
 
 void VM_ShenandoahVerifyHeapAfterEvacuation::doit() {
-
   ShenandoahHeap *sh = ShenandoahHeap::heap();
-  sh->verify_heap_after_evacuation();
-
+  sh->verifier()->verify_after_evacuation();
 }

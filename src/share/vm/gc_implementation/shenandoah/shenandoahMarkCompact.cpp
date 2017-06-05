@@ -36,6 +36,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/biasedLocking.hpp"
@@ -137,14 +138,11 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   ClearInCollectionSetHeapRegionClosure cl;
   _heap->heap_region_iterate(&cl, false, false);
 
-  /*
   if (ShenandoahVerify) {
     // Full GC should only be called between regular concurrent cycles, therefore
     // those verifications should be valid.
-    _heap->verify_heap_after_evacuation();
-    _heap->verify_heap_after_update_refs();
+    _heap->verifier()->verify_before_fullgc();
   }
-  */
 
   BarrierSet* old_bs = oopDesc::bs();
   ShenandoahMarkCompactBarrierSet bs(_heap);
@@ -215,7 +213,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     // rp.enqueue_discovered_references();
 
     if (ShenandoahVerify) {
-      _heap->verify_heap_after_evacuation();
+      _heap->verifier()->verify_after_fullgc();
     }
 
     _heap->set_bytes_allocated_since_cm(0);
@@ -236,58 +234,6 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
   oopDesc::set_bs(old_bs);
 }
-
-#ifdef ASSERT
-class VerifyNotForwardedPointersClosure : public MetadataAwareOopClosure {
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)),
-             "expect forwarded oop");
-      ShenandoahHeap* heap = ShenandoahHeap::heap();
-      if (! heap->is_marked_complete(obj)) {
-        tty->print_cr("ref region humongous? %s", BOOL_TO_STR(heap->heap_region_containing(p)->is_humongous()));
-      }
-      assert(heap->is_marked_complete(obj), "must be marked");
-      assert(! heap->allocated_after_complete_mark_start((HeapWord*) obj), "must be truly marked");
-    }
-  }
-public:
-  void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-};
-
-class ShenandoahMCVerifyAfterMarkingObjectClosure : public ObjectClosure {
-public:
-  void do_object(oop p) {
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
-    assert(oopDesc::unsafe_equals(p, ShenandoahBarrierSet::resolve_oop_static_not_null(p)),
-           "expect forwarded oop");
-    assert(heap->is_marked_complete(p), "must be marked");
-    assert(! heap->allocated_after_complete_mark_start((HeapWord*) p), "must be truly marked");
-    VerifyNotForwardedPointersClosure cl;
-    p->oop_iterate(&cl);
-  }
-};
-
-class ShenandoahMCVerifyAfterMarkingRegionClosure : public ShenandoahHeapRegionClosure {
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    ShenandoahMCVerifyAfterMarkingObjectClosure cl;
-    if (! r->is_humongous_continuation()) {
-      ShenandoahHeap::heap()->marked_object_iterate(r, &cl);
-    }
-    return false;
-  }
-};
-
-#endif
 
 void ShenandoahMarkCompact::phase1_mark_heap() {
   ShenandoahHeap* _heap = ShenandoahHeap::heap();
@@ -312,10 +258,6 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
 
   _heap->swap_mark_bitmaps();
 
-  if (ShenandoahVerify) {
-    _heap->verify_heap_reachable_at_safepoint();
-  }
-
   if (VerifyDuringGC) {
     HandleMark hm;  // handle scope
     //    Universe::heap()->prepare_for_verify();
@@ -333,11 +275,6 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
     //    Universe::heap()->verify(VerifySilently, VerifyOption_G1UseMarkWord);
     _heap->verify(true, VerifyOption_G1UseMarkWord);
   }
-
-#ifdef ASSERT
-  ShenandoahMCVerifyAfterMarkingRegionClosure cl;
-  _heap->heap_region_iterate(&cl);
-#endif
 }
 
 class ShenandoahMCReclaimHumongousRegionClosure : public ShenandoahHeapRegionClosure {

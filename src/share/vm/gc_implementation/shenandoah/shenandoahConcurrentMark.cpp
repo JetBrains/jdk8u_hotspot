@@ -407,10 +407,6 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
   }
 
   TASKQUEUE_STATS_ONLY(print_taskqueue_stats());
-
-#ifdef ASSERT
-  verify_roots();
-#endif
 }
 
 void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
@@ -465,42 +461,6 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   assert(task_queues()->is_empty(), "Should be empty");
 
 }
-
-#ifdef ASSERT
-template <class T>
-void ShenandoahVerifyRootsClosure1::do_oop_work(T* p) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  T o = oopDesc::load_heap_oop(p);
-  if (! oopDesc::is_null(o)) {
-    oop obj = oopDesc::decode_heap_oop_not_null(o);
-    if (! oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj))) {
-      tty->print_cr("from-space marked: %s, to-space marked: %s, unload_classes: %s",
-                    BOOL_TO_STR(heap->is_marked_next(obj)),
-                    BOOL_TO_STR(heap->is_marked_next(ShenandoahBarrierSet::resolve_oop_static_not_null(obj))),
-                    BOOL_TO_STR(heap->concurrentMark()->unload_classes()));
-    }
-    guarantee(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "oop must not be forwarded");
-    guarantee(heap->is_marked_next(obj), "oop must be marked");
-  }
-}
-
-void ShenandoahVerifyRootsClosure1::do_oop(oop* p) {
-  do_oop_work(p);
-}
-
-void ShenandoahVerifyRootsClosure1::do_oop(narrowOop* p) {
-  do_oop_work(p);
-}
-
-void ShenandoahConcurrentMark::verify_roots() {
-  ShenandoahVerifyRootsClosure1 cl;
-  CodeBlobToOopClosure blobsCl(&cl, false);
-  CLDToOopClosure cldCl(&cl);
-  ShenandoahRootProcessor rp(ShenandoahHeap::heap(), 1, ShenandoahCollectorPolicy::_num_phases);
-  rp.process_all_roots(&cl, &cl, &cldCl, &blobsCl, 0);
-
-}
-#endif
 
 class ShenandoahSATBThreadsClosure : public ThreadClosure {
   ShenandoahSATBBufferClosure* _satb_cl;
