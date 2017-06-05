@@ -31,18 +31,6 @@
 
 class ShenandoahConcurrentMark;
 
-#ifdef ASSERT
-class ShenandoahVerifyRootsClosure1 : public OopClosure {
-private:
-  template <class T>
-  inline void do_oop_work(T* p);
-
-public:
-  void do_oop(oop* p);
-  void do_oop(narrowOop* p);
-};
-#endif
-
 class ShenandoahConcurrentMark: public CHeapObj<mtGC> {
 
 private:
@@ -180,10 +168,6 @@ public:
   void preclean_weak_refs();
 
 private:
-
-#ifdef ASSERT
-  void verify_roots();
-#endif
 
   void weak_refs_work(bool full_gc);
 

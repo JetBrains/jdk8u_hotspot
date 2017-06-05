@@ -199,8 +199,8 @@
           "Emit additional code that checks objects are written to only"    \
           " in to-space")                                                   \
                                                                             \
-  develop(bool, ShenandoahVerify, false,                                    \
-          "Verify the  Shenandoah garbage collector")                       \
+  diagnostic(bool, ShenandoahVerify, false,                                 \
+          "Verify the Shenandoah garbage collector")                        \
                                                                             \
   develop(bool, VerifyStrictOopOperations, false,                           \
           "Verify that == and != are not used on oops. Only in fastdebug")  \

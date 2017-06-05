@@ -36,6 +36,7 @@ class ShenandoahHeapRegionSet;
 class ShenandoahCollectionSet;
 class ShenandoahFreeSet;
 class ShenandoahConcurrentMark;
+class ShenandoahVerifier;
 class ShenandoahConcurrentThread;
 class ShenandoahMonitoringSupport;
 
@@ -151,6 +152,7 @@ private:
   ShenandoahFreeSet* _free_regions;
   ShenandoahCollectionSet* _collection_set;
   ShenandoahConcurrentMark* _scm;
+  ShenandoahVerifier*  _verifier;
 
 
 
@@ -317,7 +319,6 @@ public:
   void concurrent_update_heap_references();
   void prepare_update_refs();
   void finish_update_refs();
-  void verify_update_refs();
 
 private:
   void set_evacuation_in_progress(bool in_progress);
@@ -417,6 +418,7 @@ public:
 
   ShenandoahMonitoringSupport* monitoring_support();
   ShenandoahConcurrentMark* concurrentMark() { return _scm;}
+  ShenandoahVerifier* verifier();
 
   ReferenceProcessor* ref_processor() { return _ref_processor;}
 
@@ -428,10 +430,6 @@ public:
   ShenandoahHeapRegion* next_compaction_region(const ShenandoahHeapRegion* r);
 
   void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_dirty_regions = false, bool skip_humongous_continuation = false) const;
-
-  void verify_heap_after_evacuation();
-  void verify_heap_after_marking();
-  void verify_heap_reachable_at_safepoint();
 
   // Delete entries for dead interned string and clean up unreferenced symbols
   // in symbol table, possibly in parallel.
@@ -503,20 +501,13 @@ private:
   inline oop atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c);
   inline oop atomic_compare_exchange_oop(oop n, oop* addr, oop c);
 
-#ifdef ASSERT
-  void verify_evacuated_region(ShenandoahHeapRegion* from_region);
-#endif
-
   inline void copy_object(oop p, HeapWord* s, size_t words);
-  void verify_copy(oop p, oop c);
-  void verify_heap_size_consistency();
 
   void ref_processing_init();
 
   void grow_heap_by(size_t num_regions);
   void ensure_new_regions(size_t num_new_regions);
 
-  void verify_evacuation(ShenandoahHeapRegion* from_region);
   void set_concurrent_mark_in_progress(bool in_progress);
 
   void oom_during_evacuation();
