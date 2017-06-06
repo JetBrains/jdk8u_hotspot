@@ -35,9 +35,6 @@
  * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=passive    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjectArrays
  * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=adaptive   -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjectArrays
  * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjectArrays
- *
- * Skip, this runs for too long with back-to-back GCs and verification:
- *  run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=aggressive -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjectArrays
  */
 
 public class AllocObjectArrays {
