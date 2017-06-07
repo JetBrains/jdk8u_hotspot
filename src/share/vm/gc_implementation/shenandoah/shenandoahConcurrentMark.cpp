@@ -671,6 +671,13 @@ public:
   void execute(ProcessTask& task) {
     assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
+    // Shortcut execution if task is empty.
+    // This should be replaced with the generic ReferenceProcessor shortcut,
+    // see JDK-8181214, JDK-8043575, JDK-6938732.
+    if (task.is_empty()) {
+      return;
+    }
+
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     ShenandoahConcurrentMark* cm = heap->concurrentMark();
     uint nworkers = _workers->active_workers();
@@ -696,12 +703,28 @@ public:
 void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
   assert(process_references(), "sanity");
 
-  ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
 
   ShenandoahCollectorPolicy::TimingPhase phase_root =
           full_gc ?
           ShenandoahCollectorPolicy::full_gc_weakrefs :
           ShenandoahCollectorPolicy::weakrefs;
+
+  sh->shenandoahPolicy()->record_phase_start(phase_root);
+
+  ReferenceProcessor* rp = sh->ref_processor();
+  weak_refs_work_doit(full_gc);
+
+  rp->verify_no_references_recorded();
+  assert(!rp->discovery_enabled(), "Post condition");
+
+  sh->shenandoahPolicy()->record_phase_end(phase_root);
+}
+
+void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
+
+  ReferenceProcessor* rp = sh->ref_processor();
 
   ShenandoahCollectorPolicy::TimingPhase phase_process =
           full_gc ?
@@ -713,9 +736,6 @@ void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
           ShenandoahCollectorPolicy::full_gc_weakrefs_enqueue :
           ShenandoahCollectorPolicy::weakrefs_enqueue;
 
-  sh->shenandoahPolicy()->record_phase_start(phase_root);
-
-  ReferenceProcessor* rp = sh->ref_processor();
   ReferenceProcessorIsAliveMutator fix_alive(rp, sh->is_alive_closure());
 
   WorkGang* workers = sh->workers();
@@ -761,11 +781,6 @@ void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
   sh->shenandoahPolicy()->record_phase_start(phase_enqueue);
   rp->enqueue_discovered_references(&executor);
   sh->shenandoahPolicy()->record_phase_end(phase_enqueue);
-
-  rp->verify_no_references_recorded();
-  assert(!rp->discovery_enabled(), "Post condition");
-
-  sh->shenandoahPolicy()->record_phase_end(phase_root);
 }
 
 class ShenandoahCancelledGCYieldClosure : public YieldClosure {
