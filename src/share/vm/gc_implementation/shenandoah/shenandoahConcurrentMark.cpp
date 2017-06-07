@@ -540,13 +540,14 @@ void ShenandoahConcurrentMark::reset_taskqueue_stats() {
 class ShenandoahCMDrainMarkingStackClosure: public VoidClosure {
   uint _worker_id;
   ParallelTaskTerminator* _terminator;
+  bool _reset_terminator;
 
 public:
-  ShenandoahCMDrainMarkingStackClosure(uint worker_id, ParallelTaskTerminator* t):
+  ShenandoahCMDrainMarkingStackClosure(uint worker_id, ParallelTaskTerminator* t, bool reset_terminator = false):
     _worker_id(worker_id),
-    _terminator(t) {
+    _terminator(t),
+    _reset_terminator(reset_terminator) {
   }
-
 
   void do_void() {
     assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
@@ -564,6 +565,10 @@ public:
                    true,  // count liveness
                    scm->unload_classes(),
                    sh->need_update_refs());
+
+    if (_reset_terminator) {
+      _terminator->reset_for_reuse();
+    }
   }
 };
 
@@ -722,12 +727,16 @@ void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
   rp->setup_policy(clear_soft_refs);
   rp->set_active_mt_degree(nworkers);
 
-  uint serial_worker_id = 0;
-
   assert(task_queues()->is_empty(), "Should be empty");
 
+  // complete_gc and keep_alive closures instantiated here are only needed for
+  // single-threaded path in RP. They share the queue 0 for tracking work, which
+  // simplifies implementation. Since RP may decide to call complete_gc several
+  // times, we need to be able to reuse the terminator.
+  uint serial_worker_id = 0;
   ParallelTaskTerminator terminator(1, task_queues());
-  ShenandoahCMDrainMarkingStackClosure complete_gc(serial_worker_id, &terminator);
+  ShenandoahCMDrainMarkingStackClosure complete_gc(serial_worker_id, &terminator, /* reset_terminator = */ true);
+
   ShenandoahRefProcTaskExecutor executor(workers);
 
   sh->shenandoahPolicy()->record_phase_start(phase_process);
