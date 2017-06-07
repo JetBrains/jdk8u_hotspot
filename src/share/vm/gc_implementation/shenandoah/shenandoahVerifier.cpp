@@ -98,9 +98,9 @@ public:
   void print_failure(T* p, oop obj, const char* label) {
     bool loc_in_heap = (_loc != NULL && _heap->is_in(_loc));
 
-    large_buf msg("%s: %s \n\n", _phase, label);
+    large_buf msg("Shenandoah verification failed; %s: %s\n\n", _phase, label);
 
-    msg.append("Referenced from: \n");
+    msg.append("Referenced from:\n");
     msg.append("  interior location: " PTR_FORMAT "\n", p2i(p));
 
     if (loc_in_heap) {
@@ -110,26 +110,25 @@ public:
     }
     msg.append("\n");
 
-    msg.append("Object: \n");
+    msg.append("Object:\n");
     print_obj(msg, obj);
     msg.append("\n");
 
     oop fwd = BrooksPointer::forwardee(obj);
     if (!oopDesc::unsafe_equals(obj, fwd)) {
-      msg.append("Forwardee: \n");
+      msg.append("Forwardee:\n");
       print_obj(msg, fwd);
       msg.append("\n");
     }
 
     oop fwd2 = BrooksPointer::forwardee(fwd);
     if (!oopDesc::unsafe_equals(fwd, fwd2)) {
-      msg.append("Second forwardee: \n");
+      msg.append("Second forwardee:\n");
       print_obj(msg, fwd2);
       msg.append("\n");
     }
 
-    bool verification_passed = false;
-    guarantee(verification_passed, msg.buffer());
+    report_vm_error(__FILE__, __LINE__, msg.buffer());
   }
 
   template <class T>
