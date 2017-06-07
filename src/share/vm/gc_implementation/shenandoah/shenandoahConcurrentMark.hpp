@@ -170,6 +170,7 @@ public:
 private:
 
   void weak_refs_work(bool full_gc);
+  void weak_refs_work_doit(bool full_gc);
 
 #if TASKQUEUE_STATS
   static void print_taskqueue_stats_hdr(outputStream* const st = tty);

@@ -210,7 +210,7 @@ public:
 
 class ReferenceProcessor : public CHeapObj<mtGC> {
 
- private:
+ public:
   size_t total_count(DiscoveredList lists[]);
 
  protected:
@@ -694,6 +694,10 @@ public:
   // Returns true if a task marks some oops as alive.
   bool marks_oops_alive() const
   { return _marks_oops_alive; }
+
+  bool is_empty() const {
+    return _ref_processor.total_count(_refs_lists) == 0;
+  }
 
 protected:
   ReferenceProcessor& _ref_processor;
