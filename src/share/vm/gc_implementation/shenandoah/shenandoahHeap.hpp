@@ -319,6 +319,8 @@ public:
   void prepare_update_refs();
   void finish_update_refs();
 
+  void roots_iterate(OopClosure* cl);
+
 private:
   void set_evacuation_in_progress(bool in_progress);
 
@@ -405,8 +407,6 @@ public:
   inline oop maybe_update_oop_ref_not_null(T* p, oop obj);
 
   void print_heap_regions(outputStream* st = tty) const;
-  void print_all_refs(const char* prefix);
-  void print_heap_locations(HeapWord* start, HeapWord* end);
 
   size_t bytes_allocated_since_cm();
   void set_bytes_allocated_since_cm(size_t bytes);
@@ -485,8 +485,6 @@ private:
   inline HeapWord* allocate_from_gclab(Thread* thread, size_t size);
   HeapWord* allocate_from_gclab_slow(Thread* thread, size_t size);
   HeapWord* allocate_new_gclab(size_t word_size);
-
-  void roots_iterate(OopClosure* cl);
 
   template<class T>
   inline void do_marked_object(CMBitMap* bitmap, T* cl, oop obj);
