@@ -49,26 +49,15 @@ void VM_ShenandoahInitMark::doit() {
   assert(sh->is_next_bitmap_clear(), "need clear marking bitmap");
 
   sh->start_concurrent_marking();
-  if (UseTLAB) {
-    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
-    sh->resize_all_tlabs();
-    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::resize_tlabs);
-  }
 
   sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark);
   sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause);
 }
 
 void VM_ShenandoahFullGC::doit() {
-
-  ShenandoahMarkCompact::do_mark_compact(_gc_cause);
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   sh->shenandoahPolicy()->record_gc_start();
-  if (UseTLAB) {
-    sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
-    sh->resize_all_tlabs();
-    sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::resize_tlabs);
-  }
+  ShenandoahMarkCompact::do_mark_compact(_gc_cause);
   sh->shenandoahPolicy()->record_gc_end();
 }
 

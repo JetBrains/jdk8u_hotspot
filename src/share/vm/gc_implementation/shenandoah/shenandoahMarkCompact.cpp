@@ -230,6 +230,12 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   _heap->post_full_gc_dump(_gc_timer);
   policy->record_phase_end(ShenandoahCollectorPolicy::full_gc_heapdumps);
 
+  if (UseTLAB) {
+    _heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::full_gc_resize_tlabs);
+    _heap->resize_all_tlabs();
+    _heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::full_gc_resize_tlabs);
+  }
+
   policy->record_phase_end(ShenandoahCollectorPolicy::full_gc);
 
   oopDesc::set_bs(old_bs);

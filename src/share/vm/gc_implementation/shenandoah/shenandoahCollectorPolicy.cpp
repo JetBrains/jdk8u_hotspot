@@ -743,13 +743,14 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
 
   _phase_names[total_pause]                     = "Total Pauses (N)";
   _phase_names[total_pause_gross]               = "Total Pauses (G)";
-  _phase_names[init_mark]                       = "Initial Mark Pauses (N)";
-  _phase_names[init_mark_gross]                 = "Initial Mark Pauses (G)";
-  _phase_names[final_mark]                      = "Final Mark Pauses (N)";
-  _phase_names[final_mark_gross]                = "Final Mark Pauses (G)";
+  _phase_names[init_mark]                       = "Pause Init Mark (N)";
+  _phase_names[init_mark_gross]                 = "Pause Init Mark (G)";
+  _phase_names[final_mark]                      = "Pause Final Mark (N)";
+  _phase_names[final_mark_gross]                = "Pause Final Mark (G)";
   _phase_names[accumulate_stats]                = "  Accumulate Stats";
   _phase_names[make_parsable]                   = "  Make Parsable";
   _phase_names[clear_liveness]                  = "  Clear Liveness";
+  _phase_names[resize_tlabs]                    = "  Resize TLABs";
   _phase_names[finish_queues]                   = "  Finish Queues";
   _phase_names[weakrefs]                        = "  Weak References";
   _phase_names[weakrefs_process]                = "    Process";
@@ -803,10 +804,8 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[evac_jvmti_roots]                = "    E: JVMTI Roots";
 
   _phase_names[recycle_regions]                 = "  Recycle regions";
-  _phase_names[reset_bitmaps]                   = "Reset Bitmaps";
-  _phase_names[resize_tlabs]                    = "Resize TLABs";
 
-  _phase_names[full_gc]                         = "Full GC";
+  _phase_names[full_gc]                         = "Pause Full GC";
   _phase_names[full_gc_heapdumps]               = "  Heap Dumps";
   _phase_names[full_gc_prepare]                 = "  Prepare";
   _phase_names[full_gc_roots]                   = "  Roots";
@@ -834,10 +833,12 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[full_gc_calculate_addresses]     = "  Calculate Addresses";
   _phase_names[full_gc_adjust_pointers]         = "  Adjust Pointers";
   _phase_names[full_gc_copy_objects]            = "  Copy Objects";
+  _phase_names[full_gc_resize_tlabs]            = "  Resize TLABs";
 
   _phase_names[conc_mark]                       = "Concurrent Marking";
   _phase_names[conc_preclean]                   = "Concurrent Precleaning";
   _phase_names[conc_evac]                       = "Concurrent Evacuation";
+  _phase_names[conc_reset_bitmaps]              = "Concurrent Reset Bitmaps";
 
   _phase_names[init_update_refs_gross]          = "Pause Init  Update Refs (G)";
   _phase_names[init_update_refs]                = "Pause Init  Update Refs (N)";
