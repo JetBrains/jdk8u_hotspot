@@ -262,11 +262,11 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   {
     GCTraceTime time("Concurrent reset bitmaps", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::reset_bitmaps);
+    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::conc_reset_bitmaps);
     FlexibleWorkGang* workers = heap->workers();
     ShenandoahPushWorkerScope scope(workers, heap->max_workers());
     heap->reset_next_mark_bitmap(workers);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::reset_bitmaps);
+    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::conc_reset_bitmaps);
   }
 
   // Allocations happen during bitmap cleanup, record peak after the phase:

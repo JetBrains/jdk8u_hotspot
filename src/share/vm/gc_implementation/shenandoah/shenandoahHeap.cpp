@@ -1614,6 +1614,12 @@ void ShenandoahHeap::start_concurrent_marking() {
   OrderAccess::fence();
 
   concurrentMark()->init_mark_roots();
+
+  if (UseTLAB) {
+    shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
+    resize_all_tlabs();
+    shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::resize_tlabs);
+  }
 }
 
 void ShenandoahHeap::swap_mark_bitmaps() {

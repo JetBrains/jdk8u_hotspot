@@ -135,12 +135,6 @@ public:
 
     final_update_refs_recycle,
 
-    conc_mark,
-    conc_preclean,
-    conc_evac,
-    conc_update_refs,
-    reset_bitmaps,
-
     full_gc,
     full_gc_heapdumps,
     full_gc_prepare,
@@ -172,6 +166,14 @@ public:
     full_gc_calculate_addresses,
     full_gc_adjust_pointers,
     full_gc_copy_objects,
+    full_gc_resize_tlabs,
+
+    // Longer concurrent phases at the end
+    conc_mark,
+    conc_preclean,
+    conc_evac,
+    conc_update_refs,
+    conc_reset_bitmaps,
 
     _num_phases
   };
