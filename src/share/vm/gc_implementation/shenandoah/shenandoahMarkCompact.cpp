@@ -135,6 +135,12 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   _heap->reset_next_mark_bitmap(_heap->workers());
   assert(_heap->is_next_bitmap_clear(), "sanity");
 
+  // d. Abandon reference discovery and clear all discovered references.
+  ReferenceProcessor* rp = _heap->ref_processor();
+  rp->disable_discovery();
+  rp->abandon_partial_discovery();
+  rp->verify_no_references_recorded();
+
   ClearInCollectionSetHeapRegionClosure cl;
   _heap->heap_region_iterate(&cl, false, false);
 

@@ -871,13 +871,6 @@ void ShenandoahConcurrentMark::preclean_weak_refs() {
 void ShenandoahConcurrentMark::cancel() {
   ShenandoahHeap* sh = ShenandoahHeap::heap();
 
-  // Cancel weak-ref discovery.
-  if (process_references()) {
-    ReferenceProcessor* rp = sh->ref_processor();
-    rp->abandon_partial_discovery();
-    rp->disable_discovery();
-  }
-
   // Clean up marking stacks.
   SCMObjToScanQueueSet* queues = task_queues();
   queues->clear();
