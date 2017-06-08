@@ -72,13 +72,6 @@ const char* ShenandoahHeap::name() const {
   return "Shenandoah";
 }
 
-void ShenandoahHeap::print_heap_locations(HeapWord* start, HeapWord* end) {
-  HeapWord* cur = NULL;
-  for (cur = start; cur < end; cur++) {
-    tty->print_cr(PTR_FORMAT" : "PTR_FORMAT, p2i(cur), p2i(*((HeapWord**) cur)));
-  }
-}
-
 class ShenandoahPretouchTask : public AbstractGangTask {
 private:
   ShenandoahHeapRegionSet* _regions;
@@ -765,15 +758,6 @@ HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
     assert(! in_collection_set(result), "never allocate in targetted region");
     return result;
   } else {
-    /*
-    tty->print_cr("Out of memory. Requested number of words: "SIZE_FORMAT" used heap: "INT64_FORMAT", bytes allocated since last CM: "INT64_FORMAT,
-                  size, used(), _bytes_allocated_since_cm);
-    {
-      print_heap_regions();
-      tty->print("Printing "SIZE_FORMAT" free regions:\n", _free_regions->count());
-      _free_regions->print();
-    }
-    */
     return NULL;
   }
 }
@@ -878,79 +862,6 @@ void ShenandoahHeap::print_heap_regions(outputStream* st) const {
   _ordered_regions->print(st);
 }
 
-class PrintAllRefsOopClosure: public ExtendedOopClosure {
-private:
-  int _index;
-  const char* _prefix;
-
-public:
-  PrintAllRefsOopClosure(const char* prefix) : _index(0), _prefix(prefix) {}
-
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    oop o = oopDesc::load_decode_heap_oop(p);
-    if (o != NULL) {
-      if (ShenandoahHeap::heap()->is_in(o) && o->is_oop()) {
-        tty->print_cr("%s "INT32_FORMAT" ("PTR_FORMAT")-> "PTR_FORMAT" (marked: %s) (%s "PTR_FORMAT")",
-                      _prefix, _index,
-                      p2i(p), p2i(o),
-                      BOOL_TO_STR(ShenandoahHeap::heap()->is_marked_complete(o)),
-                      o->klass()->internal_name(), p2i(o->klass()));
-      } else {
-        tty->print_cr("%s "INT32_FORMAT" ("PTR_FORMAT" dirty -> "PTR_FORMAT" (not in heap, possibly corrupted or dirty)",
-                      _prefix, _index,
-                      p2i(p), p2i(o));
-      }
-    } else {
-      tty->print_cr("%s "INT32_FORMAT" ("PTR_FORMAT") -> "PTR_FORMAT, _prefix, _index, p2i(p), p2i((HeapWord*) o));
-    }
-    _index++;
-  }
-
-public:
-  void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
-};
-
-class PrintAllRefsObjectClosure : public ObjectClosure {
-  const char* _prefix;
-
-public:
-  PrintAllRefsObjectClosure(const char* prefix) : _prefix(prefix) {}
-
-  void do_object(oop p) {
-    if (ShenandoahHeap::heap()->is_in(p)) {
-        tty->print_cr("%s object "PTR_FORMAT" (marked: %s) (%s "PTR_FORMAT") refers to:",
-                      _prefix, p2i(p),
-                      BOOL_TO_STR(ShenandoahHeap::heap()->is_marked_complete(p)),
-                      p->klass()->internal_name(), p2i(p->klass()));
-        PrintAllRefsOopClosure cl(_prefix);
-        p->oop_iterate(&cl);
-      }
-  }
-};
-
-void ShenandoahHeap::print_all_refs(const char* prefix) {
-  tty->print_cr("printing all references in the heap");
-  tty->print_cr("root references:");
-
-  ensure_parsability(false);
-
-  PrintAllRefsOopClosure cl(prefix);
-  roots_iterate(&cl);
-
-  tty->print_cr("heap references:");
-  PrintAllRefsObjectClosure cl2(prefix);
-  object_iterate(&cl2);
-}
-
 void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
   assert(r->is_humongous_start(), "reclaim regions starting with the first one");
 
@@ -959,26 +870,23 @@ void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
   size_t required_regions = ShenandoahHumongous::required_regions(size * HeapWordSize);
   size_t index = r->region_number();
 
-
   assert(!r->has_live(), "liveness must be zero");
+  log_trace(gc, humongous)("Reclaiming "SIZE_FORMAT" humongous regions for object of size: "SIZE_FORMAT" words", required_regions, size);
 
   for(size_t i = 0; i < required_regions; i++) {
-
     ShenandoahHeapRegion* region = _ordered_regions->get(index++);
 
-    assert((region->is_humongous_start() || region->is_humongous_continuation()),
-           "expect correct humongous start or continuation");
-
     if (ShenandoahLogDebug) {
-      log_debug(gc, humongous)("reclaiming "SIZE_FORMAT" humongous regions for object of size: "SIZE_FORMAT" words", required_regions, size);
       ResourceMark rm;
       outputStream* out = gclog_or_tty;
       region->print_on(out);
     }
 
+    assert(region->is_humongous(), "expect correct humongous start or continuation");
     assert(!in_collection_set(region), "Humongous region should not be in collection set");
+
     region->recycle();
-    ShenandoahHeap::heap()->decrease_used(ShenandoahHeapRegion::region_size_bytes());
+    decrease_used(ShenandoahHeapRegion::region_size_bytes());
   }
 }
 
@@ -1222,42 +1130,39 @@ void ShenandoahHeap::parallel_evacuate() {
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
-    out->print("Printing all available regions");
+    out->print_cr("All available regions:");
     print_heap_regions(out);
   }
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
-    out->print("Printing collection set which contains "SIZE_FORMAT" regions:\n", _collection_set->count());
+    out->print_cr("Collection set ("SIZE_FORMAT" regions):", _collection_set->count());
     _collection_set->print(out);
 
-    out->print("Printing free set which contains "SIZE_FORMAT" regions:\n", _free_regions->count());
+    out->print_cr("Free set ("SIZE_FORMAT" regions):", _free_regions->count());
     _free_regions->print(out);
   }
 
   ParallelEvacuationTask evacuationTask = ParallelEvacuationTask(this, _collection_set);
-
   workers()->run_task(&evacuationTask);
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
-    out->print("Printing postgc collection set which contains "SIZE_FORMAT" regions:\n",
-	       _collection_set->count());
-
+    out->print_cr("After evacuation collection set ("SIZE_FORMAT" regions):",
+                  _collection_set->count());
     _collection_set->print(out);
 
-    out->print("Printing postgc free regions which contain "SIZE_FORMAT" free regions:\n",
-	       _free_regions->count());
+    out->print_cr("After evacuation free set ("SIZE_FORMAT" regions):",
+                  _free_regions->count());
     _free_regions->print(out);
-
   }
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
-    out->print_cr("all regions after evacuation:");
+    out->print_cr("All regions after evacuation:");
     print_heap_regions(out);
   }
 
@@ -1265,7 +1170,6 @@ void ShenandoahHeap::parallel_evacuate() {
 }
 
 void ShenandoahHeap::roots_iterate(OopClosure* cl) {
-
   assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
 
   CodeBlobToOopClosure blobsCl(cl, false);
@@ -1651,9 +1555,9 @@ void ShenandoahHeap::stop_concurrent_marking() {
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
+    out->print_cr("Regions at stopping the concurrent mark:");
     print_heap_regions(out);
   }
-
 }
 
 void ShenandoahHeap::set_concurrent_mark_in_progress(bool in_progress) {
@@ -1723,7 +1627,7 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
     if (ShenandoahLogTrace) {
       ResourceMark rm;
       outputStream* out = gclog_or_tty;
-      out->print_cr("allocating new region at index: "SIZE_FORMAT, new_region_index);
+      out->print_cr("Allocating new region at index: "SIZE_FORMAT, new_region_index);
       new_region->print_on(out);
     }
 
