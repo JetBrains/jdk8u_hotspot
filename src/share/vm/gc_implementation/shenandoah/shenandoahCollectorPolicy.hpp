@@ -197,6 +197,8 @@ private:
   size_t _degenerated_uprefs;
   size_t _successful_uprefs;
 
+  volatile jbyte _in_shutdown;
+
   ShenandoahHeuristics* _heuristics;
   ShenandoahTracer* _tracer;
 
@@ -264,6 +266,9 @@ public:
   void record_uprefs_degenerated();
 
   void record_peak_occupancy();
+
+  void record_shutdown();
+  bool is_at_shutdown();
 
   void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections=NULL);
   void choose_free_set(ShenandoahFreeSet* free_set);

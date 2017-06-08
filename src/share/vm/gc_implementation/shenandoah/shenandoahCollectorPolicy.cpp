@@ -347,6 +347,11 @@ void ShenandoahCollectorPolicy::record_workers_start(TimingPhase phase) {
 }
 
 void ShenandoahCollectorPolicy::record_workers_end(TimingPhase phase) {
+  if (is_at_shutdown()) {
+    // Do not record the past-shutdown events
+    return;
+  }
+
   guarantee(phase == init_evac ||
             phase == scan_roots ||
             phase == update_roots ||
@@ -369,9 +374,11 @@ void ShenandoahCollectorPolicy::record_phase_start(TimingPhase phase) {
 }
 
 void ShenandoahCollectorPolicy::record_phase_end(TimingPhase phase) {
-  double end = os::elapsedTime();
-  double elapsed = end - _timing_data[phase]._start;
-  _timing_data[phase]._secs.add(elapsed);
+  if (!is_at_shutdown()) {
+    double end = os::elapsedTime();
+    double elapsed = end - _timing_data[phase]._start;
+    _timing_data[phase]._secs.add(elapsed);
+  }
   _heuristics->record_phase_end(phase);
 }
 
@@ -730,7 +737,8 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _successful_cm(0),
   _degenerated_cm(0),
   _successful_uprefs(0),
-  _degenerated_uprefs(0)
+  _degenerated_uprefs(0),
+  _in_shutdown(0)
 {
 
   ShenandoahHeapRegion::setup_heap_region_size(initial_heap_byte_size(), max_heap_byte_size());
@@ -1229,3 +1237,10 @@ void ShenandoahCollectorPolicy::record_cycle_end() {
   _heuristics->record_cycle_end();
 }
 
+void ShenandoahCollectorPolicy::record_shutdown() {
+  OrderAccess::release_store_fence(&_in_shutdown, 1);
+}
+
+bool ShenandoahCollectorPolicy::is_at_shutdown() {
+  return OrderAccess::load_acquire(&_in_shutdown) == 1;
+}
