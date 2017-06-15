@@ -3590,7 +3590,7 @@ void PhaseIdealLoop::shenandoah_pin_and_expand_barriers() {
     shenandoah_test_evacuation_in_progress(ctrl, alias, raw_mem, wb_mem, evacuation_iff, evac_in_progress, evac_not_in_progress);
 
     Node* region = new (C) RegionNode(4);
-    Node* val_phi = PhiNode::make_blank(region, val);
+    Node* val_phi = new (C) PhiNode(region, val->bottom_type()->is_oopptr()->cast_to_nonconst());
     Node* mem_phi = PhiNode::make(region, wb_mem, Type::MEMORY, C->alias_type(wb->adr_type())->adr_type());
     Node* raw_mem_phi = PhiNode::make(region, raw_mem, Type::MEMORY, TypeRawPtr::BOTTOM);
 
