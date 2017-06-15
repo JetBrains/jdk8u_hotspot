@@ -499,3 +499,68 @@ void ShenandoahVerifier::verify_after_fullgc() {
   );
 }
 
+void ShenandoahVerifier::verify_oop_fwdptr(oop obj, oop fwd) {
+  guarantee(UseShenandoahGC, "must only be called when Shenandoah is used");
+
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  guarantee(obj != NULL, "oop is not NULL");
+  guarantee(heap->is_in(obj), err_msg("oop must point to a heap address: " PTR_FORMAT, p2i(obj)));
+
+  guarantee(fwd != NULL, "forwardee is not NULL");
+  if (!heap->is_in(fwd)) {
+    ResourceMark rm;
+    ShenandoahHeapRegion* r = heap->heap_region_containing(obj);
+    stringStream obj_region;
+    r->print_on(&obj_region);
+
+    fatal(err_msg("forwardee must point to a heap address: " PTR_FORMAT " -> " PTR_FORMAT "\n %s",
+          p2i(obj), p2i(fwd), obj_region.as_string()));
+  }
+
+  if (!oopDesc::unsafe_equals(fwd, obj) &&
+      (heap->heap_region_containing(fwd) ==
+       heap->heap_region_containing(obj))) {
+    ResourceMark rm;
+    ShenandoahHeapRegion* ro = heap->heap_region_containing(obj);
+    stringStream obj_region;
+    ro->print_on(&obj_region);
+
+    ShenandoahHeapRegion* rf = heap->heap_region_containing(fwd);
+    stringStream fwd_region;
+    rf->print_on(&fwd_region);
+
+    fatal(err_msg("forwardee should be self, or another region: " PTR_FORMAT " -> " PTR_FORMAT "\n %s %s",
+          p2i(obj), p2i(fwd),
+          obj_region.as_string(), fwd_region.as_string()));
+  }
+
+  if (!oopDesc::unsafe_equals(obj, fwd)) {
+    oop fwd2 = oop(BrooksPointer::get_raw(fwd));
+    if (!oopDesc::unsafe_equals(fwd, fwd2)) {
+      // We should never be forwarded more than once.
+      ResourceMark rm;
+
+      ShenandoahHeapRegion* ro = heap->heap_region_containing(obj);
+      stringStream obj_region;
+      ro->print_on(&obj_region);
+
+      ShenandoahHeapRegion* rf = heap->heap_region_containing(fwd);
+      stringStream fwd_region;
+      rf->print_on(&fwd_region);
+
+      ShenandoahHeapRegion* rf2 = heap->heap_region_containing(fwd2);
+      stringStream fwd2_region;
+      rf2->print_on(&fwd2_region);
+
+      fatal(err_msg("Multiple forwardings: " PTR_FORMAT " -> " PTR_FORMAT " -> " PTR_FORMAT "\n %s %s %s",
+            p2i(obj), p2i(fwd), p2i(fwd2),
+            obj_region.as_string(), fwd_region.as_string(), fwd2_region.as_string()));
+    }
+  }
+}
+
+void ShenandoahVerifier::verify_oop(oop obj) {
+  oop fwd = oop(BrooksPointer::get_raw(obj));
+  verify_oop_fwdptr(obj, fwd);
+}
