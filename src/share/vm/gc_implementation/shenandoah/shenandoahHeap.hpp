@@ -499,8 +499,6 @@ private:
   inline oop atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c);
   inline oop atomic_compare_exchange_oop(oop n, oop* addr, oop c);
 
-  inline void copy_object(oop p, HeapWord* s, size_t words);
-
   void ref_processing_init();
 
   void grow_heap_by(size_t num_regions);

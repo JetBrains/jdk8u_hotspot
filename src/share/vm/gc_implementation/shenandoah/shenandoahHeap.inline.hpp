@@ -233,28 +233,18 @@ inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size
   }
 }
 
-inline void ShenandoahHeap::copy_object(oop p, HeapWord* s, size_t words) {
-  assert(s != NULL, "allocation of brooks pointer must not fail");
-  HeapWord* copy = s + BrooksPointer::word_size();
-
-  guarantee(copy != NULL, "allocation of copy object must not fail");
-  Copy::aligned_disjoint_words((HeapWord*) p, copy, words);
-  BrooksPointer::initialize(oop(copy));
-
-  log_develop_trace(gc, compaction)("copy object from "PTR_FORMAT" to: "PTR_FORMAT, p2i((HeapWord*) p), p2i(copy));
-}
-
 inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuated) {
   evacuated = false;
 
-  size_t required  = BrooksPointer::word_size() + p->size();
+  size_t size_no_fwdptr = (size_t) p->size();
+  size_t size_with_fwdptr = size_no_fwdptr + BrooksPointer::word_size();
 
-  assert(! heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
+  assert(!heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
 
   bool alloc_from_gclab = true;
-  HeapWord* filler = allocate_from_gclab(thread, required);
+  HeapWord* filler = allocate_from_gclab(thread, size_with_fwdptr);
   if (filler == NULL) {
-    filler = allocate_memory(required, _alloc_shared_gc);
+    filler = allocate_memory(size_with_fwdptr, _alloc_shared_gc);
     alloc_from_gclab = false;
   }
 
@@ -276,35 +266,53 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuate
     return resolved;
   }
 
+  // Copy the object and initialize its forwarding ptr:
   HeapWord* copy = filler + BrooksPointer::word_size();
-  copy_object(p, filler, required - BrooksPointer::word_size());
-
   oop copy_val = oop(copy);
+
+  Copy::aligned_disjoint_words((HeapWord*) p, copy, size_no_fwdptr);
+  BrooksPointer::initialize(oop(copy));
+
+  log_develop_trace(gc, compaction)("Copy object: " PTR_FORMAT " -> " PTR_FORMAT,
+                                    p2i(p), p2i(copy));
+
+  // Try to install the new forwarding pointer.
   oop result = BrooksPointer::try_update_forwardee(p, copy_val);
 
-  oop return_val;
   if (oopDesc::unsafe_equals(result, p)) {
+    // Successfully evacuated. Our copy is now the public one!
     evacuated = true;
-    return_val = copy_val;
 
-    log_develop_trace(gc, compaction)("Copy of "PTR_FORMAT" to "PTR_FORMAT" succeeded \n",
-                                      p2i((HeapWord*) p), p2i(copy));
+    log_develop_trace(gc, compaction)("Copy object: " PTR_FORMAT " -> " PTR_FORMAT " succeeded",
+                                      p2i(p), p2i(copy));
 
 #ifdef ASSERT
-    assert(return_val->is_oop(), "expect oop");
-    assert(p->klass() == return_val->klass(), err_msg("Should have the same class p: "PTR_FORMAT", copy: "PTR_FORMAT,
-						      p2i((HeapWord*) p), p2i((HeapWord*) copy)));
+    assert(copy_val->is_oop(), "expect oop");
+    assert(p->klass() == copy_val->klass(), err_msg("Should have the same class p: "PTR_FORMAT", copy: "PTR_FORMAT,
+                                               p2i(p), p2i(copy)));
 #endif
+    return copy_val;
   }  else {
+    // Failed to evacuate. We need to deal with the object that is left behind. Since this
+    // new allocation is certainly after TAMS, it will be considered live in the next cycle.
+    // But if it happens to contain references to evacuated regions, those references would
+    // not get updated for this stale copy during this cycle, and we will crash while scanning
+    // it the next cycle.
+    //
+    // For GCLAB allocations, it is enough to rollback the allocation ptr. Either the next
+    // object will overwrite this stale copy, or the filler object on LAB retirement will
+    // do this. For non-GCLAB allocations, we have no way to retract the allocation, and
+    // have to explicitly overwrite the copy with the filler object. With that overwrite,
+    // we have to keep the fwdptr initialized and pointing to our (stale) copy.
     if (alloc_from_gclab) {
-      thread->gclab().rollback(required);
+      thread->gclab().rollback(size_with_fwdptr);
+    } else {
+      fill_with_object(copy, size_no_fwdptr);
     }
-    log_develop_trace(gc, compaction)("Copy of "PTR_FORMAT" to "PTR_FORMAT" failed, use other: "PTR_FORMAT,
-                                      p2i((HeapWord*) p), p2i(copy), p2i((HeapWord*) result));
-    return_val = result;
+    log_develop_trace(gc, compaction)("Copy object: " PTR_FORMAT " -> " PTR_FORMAT " failed, use other: " PTR_FORMAT,
+                                      p2i(p), p2i(copy), p2i(result));
+    return result;
   }
-
-  return return_val;
 }
 
 inline bool ShenandoahHeap::requires_marking(const void* entry) const {
