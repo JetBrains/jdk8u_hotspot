@@ -39,7 +39,6 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
-#include "gc_implementation/shenandoah/shenandoahHumongous.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
@@ -701,7 +700,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType
 HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
   assert_heaplock_owned_by_current_thread();
 
-  size_t required_regions = ShenandoahHumongous::required_regions(words * HeapWordSize);
+  size_t required_regions = ShenandoahHeapRegion::required_regions(words * HeapWordSize);
   if (required_regions > _max_regions) return NULL;
 
   ShenandoahHeapRegion* r = _free_regions->allocate_contiguous(required_regions);
@@ -844,7 +843,7 @@ void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
 
   oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
   size_t size = humongous_obj->size() + BrooksPointer::word_size();
-  size_t required_regions = ShenandoahHumongous::required_regions(size * HeapWordSize);
+  size_t required_regions = ShenandoahHeapRegion::required_regions(size * HeapWordSize);
   size_t index = r->region_number();
 
   assert(!r->has_live(), "liveness must be zero");
