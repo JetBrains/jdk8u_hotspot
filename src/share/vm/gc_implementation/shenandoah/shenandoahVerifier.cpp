@@ -305,11 +305,17 @@ public:
     verify(r, r->used() <= r->capacity(),
            "Used cannot be larger than capacity");
 
+    verify(r, r->get_shared_allocs() <= r->capacity(),
+           "Shared alloc count should not be larger than capacity");
+
     verify(r, r->get_tlab_allocs() <= r->capacity(),
            "TLAB alloc count should not be larger than capacity");
 
     verify(r, r->get_gclab_allocs() <= r->capacity(),
            "GCLAB alloc count should not be larger than capacity");
+
+    verify(r, r->get_shared_allocs() + r->get_tlab_allocs() + r->get_gclab_allocs() == r->used(),
+           "Accurate accounting: shared + TLAB + GCLAB = used");
 
     verify(r, !r->is_humongous_start() || !r->is_humongous_continuation(),
            "Region cannot be both humongous start and humongous continuation");

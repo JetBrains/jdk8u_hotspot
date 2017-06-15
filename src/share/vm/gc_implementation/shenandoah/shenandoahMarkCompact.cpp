@@ -617,7 +617,7 @@ public:
         _heap->add_free_region(r);
       }
       r->set_live_data(live);
-      r->reset_lab_stats();
+      r->reset_alloc_stats_to_shared();
       _live += live;
     }
     return false;

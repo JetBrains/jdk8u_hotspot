@@ -28,7 +28,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "runtime/atomic.hpp"
 
-HeapWord* ShenandoahHeapRegion::allocate_lab(size_t size, ShenandoahHeap::LabType type) {
+HeapWord* ShenandoahHeapRegion::allocate(size_t size, ShenandoahHeap::AllocType type) {
   ShenandoahHeap::heap()->assert_heaplock_or_safepoint();
 
   HeapWord* obj = top();
@@ -38,10 +38,14 @@ HeapWord* ShenandoahHeapRegion::allocate_lab(size_t size, ShenandoahHeap::LabTyp
     assert(is_aligned(obj) && is_aligned(new_top), "checking alignment");
 
     switch (type) {
-      case ShenandoahHeap::_lab_thread:
+      case ShenandoahHeap::_alloc_shared:
+      case ShenandoahHeap::_alloc_shared_gc:
+        _shared_allocs += size;
+        break;
+      case ShenandoahHeap::_alloc_tlab:
         _tlab_allocs += size;
         break;
-      case ShenandoahHeap::_lab_gc:
+      case ShenandoahHeap::_alloc_gclab:
         _gclab_allocs += size;
         break;
       default:
