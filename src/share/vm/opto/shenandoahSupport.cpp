@@ -2780,7 +2780,6 @@ void PhaseIdealLoop::shenandoah_collect_memory_nodes_helper(Node* n, int alias, 
                  (C->get_alias_index(mem->adr_type()) == alias && mem->in(i) == memory_for(get_ctrl(other->in(i)), phis)), "");
         }
         if (mem->adr_type() == TypePtr::BOTTOM || C->get_alias_index(other->adr_type()) == alias || !identical) {
-          assert(mem->adr_type() != TypePtr::BOTTOM || mem == n, "");
           DEBUG_ONLY(if (trace) { tty->print("YYY phi post: replacing other with"); mem->dump(); })
           if (phis[other->_idx] != mem) {
             phis.map(other->_idx, mem);
@@ -2806,11 +2805,11 @@ void PhaseIdealLoop::shenandoah_collect_memory_nodes_helper(Node* n, int alias, 
           DEBUG_ONLY(if (trace) { tty->print("YYY setting cur_mem %d", __LINE__); cur_mem->dump(); })
         }
       } else if (mem->is_Phi() && mem->in(0) == r) {
-        assert (is_dominator(ctrl_or_self(other), ctrl_or_self(mem)), "");
+        assert (is_dominator(ctrl_or_self(other), r) && ctrl_or_self(other) != r, "");
         cur_mem = other;
         DEBUG_ONLY(if (trace) { tty->print("YYY setting cur_mem %d", __LINE__); cur_mem->dump(); })
       } else if (other->is_Phi() && other->in(0) == r) {
-        assert (is_dominator(ctrl_or_self(mem), ctrl_or_self(other)), "");
+        assert (is_dominator(ctrl_or_self(mem), r) && ctrl_or_self(mem) != r, "");
         cur_mem = mem;
       } else {
         ShouldNotReachHere();
