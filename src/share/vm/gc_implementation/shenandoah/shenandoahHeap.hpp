@@ -473,13 +473,15 @@ public:
 
 public:
   typedef enum {
-    _lab_thread,
-    _lab_gc,
-  } LabType;
+    _alloc_shared,      // Allocate common, outside of TLAB
+    _alloc_shared_gc,   // Allocate common, outside of GCLAB
+    _alloc_tlab,        // Allocate TLAB
+    _alloc_gclab,       // Allocate GCLAB
+  } AllocType;
 private:
-  HeapWord* allocate_new_lab(size_t word_size, LabType type);
-  HeapWord* allocate_memory_under_lock(size_t word_size, LabType type);
-  HeapWord* allocate_memory(size_t word_size, LabType type);
+  HeapWord* allocate_new_lab(size_t word_size, AllocType type);
+  HeapWord* allocate_memory_under_lock(size_t word_size, AllocType type);
+  HeapWord* allocate_memory(size_t word_size, AllocType type);
   // Shenandoah functionality.
   inline HeapWord* allocate_from_gclab(Thread* thread, size_t size);
   HeapWord* allocate_from_gclab_slow(Thread* thread, size_t size);
@@ -508,7 +510,7 @@ private:
 
   void oom_during_evacuation();
 
-  HeapWord* allocate_memory_work(size_t word_size, LabType type);
+  HeapWord* allocate_memory_work(size_t word_size, AllocType type);
   HeapWord* allocate_large_memory(size_t word_size);
 
   const char* cancel_cause_to_string(ShenandoahCancelCause cause);

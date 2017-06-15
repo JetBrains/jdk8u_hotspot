@@ -44,6 +44,7 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start
   _live_data(0),
   _tlab_allocs(0),
   _gclab_allocs(0),
+  _shared_allocs(0),
   reserved(MemRegion(start, regionSizeWords)),
   _humongous_start(false),
   _humongous_continuation(false),
@@ -67,9 +68,20 @@ void ShenandoahHeapRegion::clear_live_data() {
   _live_data = 0;
 }
 
-void ShenandoahHeapRegion::reset_lab_stats() {
+void ShenandoahHeapRegion::reset_alloc_stats() {
   _tlab_allocs = 0;
   _gclab_allocs = 0;
+  _shared_allocs = 0;
+}
+
+void ShenandoahHeapRegion::reset_alloc_stats_to_shared() {
+  _tlab_allocs = 0;
+  _gclab_allocs = 0;
+  _shared_allocs = used() / HeapWordSize;
+}
+
+size_t ShenandoahHeapRegion::get_shared_allocs() const {
+  return _shared_allocs * HeapWordSize;
 }
 
 size_t ShenandoahHeapRegion::get_tlab_allocs() const {
@@ -116,6 +128,7 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|U %3d%%", (int) ((double) used() * 100 / capacity()));
   st->print("|T %3d%%", (int) ((double) get_tlab_allocs() * 100 / capacity()));
   st->print("|G %3d%%", (int) ((double) get_gclab_allocs() * 100 / capacity()));
+  st->print("|S %3d%%", (int) ((double) get_shared_allocs() * 100 / capacity()));
   st->print("|L %3d%%", (int) ((double) get_live_data_bytes() * 100 / capacity()));
   if (is_humongous_start()) {
     st->print("|H ");
@@ -191,8 +204,8 @@ void ShenandoahHeapRegion::fill_region() {
   ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
 
   if (free() > (BrooksPointer::word_size() + CollectedHeap::min_fill_size())) {
-    HeapWord* filler = allocate_lab(BrooksPointer::word_size(), ShenandoahHeap::_lab_thread);
-    HeapWord* obj = allocate_lab(end() - top(), ShenandoahHeap::_lab_thread);
+    HeapWord* filler = allocate(BrooksPointer::word_size(), ShenandoahHeap::_alloc_shared);
+    HeapWord* obj = allocate(end() - top(), ShenandoahHeap::_alloc_shared);
     sh->fill_with_object(obj, end() - obj);
     BrooksPointer::initialize(oop(obj));
   }
@@ -223,7 +236,7 @@ void ShenandoahHeapRegion::recycle() {
   clear_live_data();
   _humongous_start = false;
   _humongous_continuation = false;
-  reset_lab_stats();
+  reset_alloc_stats();
   // Reset C-TAMS pointer to ensure size-based iteration, everything
   // in that regions is going to be new objects.
   _heap->set_complete_top_at_mark_start(bottom(), bottom());

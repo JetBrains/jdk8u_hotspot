@@ -560,17 +560,17 @@ HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size) {
 #ifdef ASSERT
   log_debug(gc, alloc)("Allocate new tlab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
 #endif
-  return allocate_new_lab(word_size, _lab_thread);
+  return allocate_new_lab(word_size, _alloc_tlab);
 }
 
 HeapWord* ShenandoahHeap::allocate_new_gclab(size_t word_size) {
 #ifdef ASSERT
   log_debug(gc, alloc)("Allocate new gclab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
 #endif
-  return allocate_new_lab(word_size, _lab_gc);
+  return allocate_new_lab(word_size, _alloc_gclab);
 }
 
-HeapWord* ShenandoahHeap::allocate_new_lab(size_t word_size, LabType type) {
+HeapWord* ShenandoahHeap::allocate_new_lab(size_t word_size, AllocType type) {
 
   HeapWord* result = allocate_memory(word_size, type);
 
@@ -596,7 +596,7 @@ ShenandoahHeap* ShenandoahHeap::heap_no_check() {
   return (ShenandoahHeap*) heap;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, LabType type) {
+HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, AllocType type) {
 
   ShenandoahHeapLock heap_lock(this);
 
@@ -611,11 +611,11 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, LabType type) {
   return result;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, LabType type) {
+HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
   HeapWord* result = NULL;
   result = allocate_memory_work(word_size, type);
 
-  if (type == _lab_thread) {
+  if (type == _alloc_tlab || type == _alloc_shared) {
     // Allocation failed, try full-GC, then retry allocation.
     //
     // It might happen that one of the threads requesting allocation would unblock
@@ -633,13 +633,11 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, LabType type) {
       collect(GCCause::_allocation_failure);
       result = allocate_memory_work(word_size, type);
     }
-  }
 
-  // Only update monitoring counters when not calling from a write-barrier.
-  // Otherwise we might attempt to grab the Service_lock, which we must
-  // not do when coming from a write-barrier (because the thread might
-  // already hold the Compile_lock).
-  if (type == _lab_thread) {
+    // Only update monitoring counters when not calling from a write-barrier.
+    // Otherwise we might attempt to grab the Service_lock, which we must
+    // not do when coming from a write-barrier (because the thread might
+    // already hold the Compile_lock).
     monitoring_support()->update_counters();
   }
 
@@ -649,7 +647,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, LabType type) {
   return result;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, LabType type) {
+HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType type) {
   assert_heaplock_owned_by_current_thread();
 
   if (word_size * HeapWordSize > ShenandoahHeapRegion::region_size_bytes()) {
@@ -670,7 +668,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, LabType t
   assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
   assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
 
-  HeapWord* result = my_current_region->allocate_lab(word_size, type);
+  HeapWord* result = my_current_region->allocate(word_size, type);
 
   while (result == NULL) {
     // 2nd attempt. Try next region.
@@ -690,7 +688,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, LabType t
     assert(my_current_region != NULL, "should have a region at this point");
     assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
     assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
-    result = my_current_region->allocate_lab(word_size, type);
+    result = my_current_region->allocate(word_size, type);
   }
 
   my_current_region->increase_live_data_words(word_size);
@@ -727,7 +725,7 @@ HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
 HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
                                         bool*  gc_overhead_limit_was_exceeded) {
 
-  HeapWord* filler = allocate_memory(size + BrooksPointer::word_size(), _lab_thread);
+  HeapWord* filler = allocate_memory(size + BrooksPointer::word_size(), _alloc_shared);
   HeapWord* result = filler + BrooksPointer::word_size();
   if (filler != NULL) {
     BrooksPointer::initialize(oop(result));
@@ -832,7 +830,7 @@ ShenandoahFreeSet* ShenandoahHeap::free_regions() {
 
 void ShenandoahHeap::print_heap_regions(outputStream* st) const {
   st->print_cr("Heap Regions:");
-  st->print_cr("BTE=bottom/top/end, U=used, T=TLAB allocs, G=GC allocs, L=live data, "
+  st->print_cr("BTE=bottom/top/end, U=used, T=TLAB allocs, G=GCLAB allocs, S=shared allocs, L=live data, "
                        "HS=humongous(starts), HC=humongous(continuation),");
   st->print_cr("CS=collection set, R=root, CP=critical pins, "
                        "TAMS=top-at-mark-start (previous, next)");

@@ -244,15 +244,6 @@ public:
   }
 };
 
-class ResetLABStatsClosure : public ShenandoahHeapRegionClosure {
-public:
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    ShenandoahHeap* sh = ShenandoahHeap::heap();
-    r->reset_lab_stats();
-    return false;
-  }
-};
-
 void ShenandoahConcurrentMark::mark_roots(ShenandoahCollectorPolicy::TimingPhase root_phase) {
   assert(Thread::current()->is_VM_thread(), "can only do this in VMThread");
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
@@ -282,12 +273,6 @@ void ShenandoahConcurrentMark::mark_roots(ShenandoahCollectorPolicy::TimingPhase
 
   if (ShenandoahConcurrentCodeRoots) {
     clear_claim_codecache();
-  }
-
-  // Mark is about to start. Treat all regions as allocated in previous epoch.
-  if (ShenandoahRegionSampling) {
-    ResetLABStatsClosure cl;
-    heap->heap_region_iterate(&cl);
   }
 
   heap->shenandoahPolicy()->record_phase_end(root_phase);

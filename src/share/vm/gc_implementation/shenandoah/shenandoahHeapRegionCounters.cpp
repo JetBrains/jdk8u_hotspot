@@ -98,6 +98,7 @@ void ShenandoahHeapRegionCounters::update() {
           data |= ((100 * r->get_live_data_bytes() / rs) & PERCENT_MASK) << LIVE_SHIFT;
           data |= ((100 * r->get_tlab_allocs()  / rs)    & PERCENT_MASK) << TLAB_SHIFT;
           data |= ((100 * r->get_gclab_allocs() / rs)    & PERCENT_MASK) << GCLAB_SHIFT;
+          data |= ((100 * r->get_shared_allocs() / rs)   & PERCENT_MASK) << SHARED_SHIFT;
           jlong flags = 0;
           if (r->in_collection_set())     flags |= 1 << 1;
           if (r->is_humongous())          flags |= 1 << 2;

@@ -42,6 +42,7 @@ private:
 
   size_t _tlab_allocs;
   size_t _gclab_allocs;
+  size_t _shared_allocs;
 
   HeapWord* _new_top;
 
@@ -75,7 +76,7 @@ public:
   size_t region_number() const;
 
   // Allocation (return NULL if full)
-  inline HeapWord* allocate_lab(size_t word_size, ShenandoahHeap::LabType type);
+  inline HeapWord* allocate(size_t word_size, ShenandoahHeap::AllocType type);
   HeapWord* allocate(size_t word_size) {
     // ContiguousSpace wants us to have this method. But it is an error to call this with Shenandoah.
     ShouldNotCallThis();
@@ -91,7 +92,9 @@ public:
   inline void increase_live_data_words(size_t s);
   inline void increase_live_data_words(jint s);
 
-  void reset_lab_stats();
+  void reset_alloc_stats_to_shared();
+  void reset_alloc_stats();
+  size_t get_shared_allocs() const;
   size_t get_tlab_allocs() const;
   size_t get_gclab_allocs() const;
 
