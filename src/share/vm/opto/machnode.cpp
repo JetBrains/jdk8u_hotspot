@@ -26,6 +26,7 @@
 #include "gc_interface/collectedHeap.hpp"
 #include "opto/machnode.hpp"
 #include "opto/regalloc.hpp"
+#include "opto/shenandoahSupport.hpp"
 
 //=============================================================================
 // Return the value requested
@@ -326,6 +327,29 @@ const class TypePtr *MachNode::adr_type() const {
   intptr_t offset = 0;
   const TypePtr *adr_type = TYPE_PTR_SENTINAL;  // attempt computing adr_type
   const Node *base = get_base_and_disp(offset, adr_type);
+
+  if (!ShenandoahNoBarriersForConst) {
+    // Load/store from a constant object may have been replaced by
+    // load/store from a barrier by
+    // PhaseCFG::replace_uses_with_shenandoah_barrier() which could
+    // cause the alias index to change (if from a Class object)
+    const Node* improved_base = base;
+    if (improved_base != NULL &&
+        improved_base != NodeSentinel &&
+        offset != 0 &&
+        offset != Type::OffsetBot) {
+      while (improved_base->is_Mach() &&
+             improved_base->as_Mach()->ideal_Opcode() == Op_ShenandoahReadBarrier) {
+        improved_base = improved_base->in(ShenandoahBarrierNode::ValueIn);
+      }
+      if (improved_base != base &&
+          improved_base->is_Mach() &&
+          improved_base->as_Mach()->ideal_Opcode() == Op_ConP) {
+        base = improved_base;
+      }
+    }
+  }
+
   if( adr_type != TYPE_PTR_SENTINAL ) {
     return adr_type;      // get_base_and_disp has the answer
   }

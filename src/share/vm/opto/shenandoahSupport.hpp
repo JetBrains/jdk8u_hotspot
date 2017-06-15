@@ -59,7 +59,7 @@ public:
   };
 
   ShenandoahBarrierNode(Node* ctrl, Node* mem, Node* obj, bool allow_fromspace)
-    : TypeNode(obj->bottom_type(), 3),
+    : TypeNode(obj->bottom_type()->isa_oopptr() ? obj->bottom_type()->is_oopptr()->cast_to_nonconst() : obj->bottom_type(), 3),
       _allow_fromspace(allow_fromspace) {
 
     init_req(Control, ctrl);
