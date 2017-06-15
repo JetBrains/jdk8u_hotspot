@@ -309,27 +309,10 @@ void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
 }
 
 void ShenandoahVerifier::verify_generic(VerifyOption vo) {
-  // _vo == UsePrevMarking -> use "prev" marking information,
-  // _vo == UseNextMarking -> use "next" marking information,
-  // _vo == UseMarkWord    -> use mark word from object header.
-
-  VerifyMarked mark_verify;
-  switch (vo) {
-    case VerifyOption_G1UsePrevMarking:
-      mark_verify = _verify_marked_complete;
-      break;
-    case VerifyOption_G1UseNextMarking:
-      mark_verify = _verify_marked_next;
-      break;
-    default:
-      mark_verify = _verify_marked_disable;
-      break;
-  }
-
   verify_reachable_at_safepoint(
           "Generic Verification",
           _verify_forwarded_allow,     // conservatively allow forwarded
-          mark_verify,                 // (selector above)
+          _verify_marked_disable,      // cannot trust bitmaps here
           _verify_matrix_disable,      // matrix can be inconsistent here
           _verify_cset_disable         // cset may be inconsistent
   );
