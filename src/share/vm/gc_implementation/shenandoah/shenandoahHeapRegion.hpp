@@ -53,6 +53,10 @@ public:
 
   static void setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size);
 
+  inline static size_t required_regions(size_t bytes) {
+    return (bytes + ShenandoahHeapRegion::region_size_bytes() - 1) / ShenandoahHeapRegion::region_size_bytes();
+  }
+
   inline static size_t region_size_bytes() {
     return ShenandoahHeapRegion::RegionSizeBytes;
   }
