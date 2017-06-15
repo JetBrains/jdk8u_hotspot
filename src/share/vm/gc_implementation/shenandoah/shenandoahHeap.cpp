@@ -457,28 +457,6 @@ void ShenandoahHeap::post_initialize() {
   ref_processing_init();
 }
 
-class CalculateUsedRegionClosure : public ShenandoahHeapRegionClosure {
-  size_t sum;
-public:
-
-  CalculateUsedRegionClosure() {
-    sum = 0;
-  }
-
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    sum = sum + r->used();
-    return false;
-  }
-
-  size_t getResult() { return sum;}
-};
-
-size_t ShenandoahHeap::calculateUsed() {
-  CalculateUsedRegionClosure cl;
-  heap_region_iterate(&cl);
-  return cl.getResult();
-}
-
 size_t ShenandoahHeap::used() const {
   OrderAccess::acquire();
   return _used;

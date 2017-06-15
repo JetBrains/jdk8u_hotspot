@@ -56,6 +56,7 @@ private:
   oop _obj;
 };
 
+typedef FormatBuffer<8192> MessageBuffer;
 typedef Stack<VerifierTask, mtGC> ShenandoahVerifierStack;
 
 class VerifyReachableHeapClosure : public ExtendedOopClosure {
@@ -79,9 +80,7 @@ public:
           _stack(stack), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _phase(phase),
           _verify_forwarded(forwarded), _verify_marked(marked), _verify_matrix(matrix), _verify_cset(cset) {};
 
-  typedef FormatBuffer<8192> large_buf;
-
-  void print_obj(large_buf& msg, oop obj) {
+  void print_obj(MessageBuffer& msg, oop obj) {
     ShenandoahHeapRegion *r = _heap->heap_region_containing(obj);
     stringStream ss;
     r->print_on(&ss);
@@ -98,7 +97,7 @@ public:
   void print_failure(T* p, oop obj, const char* label) {
     bool loc_in_heap = (_loc != NULL && _heap->is_in(_loc));
 
-    large_buf msg("Shenandoah verification failed; %s: %s\n\n", _phase, label);
+    MessageBuffer msg("Shenandoah verification failed; %s: %s\n\n", _phase, label);
 
     msg.append("Referenced from:\n");
     msg.append("  interior location: " PTR_FORMAT "\n", p2i(p));
@@ -255,6 +254,73 @@ public:
   void set_loc(oop o) { _loc = o; }
 };
 
+class CalculateRegionStatsClosure : public ShenandoahHeapRegionClosure {
+private:
+  size_t _used, _garbage;
+public:
+  CalculateRegionStatsClosure() : _used(0), _garbage(0) {};
+
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    _used += r->used();
+    _garbage += r->garbage();
+    return false;
+  }
+
+  size_t used() { return _used; }
+  size_t garbage() { return _garbage; }
+};
+
+class VerifyHeapRegionClosure : public ShenandoahHeapRegionClosure {
+private:
+  ShenandoahHeap* _heap;
+public:
+  VerifyHeapRegionClosure() : _heap(ShenandoahHeap::heap()) {};
+
+  void print_failure(ShenandoahHeapRegion* r, const char* label) {
+    MessageBuffer msg("Shenandoah verification failed; %s\n\n", label);
+
+    stringStream ss;
+    r->print_on(&ss);
+    msg.append("%s", ss.as_string());
+
+    report_vm_error(__FILE__, __LINE__, msg.buffer());
+  }
+
+  void verify(ShenandoahHeapRegion* r, bool test, const char* msg) {
+    if (!test) {
+      print_failure(r, msg);
+    }
+  }
+
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    verify(r, r->capacity() == ShenandoahHeapRegion::region_size_bytes(),
+           "Capacity should match region size");
+
+    verify(r, (r->get_live_data_bytes() <= r->capacity()) || (r->is_humongous_start()),
+           "Live data cannot be larger than capacity");
+
+    verify(r, (r->garbage() <= r->capacity()) || (r->is_humongous_start()),
+           "Garbage cannot be larger than capacity");
+
+    verify(r, r->used() <= r->capacity(),
+           "Used cannot be larger than capacity");
+
+    verify(r, r->get_tlab_allocs() <= r->capacity(),
+           "TLAB alloc count should not be larger than capacity");
+
+    verify(r, r->get_gclab_allocs() <= r->capacity(),
+           "GCLAB alloc count should not be larger than capacity");
+
+    verify(r, !r->is_humongous_start() || !r->is_humongous_continuation(),
+           "Region cannot be both humongous start and humongous continuation");
+
+    verify(r, !r->is_pinned() || !r->in_collection_set(),
+           "Region cannot be both pinned and in collection set");
+
+    return false;
+  }
+};
+
 void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
                                                        VerifyForwarded forwarded, VerifyMarked marked,
                                                        VerifyMatrix matrix, VerifyCollectionSet cset) {
@@ -263,13 +329,20 @@ void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
 
   log_info(gc)("Starting verification: %s", label);
 
-  // Basic checks
+  // Internal heap region checks
   {
-    size_t calculated_used = _heap->calculateUsed();
+    VerifyHeapRegionClosure cl;
+    _heap->heap_region_iterate(&cl, true, true);
+  }
+
+  // Heap size checks
+  {
+    CalculateRegionStatsClosure cl;
+    _heap->heap_region_iterate(&cl);
     size_t heap_used = _heap->used();
-    guarantee(calculated_used == heap_used,
-              err_msg("heap used size must be consistent heap-used: " SIZE_FORMAT " regions-used: " SIZE_FORMAT,
-              heap_used, calculated_used));
+    guarantee(cl.used() == heap_used,
+              err_msg("heap used size must be consistent: heap-used = " SIZE_FORMAT ", regions-used = " SIZE_FORMAT,
+                      heap_used, cl.used()));
   }
 
   OrderAccess::fence();

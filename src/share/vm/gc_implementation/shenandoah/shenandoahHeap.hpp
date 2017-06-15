@@ -383,7 +383,6 @@ public:
   void decrease_used(size_t bytes);
 
   void set_used(size_t bytes);
-  size_t calculateUsed();
 
   size_t garbage();
 
