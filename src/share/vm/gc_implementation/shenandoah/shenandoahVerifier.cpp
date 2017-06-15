@@ -207,8 +207,6 @@ public:
         case ShenandoahVerifier::_verify_forwarded_none: {
           verify(p, obj, oopDesc::unsafe_equals(obj, fwd),
                  "Should not be forwarded");
-          verify(p, obj, !_heap->in_collection_set(obj),
-                 "Cannot have references to collection set");
           break;
         }
         case ShenandoahVerifier::_verify_forwarded_allow: {
