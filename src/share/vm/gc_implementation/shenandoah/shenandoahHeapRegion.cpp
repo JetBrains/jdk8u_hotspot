@@ -232,7 +232,10 @@ bool ShenandoahHeapRegion::is_humongous_continuation() const {
 }
 
 void ShenandoahHeapRegion::recycle() {
-  ContiguousSpace::clear(true);
+  ContiguousSpace::clear(false);
+  if (ZapUnusedHeapArea) {
+    ContiguousSpace::mangle_unused_area_complete();
+  }
   clear_live_data();
   _humongous_start = false;
   _humongous_continuation = false;
