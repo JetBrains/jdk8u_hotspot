@@ -44,6 +44,7 @@
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
@@ -1101,7 +1102,7 @@ void ShenandoahHeap::do_evacuation() {
 void ShenandoahHeap::parallel_evacuate() {
   log_develop_trace(gc)("starting parallel_evacuate");
 
-  _shenandoah_policy->record_phase_start(ShenandoahCollectorPolicy::conc_evac);
+  ShenandoahGCPhase conc_evac_phase(ShenandoahCollectorPolicy::conc_evac);
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
@@ -1142,7 +1143,6 @@ void ShenandoahHeap::parallel_evacuate() {
     print_heap_regions(out);
   }
 
-  _shenandoah_policy->record_phase_end(ShenandoahCollectorPolicy::conc_evac);
 }
 
 void ShenandoahHeap::roots_iterate(OopClosure* cl) {
@@ -1470,25 +1470,26 @@ void ShenandoahHeap::start_concurrent_marking() {
     verifier()->verify_before_concmark();
   }
 
-  shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::accumulate_stats);
-  accumulate_statistics_all_tlabs();
-  shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::accumulate_stats);
+  {
+    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::accumulate_stats);
+    accumulate_statistics_all_tlabs();
+  }
 
   set_concurrent_mark_in_progress(true);
   // We need to reset all TLABs because we'd lose marks on all objects allocated in them.
   if (UseTLAB) {
-    shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::make_parsable);
+    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::make_parsable);
     ensure_parsability(true);
-    shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::make_parsable);
   }
 
   _shenandoah_policy->record_bytes_allocated(_bytes_allocated_since_cm);
   _used_start_gc = used();
 
-  shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::clear_liveness);
-  ClearLivenessClosure clc(this);
-  heap_region_iterate(&clc);
-  shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::clear_liveness);
+  {
+    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::clear_liveness);
+    ClearLivenessClosure clc(this);
+    heap_region_iterate(&clc);
+  }
 
   // Make above changes visible to worker threads
   OrderAccess::fence();
@@ -1496,9 +1497,8 @@ void ShenandoahHeap::start_concurrent_marking() {
   concurrentMark()->init_mark_roots();
 
   if (UseTLAB) {
-    shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::resize_tlabs);
+    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::resize_tlabs);
     resize_all_tlabs();
-    shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::resize_tlabs);
   }
 }
 
@@ -1775,7 +1775,7 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
           ShenandoahCollectorPolicy::full_gc_purge_tables_cc :
           ShenandoahCollectorPolicy::purge_tables_cc;
 
-  _shenandoah_policy->record_phase_start(phase_root);
+  ShenandoahGCPhase root_phase(phase_root);
 
   BoolObjectClosure* is_alive = is_alive_closure();
 
@@ -1783,25 +1783,20 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
 
   // Unload classes and purge SystemDictionary.
   {
-    _shenandoah_policy->record_phase_start(phase_unload);
+    ShenandoahGCPhase phase(phase_unload);
     purged_class = SystemDictionary::do_unloading(is_alive, true);
-    _shenandoah_policy->record_phase_end(phase_unload);
   }
 
   {
-    _shenandoah_policy->record_phase_start(phase_tables_cc);
+    ShenandoahGCPhase phase(phase_tables_cc);
     ParallelCleaningTask unlink_task(is_alive, true, true, _workers->active_workers(), purged_class);
     _workers->run_task(&unlink_task);
-    _shenandoah_policy->record_phase_end(phase_tables_cc);
   }
 
   {
-    _shenandoah_policy->record_phase_start(phase_cldg);
+    ShenandoahGCPhase phase(phase_cldg);
     ClassLoaderDataGraph::purge();
-    _shenandoah_policy->record_phase_end(phase_cldg);
   }
-
-  _shenandoah_policy->record_phase_end(phase_root);
 }
 
 void ShenandoahHeap::set_need_update_refs(bool need_update_refs) {
@@ -2033,11 +2028,10 @@ void ShenandoahHeap::update_heap_references(ShenandoahHeapRegionSet* update_regi
 }
 
 void ShenandoahHeap::concurrent_update_heap_references() {
-  _shenandoah_policy->record_phase_start(ShenandoahCollectorPolicy::conc_update_refs);
+  ShenandoahGCPhase phase(ShenandoahCollectorPolicy::conc_update_refs);
   ShenandoahHeapRegionSet* update_regions = regions();
   update_regions->clear_current_index();
   update_heap_references(update_regions);
-  _shenandoah_policy->record_phase_end(ShenandoahCollectorPolicy::conc_update_refs);
 }
 
 void ShenandoahHeap::prepare_update_refs() {
@@ -2060,14 +2054,12 @@ void ShenandoahHeap::finish_update_refs() {
   assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
 
   if (cancelled_concgc()) {
-    shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_update_refs_finish_work);
+    ShenandoahGCPhase final_work(ShenandoahCollectorPolicy::final_update_refs_finish_work);
 
     // Finish updating references where we left off.
     clear_cancelled_concgc();
     ShenandoahHeapRegionSet* update_regions = regions();
     update_heap_references(update_regions);
-
-    shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_update_refs_finish_work);
   }
 
   assert(! cancelled_concgc(), "Should have been done right before");
@@ -2076,7 +2068,7 @@ void ShenandoahHeap::finish_update_refs() {
   // Allocations might have happened before we STWed here, record peak:
   shenandoahPolicy()->record_peak_occupancy();
 
-  shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_update_refs_recycle);
+  ShenandoahGCPhase final_update_refs(ShenandoahCollectorPolicy::final_update_refs_recycle);
 
   recycle_dirty_regions();
   set_need_update_refs(false);
@@ -2099,8 +2091,6 @@ void ShenandoahHeap::finish_update_refs() {
     }
   }
   set_update_refs_in_progress(false);
-
-  shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_update_refs_recycle);
 }
 
 #ifdef ASSERT

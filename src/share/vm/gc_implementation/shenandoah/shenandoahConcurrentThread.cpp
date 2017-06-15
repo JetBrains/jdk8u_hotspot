@@ -29,6 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "memory/iterator.hpp"
 #include "memory/universe.hpp"
@@ -101,7 +102,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   GCTimer* gc_timer = heap->gc_timer();
   GCTracer* gc_tracer = heap->tracer();
 
-  gc_timer->register_gc_start();
+  ShenandoahGCSession session;
   gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
 
   // Cycle started
@@ -117,12 +118,10 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   {
     // Workers are setup by VM_ShenandoahInitMark
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
+    ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
+    ShenandoahGCPhase init_mark_phase(ShenandoahCollectorPolicy::init_mark_gross);
     VM_ShenandoahInitMark initMark;
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_mark_gross);
     VMThread::execute(&initMark);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_mark_gross);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause_gross);
   }
 
   if (check_cancellation()) return;
@@ -153,7 +152,6 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
       clear_full_gc = true;
       heap->shenandoahPolicy()->record_cm_degenerated();
     } else {
-      heap->gc_timer()->register_gc_end();
       return;
     }
   } else {
@@ -163,10 +161,9 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     if (ShenandoahPreclean) {
       if (heap->concurrentMark()->process_references()) {
         GCTraceTime time("Concurrent precleaning", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
+        ShenandoahGCPhase conc_preclean(ShenandoahCollectorPolicy::conc_preclean);
 
-        heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::conc_preclean);
         heap->concurrentMark()->preclean_weak_refs();
-        heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::conc_preclean);
 
         // Allocations happen during concurrent preclean, record peak after the phase:
         heap->shenandoahPolicy()->record_peak_occupancy();
@@ -178,12 +175,10 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   {
     // Workers are setup by VM_ShenandoahFinalMarkStartEvac
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
+    ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
+    ShenandoahGCPhase final_mark_phase(ShenandoahCollectorPolicy::final_mark_gross);
     VM_ShenandoahFinalMarkStartEvac finishMark;
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_mark_gross);
     VMThread::execute(&finishMark);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_mark_gross);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause_gross);
   }
 
   if (check_cancellation()) return;
@@ -214,12 +209,12 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   if (heap->shenandoahPolicy()->should_start_update_refs()) {
 
-    VM_ShenandoahInitUpdateRefs init_update_refs;
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::init_update_refs_gross);
-    VMThread::execute(&init_update_refs);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::init_update_refs_gross);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause_gross);
+    {
+      ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
+      ShenandoahGCPhase init_update_refs_phase(ShenandoahCollectorPolicy::init_update_refs_gross);
+      VM_ShenandoahInitUpdateRefs init_update_refs;
+      VMThread::execute(&init_update_refs);
+    }
 
     {
       GCTraceTime time("Concurrent update references ", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
@@ -244,13 +239,12 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
       heap->shenandoahPolicy()->record_uprefs_success();
     }
 
-    VM_ShenandoahFinalUpdateRefs final_update_refs;
-
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::total_pause_gross);
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::final_update_refs_gross);
-    VMThread::execute(&final_update_refs);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::final_update_refs_gross);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::total_pause_gross);
+    {
+      ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause_gross);
+      ShenandoahGCPhase final_update_refs_phase(ShenandoahCollectorPolicy::final_update_refs_gross);
+      VM_ShenandoahFinalUpdateRefs final_update_refs;
+      VMThread::execute(&final_update_refs);
+    }
   }
 
   // Prepare for the next normal cycle:
@@ -262,11 +256,10 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   {
     GCTraceTime time("Concurrent reset bitmaps", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
-    heap->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::conc_reset_bitmaps);
+    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::conc_reset_bitmaps);
     FlexibleWorkGang* workers = heap->workers();
     ShenandoahPushWorkerScope scope(workers, heap->max_workers());
     heap->reset_next_mark_bitmap(workers);
-    heap->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::conc_reset_bitmaps);
   }
 
   // Allocations happen during bitmap cleanup, record peak after the phase:
@@ -275,7 +268,6 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   // Cycle is complete
   heap->shenandoahPolicy()->record_cycle_end();
 
-  gc_timer->register_gc_end();
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 

@@ -33,6 +33,7 @@
 #include "gc_implementation/shenandoah/shenandoah_specialized_oop_closures.hpp"
 #include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "memory/referenceProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "code/codeCache.hpp"
@@ -250,7 +251,7 @@ void ShenandoahConcurrentMark::mark_roots(ShenandoahCollectorPolicy::TimingPhase
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  heap->shenandoahPolicy()->record_phase_start(root_phase);
+  ShenandoahGCPhase phase(root_phase);
 
   WorkGang* workers = heap->workers();
   uint nworkers = workers->active_workers();
@@ -274,8 +275,6 @@ void ShenandoahConcurrentMark::mark_roots(ShenandoahCollectorPolicy::TimingPhase
   if (ShenandoahConcurrentCodeRoots) {
     clear_claim_codecache();
   }
-
-  heap->shenandoahPolicy()->record_phase_end(root_phase);
 }
 
 void ShenandoahConcurrentMark::init_mark_roots() {
@@ -296,7 +295,7 @@ void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPha
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  heap->shenandoahPolicy()->record_phase_start(root_phase);
+  ShenandoahGCPhase phase(root_phase);
 
   COMPILER2_PRESENT(DerivedPointerTable::clear());
 
@@ -307,8 +306,6 @@ void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPha
   heap->workers()->run_task(&update_roots);
 
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
-
-  heap->shenandoahPolicy()->record_phase_end(root_phase);
 }
 
 void ShenandoahConcurrentMark::initialize(uint workers) {
@@ -343,7 +340,7 @@ void ShenandoahConcurrentMark::mark_from_roots() {
 
   bool update_refs = sh->need_update_refs();
 
-  sh->shenandoahPolicy()->record_phase_start(ShenandoahCollectorPolicy::conc_mark);
+  ShenandoahGCPhase conc_mark_phase(ShenandoahCollectorPolicy::conc_mark);
 
   if (process_references()) {
     ReferenceProcessor* rp = sh->ref_processor();
@@ -372,8 +369,6 @@ void ShenandoahConcurrentMark::mark_from_roots() {
   }
 
   TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
-
-  sh->shenandoahPolicy()->record_phase_end(ShenandoahCollectorPolicy::conc_mark);
 }
 
 void ShenandoahConcurrentMark::finish_mark_from_roots() {
@@ -410,7 +405,7 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   //   root scan, and completes the closure, thus marking through all live objects
   // The implementation is the same, so it's shared here.
   {
-    policy->record_phase_start(full_gc ?
+    ShenandoahGCPhase phase(full_gc ?
                                ShenandoahCollectorPolicy::full_gc_mark_finish_queues :
                                ShenandoahCollectorPolicy::finish_queues);
     bool count_live = !(ShenandoahNoLivenessFullGC && full_gc); // we do not need liveness data for full GC
@@ -426,9 +421,6 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
       SCMFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
       sh->workers()->run_task(&task);
     }
-    policy->record_phase_end(full_gc ?
-                             ShenandoahCollectorPolicy::full_gc_mark_finish_queues :
-                             ShenandoahCollectorPolicy::finish_queues);
   }
 
   assert(task_queues()->is_empty(), "Should be empty");
@@ -695,7 +687,7 @@ void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
           ShenandoahCollectorPolicy::full_gc_weakrefs :
           ShenandoahCollectorPolicy::weakrefs;
 
-  sh->shenandoahPolicy()->record_phase_start(phase_root);
+  ShenandoahGCPhase phase(phase_root);
 
   ReferenceProcessor* rp = sh->ref_processor();
   weak_refs_work_doit(full_gc);
@@ -703,7 +695,6 @@ void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
   rp->verify_no_references_recorded();
   assert(!rp->discovery_enabled(), "Post condition");
 
-  sh->shenandoahPolicy()->record_phase_end(phase_root);
 }
 
 void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
@@ -744,28 +735,30 @@ void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
 
   ShenandoahRefProcTaskExecutor executor(workers);
 
-  sh->shenandoahPolicy()->record_phase_start(phase_process);
+  {
+    ShenandoahGCPhase phase(phase_process);
 
-  if (sh->need_update_refs()) {
-    ShenandoahForwardedIsAliveClosure is_alive;
-    ShenandoahCMKeepAliveUpdateClosure keep_alive(get_queue(serial_worker_id));
-    rp->process_discovered_references(&is_alive, &keep_alive,
-                                      &complete_gc, &executor,
-                                      NULL, sh->shenandoahPolicy()->tracer()->gc_id());
-  } else {
-    ShenandoahIsAliveClosure is_alive;
-    ShenandoahCMKeepAliveClosure keep_alive(get_queue(serial_worker_id));
-    rp->process_discovered_references(&is_alive, &keep_alive,
-                                      &complete_gc, &executor,
-                                      NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+    if (sh->need_update_refs()) {
+      ShenandoahForwardedIsAliveClosure is_alive;
+      ShenandoahCMKeepAliveUpdateClosure keep_alive(get_queue(serial_worker_id));
+      rp->process_discovered_references(&is_alive, &keep_alive,
+                                        &complete_gc, &executor,
+                                        NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+    } else {
+      ShenandoahIsAliveClosure is_alive;
+      ShenandoahCMKeepAliveClosure keep_alive(get_queue(serial_worker_id));
+      rp->process_discovered_references(&is_alive, &keep_alive,
+                                        &complete_gc, &executor,
+                                        NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+    }
+
+    assert(task_queues()->is_empty(), "Should be empty");
   }
 
-  assert(task_queues()->is_empty(), "Should be empty");
-  sh->shenandoahPolicy()->record_phase_end(phase_process);
-
-  sh->shenandoahPolicy()->record_phase_start(phase_enqueue);
-  rp->enqueue_discovered_references(&executor);
-  sh->shenandoahPolicy()->record_phase_end(phase_enqueue);
+  {
+    ShenandoahGCPhase phase(phase_enqueue);
+    rp->enqueue_discovered_references(&executor);
+  }
 }
 
 class ShenandoahCancelledGCYieldClosure : public YieldClosure {
