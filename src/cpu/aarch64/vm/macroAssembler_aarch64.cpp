@@ -3707,11 +3707,6 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
   assert(thread == rthread, "must be");
 #endif // _LP64
 
-  if (UseShenandoahGC) {
-    // No need for this in Shenandoah.
-    return;
-  }
-
   assert(UseG1GC, "expect G1 GC");
 
   Address queue_index(thread, in_bytes(JavaThread::dirty_card_queue_offset() +
@@ -3778,6 +3773,48 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
   call_VM_leaf(CAST_FROM_FN_PTR(address, SharedRuntime::g1_wb_post), card_addr, thread);
   pop(store_addr->bit(true) | new_val->bit(true), sp);
 
+  bind(done);
+}
+
+void MacroAssembler::shenandoah_write_barrier_post(Register store_addr,
+                                                   Register new_val,
+                                                   Register thread,
+                                                   Register tmp,
+                                                   Register tmp2) {
+  assert(thread == rthread, "must be");
+  assert(UseShenandoahGC, "expect Shenandoah GC");
+
+  if (! UseShenandoahMatrix) {
+    // No need for that barrier if not using matrix.
+    return;
+  }
+
+  assert_different_registers(store_addr, new_val, thread, tmp, tmp2, rscratch2);
+
+  Label done;
+  cbz(new_val, done);
+
+  ShenandoahConnectionMatrix* matrix = ShenandoahHeap::heap()->connection_matrix();
+  address matrix_addr = matrix->matrix_addr();
+  unsigned long offset;
+  adrp(rscratch2, ExternalAddress(ShenandoahHeap::heap()->base()), offset);
+
+  sub(tmp, new_val, rscratch2);
+  lsr(tmp, tmp, ShenandoahHeapRegion::region_size_shift_jint());
+
+  sub(tmp2, store_addr, rscratch2);
+  lsr(tmp2, tmp2, ShenandoahHeapRegion::region_size_shift_jint());
+
+  mov(rscratch2, matrix->stride_jint());
+  madd(tmp, tmp, rscratch2, tmp2);
+
+  mov(rscratch2, (uintptr_t)matrix_addr);
+  Address loc(rscratch2, tmp);
+
+  ldrb(tmp2, loc);
+  cbnz(tmp2, done);
+  mov(tmp2, 1);
+  strb(tmp2, loc);
   bind(done);
 }
 
