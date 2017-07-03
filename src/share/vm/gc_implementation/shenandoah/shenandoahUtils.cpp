@@ -25,15 +25,19 @@
 
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
+#include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
 
 
-ShenandoahGCSession::ShenandoahGCSession() {
-  ShenandoahHeap::heap()->gc_timer()->register_gc_start();
+ShenandoahGCSession::ShenandoahGCSession(bool is_full_gc) {
+  _timer = is_full_gc ? ShenandoahMarkCompact::gc_timer() :
+                        ShenandoahHeap::heap()->gc_timer();
+
+  _timer->register_gc_start();
 }
 
 ShenandoahGCSession::~ShenandoahGCSession() {
-  ShenandoahHeap::heap()->gc_timer()->register_gc_end();
+  _timer->register_gc_end();
 }
 
 ShenandoahGCPhase::ShenandoahGCPhase(const ShenandoahCollectorPolicy::TimingPhase phase) :
