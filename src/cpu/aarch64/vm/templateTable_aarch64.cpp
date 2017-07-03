@@ -181,11 +181,22 @@ static void do_oop_store(InterpreterMacroAssembler* _masm,
           oopDesc::bs()->interpreter_read_barrier(_masm, val);
 
           __ store_heap_oop(Address(r3, 0), val);
-          __ g1_write_barrier_post(r3 /* store_adr */,
-                                   new_val /* new_val */,
-                                   rthread /* thread */,
-                                   r10 /* tmp */,
-                                   r1 /* tmp2 */);
+
+          if (UseG1GC) {
+            __ g1_write_barrier_post(r3 /* store_adr */,
+                                     new_val /* new_val */,
+                                     rthread /* thread */,
+                                     r10 /* tmp */,
+                                     r1 /* tmp2 */);
+          } else if (UseShenandoahGC) {
+            __ shenandoah_write_barrier_post(r3 /* store_adr */,
+                                     new_val /* new_val */,
+                                     rthread /* thread */,
+                                     r10 /* tmp */,
+                                     r1 /* tmp2 */);
+          } else {
+            ShouldNotReachHere();
+          }
         }
 
       }
