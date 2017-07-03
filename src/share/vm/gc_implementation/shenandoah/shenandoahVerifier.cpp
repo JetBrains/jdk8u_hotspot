@@ -389,7 +389,7 @@ void ShenandoahVerifier::verify_generic(VerifyOption vo) {
   verify_reachable_at_safepoint(
           "Generic Verification",
           _verify_forwarded_allow,     // conservatively allow forwarded
-          _verify_marked_disable,      // cannot trust bitmaps here
+          _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
           _verify_matrix_disable,      // matrix can be inconsistent here
           _verify_cset_disable         // cset may be inconsistent
   );
@@ -400,7 +400,7 @@ void ShenandoahVerifier::verify_before_concmark() {
     verify_reachable_at_safepoint(
             "Before Mark",
             _verify_forwarded_allow,     // may have forwarded references
-            _verify_marked_disable,      // bitmaps are foobared
+            _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
             _verify_matrix_disable,      // matrix is foobared
             _verify_cset_forwarded       // allow forwarded references to cset
     );
@@ -408,7 +408,7 @@ void ShenandoahVerifier::verify_before_concmark() {
     verify_reachable_at_safepoint(
             "Before Mark",
             _verify_forwarded_none,      // UR should have fixed up
-            _verify_marked_disable,      // bitmaps are foobared
+            _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
             _verify_matrix_conservative, // UR should have fixed matrix
             _verify_cset_none            // UR should have fixed this
     );
@@ -423,7 +423,7 @@ void ShenandoahVerifier::verify_before_evacuation() {
   verify_reachable_at_safepoint(
           "Before Evacuation",
           _verify_forwarded_none,      // no forwarded references
-          _verify_marked_complete,     // all objects are marked
+          _verify_marked_complete,     // bitmaps as precise as we can get
           _verify_matrix_disable,      // matrix might be foobared
           _verify_cset_none            // no cset, no references to it
   );
@@ -433,7 +433,7 @@ void ShenandoahVerifier::verify_after_evacuation() {
   verify_reachable_at_safepoint(
           "After Evacuation",
           _verify_forwarded_allow,     // objects are still forwarded
-          _verify_marked_disable,      // cannot trust bitmaps
+          _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_disable,      // matrix is inconsistent here
           _verify_cset_forwarded       // all cset refs are fully forwarded
   );
@@ -443,7 +443,7 @@ void ShenandoahVerifier::verify_before_updaterefs() {
   verify_reachable_at_safepoint(
           "Before Updating References",
           _verify_forwarded_allow,     // forwarded references allowed
-          _verify_marked_complete,     // all objects are marked
+          _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_disable,      // matrix is inconsistent here
           _verify_cset_forwarded       // all cset refs are fully forwarded
   );
@@ -453,7 +453,7 @@ void ShenandoahVerifier::verify_after_updaterefs() {
   verify_reachable_at_safepoint(
           "After Updating References",
           _verify_forwarded_none,      // no forwarded references
-          _verify_marked_complete,     // all objects are marked
+          _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none            // no cset references, all updated
   );
@@ -463,7 +463,7 @@ void ShenandoahVerifier::verify_before_partial() {
   verify_reachable_at_safepoint(
           "Before Partial GC",
           _verify_forwarded_none,      // cannot have forwarded objects
-          _verify_marked_disable,      // cannot trust bitmaps
+          _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none            // no cset references before partial
   );
@@ -473,7 +473,7 @@ void ShenandoahVerifier::verify_after_partial() {
   verify_reachable_at_safepoint(
           "After Partial GC",
           _verify_forwarded_none,      // cannot have forwarded objects
-          _verify_marked_disable,      // cannot trust bitmaps
+          _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none            // no cset references left after partial
   );
@@ -483,7 +483,7 @@ void ShenandoahVerifier::verify_before_fullgc() {
   verify_reachable_at_safepoint(
           "Before Full GC",
           _verify_forwarded_allow,     // can have forwarded objects
-          _verify_marked_disable,      // bitmaps might be foobared
+          _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
           _verify_matrix_disable,      // matrix might be foobared
           _verify_cset_disable         // cset might be foobared
   );
