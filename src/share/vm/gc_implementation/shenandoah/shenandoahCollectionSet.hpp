@@ -31,8 +31,12 @@ class ShenandoahHeap;
 class ShenandoahHeapRegion;
 
 class ShenandoahCollectionSet : public CHeapObj<mtGC> {
+  friend class ShenandoahHeap;
 private:
-  char* const           _cset_map;
+  jbyte*                _cset_map;
+  jbyte*                _biased_cset_map;
+  size_t                _map_size;
+
   ShenandoahHeap* const _heap;
 
   size_t                _garbage;
@@ -41,7 +45,7 @@ private:
 
   volatile jint         _current_index;
 public:
-  ShenandoahCollectionSet(ShenandoahHeap* heap, char* cset_fast_test);
+  ShenandoahCollectionSet(ShenandoahHeap* heap, HeapWord* heap_base);
 
   // Add region to collection set
   void add_region(ShenandoahHeapRegion* r);
@@ -61,14 +65,20 @@ public:
     _current_index = 0;
   }
 
-  bool is_in(ShenandoahHeapRegion* r) const;
-  bool is_in(size_t region_number)    const;
+  inline bool is_in(ShenandoahHeapRegion* r) const;
+  inline bool is_in(size_t region_number)    const;
+  inline bool is_in(HeapWord* p)             const;
 
   void print(outputStream* out = tty) const;
 
   size_t live_data() const { return _live_data; }
   size_t garbage()   const { return _garbage;   }
   void clear();
+
+private:
+  jbyte* biased_map_address() const {
+    return _biased_cset_map;
+  }
 };
 
 #endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_HPP

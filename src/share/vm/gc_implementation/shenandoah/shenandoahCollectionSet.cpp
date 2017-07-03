@@ -23,23 +23,25 @@
 
 #include "precompiled.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectionSet.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "runtime/atomic.hpp"
+#include "utilities/copy.hpp"
 
-ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, char* cset_fast_test) :
-  _garbage(0), _live_data(0), _heap(heap), _cset_map(cset_fast_test), _region_count(0),
-  _current_index(0) {
-}
+ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, HeapWord* heap_base) :
+        _garbage(0), _live_data(0), _heap(heap), _region_count(0),
+        _map_size(heap->max_regions()), _current_index(0) {
+  // Use 1-byte data type
+  STATIC_ASSERT(sizeof(jbyte) == 1);
 
-bool ShenandoahCollectionSet::is_in(ShenandoahHeapRegion* r) const {
-  return is_in(r->region_number());
-}
+  _cset_map = NEW_C_HEAP_ARRAY(jbyte, _map_size, mtGC);
+  // Bias cset map's base address for fast test if an oop is in cset
+  _biased_cset_map = _cset_map - ((uintx)heap_base >> ShenandoahHeapRegion::region_size_shift());
 
-bool ShenandoahCollectionSet::is_in(size_t region_number) const {
-  assert(region_number < _heap->num_regions(), "Sanity");
-  return _cset_map[region_number] == 1;
+  // Initialize cset map
+  Copy::zero_to_bytes(_cset_map, _map_size);
 }
 
 void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
@@ -62,8 +64,8 @@ void ShenandoahCollectionSet::remove_region(ShenandoahHeapRegion* r) {
 
 void ShenandoahCollectionSet::clear() {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
+  Copy::zero_to_bytes(_cset_map, _map_size);
 
-  ShenandoahHeap::heap()->clear_cset_fast_test();
   _garbage = 0;
   _live_data = 0;
 
