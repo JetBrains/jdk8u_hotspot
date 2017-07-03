@@ -26,7 +26,7 @@
 
 #include "memory/allocation.hpp"
 
-class STWGCTimer;
+class GCTimer;
 class ShenandoahHeapRegionSet;
 
 /**
@@ -49,6 +49,7 @@ private:
 public:
   static void initialize();
   static void do_mark_compact(GCCause::Cause gc_cause);
+  static GCTimer* gc_timer();
 
 private:
 

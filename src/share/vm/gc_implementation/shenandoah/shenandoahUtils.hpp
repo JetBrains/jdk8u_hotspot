@@ -27,9 +27,14 @@
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 
+class GCTimer;
+
 class ShenandoahGCSession : public StackObj {
+private:
+  GCTimer*  _timer;
+
 public:
-  ShenandoahGCSession();
+  ShenandoahGCSession(bool is_full_gc = false);
   ~ShenandoahGCSession();
 };
 

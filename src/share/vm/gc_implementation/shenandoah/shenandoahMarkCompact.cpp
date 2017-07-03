@@ -86,6 +86,11 @@ public:
 
 STWGCTimer* ShenandoahMarkCompact::_gc_timer = NULL;
 
+GCTimer* ShenandoahMarkCompact::gc_timer() {
+  assert(_gc_timer != NULL, "Timer not yet initialized");
+  return _gc_timer;
+}
+
 void ShenandoahMarkCompact::initialize() {
   _gc_timer = new (ResourceObj::C_HEAP, mtGC) STWGCTimer();
 }
@@ -94,7 +99,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
   ShenandoahHeap* _heap = ShenandoahHeap::heap();
   {
-    ShenandoahGCSession session;
+    ShenandoahGCSession session(/* is_full_gc */true);
     ShenandoahGCPhase full_gc(ShenandoahCollectorPolicy::full_gc);
 
     GCTracer *_gc_tracer = _heap->tracer();
