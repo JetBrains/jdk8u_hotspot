@@ -61,6 +61,10 @@ public:
     return ShenandoahHeapRegion::RegionSizeBytes;
   }
 
+  inline static size_t region_size_words() {
+    return ShenandoahHeapRegion::RegionSizeBytes / HeapWordSize;
+  }
+
   inline static size_t region_size_shift() {
     return ShenandoahHeapRegion::RegionSizeShift;
   }
