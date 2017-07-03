@@ -178,6 +178,41 @@ private:
              "Double forwarding");
     }
 
+    // Verify that object and forwardee fit their regions:
+    {
+      ShenandoahHeapRegion *obj_reg = _heap->heap_region_containing(obj);
+
+      HeapWord *obj_addr = (HeapWord *) obj;
+      verify(obj, obj_addr < obj_reg->top(),
+             "Object start should be within the region");
+
+      if (!obj_reg->is_humongous()) {
+        verify(obj, (obj_addr + obj->size()) <= obj_reg->top(),
+               "Object end should be within the region");
+      } else {
+        size_t humongous_start = obj_reg->region_number();
+        size_t humongous_end = humongous_start + (obj->size() / ShenandoahHeapRegion::region_size_words());
+        for (size_t idx = humongous_start + 1; idx < humongous_end; idx++) {
+          verify(obj, _heap->regions()->get(idx)->is_humongous_continuation(),
+                 "Humongous object is in continuation that fits it");
+        }
+      }
+    }
+
+    {
+      if (!oopDesc::unsafe_equals(obj, fwd)) {
+        ShenandoahHeapRegion *fwd_reg = _heap->heap_region_containing(fwd);
+        verify(obj, !fwd_reg->is_humongous(),
+               "Should have no humongous forwardees");
+
+        HeapWord *fwd_addr = (HeapWord *) fwd;
+        verify(obj, fwd_addr < fwd_reg->top(),
+               "Forwardee start should be within the region");
+        verify(obj, (fwd_addr + fwd->size()) <= fwd_reg->top(),
+               "Forwardee end should be within the region");
+      }
+    }
+
     switch (_verify_marked) {
       case ShenandoahVerifier::_verify_marked_disable:
         // skip
@@ -315,6 +350,12 @@ public:
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     verify(r, r->capacity() == ShenandoahHeapRegion::region_size_bytes(),
            "Capacity should match region size");
+
+    verify(r, r->bottom() <= _heap->complete_top_at_mark_start(r->bottom()),
+           "Region top should not be less than bottom");
+
+    verify(r, _heap->complete_top_at_mark_start(r->bottom()) <= r->top(),
+           "Complete TAMS should not be larger than top");
 
     verify(r, (r->get_live_data_bytes() <= r->capacity()),
            "Live data cannot be larger than capacity");
