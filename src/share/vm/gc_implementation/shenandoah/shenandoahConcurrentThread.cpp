@@ -232,7 +232,6 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
         clear_full_gc = true;
         heap->shenandoahPolicy()->record_uprefs_degenerated();
       } else {
-        heap->gc_timer()->register_gc_end();
         return;
       }
     } else {
@@ -275,7 +274,6 @@ bool ShenandoahConcurrentThread::check_cancellation() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->cancelled_concgc()) {
     assert (is_full_gc() || in_graceful_shutdown(), "Cancel GC either for Full GC, or gracefully exiting");
-    heap->gc_timer()->register_gc_end();
     return true;
   }
   return false;
