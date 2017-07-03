@@ -28,6 +28,8 @@
 #include "memory/threadLocalAllocBuffer.inline.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahCollectionSet.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.inline.hpp"
@@ -320,7 +322,8 @@ inline bool ShenandoahHeap::requires_marking(const void* entry) const {
 }
 
 bool ShenandoahHeap::region_in_collection_set(size_t region_index) const {
-  return _in_cset_fast_test_base[region_index] == 1;
+  assert(collection_set() != NULL, "Sanity");
+  return collection_set()->is_in(region_index);
 }
 
 bool ShenandoahHeap::in_collection_set(ShenandoahHeapRegion* r) const {
@@ -330,13 +333,10 @@ bool ShenandoahHeap::in_collection_set(ShenandoahHeapRegion* r) const {
 template <class T>
 inline bool ShenandoahHeap::in_collection_set(T p) const {
   HeapWord* obj = (HeapWord*) p;
-  assert(_in_cset_fast_test != NULL, "sanity");
+  assert(collection_set() != NULL, "Sanity");
   assert(is_in(obj), "should be in heap");
 
-  // no need to subtract the bottom of the heap from obj,
-  // _in_cset_fast_test is biased
-  uintx index = ((uintx) obj) >> ShenandoahHeapRegion::region_size_shift();
-  return _in_cset_fast_test[index];
+  return collection_set()->is_in(obj);
 }
 
 inline bool ShenandoahHeap::concurrent_mark_in_progress() {

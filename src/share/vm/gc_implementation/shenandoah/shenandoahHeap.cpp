@@ -151,16 +151,7 @@ jint ShenandoahHeap::initialize() {
   _ordered_regions = new ShenandoahHeapRegionSet(_max_regions);
   _free_regions = new ShenandoahFreeSet(_max_regions);
 
-  // Initialize fast collection set test structure.
-  _in_cset_fast_test_length = _max_regions;
-  _in_cset_fast_test_base =
-                   NEW_C_HEAP_ARRAY(char, _in_cset_fast_test_length, mtGC);
-  _in_cset_fast_test = _in_cset_fast_test_base -
-               ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_shift());
-
-
-  _collection_set = new ShenandoahCollectionSet(this, _in_cset_fast_test_base);
-
+  _collection_set = new ShenandoahCollectionSet(this, (HeapWord*)pgc_rs.base());
 
   _next_top_at_mark_starts_base =
                    NEW_C_HEAP_ARRAY(HeapWord*, _max_regions, mtGC);
@@ -174,7 +165,7 @@ jint ShenandoahHeap::initialize() {
 
   size_t i = 0;
   for (i = 0; i < _num_regions; i++) {
-    _in_cset_fast_test_base[i] = false; // Not in cset
+    assert(!collection_set()->is_in(i), "New region should not be in collection set");
     HeapWord* bottom = (HeapWord*) pgc_rs.base() + regionSizeWords * i;
     _complete_top_at_mark_starts_base[i] = bottom;
     _next_top_at_mark_starts_base[i] = bottom;
@@ -282,8 +273,6 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _used_start_gc(0),
   _max_workers((uint)MAX2(ConcGCThreads, ParallelGCThreads)),
   _ref_processor(NULL),
-  _in_cset_fast_test(NULL),
-  _in_cset_fast_test_base(NULL),
   _next_top_at_mark_starts(NULL),
   _next_top_at_mark_starts_base(NULL),
   _complete_top_at_mark_starts(NULL),
@@ -1608,7 +1597,9 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
 
     assert(_ordered_regions->active_regions() == new_region->region_number(), "must match");
     _ordered_regions->add_region(new_region);
-    _in_cset_fast_test_base[new_region_index] = false; // Not in cset
+
+    assert(!collection_set()->is_in(new_region_index), "New region can not be in collection set");
+
     _next_top_at_mark_starts_base[new_region_index] = new_region->bottom();
     _complete_top_at_mark_starts_base[new_region_index] = new_region->bottom();
 
@@ -1815,10 +1806,6 @@ ShenandoahHeapRegion* ShenandoahHeap::next_compaction_region(const ShenandoahHea
   return next;
 }
 
-void ShenandoahHeap::set_region_in_collection_set(size_t region_index, bool b) {
-  _in_cset_fast_test_base[region_index] = b;
-}
-
 ShenandoahMonitoringSupport* ShenandoahHeap::monitoring_support() {
   return _monitoring_support;
 }
@@ -1840,18 +1827,15 @@ void ShenandoahHeap::clear_free_regions() {
 }
 
 address ShenandoahHeap::in_cset_fast_test_addr() {
-  return (address) (ShenandoahHeap::heap()->_in_cset_fast_test);
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  assert(heap->collection_set() != NULL, "Sanity");
+  return (address) heap->collection_set()->biased_map_address();
 }
 
 address ShenandoahHeap::cancelled_concgc_addr() {
   return (address) &(ShenandoahHeap::heap()->_cancelled_concgc);
 }
 
-void ShenandoahHeap::clear_cset_fast_test() {
-  assert(_in_cset_fast_test_base != NULL, "sanity");
-  memset(_in_cset_fast_test_base, false,
-         _in_cset_fast_test_length * sizeof(bool));
-}
 
 size_t ShenandoahHeap::conservative_max_heap_alignment() {
   return ShenandoahMaxRegionSize;

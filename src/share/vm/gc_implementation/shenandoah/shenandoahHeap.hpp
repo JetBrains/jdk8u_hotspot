@@ -102,7 +102,6 @@ public:
 // //      ShenandoahHeap
 
 class ShenandoahHeap : public SharedHeap {
-  friend class ShenandoahCollectionSet;
 
   enum LockState { unlocked = 0, locked = 1 };
 
@@ -173,10 +172,6 @@ private:
   CMBitMap _mark_bit_map1;
   CMBitMap* _complete_mark_bit_map;
   CMBitMap* _next_mark_bit_map;
-
-  char* _in_cset_fast_test;
-  char* _in_cset_fast_test_base;
-  size_t _in_cset_fast_test_length;
 
   HeapWord** _complete_top_at_mark_starts;
   HeapWord** _complete_top_at_mark_starts_base;
@@ -324,11 +319,6 @@ public:
 private:
   void set_evacuation_in_progress(bool in_progress);
 
-  // Only set/unset via ShenandoahHeapRegion
-  void set_region_in_collection_set(size_t region_index, bool b);
-
-  // Only via ShenandoahCollectionSet
-  void clear_cset_fast_test();
 public:
   inline bool is_evacuation_in_progress();
   void set_evacuation_in_progress_concurrently(bool in_progress);
@@ -375,7 +365,7 @@ public:
 
   ShenandoahHeapRegionSet* regions() { return _ordered_regions;}
   ShenandoahFreeSet* free_regions();
-  ShenandoahCollectionSet* collection_set() { return _collection_set; }
+  ShenandoahCollectionSet* collection_set() const { return _collection_set; }
   void clear_free_regions();
   void add_free_region(ShenandoahHeapRegion* r);
 
