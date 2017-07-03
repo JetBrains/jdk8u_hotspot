@@ -730,6 +730,79 @@ HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
   }
 }
 
+class ShenandoahEvacuateUpdateRootsClosure: public ExtendedOopClosure {
+private:
+  ShenandoahHeap* _heap;
+  Thread* _thread;
+public:
+  ShenandoahEvacuateUpdateRootsClosure() :
+          _heap(ShenandoahHeap::heap()), _thread(Thread::current()) {
+  }
+
+private:
+  template <class T>
+  void do_oop_work(T* p) {
+    assert(_heap->is_evacuation_in_progress(), "Only do this when evacuation is in progress");
+
+    T o = oopDesc::load_heap_oop(p);
+    if (! oopDesc::is_null(o)) {
+      oop obj = oopDesc::decode_heap_oop_not_null(o);
+      if (_heap->in_collection_set(obj)) {
+        assert(_heap->is_marked_complete(obj), err_msg("only evacuate marked objects %d %d",
+               _heap->is_marked_complete(obj), _heap->is_marked_complete(ShenandoahBarrierSet::resolve_oop_static_not_null(obj))));
+        oop resolved = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
+        if (oopDesc::unsafe_equals(resolved, obj)) {
+          bool evac;
+          resolved = _heap->evacuate_object(obj, _thread, evac);
+        }
+        oopDesc::encode_store_heap_oop(p, resolved);
+      }
+    }
+  }
+
+public:
+  void do_oop(oop* p) {
+    do_oop_work(p);
+  }
+  void do_oop(narrowOop* p) {
+    do_oop_work(p);
+  }
+};
+
+class ShenandoahEvacuateRootsClosure: public ExtendedOopClosure {
+private:
+  ShenandoahHeap* _heap;
+  Thread* _thread;
+public:
+  ShenandoahEvacuateRootsClosure() :
+          _heap(ShenandoahHeap::heap()), _thread(Thread::current()) {
+  }
+
+private:
+  template <class T>
+  void do_oop_work(T* p) {
+    T o = oopDesc::load_heap_oop(p);
+    if (! oopDesc::is_null(o)) {
+      oop obj = oopDesc::decode_heap_oop_not_null(o);
+      if (_heap->in_collection_set(obj)) {
+        oop resolved = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
+        if (oopDesc::unsafe_equals(resolved, obj)) {
+          bool evac;
+          _heap->evacuate_object(obj, _thread, evac);
+        }
+      }
+    }
+  }
+
+public:
+  void do_oop(oop* p) {
+    do_oop_work(p);
+  }
+  void do_oop(narrowOop* p) {
+    do_oop_work(p);
+  }
+};
+
 class ParallelEvacuateRegionObjectClosure : public ObjectClosure {
 private:
   ShenandoahHeap* _heap;
@@ -764,15 +837,32 @@ class ParallelEvacuationTask : public AbstractGangTask {
 private:
   ShenandoahHeap* _sh;
   ShenandoahCollectionSet* _cs;
+  volatile jbyte _claimed_codecache;
 
+  bool claim_codecache() {
+    jbyte old = Atomic::cmpxchg(1, &_claimed_codecache, 0);
+    return old == 0;
+  }
 public:
   ParallelEvacuationTask(ShenandoahHeap* sh,
                          ShenandoahCollectionSet* cs) :
     AbstractGangTask("Parallel Evacuation Task"),
     _cs(cs),
-    _sh(sh) {}
+    _sh(sh),
+    _claimed_codecache(0)
+  {}
 
   void work(uint worker_id) {
+
+    // If concurrent code cache evac is enabled, evacuate it here.
+    // Note we cannot update the roots here, because we risk non-atomic stores to the alive
+    // nmethods. The update would be handled elsewhere.
+    if (ShenandoahConcurrentEvacCodeRoots && claim_codecache()) {
+      ShenandoahEvacuateRootsClosure cl;
+      MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
+      CodeBlobToOopClosure blobs(&cl, !CodeBlobToOopClosure::FixRelocations);
+      CodeCache::blobs_do(&blobs);
+    }
 
     ShenandoahHeapRegion* from_hr = _cs->claim_next();
 
@@ -955,45 +1045,6 @@ void ShenandoahHeap::ensure_parsability(bool retire_tlabs) {
   }
 }
 
-class ShenandoahEvacuateUpdateRootsClosure: public ExtendedOopClosure {
-private:
-  ShenandoahHeap* _heap;
-  Thread* _thread;
-public:
-  ShenandoahEvacuateUpdateRootsClosure() :
-    _heap(ShenandoahHeap::heap()), _thread(Thread::current()) {
-  }
-
-private:
-  template <class T>
-  void do_oop_work(T* p) {
-    assert(_heap->is_evacuation_in_progress(), "Only do this when evacuation is in progress");
-
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj = oopDesc::decode_heap_oop_not_null(o);
-      if (_heap->in_collection_set(obj)) {
-        assert(_heap->is_marked_complete(obj), err_msg("only evacuate marked objects %d %d",
-						       _heap->is_marked_complete(obj), _heap->is_marked_complete(ShenandoahBarrierSet::resolve_oop_static_not_null(obj))));
-        oop resolved = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
-        if (oopDesc::unsafe_equals(resolved, obj)) {
-          bool evac;
-          resolved = _heap->evacuate_object(obj, _thread, evac);
-        }
-        oopDesc::encode_store_heap_oop(p, resolved);
-      }
-    }
-  }
-
-public:
-  void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-};
-
 class ShenandoahEvacuateUpdateRootsTask : public AbstractGangTask {
   ShenandoahRootEvacuator* _rp;
 public:
@@ -1007,9 +1058,13 @@ public:
 
   void work(uint worker_id) {
     ShenandoahEvacuateUpdateRootsClosure cl;
-    MarkingCodeBlobClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
 
-    _rp->process_evacuate_roots(&cl, &blobsCl, worker_id);
+    if (ShenandoahConcurrentEvacCodeRoots) {
+      _rp->process_evacuate_roots(&cl, NULL, worker_id);
+    } else {
+      MarkingCodeBlobClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
+      _rp->process_evacuate_roots(&cl, &blobsCl, worker_id);
+    }
   }
 };
 
@@ -1059,15 +1114,6 @@ void ShenandoahHeap::evacuate_and_update_roots() {
     workers()->run_task(&update_roots_task);
     COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
   }
-
-#ifdef ASSERT
-  {
-    AssertToSpaceClosure cl;
-    CodeBlobToOopClosure code_cl(&cl, !CodeBlobToOopClosure::FixRelocations);
-    ShenandoahRootEvacuator rp(this, 1, ShenandoahCollectorPolicy::_num_phases);
-    rp.process_evacuate_roots(&cl, &code_cl, 0);
-  }
-#endif
 }
 
 

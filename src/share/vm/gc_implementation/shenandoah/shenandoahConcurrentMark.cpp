@@ -102,7 +102,7 @@ public:
     //      cache, because there could be the case of embedded class/oop in the generated code,
     //      which we will never visit during mark. Without code cache invalidation, as in (a),
     //      we risk executing that code cache blob, and crashing.
-    //   c. With ShenandoahConcurrentCodeRoots, we avoid scanning the entire code cache here,
+    //   c. With ShenandoahConcurrentScanCodeRoots, we avoid scanning the entire code cache here,
     //      and instead do that in concurrent phase under the relevant lock. This saves init mark
     //      pause time.
 
@@ -110,15 +110,16 @@ public:
     if (heap->concurrentMark()->unload_classes()) {
       _rp->process_strong_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, &blobsCl, worker_id);
     } else {
-      if (ShenandoahConcurrentCodeRoots) {
-        CodeBlobClosure* code_blobs;
+      if (ShenandoahConcurrentScanCodeRoots) {
+        CodeBlobClosure* code_blobs = NULL;
 #ifdef ASSERT
         AssertToSpaceClosure assert_to_space_oops;
-        CodeBlobToOopClosure assert_to_space(&assert_to_space_oops,
-                                             !CodeBlobToOopClosure::FixRelocations);
-        code_blobs = &assert_to_space;
-#else
-        code_blobs = NULL;
+        CodeBlobToOopClosure assert_to_space(&assert_to_space_oops, !CodeBlobToOopClosure::FixRelocations);
+        // If conc code cache evac is disabled, code cache should have only to-space ptrs.
+        // Otherwise, it should have to-space ptrs only if mark does not update refs.
+        if (!ShenandoahConcurrentEvacCodeRoots && !heap->need_update_refs()) {
+          code_blobs = &assert_to_space;
+        }
 #endif
         _rp->process_all_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, code_blobs, worker_id);
       } else {
@@ -131,10 +132,12 @@ public:
 class ShenandoahUpdateRootsTask : public AbstractGangTask {
 private:
   ShenandoahRootProcessor* _rp;
+  const bool _update_code_cache;
 public:
-  ShenandoahUpdateRootsTask(ShenandoahRootProcessor* rp) :
+  ShenandoahUpdateRootsTask(ShenandoahRootProcessor* rp, bool update_code_cache) :
     AbstractGangTask("Shenandoah update roots task"),
-    _rp(rp) {
+    _rp(rp),
+    _update_code_cache(update_code_cache) {
   }
 
   void work(uint worker_id) {
@@ -145,13 +148,18 @@ public:
     CLDToOopClosure cldCl(&cl);
 
     CodeBlobClosure* code_blobs;
+    CodeBlobToOopClosure update_blobs(&cl, CodeBlobToOopClosure::FixRelocations);
 #ifdef ASSERT
     AssertToSpaceClosure assert_to_space_oops;
     CodeBlobToOopClosure assert_to_space(&assert_to_space_oops, !CodeBlobToOopClosure::FixRelocations);
-    code_blobs = &assert_to_space;
-#else
-    code_blobs = NULL;
 #endif
+    if (_update_code_cache) {
+      code_blobs = &update_blobs;
+    } else {
+      code_blobs =
+        DEBUG_ONLY(&assert_to_space)
+        NOT_DEBUG(NULL);
+    }
     _rp->process_all_roots(&cl, &cl, &cldCl, code_blobs, worker_id);
   }
 };
@@ -180,7 +188,7 @@ public:
 
     ReferenceProcessorMaybeNullIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
 
-    if (ShenandoahConcurrentCodeRoots && _cm->claim_codecache()) {
+    if (ShenandoahConcurrentScanCodeRoots && _cm->claim_codecache()) {
       if (! _cm->unload_classes()) {
         MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
         if (_update_refs) {
@@ -272,7 +280,7 @@ void ShenandoahConcurrentMark::mark_roots(ShenandoahCollectorPolicy::TimingPhase
     workers->run_task(&mark_roots);
   }
 
-  if (ShenandoahConcurrentCodeRoots) {
+  if (ShenandoahConcurrentScanCodeRoots) {
     clear_claim_codecache();
   }
 }
@@ -293,6 +301,21 @@ void ShenandoahConcurrentMark::init_mark_roots() {
 
 void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
+
+  bool update_code_cache = true; // initialize to safer value
+  switch (root_phase) {
+    case ShenandoahCollectorPolicy::update_roots:
+    case ShenandoahCollectorPolicy::final_update_refs_roots:
+      // If code cache was evacuated concurrently, we need to update code cache roots.
+      update_code_cache = ShenandoahConcurrentEvacCodeRoots;
+      break;
+    case ShenandoahCollectorPolicy::full_gc_roots:
+      update_code_cache = true;
+      break;
+    default:
+      ShouldNotReachHere();
+  }
+
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
   ShenandoahGCPhase phase(root_phase);
@@ -302,7 +325,7 @@ void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPha
   uint nworkers = heap->workers()->active_workers();
 
   ShenandoahRootProcessor root_proc(heap, nworkers, root_phase);
-  ShenandoahUpdateRootsTask update_roots(&root_proc);
+  ShenandoahUpdateRootsTask update_roots(&root_proc, update_code_cache);
   heap->workers()->run_task(&update_roots);
 
   COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
@@ -991,13 +1014,13 @@ bool ShenandoahConcurrentMark::unload_classes() const {
 }
 
 bool ShenandoahConcurrentMark::claim_codecache() {
-  assert(ShenandoahConcurrentCodeRoots, "must not be called otherwise");
+  assert(ShenandoahConcurrentScanCodeRoots, "must not be called otherwise");
   jbyte old = Atomic::cmpxchg(1, &_claimed_codecache, 0);
   return old == 0;
 }
 
 void ShenandoahConcurrentMark::clear_claim_codecache() {
-  assert(ShenandoahConcurrentCodeRoots, "must not be called otherwise");
+  assert(ShenandoahConcurrentScanCodeRoots, "must not be called otherwise");
   _claimed_codecache = 0;
 }
 

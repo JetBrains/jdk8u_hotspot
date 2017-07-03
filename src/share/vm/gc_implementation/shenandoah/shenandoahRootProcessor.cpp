@@ -189,7 +189,7 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
     Threads::possibly_parallel_oops_do(oops, NULL, NULL);
   }
 
-  {
+  if (blobs != NULL) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::CodeCacheRoots, worker_id);
     _codecache_iterator.parallel_blobs_do(blobs);
   }
