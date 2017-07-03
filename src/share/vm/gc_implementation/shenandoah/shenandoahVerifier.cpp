@@ -400,13 +400,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   guarantee(SafepointSynchronize::is_at_safepoint(), "only when nothing else happens");
   guarantee(ShenandoahVerify, "only when enabled, and bitmap is initialized in ShenandoahHeap::initialize");
 
-  log_info(gc)("Starting verification: %s", label);
-
-  // Internal heap region checks
-  {
-    VerifyHeapRegionClosure cl;
-    _heap->heap_region_iterate(&cl, true, true);
-  }
+  log_info(gc)("Starting level " INTX_FORMAT " verification: %s", ShenandoahVerifyLevel, label);
 
   // Heap size checks
   {
@@ -416,6 +410,12 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
     guarantee(cl.used() == heap_used,
               err_msg("heap used size must be consistent: heap-used = " SIZE_FORMAT ", regions-used = " SIZE_FORMAT,
                       heap_used, cl.used()));
+  }
+
+  // Internal heap region checks
+  if (ShenandoahVerifyLevel >= 1) {
+    VerifyHeapRegionClosure cl;
+    _heap->heap_region_iterate(&cl, true, true);
   }
 
   OrderAccess::fence();
@@ -429,10 +429,10 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   ShenandoahVerifierStack stack;
 
   // Step 1. Scan root set to get initial reachable set.
-  ShenandoahRootProcessor rp(_heap, 1,
+  if (ShenandoahVerifyLevel >= 2) {
+    ShenandoahRootProcessor rp(_heap, 1,
                              ShenandoahCollectorPolicy::_num_phases); // no need for stats
 
-  {
     VerifyReachableHeapClosure cl(&stack, _verification_bit_map, MessageBuffer("%s, Roots", label),
                                   forwarded, marked, matrix, cset);
     CLDToOopClosure cld_cl(&cl);
@@ -442,7 +442,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
   // Step 2. Finish walking the reachable heap. This verifies what application can see, since it
   // only cares about reachable objects.
-  {
+  if (ShenandoahVerifyLevel >= 3) {
     VerifyReachableHeapClosure cl(&stack, _verification_bit_map, MessageBuffer("%s, Reachable", label),
                                   forwarded, marked, matrix, cset);
     while (!stack.is_empty()) {
@@ -458,7 +458,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   // what marked_object_iterate is doing, without calling into that optimized (and possibly incorrect)
   // version
 
-  if (marked == _verify_marked_complete) {
+  if (ShenandoahVerifyLevel >= 4 && marked == _verify_marked_complete) {
     VerifyReachableHeapClosure cl(&stack, _verification_bit_map, MessageBuffer("%s, Unreachable", label),
                                   forwarded, marked, matrix, cset);
 
@@ -503,10 +503,10 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
       }
     }
   } else {
-    guarantee(marked == _verify_marked_next || marked == _verify_marked_disable, "Should be");
+    guarantee(ShenandoahVerifyLevel < 4 || marked == _verify_marked_next || marked == _verify_marked_disable, "Should be");
   }
 
-  log_info(gc)("Verification finished: %s", label);
+  log_info(gc)("Verification finished");
 }
 
 void ShenandoahVerifier::verify_and_follow(ShenandoahVerifierStack &stack,
