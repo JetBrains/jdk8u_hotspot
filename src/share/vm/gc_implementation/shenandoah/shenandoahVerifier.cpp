@@ -32,33 +32,6 @@
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
 
-class VerifierTask {
-public:
-  VerifierTask(oop o = NULL, int idx = 0): _obj(o) { }
-  VerifierTask(oop o, size_t idx): _obj(o) { }
-  VerifierTask(const VerifierTask& t): _obj(t._obj) { }
-
-  VerifierTask& operator =(const VerifierTask& t) {
-    _obj = t._obj;
-    return *this;
-  }
-  volatile VerifierTask&
-  operator =(const volatile VerifierTask& t) volatile {
-    (void)const_cast<oop&>(_obj = t._obj);
-    return *this;
-  }
-
-  inline oop obj()  const { return _obj; }
-
-  DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
-
-private:
-  oop _obj;
-};
-
-typedef FormatBuffer<8192> MessageBuffer;
-typedef Stack<VerifierTask, mtGC> ShenandoahVerifierStack;
-
 class VerifyReachableHeapClosure : public ExtendedOopClosure {
 private:
   ShenandoahVerifierStack* _stack;
@@ -69,6 +42,7 @@ private:
   ShenandoahVerifier::VerifyMarked _verify_marked;
   ShenandoahVerifier::VerifyMatrix _verify_matrix;
   ShenandoahVerifier::VerifyCollectionSet _verify_cset;
+  void* _interior_loc;
   oop _loc;
 public:
   VerifyReachableHeapClosure(ShenandoahVerifierStack* stack, CMBitMap* map,
@@ -77,7 +51,7 @@ public:
                              ShenandoahVerifier::VerifyMarked marked,
                              ShenandoahVerifier::VerifyMatrix matrix,
                              ShenandoahVerifier::VerifyCollectionSet cset) :
-          _stack(stack), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _phase(phase),
+          _stack(stack), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _interior_loc(NULL), _phase(phase),
           _verify_forwarded(forwarded), _verify_marked(marked), _verify_matrix(matrix), _verify_cset(cset) {};
 
   void print_obj(MessageBuffer& msg, oop obj) {
@@ -86,21 +60,25 @@ public:
     r->print_on(&ss);
 
     msg.append("  " PTR_FORMAT " - klass " PTR_FORMAT " %s\n", p2i(obj), p2i(obj->klass()), obj->klass()->external_name());
-    msg.append("    %3s allocated after mark\n", _heap->allocated_after_complete_mark_start((HeapWord *) obj) ? "" : "not");
+    msg.append("    %3s allocated after complete mark start\n", _heap->allocated_after_complete_mark_start((HeapWord *) obj) ? "" : "not");
+    msg.append("    %3s allocated after next mark start\n",     _heap->allocated_after_next_mark_start((HeapWord *) obj)     ? "" : "not");
     msg.append("    %3s marked complete\n",      _heap->is_marked_complete(obj) ? "" : "not");
     msg.append("    %3s marked next\n",          _heap->is_marked_next(obj) ? "" : "not");
     msg.append("    %3s in collection set\n",    _heap->in_collection_set(obj) ? "" : "not");
     msg.append("  region: %s", ss.as_string());
   }
 
-  template <class T>
-  void print_failure(T* p, oop obj, const char* label) {
+  void print_failure(oop obj, const char* label) {
     bool loc_in_heap = (_loc != NULL && _heap->is_in(_loc));
 
     MessageBuffer msg("Shenandoah verification failed; %s: %s\n\n", _phase, label);
 
     msg.append("Referenced from:\n");
-    msg.append("  interior location: " PTR_FORMAT "\n", p2i(p));
+    if (_interior_loc != NULL) {
+      msg.append("  interior location: " PTR_FORMAT "\n", p2i(_interior_loc));
+    } else {
+      msg.append("  no location recorded, probably a plain heap scan\n");
+    }
 
     if (loc_in_heap) {
       print_obj(msg, _loc);
@@ -130,10 +108,9 @@ public:
     report_vm_error(__FILE__, __LINE__, msg.buffer());
   }
 
-  template <class T>
-  void verify(T* p, oop obj, bool test, const char* label) {
+  void verify(oop obj, bool test, const char* label) {
     if (!test) {
-      print_failure(p, obj, label);
+      print_failure(obj, label);
     }
   }
 
@@ -142,7 +119,31 @@ public:
     T o = oopDesc::load_heap_oop(p);
     if (!oopDesc::is_null(o)) {
       oop obj = oopDesc::decode_heap_oop_not_null(o);
+      verify_oop_at(p, obj);
 
+      // Single threaded verification can use faster non-atomic version:
+      HeapWord* addr = (HeapWord*) obj;
+      if (!_map->isMarked(addr)) {
+        _map->mark(addr);
+        _stack->push(VerifierTask(obj));
+      }
+    }
+  }
+
+  template <class T>
+  void verify_oop_at(T* p, oop obj) {
+    _interior_loc = p;
+    verify_oop(obj);
+    _interior_loc = NULL;
+  }
+
+  void verify_oops_from(oop obj) {
+    _loc = obj;
+    obj->oop_iterate(this);
+    _loc = NULL;
+  }
+
+  void verify_oop(oop obj) {
       // Perform basic consistency checks first, so that we can call extended verification
       // report calling methods on obj and forwardee freely.
       //
@@ -180,7 +181,7 @@ public:
                   p2i(obj), p2i(obj->klass()), p2i(fwd), p2i(fwd->klass())));
 
         oop fwd2 = (oop) BrooksPointer::get_raw(fwd);
-        verify(p, obj, oopDesc::unsafe_equals(fwd, fwd2),
+        verify(obj, oopDesc::unsafe_equals(fwd, fwd2),
                "Double forwarding");
       }
 
@@ -189,11 +190,11 @@ public:
           // skip
           break;
         case ShenandoahVerifier::_verify_marked_next:
-          verify(p, obj, _heap->is_marked_next(obj),
+          verify(obj, _heap->is_marked_next(obj),
                  "Must be marked in next bitmap");
           break;
         case ShenandoahVerifier::_verify_marked_complete:
-          verify(p, obj, _heap->is_marked_complete(obj),
+          verify(obj, _heap->is_marked_complete(obj),
                  "Must be marked in complete bitmap");
           break;
         default:
@@ -205,13 +206,13 @@ public:
           // skip
           break;
         case ShenandoahVerifier::_verify_forwarded_none: {
-          verify(p, obj, oopDesc::unsafe_equals(obj, fwd),
+          verify(obj, oopDesc::unsafe_equals(obj, fwd),
                  "Should not be forwarded");
           break;
         }
         case ShenandoahVerifier::_verify_forwarded_allow: {
           if (!oopDesc::unsafe_equals(obj, fwd)) {
-            verify(p, obj, _heap->heap_region_containing(obj) != _heap->heap_region_containing(fwd),
+            verify(obj, _heap->heap_region_containing(obj) != _heap->heap_region_containing(fwd),
                    "Forwardee should be in another region");
           }
           break;
@@ -225,31 +226,22 @@ public:
           // skip
           break;
         case ShenandoahVerifier::_verify_cset_none:
-          verify(p, obj, !_heap->in_collection_set(obj),
+          verify(obj, !_heap->in_collection_set(obj),
                  "Should not have references to collection set");
           break;
         case ShenandoahVerifier::_verify_cset_forwarded:
           if (_heap->in_collection_set(obj)) {
-            verify(p, obj, !oopDesc::unsafe_equals(obj, fwd),
+            verify(obj, !oopDesc::unsafe_equals(obj, fwd),
                    "Object in collection set, should have forwardee");
           }
           break;
         default:
           assert(false, "Unhandled cset verification");
       }
-
-      // Single threaded verification can use faster non-atomic version:
-      HeapWord* addr = (HeapWord*) obj;
-      if (!_map->isMarked(addr)) {
-        _map->mark(addr);
-        _stack->push(VerifierTask(obj));
-      }
-    }
   }
 
   void do_oop(oop* p) { do_oop_work(p); }
   void do_oop(narrowOop* p) { do_oop_work(p); }
-  void set_loc(oop o) { _loc = o; }
 };
 
 class CalculateRegionStatsClosure : public ShenandoahHeapRegionClosure {
@@ -325,9 +317,9 @@ public:
   }
 };
 
-void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
-                                                       VerifyForwarded forwarded, VerifyMarked marked,
-                                                       VerifyMatrix matrix, VerifyCollectionSet cset) {
+void ShenandoahVerifier::verify_at_safepoint(const char *label,
+                                             VerifyForwarded forwarded, VerifyMarked marked,
+                                             VerifyMatrix matrix, VerifyCollectionSet cset) {
   guarantee(SafepointSynchronize::is_at_safepoint(), "only when nothing else happens");
   guarantee(ShenandoahVerify, "only when enabled, and bitmap is initialized in ShenandoahHeap::initialize");
 
@@ -359,34 +351,104 @@ void ShenandoahVerifier::verify_reachable_at_safepoint(const char *label,
   // Initialize a single queue
   ShenandoahVerifierStack stack;
 
-  // Scan root set
+  // Step 1. Scan root set to get initial reachable set.
   ShenandoahRootProcessor rp(_heap, 1,
                              ShenandoahCollectorPolicy::_num_phases); // no need for stats
 
   {
-    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, label, forwarded, marked, _verify_matrix_disable, cset);
+    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, MessageBuffer("%s, Roots", label),
+                                  forwarded, marked, _verify_matrix_disable, cset);
     CLDToOopClosure cld_cl(&cl);
     CodeBlobToOopClosure code_cl(&cl, ! CodeBlobToOopClosure::FixRelocations);
     rp.process_all_roots(&cl, &cl, &cld_cl, &code_cl, 0);
   }
 
-  // Finish the scan
+  // Step 2. Finish walking the reachable heap. This verifies what application can see, since it
+  // only cares about reachable objects.
   {
-    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, label, forwarded, marked, matrix, cset);
+    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, MessageBuffer("%s, Reachable", label),
+                                  forwarded, marked, matrix, cset);
     while (!stack.is_empty()) {
       VerifierTask task = stack.pop();
-      oop obj = task.obj();
-      assert(!oopDesc::is_null(obj), "must not be null");
-      cl.set_loc(obj);
-      obj->oop_iterate(&cl);
+      cl.verify_oops_from(task.obj());
     }
+  }
+
+  // Step 3. Walk marked objects. Marked objects might be unreachable. This verifies what collector,
+  // not the application, can see during the region scans. There is no reason to process the objects
+  // that were already verified, e.g. those marked in verification bitmap. There is interaction with TAMS:
+  // before TAMS, we verify the bitmaps, if available; after TAMS, we walk until the top(). It mimics
+  // what marked_object_iterate is doing, without calling into that optimized (and possibly incorrect)
+  // version
+
+  if (marked == _verify_marked_complete) {
+    VerifyReachableHeapClosure cl(&stack, _verification_bit_map, MessageBuffer("%s, Unreachable", label),
+                                  forwarded, marked, matrix, cset);
+
+    CMBitMap* mark_bit_map = _heap->complete_mark_bit_map();
+
+    ShenandoahHeapRegionSet* set = _heap->regions();
+    for (size_t idx = 0; idx < _heap->num_regions(); idx++) {
+      ShenandoahHeapRegion* r = set->get(idx);
+      if (r->is_humongous()) continue;
+
+      HeapWord* tams = _heap->complete_top_at_mark_start(r->bottom());
+
+      // Bitmaps, before TAMS
+      if (tams > r->bottom()) {
+        HeapWord* start = r->bottom() + BrooksPointer::word_size();
+        HeapWord* addr = mark_bit_map->getNextMarkedWordAddress(start, tams);
+
+        while (addr < tams) {
+          if (!_verification_bit_map->isMarked(addr)) {
+            verify_and_follow(stack, cl, addr);
+            _verification_bit_map->mark(addr);
+          }
+          addr += BrooksPointer::word_size();
+          if (addr < tams) {
+            addr = mark_bit_map->getNextMarkedWordAddress(addr, tams);
+          }
+        }
+      }
+
+      // Size-based, after TAMS
+      {
+        HeapWord* limit = r->top();
+        HeapWord* addr = tams + BrooksPointer::word_size();
+
+        while (addr < limit) {
+          if (!_verification_bit_map->isMarked(addr)) {
+            verify_and_follow(stack, cl, addr);
+            _verification_bit_map->mark(addr);
+          }
+          addr += oop(addr)->size() + BrooksPointer::word_size();
+        }
+      }
+    }
+  } else {
+    guarantee(marked == _verify_marked_next || marked == _verify_marked_disable, "Should be");
   }
 
   log_info(gc)("Verification finished: %s", label);
 }
 
+void ShenandoahVerifier::verify_and_follow(ShenandoahVerifierStack &stack,
+                                           VerifyReachableHeapClosure &cl,
+                                           HeapWord *addr) {
+  // Verify the object itself:
+  oop obj = oop(addr);
+  cl.verify_oop(obj);
+
+  // Verify everything reachable from that object too:
+  cl.verify_oops_from(obj);
+  while (!stack.is_empty()) {
+    VerifierTask task = stack.pop();
+    cl.verify_oops_from(task.obj());
+  }
+}
+
 void ShenandoahVerifier::verify_generic(VerifyOption vo) {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "Generic Verification",
           _verify_forwarded_allow,     // conservatively allow forwarded
           _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
@@ -397,7 +459,7 @@ void ShenandoahVerifier::verify_generic(VerifyOption vo) {
 
 void ShenandoahVerifier::verify_before_concmark() {
   if (_heap->need_update_refs()) {
-    verify_reachable_at_safepoint(
+    verify_at_safepoint(
             "Before Mark",
             _verify_forwarded_allow,     // may have forwarded references
             _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
@@ -405,7 +467,7 @@ void ShenandoahVerifier::verify_before_concmark() {
             _verify_cset_forwarded       // allow forwarded references to cset
     );
   } else {
-    verify_reachable_at_safepoint(
+    verify_at_safepoint(
             "Before Mark",
             _verify_forwarded_none,      // UR should have fixed up
             _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
@@ -420,7 +482,7 @@ void ShenandoahVerifier::verify_after_concmark() {
 }
 
 void ShenandoahVerifier::verify_before_evacuation() {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "Before Evacuation",
           _verify_forwarded_none,      // no forwarded references
           _verify_marked_complete,     // bitmaps as precise as we can get
@@ -430,7 +492,7 @@ void ShenandoahVerifier::verify_before_evacuation() {
 }
 
 void ShenandoahVerifier::verify_after_evacuation() {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "After Evacuation",
           _verify_forwarded_allow,     // objects are still forwarded
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
@@ -440,7 +502,7 @@ void ShenandoahVerifier::verify_after_evacuation() {
 }
 
 void ShenandoahVerifier::verify_before_updaterefs() {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "Before Updating References",
           _verify_forwarded_allow,     // forwarded references allowed
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
@@ -450,7 +512,7 @@ void ShenandoahVerifier::verify_before_updaterefs() {
 }
 
 void ShenandoahVerifier::verify_after_updaterefs() {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "After Updating References",
           _verify_forwarded_none,      // no forwarded references
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
@@ -460,7 +522,7 @@ void ShenandoahVerifier::verify_after_updaterefs() {
 }
 
 void ShenandoahVerifier::verify_before_partial() {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "Before Partial GC",
           _verify_forwarded_none,      // cannot have forwarded objects
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
@@ -470,7 +532,7 @@ void ShenandoahVerifier::verify_before_partial() {
 }
 
 void ShenandoahVerifier::verify_after_partial() {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "After Partial GC",
           _verify_forwarded_none,      // cannot have forwarded objects
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
@@ -480,7 +542,7 @@ void ShenandoahVerifier::verify_after_partial() {
 }
 
 void ShenandoahVerifier::verify_before_fullgc() {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "Before Full GC",
           _verify_forwarded_allow,     // can have forwarded objects
           _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
@@ -490,7 +552,7 @@ void ShenandoahVerifier::verify_before_fullgc() {
 }
 
 void ShenandoahVerifier::verify_after_fullgc() {
-  verify_reachable_at_safepoint(
+  verify_at_safepoint(
           "After Full GC",
           _verify_forwarded_none,      // all objects are non-forwarded
           _verify_marked_complete,     // all objects are marked in complete bitmap

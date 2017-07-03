@@ -26,10 +26,39 @@
 
 #include "memory/allocation.hpp"
 #include "gc_implementation/g1/concurrentMark.hpp"
+#include "utilities/stack.hpp"
 
 class Thread;
 class ShenandoahHeapRegionSet;
 class ShenandoahHeap;
+class VerifyReachableHeapClosure;
+
+class VerifierTask {
+public:
+  VerifierTask(oop o = NULL, int idx = 0): _obj(o) { }
+  VerifierTask(oop o, size_t idx): _obj(o) { }
+  VerifierTask(const VerifierTask& t): _obj(t._obj) { }
+
+  VerifierTask& operator =(const VerifierTask& t) {
+    _obj = t._obj;
+    return *this;
+  }
+  volatile VerifierTask&
+  operator =(const volatile VerifierTask& t) volatile {
+    (void)const_cast<oop&>(_obj = t._obj);
+    return *this;
+  }
+
+  inline oop obj()  const { return _obj; }
+
+  DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
+
+private:
+  oop _obj;
+};
+
+typedef FormatBuffer<8192> MessageBuffer;
+typedef Stack<VerifierTask, mtGC> ShenandoahVerifierStack;
 
 class ShenandoahVerifier : public CHeapObj<mtGC> {
 private:
@@ -87,11 +116,15 @@ public:
   } VerifyCollectionSet;
 
 private:
-  void verify_reachable_at_safepoint(const char *label,
-                                     VerifyForwarded forwarded,
-                                     VerifyMarked marked,
-                                     VerifyMatrix matrix,
-                                     VerifyCollectionSet cset);
+  void verify_at_safepoint(const char *label,
+                           VerifyForwarded forwarded,
+                           VerifyMarked marked,
+                           VerifyMatrix matrix,
+                           VerifyCollectionSet cset);
+
+  static void verify_and_follow(ShenandoahVerifierStack& stack,
+                                VerifyReachableHeapClosure &cl,
+                                HeapWord *addr);
 
 public:
   ShenandoahVerifier(ShenandoahHeap* heap, CMBitMap* verification_bitmap) :
