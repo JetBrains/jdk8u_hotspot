@@ -304,11 +304,7 @@ void LIRGenerator::do_StoreIndexed(StoreIndexed* x) {
   ary = shenandoah_write_barrier(ary, null_check_info, x->needs_null_check());
   LIR_Opr val = value.result();
   if (obj_store && UseShenandoahGC) {
-    if (! val->is_register()) {
-      assert(val->is_constant(), "expect constant");
-    } else {
-      val = shenandoah_read_barrier(val, NULL, true);
-    }
+    val = shenandoah_read_barrier(val, NULL, true);
   }
 
   // emit array address setup early so it schedules better

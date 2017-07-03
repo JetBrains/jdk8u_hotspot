@@ -1721,11 +1721,7 @@ void LIRGenerator::do_StoreField(StoreField* x) {
   obj = shenandoah_write_barrier(obj, info, x->needs_null_check());
   LIR_Opr val = value.result();
   if (is_oop && UseShenandoahGC) {
-    if (! val->is_register()) {
-      assert(val->is_constant(), "expect constant");
-    } else {
-      val = shenandoah_read_barrier(val, NULL, true);
-    }
+    val = shenandoah_read_barrier(val, NULL, true);
   }
 
   LIR_Address* address;
