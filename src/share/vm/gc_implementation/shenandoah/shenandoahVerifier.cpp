@@ -294,7 +294,7 @@ public:
     verify(r, r->capacity() == ShenandoahHeapRegion::region_size_bytes(),
            "Capacity should match region size");
 
-    verify(r, (r->get_live_data_bytes() <= r->capacity()) || (r->is_humongous_start()),
+    verify(r, (r->get_live_data_bytes() <= r->capacity()),
            "Live data cannot be larger than capacity");
 
     verify(r, (r->garbage() <= r->capacity()) || (r->is_humongous_start()),

@@ -98,7 +98,17 @@ void ShenandoahHeapRegion::set_live_data(size_t s) {
 }
 
 size_t ShenandoahHeapRegion::get_live_data_words() const {
-  return (size_t)OrderAccess::load_acquire((volatile jint*)&_live_data);
+  if (is_humongous()) {
+    if (is_humongous_start()) {
+      size_t live_data = (size_t)OrderAccess::load_acquire((volatile jint*)&_live_data);
+      return (live_data == 0) ? 0 : (used() / HeapWordSize);
+    } else {
+      const ShenandoahHeapRegion* start = humongous_start_region();
+      return start->get_live_data_words() == 0 ? 0 : (used() / HeapWordSize);
+    }
+  } else {
+    return (size_t)OrderAccess::load_acquire((volatile jint*)&_live_data);
+  }
 }
 
 size_t ShenandoahHeapRegion::get_live_data_bytes() const {
@@ -110,8 +120,8 @@ bool ShenandoahHeapRegion::has_live() const {
 }
 
 size_t ShenandoahHeapRegion::garbage() const {
-  assert(used() >= get_live_data_bytes() || is_humongous(), err_msg("Live Data must be a subset of used() live: "SIZE_FORMAT" used: "SIZE_FORMAT,
-								    get_live_data_bytes(), used()));
+  assert(used() >= get_live_data_bytes(), err_msg("Live Data must be a subset of used() live: "SIZE_FORMAT" used: "SIZE_FORMAT,
+         get_live_data_bytes(), used()));
   size_t result = used() - get_live_data_bytes();
   return result;
 }
@@ -229,6 +239,20 @@ bool ShenandoahHeapRegion::is_humongous_start() const {
 
 bool ShenandoahHeapRegion::is_humongous_continuation() const {
   return _humongous_continuation;
+}
+
+ShenandoahHeapRegion* ShenandoahHeapRegion::humongous_start_region() const {
+  assert(is_humongous(), "Must be a part of the humongous region");
+  size_t reg_num = region_number();
+  ShenandoahHeapRegion* r = const_cast<ShenandoahHeapRegion*>(this);
+  while (!r->is_humongous_start()) {
+    assert(reg_num > 0, "Sanity");
+    reg_num --;
+    r = _heap->regions()->get(reg_num);
+    assert(r->is_humongous(), "Must be a part of the humongous region");
+  }
+  assert(r->is_humongous_start(), "Must be");
+  return r;
 }
 
 void ShenandoahHeapRegion::recycle() {

@@ -132,6 +132,9 @@ public:
   bool is_humongous_start() const;
   bool is_humongous_continuation() const;
 
+  // Find humongous start region that this region belongs to
+  ShenandoahHeapRegion* humongous_start_region() const;
+
   void set_new_top(HeapWord* new_top) { _new_top = new_top; }
   HeapWord* new_top() const { return _new_top; }
 
