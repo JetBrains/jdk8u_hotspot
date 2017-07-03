@@ -69,6 +69,13 @@ private:
     msg.append("  region: %s", ss.as_string());
   }
 
+  void print_non_obj(MessageBuffer& msg, void* loc) {
+    msg.append("  outside of Java heap\n");
+    stringStream ss;
+    os::print_location(&ss, (intptr_t) loc, false);
+    msg.append("  %s\n", ss.as_string());
+  }
+
   void print_failure(oop obj, const char* label) {
     bool loc_in_heap = (_loc != NULL && _heap->is_in(_loc));
 
@@ -77,14 +84,13 @@ private:
     msg.append("Referenced from:\n");
     if (_interior_loc != NULL) {
       msg.append("  interior location: " PTR_FORMAT "\n", p2i(_interior_loc));
+      if (loc_in_heap) {
+        print_obj(msg, _loc);
+      } else {
+        print_non_obj(msg, _interior_loc);
+      }
     } else {
       msg.append("  no location recorded, probably a plain heap scan\n");
-    }
-
-    if (loc_in_heap) {
-      print_obj(msg, _loc);
-    } else {
-      msg.append("  outside of Java heap\n");
     }
     msg.append("\n");
 
