@@ -416,6 +416,9 @@ void Compile::remove_useless_nodes(Unique_Node_List &useful) {
         record_for_igvn(n->fast_out(i));
       }
     }
+    if (n->is_Phi() && n->as_Phi()->has_only_data_users()) {
+      record_for_igvn(n);
+    }
   }
   // Remove useless macro and predicate opaq nodes
   for (int i = C->macro_count()-1; i >= 0; i--) {
@@ -3135,6 +3138,7 @@ void Compile::final_graph_reshaping_impl( Node *n, Final_Reshape_Counts &frc) {
         n->subsume_by(unique_in, this);
       }
     }
+    assert(!n->as_Phi()->has_only_data_users(), "memory Phi has no memory use");
     break;
 
 #endif
