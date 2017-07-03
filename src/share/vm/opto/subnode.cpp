@@ -1017,8 +1017,8 @@ bool CmpPNode::shenandoah_optimize_java_mirror_cmp(PhaseGVN *phase, bool can_res
                 phase->C->record_for_igvn(region);
                 phase->C->record_for_igvn(membar);
               }
+              return true;
             }
-            return true;
           }
         }
       }
