@@ -160,8 +160,8 @@
   experimental(bool, ShenandoahConcurrentCodeRoots, true,                   \
           "Scan code roots concurrently, instead of during a pause")        \
                                                                             \
-  experimental(bool, ShenandoahNoBarriersForConst, true,                    \
-          "Constant oops don't need barriers")                              \
+  experimental(bool, ShenandoahBarriersForConst, false,                     \
+          "Enable barriers on constant oops")                               \
                                                                             \
   experimental(bool, ShenandoahDontIncreaseWBFreq, true,                    \
           "Common 2 WriteBarriers or WriteBarrier and a ReadBarrier only "  \

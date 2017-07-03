@@ -328,7 +328,7 @@ const class TypePtr *MachNode::adr_type() const {
   const TypePtr *adr_type = TYPE_PTR_SENTINAL;  // attempt computing adr_type
   const Node *base = get_base_and_disp(offset, adr_type);
 
-  if (!ShenandoahNoBarriersForConst) {
+  if (ShenandoahBarriersForConst) {
     // Load/store from a constant object may have been replaced by
     // load/store from a barrier by
     // PhaseCFG::replace_uses_with_shenandoah_barrier() which could

@@ -101,7 +101,7 @@ bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Shenandoah
   }
   if (type->make_oopptr() && type->make_oopptr()->const_oop() != NULL) {
     // tty->print_cr("killed barrier for constant object");
-    return !ShenandoahNoBarriersForConst;
+    return ShenandoahBarriersForConst;
   }
 
   if (ShenandoahOptimizeFinals) {
