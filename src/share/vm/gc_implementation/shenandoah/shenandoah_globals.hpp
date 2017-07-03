@@ -202,6 +202,14 @@
   diagnostic(bool, ShenandoahVerify, false,                                 \
           "Verify the Shenandoah garbage collector")                        \
                                                                             \
+  diagnostic(intx, ShenandoahVerifyLevel, 4,                                \
+          "Shenandoah verification level: "                                 \
+          "0 = basic heap checks; "                                         \
+          "1 = previous level, plus basic region checks; "                  \
+          "2 = previous level, plus all roots; "                            \
+          "3 = previous level, plus all reachable objects; "                \
+          "4 = previous level, plus all marked objects")                    \
+                                                                            \
   develop(bool, VerifyStrictOopOperations, false,                           \
           "Verify that == and != are not used on oops. Only in fastdebug")  \
                                                                             \
