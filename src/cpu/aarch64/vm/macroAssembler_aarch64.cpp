@@ -3798,6 +3798,7 @@ void MacroAssembler::shenandoah_write_barrier_post(Register store_addr,
   address matrix_addr = matrix->matrix_addr();
   unsigned long offset;
   adrp(rscratch2, ExternalAddress(ShenandoahHeap::heap()->base()), offset);
+  assert(offset == 0, "Heap base address must be page aligned");
 
   sub(tmp, new_val, rscratch2);
   lsr(tmp, tmp, ShenandoahHeapRegion::region_size_shift_jint());
