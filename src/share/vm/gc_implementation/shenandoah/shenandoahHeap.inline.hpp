@@ -51,6 +51,11 @@ void SCMUpdateRefsClosure::do_oop_work(T* p) {
 void SCMUpdateRefsClosure::do_oop(oop* p)       { do_oop_work(p); }
 void SCMUpdateRefsClosure::do_oop(narrowOop* p) { do_oop_work(p); }
 
+size_t ShenandoahHeap::num_regions() const {
+  assert(regions() != NULL, "Sanity");
+  return regions()->active_regions();
+}
+
 /*
  * Marks the object. Returns true if the object has not been marked before and has
  * been marked by this thread. Returns false if the object has already been marked,
@@ -95,16 +100,16 @@ inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) con
   uintptr_t region_start = ((uintptr_t) addr);
   uintptr_t index = (region_start - (uintptr_t) base()) >> ShenandoahHeapRegion::region_size_shift();
 #ifdef ASSERT
-  if (!(index < _num_regions)) {
+  if (index >= num_regions()) {
     tty->print_cr("heap region does not contain address, heap base: "PTR_FORMAT \
                   ", real bottom of first region: "PTR_FORMAT", num_regions: "SIZE_FORMAT", region_size: "SIZE_FORMAT,
                   p2i(base()),
                   p2i(_ordered_regions->get(0)->bottom()),
-                  _num_regions,
+                  num_regions(),
                   ShenandoahHeapRegion::region_size_bytes());
   }
 #endif
-  assert(index < _num_regions, "heap region index must be in range");
+  assert(index < num_regions(), "heap region index must be in range");
   return index;
 }
 
@@ -117,7 +122,7 @@ inline ShenandoahHeapRegion* ShenandoahHeap::heap_region_containing(const void* 
                   ", real bottom of first region: "PTR_FORMAT", num_regions: "SIZE_FORMAT,
                   p2i(base()),
                   p2i(_ordered_regions->get(0)->bottom()),
-                  _num_regions);
+                  num_regions());
   }
 #endif
   assert(addr >= result->bottom() && addr < result->end(), "address must be in found region");

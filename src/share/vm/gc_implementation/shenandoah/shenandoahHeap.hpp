@@ -158,7 +158,6 @@ private:
 
   ShenandoahMonitoringSupport* _monitoring_support;
 
-  size_t _num_regions;
   size_t _max_regions;
   size_t _initialSize;
   uint _max_workers;
@@ -363,8 +362,8 @@ public:
   inline bool try_cancel_concgc();
   inline void clear_cancelled_concgc();
 
-  ShenandoahHeapRegionSet* regions() { return _ordered_regions;}
-  ShenandoahFreeSet* free_regions();
+  ShenandoahHeapRegionSet* regions() const { return _ordered_regions;}
+  ShenandoahFreeSet* free_regions() const  { return _free_regions; }
   ShenandoahCollectionSet* collection_set() const { return _collection_set; }
   void clear_free_regions();
   void add_free_region(ShenandoahHeapRegion* r);
@@ -423,7 +422,8 @@ public:
   // in symbol table, possibly in parallel.
   void unload_classes_and_cleanup_tables(bool full_gc);
 
-  size_t num_regions() const { return _num_regions; }
+  inline size_t num_regions() const;
+
   size_t max_regions() const { return _max_regions; }
 
   // TODO: consider moving this into ShenandoahHeapRegion.

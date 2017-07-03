@@ -143,9 +143,9 @@ jint ShenandoahHeap::initialize() {
   ReservedSpace pgc_rs = heap_rs.first_part(max_byte_size);
   _storage.initialize(pgc_rs, init_byte_size);
 
-  _num_regions = init_byte_size / ShenandoahHeapRegion::region_size_bytes();
+  size_t num_regions = init_byte_size / ShenandoahHeapRegion::region_size_bytes();
   _max_regions = max_byte_size / ShenandoahHeapRegion::region_size_bytes();
-  _initialSize = _num_regions * ShenandoahHeapRegion::region_size_bytes();
+  _initialSize = num_regions * ShenandoahHeapRegion::region_size_bytes();
   size_t regionSizeWords = ShenandoahHeapRegion::region_size_bytes() / HeapWordSize;
   assert(init_byte_size == _initialSize, "tautology");
   _ordered_regions = new ShenandoahHeapRegionSet(_max_regions);
@@ -164,8 +164,7 @@ jint ShenandoahHeap::initialize() {
                ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_shift());
 
   size_t i = 0;
-  for (i = 0; i < _num_regions; i++) {
-    assert(!collection_set()->is_in(i), "New region should not be in collection set");
+  for (i = 0; i < num_regions; i++) {
     HeapWord* bottom = (HeapWord*) pgc_rs.base() + regionSizeWords * i;
     _complete_top_at_mark_starts_base[i] = bottom;
     _next_top_at_mark_starts_base[i] = bottom;
@@ -173,14 +172,19 @@ jint ShenandoahHeap::initialize() {
 
   {
     ShenandoahHeapLock lock(this);
-    for (i = 0; i < _num_regions; i++) {
+    for (i = 0; i < num_regions; i++) {
       ShenandoahHeapRegion* current = new ShenandoahHeapRegion(this, (HeapWord*) pgc_rs.base() +
                                                                regionSizeWords * i, regionSizeWords, i);
-      _free_regions->add_region(current);
+      // Add to ordered regions first.
+      // We use the active size of ordered regions as the number of active regions in heap,
+      // free set and collection set use the number to assert the correctness of incoming regions.
       _ordered_regions->add_region(current);
+      _free_regions->add_region(current);
+      assert(!collection_set()->is_in(i), "New region should not be in collection set");
     }
   }
-  assert(((size_t) _ordered_regions->active_regions()) == _num_regions, "");
+
+  assert(_ordered_regions->active_regions() == num_regions, "Must match");
   assert((((size_t) base()) &
           (ShenandoahHeapRegion::region_size_bytes() - 1)) == 0,
          err_msg("misaligned heap: "PTR_FORMAT, p2i(base())));
@@ -382,7 +386,7 @@ void ShenandoahHeap::print_on(outputStream* st) const {
   st->print_cr("Shenandoah Heap");
   st->print_cr(" " SIZE_FORMAT "K total, " SIZE_FORMAT "K used", capacity() / K, used() / K);
   st->print_cr(" " SIZE_FORMAT "K regions, " SIZE_FORMAT " active, " SIZE_FORMAT " total",
-            ShenandoahHeapRegion::region_size_bytes() / K, _num_regions, _max_regions);
+            ShenandoahHeapRegion::region_size_bytes() / K, num_regions(), _max_regions);
 
   st->print("Status: ");
   if (_concurrent_mark_in_progress) {
@@ -468,8 +472,7 @@ void ShenandoahHeap::decrease_used(size_t bytes) {
 }
 
 size_t ShenandoahHeap::capacity() const {
-  return _num_regions * ShenandoahHeapRegion::region_size_bytes();
-
+  return num_regions() * ShenandoahHeapRegion::region_size_bytes();
 }
 
 bool ShenandoahHeap::is_maximal_no_gc() const {
@@ -491,7 +494,7 @@ VirtualSpace* ShenandoahHeap::storage() const {
 
 bool ShenandoahHeap::is_in(const void* p) const {
   HeapWord* heap_base = (HeapWord*) base();
-  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * _num_regions;
+  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * num_regions();
   return p >= heap_base && p < last_region_end;
 }
 
@@ -592,7 +595,7 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, AllocType type)
   HeapWord* result = allocate_memory_under_lock(word_size, type);
   size_t grow_by = (word_size * HeapWordSize + ShenandoahHeapRegion::region_size_bytes() - 1) / ShenandoahHeapRegion::region_size_bytes();
 
-  while (result == NULL && _num_regions + grow_by <= _max_regions) {
+  while (result == NULL && num_regions() + grow_by <= _max_regions) {
     grow_heap_by(grow_by);
     result = allocate_memory_under_lock(word_size, type);
   }
@@ -811,10 +814,6 @@ void ShenandoahHeap::recycle_dirty_regions() {
 
   _shenandoah_policy->record_bytes_reclaimed(bytes_reclaimed);
   collection_set()->clear();
-}
-
-ShenandoahFreeSet* ShenandoahHeap::free_regions() {
-  return _free_regions;
 }
 
 void ShenandoahHeap::print_heap_regions(outputStream* st) const {
@@ -1426,7 +1425,7 @@ void  ShenandoahHeap::gc_epilogue(bool b) {
 // Apply blk->doHeapRegion() on all committed regions in address order,
 // terminating the iteration early if doHeapRegion() returns true.
 void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_dirty_regions, bool skip_humongous_continuation) const {
-  for (size_t i = 0; i < _num_regions; i++) {
+  for (size_t i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* current  = _ordered_regions->get(i);
     if (skip_humongous_continuation && current->is_humongous_continuation()) {
       continue;
@@ -1580,10 +1579,10 @@ uint ShenandoahHeap::oop_extra_words() {
   return BrooksPointer::word_size();
 }
 
-void ShenandoahHeap::grow_heap_by(size_t num_regions) {
-  size_t old_num_regions = _num_regions;
-  ensure_new_regions(num_regions);
-  for (size_t i = 0; i < num_regions; i++) {
+void ShenandoahHeap::grow_heap_by(size_t num_regs) {
+  size_t old_num_regions = num_regions();
+  ensure_new_regions(num_regs);
+  for (size_t i = 0; i < num_regs; i++) {
     size_t new_region_index = i + old_num_regions;
     HeapWord* start = ((HeapWord*) base()) + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * new_region_index;
     ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion(this, start, ShenandoahHeapRegion::region_size_bytes() / HeapWordSize, new_region_index);
@@ -1609,17 +1608,14 @@ void ShenandoahHeap::grow_heap_by(size_t num_regions) {
 
 void ShenandoahHeap::ensure_new_regions(size_t new_regions) {
 
-  size_t num_regions = _num_regions;
-  size_t new_num_regions = num_regions + new_regions;
+  size_t num_regs = num_regions();
+  size_t new_num_regions = num_regs + new_regions;
   assert(new_num_regions <= _max_regions, "we checked this earlier");
 
   size_t expand_size = new_regions * ShenandoahHeapRegion::region_size_bytes();
   log_trace(gc, region)("expanding storage by "SIZE_FORMAT_HEX" bytes, for "SIZE_FORMAT" new regions", expand_size, new_regions);
   bool success = _storage.expand_by(expand_size, ShenandoahAlwaysPreTouch);
   assert(success, "should always be able to expand by requested size");
-
-  _num_regions = new_num_regions;
-
 }
 
 ShenandoahForwardedIsAliveClosure::ShenandoahForwardedIsAliveClosure() :
@@ -2027,7 +2023,7 @@ void ShenandoahHeap::prepare_update_refs() {
   set_evacuation_in_progress_at_safepoint(false);
   set_update_refs_in_progress(true);
   ensure_parsability(true);
-  for (uint i = 0; i < _num_regions; i++) {
+  for (uint i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* r = _ordered_regions->get(i);
     r->set_concurrent_iteration_safe_limit(r->top());
   }
