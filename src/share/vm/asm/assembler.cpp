@@ -301,6 +301,12 @@ const char* AbstractAssembler::code_string(const char* str) {
 bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
   // Exception handler checks the nmethod's implicit null checks table
   // only when this method returns false.
+#ifdef AARCH64
+  // AArch64 uses 48-bit addresses
+  const uintptr_t address_bits = (uintptr_t)0xfffffffffffful;
+#else
+  const uintptr_t address_bits = ~(uintptr_t)0;
+#endif
 #ifdef _LP64
   if (UseCompressedOops && Universe::narrow_oop_base() != NULL) {
     assert (Universe::heap() != NULL, "java heap should be initialized");
@@ -309,7 +315,7 @@ bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
     // narrow oop implicit null checks.
     uintptr_t base = (uintptr_t)Universe::narrow_oop_base();
     int adj = MIN2(0, UseShenandoahGC ? BrooksPointer::byte_offset() : 0);
-    if ((uintptr_t)(offset - adj) >= base) {
+    if ((uintptr_t)((offset - adj) & address_bits) >= base) {
       // Normalize offset for the next check.
       offset = (intptr_t)(pointer_delta((void*)offset, (void*)base, 1));
     }
@@ -317,17 +323,6 @@ bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
 #endif
 
   if (UseShenandoahGC) {
-#ifdef AARCH64
-    // AArch64 uses 48-bit addresses
-    const uintptr_t address_bits = (uintptr_t)0xfffffffffffful;
-#elif defined(_LP64)
-    const uintptr_t address_bits = ~(uintptr_t)0;
-#else
-    // Shenandoah is not implemented on these platforms, make sure we build fine,
-    // but also crash consistently at runtime.
-    const uintptr_t address_bits = 0;
-    ShouldNotReachHere();
-#endif
     if ((offset & address_bits) == (BrooksPointer::byte_offset() & address_bits)) {
       return false;
     }
