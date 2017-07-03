@@ -157,11 +157,18 @@
   experimental(uint, ShenandoahMarkLoopStride, 1000,                        \
           "How many items are processed during one marking step")           \
                                                                             \
-  experimental(bool, ShenandoahConcurrentCodeRoots, true,                   \
+  experimental(bool, ShenandoahConcurrentScanCodeRoots, true,               \
           "Scan code roots concurrently, instead of during a pause")        \
                                                                             \
+  experimental(bool, ShenandoahConcurrentEvacCodeRoots, false,              \
+          "Evacuate code roots concurrently, instead of during a pause. "   \
+          "This requires ShenandoahBarriersForConst to be enabled.")        \
+                                                                            \
   experimental(bool, ShenandoahBarriersForConst, false,                     \
-          "Enable barriers on constant oops")                               \
+          "Emit barriers for constant oops in generated code, improving "   \
+          "throughput. If no barriers are emitted, GC will need to "        \
+          "pre-evacuate code roots before returning from STW, adding to "   \
+          "pause time.")                                                    \
                                                                             \
   experimental(bool, ShenandoahDontIncreaseWBFreq, true,                    \
           "Common 2 WriteBarriers or WriteBarrier and a ReadBarrier only "  \

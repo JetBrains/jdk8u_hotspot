@@ -2105,6 +2105,25 @@ void check_gclog_consistency() {
     jio_fprintf(defaultStream::output_stream(),
                 "GCLogFileSize changed to minimum 8K\n");
   }
+
+  if (ShenandoahConcurrentEvacCodeRoots) {
+    if (!ShenandoahBarriersForConst) {
+      if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
+        warning("Concurrent code cache evacuation is enabled, enabling barriers for constants.");
+        FLAG_SET_DEFAULT(ShenandoahBarriersForConst, true);
+      } else {
+        warning("Concurrent code cache evacuation is enabled, but barriers for constants are disabled. "
+                "This may lead to surprising crashes.");
+      }
+    }
+  } else {
+    if (ShenandoahBarriersForConst) {
+      if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
+        warning("Concurrent code cache evacuation is disabled, disabling barriers for constants.");
+        FLAG_SET_DEFAULT(ShenandoahBarriersForConst, false);
+      }
+    }
+  }
 }
 
 // This function is called for -Xloggc:<filename>, it can be used
