@@ -1153,6 +1153,20 @@ Node *PhiNode::Identity( PhaseTransform *phase ) {
     if (id != NULL)  return id;
   }
 
+  if (phase->is_IterGVN()) {
+    // A memory Phi could only have data inputs if that Phi was input
+    // to a MergeMem and MergeMemNode::Ideal() found that it's
+    // equivalent to the base memory Phi. If data uses are removed,
+    // the Phi will be removed as well. If one of the Phi inputs has
+    // changed in the meantime (shenandoah write barrier moved out of
+    // loop for instance), that input is disconnected from the memory
+    // graph.
+    Node* other_phi = has_only_data_users();
+    if (other_phi != NULL) {
+      return other_phi;
+    }
+  }
+
   return this;                     // No identity
 }
 
@@ -2106,6 +2120,30 @@ uint JumpProjNode::hash() const {
 uint JumpProjNode::cmp( const Node &n ) const {
   return ProjNode::cmp(n) &&
     _dest_bci == ((JumpProjNode&)n)._dest_bci;
+}
+
+PhiNode* PhiNode::has_only_data_users() const {
+  if (bottom_type() != Type::MEMORY || adr_type() == TypePtr::BOTTOM || outcnt() == 0) {
+    return NULL;
+  }
+  for (DUIterator_Fast imax, i = fast_outs(imax); i < imax; i++) {
+    Node* u = fast_out(i);
+    if (!u->is_Load() && u->Opcode() != Op_ShenandoahReadBarrier) {
+      return NULL;
+    }
+  }
+  Node* r = in(0);
+  if (r == NULL) {
+    return NULL;
+  }
+  for (DUIterator_Fast imax, i = r->fast_outs(imax); i < imax; i++) {
+    Node* u = r->fast_out(i);
+    if (u != this && u->is_Phi() && u->bottom_type() == Type::MEMORY &&
+        u->adr_type() == TypePtr::BOTTOM) {
+      return u->as_Phi();
+    }
+  }
+  return NULL;
 }
 
 #ifndef PRODUCT

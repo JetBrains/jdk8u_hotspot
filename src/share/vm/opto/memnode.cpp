@@ -4198,7 +4198,11 @@ Node *MergeMemNode::Ideal(PhaseGVN *phase, bool can_reshape) {
       // Warning:  Do not combine this "if" with the previous "if"
       // A memory slice might have be be rewritten even if it is semantically
       // unchanged, if the base_memory value has changed.
-      set_req(i, new_in);
+      if (can_reshape) {
+        set_req_X(i, new_in, phase->is_IterGVN());
+      } else {
+        set_req(i, new_in);
+      }
       progress = this;          // Report progress
     }
   }

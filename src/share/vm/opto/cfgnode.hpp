@@ -212,6 +212,8 @@ public:
 #else //ASSERT
   void verify_adr_type(bool recursive = false) const {}
 #endif //ASSERT
+
+  PhiNode* has_only_data_users() const;
 };
 
 //------------------------------GotoNode---------------------------------------

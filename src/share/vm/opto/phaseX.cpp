@@ -1298,6 +1298,8 @@ void PhaseIterGVN::remove_globally_dead_node( Node *dead ) {
               _worklist.push(in);
             } else if (in->Opcode() == Op_AddP && CallLeafNode::has_only_g1_wb_pre_uses(in)) {
               add_users_to_worklist(in);
+            } else if (in->is_Phi() && in->as_Phi()->has_only_data_users()) {
+              _worklist.push(in);
             }
             if (ReduceFieldZeroing && dead->is_Load() && i == MemNode::Memory &&
                 in->is_Proj() && in->in(0) != NULL && in->in(0)->is_Initialize()) {
@@ -1933,6 +1935,9 @@ void Node::set_req_X( uint i, Node *n, PhaseIterGVN *igvn ) {
     }
     if (old->Opcode() == Op_AddP && CallLeafNode::has_only_g1_wb_pre_uses(old)) {
       igvn->add_users_to_worklist(old);
+    }
+    if (old->is_Phi() && old->as_Phi()->has_only_data_users()) {
+      igvn->_worklist.push(old);
     }
   }
 
