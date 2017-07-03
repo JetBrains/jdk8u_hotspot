@@ -54,6 +54,7 @@ public:
           _stack(stack), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _interior_loc(NULL), _phase(phase),
           _verify_forwarded(forwarded), _verify_marked(marked), _verify_matrix(matrix), _verify_cset(cset) {};
 
+private:
   void print_obj(MessageBuffer& msg, oop obj) {
     ShenandoahHeapRegion *r = _heap->heap_region_containing(obj);
     stringStream ss;
@@ -119,17 +120,126 @@ public:
     T o = oopDesc::load_heap_oop(p);
     if (!oopDesc::is_null(o)) {
       oop obj = oopDesc::decode_heap_oop_not_null(o);
-      verify_oop_at(p, obj);
 
-      // Single threaded verification can use faster non-atomic version:
+      // Single threaded verification can use faster non-atomic stack and bitmap
+      // methods.
+      //
+      // For performance reasons, only fully verify non-marked field values.
+      // We are here when the host object for *p is already marked.
+
       HeapWord* addr = (HeapWord*) obj;
       if (!_map->isMarked(addr)) {
         _map->mark(addr);
+        verify_oop_at(p, obj);
         _stack->push(VerifierTask(obj));
       }
     }
   }
 
+  void verify_oop(oop obj) {
+    // Perform basic consistency checks first, so that we can call extended verification
+    // report calling methods on obj and forwardee freely.
+    //
+    guarantee(_heap->is_in(obj),
+              err_msg("oop must be in heap: " PTR_FORMAT, p2i(obj)));
+    guarantee(check_obj_alignment(obj),
+              err_msg("oop must be aligned: " PTR_FORMAT, p2i(obj)));
+    guarantee(obj->is_oop(),
+              err_msg("oop must be an oop: " PTR_FORMAT, p2i(obj)));
+    guarantee(Metaspace::contains(obj->klass()),
+              err_msg("klass pointer must go to metaspace: "
+                              "obj = " PTR_FORMAT ", klass = " PTR_FORMAT, p2i(obj), p2i(obj->klass())));
+
+    oop fwd = (oop) BrooksPointer::get_raw(obj);
+    if (!oopDesc::unsafe_equals(obj, fwd)) {
+      guarantee(_heap->is_in(fwd),
+                err_msg("Forwardee must be in heap: "
+                                "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
+      guarantee(!oopDesc::is_null(fwd),
+                err_msg("Forwardee is set: "
+                                "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
+      guarantee(check_obj_alignment(fwd),
+                err_msg("Forwardee must be aligned: "
+                                "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
+      guarantee(fwd->is_oop(),
+                err_msg("Forwardee must be an oop: "
+                                "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
+      guarantee(Metaspace::contains(fwd->klass()),
+                err_msg("Forwardee klass pointer must go to metaspace: "
+                                "obj = " PTR_FORMAT ", klass = " PTR_FORMAT, p2i(obj), p2i(obj->klass())));
+      guarantee(obj->klass() == fwd->klass(),
+                err_msg("Forwardee and Object klasses should agree: "
+                                "obj = " PTR_FORMAT ", obj-klass = " PTR_FORMAT ", "
+                        "fwd = " PTR_FORMAT ", fwd-klass = " PTR_FORMAT,
+                        p2i(obj), p2i(obj->klass()), p2i(fwd), p2i(fwd->klass())));
+
+      oop fwd2 = (oop) BrooksPointer::get_raw(fwd);
+      verify(obj, oopDesc::unsafe_equals(fwd, fwd2),
+             "Double forwarding");
+    }
+
+    switch (_verify_marked) {
+      case ShenandoahVerifier::_verify_marked_disable:
+        // skip
+        break;
+      case ShenandoahVerifier::_verify_marked_next:
+        verify(obj, _heap->is_marked_next(obj),
+               "Must be marked in next bitmap");
+        break;
+      case ShenandoahVerifier::_verify_marked_complete:
+        verify(obj, _heap->is_marked_complete(obj),
+               "Must be marked in complete bitmap");
+        break;
+      default:
+        assert(false, "Unhandled mark verification");
+    }
+
+    switch (_verify_forwarded) {
+      case ShenandoahVerifier::_verify_forwarded_disable:
+        // skip
+        break;
+      case ShenandoahVerifier::_verify_forwarded_none: {
+        verify(obj, oopDesc::unsafe_equals(obj, fwd),
+               "Should not be forwarded");
+        break;
+      }
+      case ShenandoahVerifier::_verify_forwarded_allow: {
+        if (!oopDesc::unsafe_equals(obj, fwd)) {
+          verify(obj, _heap->heap_region_containing(obj) != _heap->heap_region_containing(fwd),
+                 "Forwardee should be in another region");
+        }
+        break;
+      }
+      default:
+        assert(false, "Unhandled forwarding verification");
+    }
+
+    switch (_verify_cset) {
+      case ShenandoahVerifier::_verify_cset_disable:
+        // skip
+        break;
+      case ShenandoahVerifier::_verify_cset_none:
+        verify(obj, !_heap->in_collection_set(obj),
+               "Should not have references to collection set");
+        break;
+      case ShenandoahVerifier::_verify_cset_forwarded:
+        if (_heap->in_collection_set(obj)) {
+          verify(obj, !oopDesc::unsafe_equals(obj, fwd),
+                 "Object in collection set, should have forwardee");
+        }
+        break;
+      default:
+        assert(false, "Unhandled cset verification");
+    }
+  }
+
+public:
+
+  /**
+   * Verify object with known interior reference.
+   * @param p interior reference where the object is referenced from; can be off-heap
+   * @param obj verified object
+   */
   template <class T>
   void verify_oop_at(T* p, oop obj) {
     _interior_loc = p;
@@ -137,108 +247,28 @@ public:
     _interior_loc = NULL;
   }
 
+  /**
+   * Verify object without known interior reference.
+   * Useful when picking up the object at known offset in heap,
+   * but without knowing what objects reference it.
+   * @param obj verified object
+   */
+  void verify_oop_standalone(oop obj) {
+    _interior_loc = NULL;
+    verify_oop(obj);
+    _interior_loc = NULL;
+  }
+
+  /**
+   * Verify oop fields from this object.
+   * @param obj host object for verified fields
+   */
   void verify_oops_from(oop obj) {
     _loc = obj;
     obj->oop_iterate(this);
     _loc = NULL;
   }
 
-  void verify_oop(oop obj) {
-      // Perform basic consistency checks first, so that we can call extended verification
-      // report calling methods on obj and forwardee freely.
-      //
-      guarantee(_heap->is_in(obj),
-                err_msg("oop must be in heap: " PTR_FORMAT, p2i(obj)));
-      guarantee(check_obj_alignment(obj),
-                err_msg("oop must be aligned: " PTR_FORMAT, p2i(obj)));
-      guarantee(obj->is_oop(),
-                err_msg("oop must be an oop: " PTR_FORMAT, p2i(obj)));
-      guarantee(Metaspace::contains(obj->klass()),
-                err_msg("klass pointer must go to metaspace: "
-                        "obj = " PTR_FORMAT ", klass = " PTR_FORMAT, p2i(obj), p2i(obj->klass())));
-
-      oop fwd = (oop) BrooksPointer::get_raw(obj);
-      if (!oopDesc::unsafe_equals(obj, fwd)) {
-        guarantee(_heap->is_in(fwd),
-                  err_msg("Forwardee must be in heap: "
-                          "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
-        guarantee(!oopDesc::is_null(fwd),
-                  err_msg("Forwardee is set: "
-                          "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
-        guarantee(check_obj_alignment(fwd),
-                  err_msg("Forwardee must be aligned: "
-                          "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
-        guarantee(fwd->is_oop(),
-                  err_msg("Forwardee must be an oop: "
-                          "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
-        guarantee(Metaspace::contains(fwd->klass()),
-                  err_msg("Forwardee klass pointer must go to metaspace: "
-                          "obj = " PTR_FORMAT ", klass = " PTR_FORMAT, p2i(obj), p2i(obj->klass())));
-        guarantee(obj->klass() == fwd->klass(),
-                  err_msg("Forwardee and Object klasses should agree: "
-                          "obj = " PTR_FORMAT ", obj-klass = " PTR_FORMAT ", "
-                          "fwd = " PTR_FORMAT ", fwd-klass = " PTR_FORMAT,
-                  p2i(obj), p2i(obj->klass()), p2i(fwd), p2i(fwd->klass())));
-
-        oop fwd2 = (oop) BrooksPointer::get_raw(fwd);
-        verify(obj, oopDesc::unsafe_equals(fwd, fwd2),
-               "Double forwarding");
-      }
-
-      switch (_verify_marked) {
-        case ShenandoahVerifier::_verify_marked_disable:
-          // skip
-          break;
-        case ShenandoahVerifier::_verify_marked_next:
-          verify(obj, _heap->is_marked_next(obj),
-                 "Must be marked in next bitmap");
-          break;
-        case ShenandoahVerifier::_verify_marked_complete:
-          verify(obj, _heap->is_marked_complete(obj),
-                 "Must be marked in complete bitmap");
-          break;
-        default:
-          assert(false, "Unhandled mark verification");
-      }
-
-      switch (_verify_forwarded) {
-        case ShenandoahVerifier::_verify_forwarded_disable:
-          // skip
-          break;
-        case ShenandoahVerifier::_verify_forwarded_none: {
-          verify(obj, oopDesc::unsafe_equals(obj, fwd),
-                 "Should not be forwarded");
-          break;
-        }
-        case ShenandoahVerifier::_verify_forwarded_allow: {
-          if (!oopDesc::unsafe_equals(obj, fwd)) {
-            verify(obj, _heap->heap_region_containing(obj) != _heap->heap_region_containing(fwd),
-                   "Forwardee should be in another region");
-          }
-          break;
-        }
-        default:
-          assert(false, "Unhandled forwarding verification");
-      }
-
-      switch (_verify_cset) {
-        case ShenandoahVerifier::_verify_cset_disable:
-          // skip
-          break;
-        case ShenandoahVerifier::_verify_cset_none:
-          verify(obj, !_heap->in_collection_set(obj),
-                 "Should not have references to collection set");
-          break;
-        case ShenandoahVerifier::_verify_cset_forwarded:
-          if (_heap->in_collection_set(obj)) {
-            verify(obj, !oopDesc::unsafe_equals(obj, fwd),
-                   "Object in collection set, should have forwardee");
-          }
-          break;
-        default:
-          assert(false, "Unhandled cset verification");
-      }
-  }
 
   void do_oop(oop* p) { do_oop_work(p); }
   void do_oop(narrowOop* p) { do_oop_work(p); }
@@ -357,7 +387,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
   {
     VerifyReachableHeapClosure cl(&stack, _verification_bit_map, MessageBuffer("%s, Roots", label),
-                                  forwarded, marked, _verify_matrix_disable, cset);
+                                  forwarded, marked, matrix, cset);
     CLDToOopClosure cld_cl(&cl);
     CodeBlobToOopClosure code_cl(&cl, ! CodeBlobToOopClosure::FixRelocations);
     rp.process_all_roots(&cl, &cl, &cld_cl, &code_cl, 0);
@@ -401,8 +431,8 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
         while (addr < tams) {
           if (!_verification_bit_map->isMarked(addr)) {
-            verify_and_follow(stack, cl, addr);
             _verification_bit_map->mark(addr);
+            verify_and_follow(stack, cl, addr);
           }
           addr += BrooksPointer::word_size();
           if (addr < tams) {
@@ -418,8 +448,8 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
         while (addr < limit) {
           if (!_verification_bit_map->isMarked(addr)) {
-            verify_and_follow(stack, cl, addr);
             _verification_bit_map->mark(addr);
+            verify_and_follow(stack, cl, addr);
           }
           addr += oop(addr)->size() + BrooksPointer::word_size();
         }
@@ -437,10 +467,10 @@ void ShenandoahVerifier::verify_and_follow(ShenandoahVerifierStack &stack,
                                            HeapWord *addr) {
   // Verify the object itself:
   oop obj = oop(addr);
-  cl.verify_oop(obj);
+  cl.verify_oop_standalone(obj);
 
   // Verify everything reachable from that object too:
-  cl.verify_oops_from(obj);
+  stack.push(obj);
   while (!stack.is_empty()) {
     VerifierTask task = stack.pop();
     cl.verify_oops_from(task.obj());
