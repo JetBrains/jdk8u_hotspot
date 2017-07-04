@@ -115,16 +115,26 @@ public:
     _verify_cset_forwarded,
   } VerifyCollectionSet;
 
+  struct VerifyOptions {
+    VerifyForwarded     _verify_forwarded;
+    VerifyMarked        _verify_marked;
+    VerifyMatrix        _verify_matrix;
+    VerifyCollectionSet _verify_cset;
+
+    VerifyOptions(VerifyForwarded verify_forwarded,
+                  VerifyMarked verify_marked,
+                  VerifyMatrix verify_matrix,
+                  VerifyCollectionSet verify_collection_set) :
+            _verify_forwarded(verify_forwarded), _verify_marked(verify_marked),
+            _verify_matrix(verify_matrix), _verify_cset(verify_collection_set) {}
+  };
+
 private:
   void verify_at_safepoint(const char *label,
                            VerifyForwarded forwarded,
                            VerifyMarked marked,
                            VerifyMatrix matrix,
                            VerifyCollectionSet cset);
-
-  static void verify_and_follow(ShenandoahVerifierStack& stack,
-                                VerifyReachableHeapClosure &cl,
-                                HeapWord *addr);
 
 public:
   ShenandoahVerifier(ShenandoahHeap* heap, CMBitMap* verification_bitmap) :
