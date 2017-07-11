@@ -69,7 +69,26 @@ private:
     msg.append("  %s\n", ss.as_string());
   }
 
-  void print_failure(oop obj, const char* label) {
+  void print_obj_safe(MessageBuffer& msg, void* loc) {
+    msg.append("  " PTR_FORMAT " - safe print, no details\n", p2i(loc));
+    if (_heap->is_in(loc)) {
+      ShenandoahHeapRegion* r = _heap->heap_region_containing(loc);
+      if (r != NULL) {
+        stringStream ss;
+        r->print_on(&ss);
+        msg.append("  region: %s", ss.as_string());
+      }
+    }
+  }
+
+  enum SafeLevel {
+    _safe_unknown,
+    _safe_oop,
+    _safe_oop_fwd,
+    _safe_all,
+  };
+
+  void print_failure(SafeLevel level, oop obj, const char* label) {
     ResourceMark rm;
 
     bool loc_in_heap = (_loc != NULL && _heap->is_in(_loc));
@@ -91,28 +110,42 @@ private:
 
     msg.append("Object:\n");
     print_obj(msg, obj);
+    if (level >= _safe_oop) {
+      print_obj(msg, obj);
+    } else {
+      print_obj_safe(msg, obj);
+    }
     msg.append("\n");
 
-    oop fwd = BrooksPointer::forwardee(obj);
-    if (!oopDesc::unsafe_equals(obj, fwd)) {
-      msg.append("Forwardee:\n");
-      print_obj(msg, fwd);
-      msg.append("\n");
+    if (level >= _safe_oop) {
+      oop fwd = (oop) BrooksPointer::get_raw(obj);
+      if (!oopDesc::unsafe_equals(obj, fwd)) {
+        msg.append("Forwardee:\n");
+        if (level >= _safe_oop_fwd) {
+          print_obj(msg, fwd);
+        } else {
+          print_obj_safe(msg, fwd);
+        }
+        msg.append("\n");
+      }
     }
 
-    oop fwd2 = BrooksPointer::forwardee(fwd);
-    if (!oopDesc::unsafe_equals(fwd, fwd2)) {
-      msg.append("Second forwardee:\n");
-      print_obj(msg, fwd2);
-      msg.append("\n");
+    if (level >= _safe_oop_fwd) {
+      oop fwd = (oop) BrooksPointer::get_raw(obj);
+      oop fwd2 = (oop) BrooksPointer::get_raw(fwd);
+      if (!oopDesc::unsafe_equals(fwd, fwd2)) {
+        msg.append("Second forwardee:\n");
+        print_obj_safe(msg, fwd2);
+        msg.append("\n");
+      }
     }
 
     report_vm_error(__FILE__, __LINE__, msg.buffer());
   }
 
-  void verify(oop obj, bool test, const char* label) {
+  void verify(SafeLevel level, oop obj, bool test, const char* label) {
     if (!test) {
-      print_failure(obj, label);
+      print_failure(level, obj, label);
     }
   }
 
@@ -137,92 +170,85 @@ private:
   }
 
   void verify_oop(oop obj) {
-    // Perform basic consistency checks first, so that we can call extended verification
-    // report calling methods on obj and forwardee freely.
-    //
-    guarantee(_heap->is_in(obj),
-              err_msg("oop must be in heap: " PTR_FORMAT, p2i(obj)));
-    guarantee(check_obj_alignment(obj),
-              err_msg("oop must be aligned: " PTR_FORMAT, p2i(obj)));
-    guarantee(obj->is_oop(),
-              err_msg("oop must be an oop: " PTR_FORMAT, p2i(obj)));
-    guarantee(Metaspace::contains(obj->klass()),
-              err_msg("klass pointer must go to metaspace: "
-                              "obj = " PTR_FORMAT ", klass = " PTR_FORMAT, p2i(obj), p2i(obj->klass())));
+    // Perform consistency checks with gradually decreasing safety level. This guarantees
+    // that failure report would not try to touch something that was not yet verified to be
+    // safe to process.
 
-    oop fwd = (oop) BrooksPointer::get_raw(obj);
-    if (!oopDesc::unsafe_equals(obj, fwd)) {
-      guarantee(_heap->is_in(fwd),
-                err_msg("Forwardee must be in heap: "
-                                "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
-      guarantee(!oopDesc::is_null(fwd),
-                err_msg("Forwardee is set: "
-                                "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
-      guarantee(check_obj_alignment(fwd),
-                err_msg("Forwardee must be aligned: "
-                                "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
-      guarantee(fwd->is_oop(),
-                err_msg("Forwardee must be an oop: "
-                                "obj = " PTR_FORMAT ", forwardee = " PTR_FORMAT, p2i(obj), p2i(fwd)));
-      guarantee(Metaspace::contains(fwd->klass()),
-                err_msg("Forwardee klass pointer must go to metaspace: "
-                                "obj = " PTR_FORMAT ", klass = " PTR_FORMAT, p2i(obj), p2i(obj->klass())));
-      guarantee(obj->klass() == fwd->klass(),
-                err_msg("Forwardee and Object klasses should agree: "
-                                "obj = " PTR_FORMAT ", obj-klass = " PTR_FORMAT ", "
-                        "fwd = " PTR_FORMAT ", fwd-klass = " PTR_FORMAT,
-                        p2i(obj), p2i(obj->klass()), p2i(fwd), p2i(fwd->klass())));
+    verify(_safe_unknown, obj, _heap->is_in(obj),
+           "oop must be in heap");
+    verify(_safe_unknown, obj, check_obj_alignment(obj),
+           "oop must be aligned");
 
-      oop fwd2 = (oop) BrooksPointer::get_raw(fwd);
-      verify(obj, oopDesc::unsafe_equals(fwd, fwd2),
-             "Double forwarding");
-    }
-
-    // Verify that object and forwardee fit their regions:
+    // Verify that obj is not in dead space:
     {
       ShenandoahHeapRegion *obj_reg = _heap->heap_region_containing(obj);
 
       HeapWord *obj_addr = (HeapWord *) obj;
-      verify(obj, obj_addr < obj_reg->top(),
+      verify(_safe_unknown, obj, obj_addr < obj_reg->top(),
              "Object start should be within the region");
 
       if (!obj_reg->is_humongous()) {
-        verify(obj, (obj_addr + obj->size()) <= obj_reg->top(),
+        verify(_safe_unknown, obj, (obj_addr + obj->size()) <= obj_reg->top(),
                "Object end should be within the region");
       } else {
         size_t humongous_start = obj_reg->region_number();
         size_t humongous_end = humongous_start + (obj->size() / ShenandoahHeapRegion::region_size_words());
         for (size_t idx = humongous_start + 1; idx < humongous_end; idx++) {
-          verify(obj, _heap->regions()->get(idx)->is_humongous_continuation(),
+          verify(_safe_unknown, obj, _heap->regions()->get(idx)->is_humongous_continuation(),
                  "Humongous object is in continuation that fits it");
         }
       }
     }
 
-    {
+    verify(_safe_unknown, obj, Metaspace::contains(obj->klass()),
+           "klass pointer must go to metaspace");
+
+    // ------------ obj is safe at this point --------------
+
+    oop fwd = (oop) BrooksPointer::get_raw(obj);
+    if (!oopDesc::unsafe_equals(obj, fwd)) {
+      verify(_safe_oop, obj, _heap->is_in(fwd),
+             "Forwardee must be in heap");
+      verify(_safe_oop, obj, !oopDesc::is_null(fwd),
+             "Forwardee is set");
+      verify(_safe_oop, obj, check_obj_alignment(fwd),
+             "Forwardee must be aligned");
+
+      // Verify that forwardee is not in the dead space:
       if (!oopDesc::unsafe_equals(obj, fwd)) {
         ShenandoahHeapRegion *fwd_reg = _heap->heap_region_containing(fwd);
-        verify(obj, !fwd_reg->is_humongous(),
+        verify(_safe_oop, obj, !fwd_reg->is_humongous(),
                "Should have no humongous forwardees");
 
         HeapWord *fwd_addr = (HeapWord *) fwd;
-        verify(obj, fwd_addr < fwd_reg->top(),
+        verify(_safe_oop, obj, fwd_addr < fwd_reg->top(),
                "Forwardee start should be within the region");
-        verify(obj, (fwd_addr + fwd->size()) <= fwd_reg->top(),
+        verify(_safe_oop, obj, (fwd_addr + fwd->size()) <= fwd_reg->top(),
                "Forwardee end should be within the region");
       }
+
+      verify(_safe_oop, obj, Metaspace::contains(fwd->klass()),
+             "Forwardee klass pointer must go to metaspace");
+      verify(_safe_oop, obj, obj->klass() == fwd->klass(),
+             "Forwardee klass pointer must go to metaspace");
+
+      oop fwd2 = (oop) BrooksPointer::get_raw(fwd);
+      verify(_safe_oop, obj, oopDesc::unsafe_equals(fwd, fwd2),
+             "Double forwarding");
     }
+
+    // ------------ obj and fwd are safe at this point --------------
 
     switch (_options._verify_marked) {
       case ShenandoahVerifier::_verify_marked_disable:
         // skip
         break;
       case ShenandoahVerifier::_verify_marked_next:
-        verify(obj, _heap->is_marked_next(obj),
+        verify(_safe_all, obj, _heap->is_marked_next(obj),
                "Must be marked in next bitmap");
         break;
       case ShenandoahVerifier::_verify_marked_complete:
-        verify(obj, _heap->is_marked_complete(obj),
+        verify(_safe_all, obj, _heap->is_marked_complete(obj),
                "Must be marked in complete bitmap");
         break;
       default:
@@ -234,13 +260,13 @@ private:
         // skip
         break;
       case ShenandoahVerifier::_verify_forwarded_none: {
-        verify(obj, oopDesc::unsafe_equals(obj, fwd),
+        verify(_safe_all, obj, oopDesc::unsafe_equals(obj, fwd),
                "Should not be forwarded");
         break;
       }
       case ShenandoahVerifier::_verify_forwarded_allow: {
         if (!oopDesc::unsafe_equals(obj, fwd)) {
-          verify(obj, _heap->heap_region_containing(obj) != _heap->heap_region_containing(fwd),
+          verify(_safe_all, obj, _heap->heap_region_containing(obj) != _heap->heap_region_containing(fwd),
                  "Forwardee should be in another region");
         }
         break;
@@ -254,12 +280,12 @@ private:
         // skip
         break;
       case ShenandoahVerifier::_verify_cset_none:
-        verify(obj, !_heap->in_collection_set(obj),
+        verify(_safe_all, obj, !_heap->in_collection_set(obj),
                "Should not have references to collection set");
         break;
       case ShenandoahVerifier::_verify_cset_forwarded:
         if (_heap->in_collection_set(obj)) {
-          verify(obj, !oopDesc::unsafe_equals(obj, fwd),
+          verify(_safe_all, obj, !oopDesc::unsafe_equals(obj, fwd),
                  "Object in collection set, should have forwardee");
         }
         break;
