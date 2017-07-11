@@ -87,7 +87,6 @@ class ClassLoaderDataGraph : public AllStatic {
   static void roots_cld_do(CLDClosure* strong, CLDClosure* weak);
   static void keep_alive_cld_do(CLDClosure* cl);
   static void always_strong_cld_do(CLDClosure* cl);
-
   // klass do
   static void classes_do(KlassClosure* klass_closure);
   static void classes_do(void f(Klass* const));
