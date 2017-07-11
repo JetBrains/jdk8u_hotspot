@@ -53,6 +53,26 @@ ShenandoahRootProcessor::~ShenandoahRootProcessor() {
   ShenandoahHeap::heap()->shenandoahPolicy()->record_workers_end(_phase);
 }
 
+void ShenandoahRootProcessor::process_all_roots_slow(OopClosure* oops) {
+  ShenandoahAlwaysTrueClosure always_true;
+
+  CLDToOopClosure clds(oops);
+  CodeBlobToOopClosure blobs(oops, !CodeBlobToOopClosure::FixRelocations);
+
+  Threads::possibly_parallel_oops_do(oops, &clds, &blobs);
+  CodeCache::blobs_do(&blobs);
+  ClassLoaderDataGraph::cld_do(&clds);
+  Universe::oops_do(oops);
+  FlatProfiler::oops_do(oops);
+  Management::oops_do(oops);
+  JvmtiExport::oops_do(oops);
+  JNIHandles::oops_do(oops);
+  JNIHandles::weak_oops_do(&always_true, oops);
+  ObjectSynchronizer::oops_do(oops);
+  SystemDictionary::roots_oops_do(oops, oops);
+  StringTable::oops_do(oops);
+}
+
 void ShenandoahRootProcessor::process_strong_roots(OopClosure* oops,
                                                    OopClosure* weak_oops,
                                                    CLDClosure* clds,

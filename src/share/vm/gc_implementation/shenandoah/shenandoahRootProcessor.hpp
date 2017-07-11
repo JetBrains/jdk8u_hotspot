@@ -100,6 +100,9 @@ public:
                          CodeBlobClosure* blobs,
                          uint worker_id);
 
+  // For slow debug/verification code
+  void process_all_roots_slow(OopClosure* oops);
+
   // Number of worker threads used by the root processor.
   uint n_workers() const;
 };
