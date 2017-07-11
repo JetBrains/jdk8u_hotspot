@@ -397,7 +397,7 @@ private:
   ShenandoahVerifier::VerifyOptions _options;
   ShenandoahHeap* _heap;
   CMBitMap* _bitmap;
-  size_t _claimed;
+  volatile jlong _processed;
 
 public:
   ShenandoahVerifierReachableTask(CMBitMap* bitmap,
@@ -405,30 +405,43 @@ public:
                                   const char* label,
                                   ShenandoahVerifier::VerifyOptions options) :
           AbstractGangTask("Shenandoah Parallel Verifier Reachable Task"),
-          _heap(ShenandoahHeap::heap()), _rp(rp), _bitmap(bitmap),
-          _claimed(0), _label(label), _options(options) {};
+          _heap(ShenandoahHeap::heap()), _rp(rp), _bitmap(bitmap), _processed(0),
+          _label(label), _options(options) {};
+
+  size_t processed() {
+    return (size_t) _processed;
+  }
 
   virtual void work(uint worker_id) {
+    ResourceMark rm;
     ShenandoahVerifierStack stack;
 
-    if (ShenandoahVerifyLevel >= 2) {
-      VerifyReachableHeapClosure cl(&stack, _bitmap,
-                                    MessageBuffer("%s, Roots", _label),
-                                    _options);
-      CLDToOopClosure cld_cl(&cl);
-      CodeBlobToOopClosure code_cl(&cl, !CodeBlobToOopClosure::FixRelocations);
-      _rp->process_all_roots(&cl, &cl, &cld_cl, &code_cl, worker_id);
+    // On level 2, we need to only check the roots once.
+    // On level 3, we want to check the roots, and seed the local stack.
+    // It is a lesser evil to accept multiple root scans at level 3, because
+    // extended parallelism would buy us out.
+    if (((ShenandoahVerifyLevel == 2) && (worker_id == 0))
+        || (ShenandoahVerifyLevel >= 3)) {
+        VerifyReachableHeapClosure cl(&stack, _bitmap,
+                                      MessageBuffer("%s, Roots", _label),
+                                      _options);
+        _rp->process_all_roots_slow(&cl);
     }
+
+    jlong processed = 0;
 
     if (ShenandoahVerifyLevel >= 3) {
       VerifyReachableHeapClosure cl(&stack, _bitmap,
                                     MessageBuffer("%s, Reachable", _label),
                                     _options);
       while (!stack.is_empty()) {
+        processed++;
         VerifierTask task = stack.pop();
         cl.verify_oops_from(task.obj());
       }
     }
+
+    Atomic::add(processed, &_processed);
   }
 };
 
@@ -439,15 +452,20 @@ private:
   ShenandoahHeap *_heap;
   ShenandoahHeapRegionSet* _regions;
   CMBitMap* _bitmap;
-  int _claimed;
+  jlong _claimed;
+  volatile jlong _processed;
 
 public:
   ShenandoahVerifierMarkedRegionTask(ShenandoahHeapRegionSet* regions, CMBitMap* bitmap,
                                      const char* label,
                                      ShenandoahVerifier::VerifyOptions options) :
           AbstractGangTask("Shenandoah Parallel Verifier Marked Region"),
-          _heap(ShenandoahHeap::heap()), _regions(regions), _bitmap(bitmap), _claimed(0),
+          _heap(ShenandoahHeap::heap()), _regions(regions), _bitmap(bitmap), _claimed(0), _processed(0),
           _label(label), _options(options) {};
+
+  size_t processed() {
+    return (size_t) _processed;
+  }
 
   virtual void work(uint worker_id) {
     ShenandoahVerifierStack stack;
@@ -469,6 +487,7 @@ public:
   }
 
   virtual void work_region(ShenandoahHeapRegion *r, ShenandoahVerifierStack& stack, VerifyReachableHeapClosure& cl) {
+    jlong processed = 0;
     CMBitMap* mark_bit_map = _heap->complete_mark_bit_map();
     HeapWord* tams = _heap->complete_top_at_mark_start(r->bottom());
 
@@ -478,7 +497,7 @@ public:
       HeapWord* addr = mark_bit_map->getNextMarkedWordAddress(start, tams);
 
       while (addr < tams) {
-        verify_and_follow(addr, stack, cl);
+        verify_and_follow(addr, stack, cl, &processed);
         addr += BrooksPointer::word_size();
         if (addr < tams) {
           addr = mark_bit_map->getNextMarkedWordAddress(addr, tams);
@@ -492,13 +511,15 @@ public:
       HeapWord* addr = tams + BrooksPointer::word_size();
 
       while (addr < limit) {
-        verify_and_follow(addr, stack, cl);
+        verify_and_follow(addr, stack, cl, &processed);
         addr += oop(addr)->size() + BrooksPointer::word_size();
       }
     }
+
+    Atomic::add(processed, &_processed);
   }
 
-  void verify_and_follow(HeapWord *addr, ShenandoahVerifierStack &stack, VerifyReachableHeapClosure &cl) {
+  void verify_and_follow(HeapWord *addr, ShenandoahVerifierStack &stack, VerifyReachableHeapClosure &cl, jlong *processed) {
     if (!_bitmap->parMark(addr)) return;
 
     // Verify the object itself:
@@ -508,6 +529,7 @@ public:
     // Verify everything reachable from that object too:
     stack.push(obj);
     while (!stack.is_empty()) {
+      (*processed)++;
       VerifierTask task = stack.pop();
       cl.verify_oops_from(task.obj());
     }
@@ -552,9 +574,11 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
   // Steps 1-2. Scan root set to get initial reachable set. Finish walking the reachable heap.
   // This verifies what application can see, since it only cares about reachable objects.
+  size_t count_reachable = 0;
   {
     ShenandoahVerifierReachableTask task(_verification_bit_map, &rp, label, options);
     _heap->workers()->run_task(&task);
+    count_reachable = task.processed();
   }
 
   // Step 3. Walk marked objects. Marked objects might be unreachable. This verifies what collector,
@@ -564,14 +588,16 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   // what marked_object_iterate is doing, without calling into that optimized (and possibly incorrect)
   // version
 
+  size_t count_marked = 0;
   if (ShenandoahVerifyLevel >= 4 && marked == _verify_marked_complete) {
     ShenandoahVerifierMarkedRegionTask task(_heap->regions(), _verification_bit_map, label, options);
     _heap->workers()->run_task(&task);
+    count_marked = task.processed();
   } else {
     guarantee(ShenandoahVerifyLevel < 4 || marked == _verify_marked_next || marked == _verify_marked_disable, "Should be");
   }
 
-  log_info(gc)("Verification finished");
+  log_info(gc)("Verification finished: " SIZE_FORMAT " reachable, " SIZE_FORMAT " marked", count_reachable, count_marked);
 }
 
 void ShenandoahVerifier::verify_generic(VerifyOption vo) {
