@@ -249,7 +249,6 @@ class StubRoutines: AllStatic {
   // Initialization/Testing
   static void    initialize1();                            // must happen before universe::genesis
   static void    initialize2();                            // must happen after  universe::genesis
-  static void    initialize3();                            // must happen before interpreter, after  universe::genesis
 
   static bool is_stub_code(address addr)                   { return contains(addr); }
 

@@ -313,6 +313,7 @@ void StubRoutines::initialize2() {
 #endif
 }
 
+
 void stubRoutines_init1() { StubRoutines::initialize1(); }
 void stubRoutines_init2() { StubRoutines::initialize2(); }
 
