@@ -478,7 +478,7 @@ private:
   ShenandoahHeap *_heap;
   ShenandoahHeapRegionSet* _regions;
   CMBitMap* _bitmap;
-  jlong _claimed;
+  volatile jlong _claimed;
   volatile jlong _processed;
 
 public:

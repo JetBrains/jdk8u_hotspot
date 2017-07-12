@@ -42,7 +42,7 @@ private:
   bool _process_references;
   bool _unload_classes;
 
-  jbyte _claimed_codecache;
+  volatile jbyte _claimed_codecache;
 
   // Used for buffering per-region liveness data.
   // Needed since ShenandoahHeapRegion uses atomics to update liveness.
