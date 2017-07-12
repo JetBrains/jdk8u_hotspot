@@ -25,7 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFY_HPP
 
 #include "memory/allocation.hpp"
-#include "gc_implementation/g1/concurrentMark.hpp"
+#include "gc_implementation/shared/markBitMap.hpp"
 #include "utilities/stack.hpp"
 
 class Thread;
@@ -63,7 +63,7 @@ typedef Stack<VerifierTask, mtGC> ShenandoahVerifierStack;
 class ShenandoahVerifier : public CHeapObj<mtGC> {
 private:
   ShenandoahHeap* _heap;
-  CMBitMap* _verification_bit_map;
+  MarkBitMap* _verification_bit_map;
 public:
   typedef enum {
     // Disable matrix verification completely
@@ -137,7 +137,7 @@ private:
                            VerifyCollectionSet cset);
 
 public:
-  ShenandoahVerifier(ShenandoahHeap* heap, CMBitMap* verification_bitmap) :
+  ShenandoahVerifier(ShenandoahHeap* heap, MarkBitMap* verification_bitmap) :
           _heap(heap), _verification_bit_map(verification_bitmap) {};
 
   void verify_before_concmark();
