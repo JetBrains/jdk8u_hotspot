@@ -45,6 +45,7 @@
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
+#include "gc_implementation/shenandoah/shenandoahCodeRoots.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 #include "runtime/vmThread.hpp"
@@ -258,6 +259,8 @@ jint ShenandoahHeap::initialize() {
   _concurrent_gc_thread = new ShenandoahConcurrentThread();
 
   ShenandoahMarkCompact::initialize();
+
+  ShenandoahCodeRoots::initialize();
 
   return JNI_OK;
 }
@@ -1927,42 +1930,12 @@ bool ShenandoahHeap::is_update_refs_in_progress() const {
   return _update_refs_in_progress;
 }
 
-class NMethodOopInitializer : public OopClosure {
-private:
-  ShenandoahHeap* _heap;
-public:
-  NMethodOopInitializer() : _heap(ShenandoahHeap::heap()) {
-  }
-
-private:
-  template <class T>
-  inline void do_oop_work(T* p) {
-    T o = oopDesc::load_heap_oop(p);
-    if (! oopDesc::is_null(o)) {
-      oop obj1 = oopDesc::decode_heap_oop_not_null(o);
-      oop obj2 = oopDesc::bs()->write_barrier(obj1);
-      if (! oopDesc::unsafe_equals(obj1, obj2)) {
-        oopDesc::encode_store_heap_oop(p, obj2);
-      }
-    }
-  }
-
-public:
-  void do_oop(oop* o) {
-    do_oop_work(o);
-  }
-  void do_oop(narrowOop* o) {
-    do_oop_work(o);
-  }
-};
-
 void ShenandoahHeap::register_nmethod(nmethod* nm) {
-  NMethodOopInitializer init;
-  nm->oops_do(&init);
-  nm->fix_oop_relocations();
+  ShenandoahCodeRoots::add_nmethod(nm);
 }
 
 void ShenandoahHeap::unregister_nmethod(nmethod* nm) {
+  ShenandoahCodeRoots::remove_nmethod(nm);
 }
 
 void ShenandoahHeap::pin_object(oop o) {

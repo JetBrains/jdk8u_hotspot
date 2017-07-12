@@ -40,7 +40,7 @@ ShenandoahRootProcessor::ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_wo
   _process_strong_tasks(new SubTasksDone(SHENANDOAH_RP_PS_NumElements)),
   _srs(heap, true),
   _phase(phase),
-  _codecache_iterator(CodeCache::parallel_iterator()),
+  _coderoots_all_iterator(ShenandoahCodeRoots::iterator()),
   _om_iterator(ObjectSynchronizer::parallel_iterator())
 {
   heap->shenandoahPolicy()->record_workers_start(_phase);
@@ -97,7 +97,7 @@ void ShenandoahRootProcessor::process_all_roots(OopClosure* oops,
 
   if (blobs != NULL) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::CodeCacheRoots, worker_id);
-    _codecache_iterator.parallel_blobs_do(blobs);
+    _coderoots_all_iterator.possibly_parallel_blobs_do(blobs);
   }
 
   _process_strong_tasks->all_tasks_completed();
@@ -186,7 +186,7 @@ ShenandoahRootEvacuator::ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_wo
   _process_strong_tasks(new SubTasksDone(SHENANDOAH_RP_PS_NumElements)),
   _srs(heap, true),
   _phase(phase),
-  _codecache_iterator(CodeCache::parallel_iterator())
+  _coderoots_cset_iterator(ShenandoahCodeRoots::cset_iterator())
 {
   _process_strong_tasks->set_n_threads(n_workers);
   heap->set_par_threads(n_workers);
@@ -211,7 +211,7 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
 
   if (blobs != NULL) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::CodeCacheRoots, worker_id);
-    _codecache_iterator.parallel_blobs_do(blobs);
+    _coderoots_cset_iterator.possibly_parallel_blobs_do(blobs);
   }
 
   if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_ReferenceProcessor_oops_do)) {
