@@ -38,12 +38,12 @@ private:
   ShenandoahVerifier::VerifyOptions _options;
   ShenandoahVerifierStack* _stack;
   ShenandoahHeap* _heap;
-  CMBitMap* _map;
+  MarkBitMap* _map;
   void* _interior_loc;
   oop _loc;
 
 public:
-  VerifyReachableHeapClosure(ShenandoahVerifierStack* stack, CMBitMap* map, const char* phase, ShenandoahVerifier::VerifyOptions options) :
+  VerifyReachableHeapClosure(ShenandoahVerifierStack* stack, MarkBitMap* map, const char* phase, ShenandoahVerifier::VerifyOptions options) :
           _stack(stack), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _interior_loc(NULL),
           _phase(phase), _options(options) {};
 
@@ -422,11 +422,11 @@ private:
   ShenandoahRootProcessor* _rp;
   ShenandoahVerifier::VerifyOptions _options;
   ShenandoahHeap* _heap;
-  CMBitMap* _bitmap;
+  MarkBitMap* _bitmap;
   volatile jlong _processed;
 
 public:
-  ShenandoahVerifierReachableTask(CMBitMap* bitmap,
+  ShenandoahVerifierReachableTask(MarkBitMap* bitmap,
                                   ShenandoahRootProcessor* rp,
                                   const char* label,
                                   ShenandoahVerifier::VerifyOptions options) :
@@ -477,12 +477,12 @@ private:
   ShenandoahVerifier::VerifyOptions _options;
   ShenandoahHeap *_heap;
   ShenandoahHeapRegionSet* _regions;
-  CMBitMap* _bitmap;
+  MarkBitMap* _bitmap;
   volatile jlong _claimed;
   volatile jlong _processed;
 
 public:
-  ShenandoahVerifierMarkedRegionTask(ShenandoahHeapRegionSet* regions, CMBitMap* bitmap,
+  ShenandoahVerifierMarkedRegionTask(ShenandoahHeapRegionSet* regions, MarkBitMap* bitmap,
                                      const char* label,
                                      ShenandoahVerifier::VerifyOptions options) :
           AbstractGangTask("Shenandoah Parallel Verifier Marked Region"),
@@ -514,7 +514,7 @@ public:
 
   virtual void work_region(ShenandoahHeapRegion *r, ShenandoahVerifierStack& stack, VerifyReachableHeapClosure& cl) {
     jlong processed = 0;
-    CMBitMap* mark_bit_map = _heap->complete_mark_bit_map();
+    MarkBitMap* mark_bit_map = _heap->complete_mark_bit_map();
     HeapWord* tams = _heap->complete_top_at_mark_start(r->bottom());
 
     // Bitmaps, before TAMS

@@ -24,7 +24,7 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP
 
-#include "gc_implementation/g1/concurrentMark.inline.hpp"
+#include "gc_implementation/shared/markBitMap.inline.hpp"
 #include "memory/threadLocalAllocBuffer.inline.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
@@ -388,7 +388,7 @@ template<class T>
 inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, T* cl, HeapWord* limit) {
   assert(BrooksPointer::word_offset() < 0, "skip_delta calculation below assumes the forwarding ptr is before obj");
 
-  CMBitMap* mark_bit_map = _complete_mark_bit_map;
+  MarkBitMap* mark_bit_map = _complete_mark_bit_map;
   HeapWord* top_at_mark_start = complete_top_at_mark_start(region->bottom());
 
   size_t skip_bitmap_delta = BrooksPointer::word_size() + 1;
@@ -460,7 +460,7 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
 }
 
 template<class T>
-inline void ShenandoahHeap::do_marked_object(CMBitMap* bitmap, T* cl, oop obj) {
+inline void ShenandoahHeap::do_marked_object(MarkBitMap* bitmap, T* cl, oop obj) {
   assert(!oopDesc::is_null(obj), "sanity");
   assert(obj->is_oop(), "sanity");
   assert(is_in(obj), "sanity");

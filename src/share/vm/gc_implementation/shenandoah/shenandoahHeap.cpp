@@ -100,8 +100,8 @@ public:
                           r->region_number(), p2i(r->bottom()), p2i(r->end()));
       os::pretouch_memory((char*) r->bottom(), (char*) r->end());
 
-      size_t start = r->region_number()       * ShenandoahHeapRegion::region_size_bytes() / CMBitMap::mark_distance();
-      size_t end   = (r->region_number() + 1) * ShenandoahHeapRegion::region_size_bytes() / CMBitMap::mark_distance();
+      size_t start = r->region_number()       * ShenandoahHeapRegion::region_size_bytes() / MarkBitMap::heap_map_factor();
+      size_t end   = (r->region_number() + 1) * ShenandoahHeapRegion::region_size_bytes() / MarkBitMap::heap_map_factor();
       assert (end <= _bitmap_size, err_msg("end is sane: " SIZE_FORMAT " < " SIZE_FORMAT, end, _bitmap_size));
 
       log_trace(gc, heap)("Pretouch bitmap under region " SIZE_FORMAT ": " PTR_FORMAT " -> " PTR_FORMAT,
@@ -210,7 +210,7 @@ jint ShenandoahHeap::initialize() {
                                                Shared_SATB_Q_lock);
 
   // Reserve space for prev and next bitmap.
-  _bitmap_size = CMBitMap::compute_size(heap_rs.size());
+  _bitmap_size = MarkBitMap::compute_size(heap_rs.size());
   _heap_region = MemRegion((HeapWord*) heap_rs.base(), heap_rs.size() / HeapWordSize);
 
   size_t page_size = UseLargePages ? (size_t)os::large_page_size() : (size_t)os::vm_page_size();
@@ -1540,7 +1540,7 @@ void ShenandoahHeap::start_concurrent_marking() {
 
 void ShenandoahHeap::swap_mark_bitmaps() {
   // Swap bitmaps.
-  CMBitMap* tmp1 = _complete_mark_bit_map;
+  MarkBitMap* tmp1 = _complete_mark_bit_map;
   _complete_mark_bit_map = _next_mark_bit_map;
   _next_mark_bit_map = tmp1;
 
@@ -1855,11 +1855,11 @@ ShenandoahMonitoringSupport* ShenandoahHeap::monitoring_support() {
   return _monitoring_support;
 }
 
-CMBitMap* ShenandoahHeap::complete_mark_bit_map() {
+MarkBitMap* ShenandoahHeap::complete_mark_bit_map() {
   return _complete_mark_bit_map;
 }
 
-CMBitMap* ShenandoahHeap::next_mark_bit_map() {
+MarkBitMap* ShenandoahHeap::next_mark_bit_map() {
   return _next_mark_bit_map;
 }
 

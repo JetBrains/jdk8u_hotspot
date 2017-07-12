@@ -24,7 +24,7 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP
 
-#include "gc_implementation/g1/concurrentMark.hpp"
+#include "gc_implementation/shared/markBitMap.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 
 class ConcurrentGCTimer;
@@ -166,11 +166,11 @@ private:
 
   volatile size_t _used;
 
-  CMBitMap _verification_bit_map;
-  CMBitMap _mark_bit_map0;
-  CMBitMap _mark_bit_map1;
-  CMBitMap* _complete_mark_bit_map;
-  CMBitMap* _next_mark_bit_map;
+  MarkBitMap _verification_bit_map;
+  MarkBitMap _mark_bit_map0;
+  MarkBitMap _mark_bit_map1;
+  MarkBitMap* _complete_mark_bit_map;
+  MarkBitMap* _next_mark_bit_map;
 
   HeapWord** _complete_top_at_mark_starts;
   HeapWord** _complete_top_at_mark_starts_base;
@@ -378,8 +378,8 @@ public:
   void reset_next_mark_bitmap(WorkGang* gang);
   void reset_complete_mark_bitmap(WorkGang* gang);
 
-  CMBitMap* complete_mark_bit_map();
-  CMBitMap* next_mark_bit_map();
+  MarkBitMap* complete_mark_bit_map();
+  MarkBitMap* next_mark_bit_map();
   inline bool is_marked_complete(oop obj) const;
   inline bool mark_next(oop obj) const;
   inline bool is_marked_next(oop obj) const;
@@ -478,7 +478,7 @@ private:
   HeapWord* allocate_new_gclab(size_t word_size);
 
   template<class T>
-  inline void do_marked_object(CMBitMap* bitmap, T* cl, oop obj);
+  inline void do_marked_object(MarkBitMap* bitmap, T* cl, oop obj);
 
   ShenandoahConcurrentThread* concurrent_thread() { return _concurrent_gc_thread; }
 
