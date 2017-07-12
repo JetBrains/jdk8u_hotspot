@@ -164,6 +164,12 @@
           "Evacuate code roots concurrently, instead of during a pause. "   \
           "This requires ShenandoahBarriersForConst to be enabled.")        \
                                                                             \
+  experimental(uint, ShenandoahCodeRootsStyle, 1,                           \
+          "Use this style to scan code cache:"                              \
+          " 0 - sequential iterator;"                                       \
+          " 1 - parallel iterator;"                                         \
+          " 2 - parallel iterator with filters;")                           \
+                                                                            \
   experimental(bool, ShenandoahBarriersForConst, false,                     \
           "Emit barriers for constant oops in generated code, improving "   \
           "throughput. If no barriers are emitted, GC will need to "        \

@@ -29,6 +29,7 @@
 #include "memory/sharedHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
+#include "gc_implementation/shenandoah/shenandoahCodeRoots.hpp"
 #include "memory/allocation.hpp"
 #include "runtime/mutex.hpp"
 
@@ -68,7 +69,7 @@ class ShenandoahRootProcessor : public StackObj {
   SharedHeap::StrongRootsScope _srs;
   ShenandoahCollectorPolicy::TimingPhase _phase;
   ParallelCLDRootIterator   _cld_iterator;
-  ParallelCodeCacheIterator _codecache_iterator;
+  AllCodeRootsIterator _coderoots_all_iterator;
   ParallelObjectSynchronizerIterator _om_iterator;
 
   void process_java_roots(OopClosure* scan_non_heap_roots,
@@ -111,7 +112,7 @@ class ShenandoahRootEvacuator : public StackObj {
   SubTasksDone* _process_strong_tasks;
   SharedHeap::StrongRootsScope _srs;
   ShenandoahCollectorPolicy::TimingPhase _phase;
-  ParallelCodeCacheIterator _codecache_iterator;
+  CsetCodeRootsIterator _coderoots_cset_iterator;
 
 public:
   ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers,
