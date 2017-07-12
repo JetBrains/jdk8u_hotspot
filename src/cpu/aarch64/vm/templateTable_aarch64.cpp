@@ -664,7 +664,6 @@ void TemplateTable::index_check(Register array, Register index)
 {
   // destroys r1, rscratch1
   // check array
-
   __ null_check(array, arrayOopDesc::length_offset_in_bytes());
   // sign extend index for use by indexed load
   // __ movl2ptr(index, index);
@@ -3764,7 +3763,6 @@ void TemplateTable::monitorenter()
     // if not used then remember entry in c_rarg1
     __ ldr(rscratch1, Address(c_rarg3, BasicObjectLock::obj_offset_in_bytes()));
     __ shenandoah_store_addr_check(rscratch1); // Invariant
-    oopDesc::bs()->interpreter_read_barrier(_masm, rscratch1);
     __ cmp(zr, rscratch1);
     __ csel(c_rarg1, c_rarg3, c_rarg1, Assembler::EQ);
     // check if current entry is for same object
@@ -3867,7 +3865,6 @@ void TemplateTable::monitorexit()
     // check if current entry is for same object
     __ ldr(rscratch1, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
     __ shenandoah_store_addr_check(rscratch1); // Invariant
-    oopDesc::bs()->interpreter_read_barrier(_masm, rscratch1);
     __ cmp(r0, rscratch1);
     // if same object then stop searching
     __ br(Assembler::EQ, found);
