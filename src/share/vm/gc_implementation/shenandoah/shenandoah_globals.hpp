@@ -154,7 +154,7 @@
           "How many successful marking cycles before improving free "       \
                "threshold for adaptive heuristics")                    \
                                                                             \
-  experimental(uint, ShenandoahMarkLoopStride, 1000,                        \
+  experimental(uintx, ShenandoahMarkLoopStride, 1000,                       \
           "How many items are processed during one marking step")           \
                                                                             \
   experimental(bool, ShenandoahConcurrentScanCodeRoots, true,               \
@@ -164,7 +164,7 @@
           "Evacuate code roots concurrently, instead of during a pause. "   \
           "This requires ShenandoahBarriersForConst to be enabled.")        \
                                                                             \
-  experimental(uint, ShenandoahCodeRootsStyle, 1,                           \
+  experimental(uintx, ShenandoahCodeRootsStyle, 1,                          \
           "Use this style to scan code cache:"                              \
           " 0 - sequential iterator;"                                       \
           " 1 - parallel iterator;"                                         \
