@@ -147,7 +147,7 @@ jint ShenandoahHeap::initialize() {
   size_t num_regions = init_byte_size / ShenandoahHeapRegion::region_size_bytes();
   _max_regions = max_byte_size / ShenandoahHeapRegion::region_size_bytes();
   _initialSize = num_regions * ShenandoahHeapRegion::region_size_bytes();
-  size_t regionSizeWords = ShenandoahHeapRegion::region_size_bytes() / HeapWordSize;
+  size_t regionSizeWords = ShenandoahHeapRegion::region_size_words();
   assert(init_byte_size == _initialSize, "tautology");
   _ordered_regions = new ShenandoahHeapRegionSet(_max_regions);
   _free_regions = new ShenandoahFreeSet(_max_regions);
@@ -497,7 +497,7 @@ VirtualSpace* ShenandoahHeap::storage() const {
 
 bool ShenandoahHeap::is_in(const void* p) const {
   HeapWord* heap_base = (HeapWord*) base();
-  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * num_regions();
+  HeapWord* last_region_end = heap_base + ShenandoahHeapRegion::region_size_words() * num_regions();
   return p >= heap_base && p < last_region_end;
 }
 
@@ -596,7 +596,7 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, AllocType type)
   ShenandoahHeapLock heap_lock(this);
 
   HeapWord* result = allocate_memory_under_lock(word_size, type);
-  size_t grow_by = (word_size * HeapWordSize + ShenandoahHeapRegion::region_size_bytes() - 1) / ShenandoahHeapRegion::region_size_bytes();
+  size_t grow_by = (word_size + ShenandoahHeapRegion::region_size_words() - 1) / ShenandoahHeapRegion::region_size_words();
 
   while (result == NULL && num_regions() + grow_by <= _max_regions) {
     grow_heap_by(grow_by);
@@ -645,7 +645,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
 HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType type) {
   assert_heaplock_owned_by_current_thread();
 
-  if (word_size * HeapWordSize > ShenandoahHeapRegion::region_size_bytes()) {
+  if (word_size > ShenandoahHeapRegion::region_size_words()) {
     return allocate_large_memory(word_size);
   }
 
@@ -1633,8 +1633,8 @@ void ShenandoahHeap::grow_heap_by(size_t num_regs) {
   ensure_new_regions(num_regs);
   for (size_t i = 0; i < num_regs; i++) {
     size_t new_region_index = i + old_num_regions;
-    HeapWord* start = ((HeapWord*) base()) + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * new_region_index;
-    ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion(this, start, ShenandoahHeapRegion::region_size_bytes() / HeapWordSize, new_region_index);
+    HeapWord* start = ((HeapWord*) base()) + ShenandoahHeapRegion::region_size_words() * new_region_index;
+    ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion(this, start, ShenandoahHeapRegion::region_size_words(), new_region_index);
 
     if (ShenandoahLogTrace) {
       ResourceMark rm;
