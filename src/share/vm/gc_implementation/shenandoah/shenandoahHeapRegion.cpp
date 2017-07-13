@@ -36,6 +36,7 @@
 
 size_t ShenandoahHeapRegion::RegionSizeShift = 0;
 size_t ShenandoahHeapRegion::RegionSizeBytes = 0;
+size_t ShenandoahHeapRegion::RegionSizeWords = 0;
 
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
                                            size_t regionSizeWords, size_t index) :
@@ -77,7 +78,7 @@ void ShenandoahHeapRegion::reset_alloc_stats() {
 void ShenandoahHeapRegion::reset_alloc_stats_to_shared() {
   _tlab_allocs = 0;
   _gclab_allocs = 0;
-  _shared_allocs = used() / HeapWordSize;
+  _shared_allocs = used() >> LogHeapWordSize;
 }
 
 size_t ShenandoahHeapRegion::get_shared_allocs() const {
@@ -94,17 +95,17 @@ size_t ShenandoahHeapRegion::get_gclab_allocs() const {
 
 void ShenandoahHeapRegion::set_live_data(size_t s) {
   assert(Thread::current()->is_VM_thread(), "by VM thread");
-  _live_data = (jint) (s / HeapWordSize);
+  _live_data = (jint) (s >> LogHeapWordSize);
 }
 
 size_t ShenandoahHeapRegion::get_live_data_words() const {
   if (is_humongous()) {
     if (is_humongous_start()) {
       size_t live_data = (size_t)OrderAccess::load_acquire((volatile jint*)&_live_data);
-      return (live_data == 0) ? 0 : (used() / HeapWordSize);
+      return (live_data == 0) ? 0 : (used() >> LogHeapWordSize);
     } else {
       const ShenandoahHeapRegion* start = humongous_start_region();
-      return start->get_live_data_words() == 0 ? 0 : (used() / HeapWordSize);
+      return start->get_live_data_words() == 0 ? 0 : (used() >> LogHeapWordSize);
     }
   } else {
     return (size_t)OrderAccess::load_acquire((volatile jint*)&_live_data);
@@ -370,6 +371,8 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
 
   guarantee(RegionSizeBytes == 0, "we should only set it once");
   RegionSizeBytes = (size_t)region_size;
+  RegionSizeWords = RegionSizeBytes >> LogHeapWordSize;
+  assert (RegionSizeWords*HeapWordSize == RegionSizeBytes, "sanity");
 
   log_info(gc, heap)("Heap region size: " SIZE_FORMAT "M", RegionSizeBytes / M);
   log_info(gc, init)("Region size in bytes: "SIZE_FORMAT, RegionSizeBytes);

@@ -116,7 +116,7 @@ void ShenandoahFreeSet::initialize_humongous_regions(size_t first, size_t num) {
 
     assert(current->is_empty(), "must be empty");
     current->set_top(current->end());
-    current->increase_live_data_words(ShenandoahHeapRegion::region_size_bytes_jint() / HeapWordSize);
+    current->increase_live_data_words(ShenandoahHeapRegion::region_size_words_jint());
     current->reset_alloc_stats_to_shared();
   }
   increase_used(ShenandoahHeapRegion::region_size_bytes() * num);

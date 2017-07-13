@@ -51,7 +51,7 @@ void SCMUpdateRefsClosure::do_oop_work(T* p) {
 void SCMUpdateRefsClosure::do_oop(oop* p)       { do_oop_work(p); }
 void SCMUpdateRefsClosure::do_oop(narrowOop* p) { do_oop_work(p); }
 
-size_t ShenandoahHeap::num_regions() const {
+inline size_t ShenandoahHeap::num_regions() const {
   assert(regions() != NULL, "Sanity");
   return regions()->active_regions();
 }
