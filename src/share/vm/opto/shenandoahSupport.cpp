@@ -620,7 +620,7 @@ bool ShenandoahBarrierNode::verify_helper(Node* in, Node_Stack& phis, VectorSet&
                in->bottom_type()->make_ptr()->is_aryptr()->is_stable()) {
       if (trace) {tty->print_cr("Stable array load");}
     } else {
-      if (in->is_ConstraintCast()) {
+      if (in->Opcode() == Op_CastPP || in->Opcode() == Op_CheckCastPP) {
         in = in->in(1);
         continue;
       } else if (in->is_AddP()) {
