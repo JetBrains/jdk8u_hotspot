@@ -320,6 +320,11 @@ public:
     _blocker = new Monitor(Mutex::leaf, "ShenandoahTaskTerminator", false);
   }
 
+  ~ShenandoahTaskTerminator() {
+    assert(_blocker != NULL, "Can not be NULL");
+    delete _blocker;
+  }
+
   bool offer_termination(TerminatorTerminator* terminator);
 
 private:
