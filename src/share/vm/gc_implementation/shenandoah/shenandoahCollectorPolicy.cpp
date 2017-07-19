@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2015, Red Hat, Inc. and/or its affiliates.
+ * Copyright (c) 2013, 2017, Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -59,9 +59,11 @@ protected:
     RegionGarbage* res = _region_garbage;
     if (res == NULL) {
       res = NEW_C_HEAP_ARRAY(RegionGarbage, num, mtGC);
+      _region_garbage = res;
       _region_garbage_size = num;
     } else if (_region_garbage_size < num) {
-      REALLOC_C_HEAP_ARRAY(RegionGarbage, _region_garbage, num, mtGC);
+      res = REALLOC_C_HEAP_ARRAY(RegionGarbage, _region_garbage, num, mtGC);
+      _region_garbage = res;
       _region_garbage_size = num;
     }
     return res;
