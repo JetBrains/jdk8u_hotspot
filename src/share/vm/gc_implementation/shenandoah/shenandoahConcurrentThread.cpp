@@ -40,7 +40,8 @@ SurrogateLockerThread* ShenandoahConcurrentThread::_slt = NULL;
 ShenandoahConcurrentThread::ShenandoahConcurrentThread() :
   ConcurrentGCThread(),
   _full_gc_lock(Mutex::leaf, "ShenandoahFullGC_lock", true),
-  _do_full_gc(false),
+  _do_full_gc(0),
+  _full_gc_cause(GCCause::_no_cause_specified),
   _graceful_shutdown(0)
 {
   create_and_start();

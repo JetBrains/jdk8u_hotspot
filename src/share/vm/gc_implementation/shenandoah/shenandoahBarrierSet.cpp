@@ -361,10 +361,10 @@ oop ShenandoahBarrierSet::resolve_and_maybe_copy_oopHelper(oop src) {
   bool evac = _heap->is_evacuation_in_progress();
   OrderAccess::loadload();
   src = resolve_oop_static_not_null(src);
-  if (! evac) {
-    return src;
-  } else {
+  if (evac) {
     return resolve_and_maybe_copy_oop_work(src);
+  } else {
+    return src;
   }
 }
 
@@ -374,7 +374,7 @@ JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_c2(oopDesc* src))
 JRT_END
 
 IRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_interp(oopDesc* src))
-  oop result = ((ShenandoahBarrierSet*)oopDesc::bs())->resolve_and_maybe_copy_oop_work2(oop(src));
+  oop result = ((ShenandoahBarrierSet*)oopDesc::bs())->resolve_and_maybe_copy_oop_work2(src);
   return (oopDesc*) result;
 IRT_END
 

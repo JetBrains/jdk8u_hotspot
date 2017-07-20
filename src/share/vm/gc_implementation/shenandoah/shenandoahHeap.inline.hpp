@@ -344,7 +344,7 @@ inline bool ShenandoahHeap::in_collection_set(T p) const {
   return collection_set()->is_in(obj);
 }
 
-inline bool ShenandoahHeap::concurrent_mark_in_progress() {
+inline bool ShenandoahHeap::concurrent_mark_in_progress() const {
   return _concurrent_mark_in_progress != 0;
 }
 
@@ -356,7 +356,7 @@ inline address ShenandoahHeap::update_refs_in_progress_addr() {
   return (address) &(ShenandoahHeap::heap()->_update_refs_in_progress);
 }
 
-inline bool ShenandoahHeap::is_evacuation_in_progress() {
+inline bool ShenandoahHeap::is_evacuation_in_progress() const {
   return _evacuation_in_progress != 0;
 }
 

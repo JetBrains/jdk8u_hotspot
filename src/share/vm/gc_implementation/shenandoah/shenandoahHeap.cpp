@@ -286,7 +286,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _complete_top_at_mark_starts_base(NULL),
   _mark_bit_map0(),
   _mark_bit_map1(),
-  _cancelled_concgc(false),
+  _cancelled_concgc(0),
   _need_update_refs(false),
   _need_reset_bitmaps(false),
   _verifier(NULL),
@@ -392,11 +392,11 @@ void ShenandoahHeap::print_on(outputStream* st) const {
             ShenandoahHeapRegion::region_size_bytes() / K, num_regions(), _max_regions);
 
   st->print("Status: ");
-  if (_concurrent_mark_in_progress) {
+  if (concurrent_mark_in_progress()) {
     st->print("marking ");
-  } else if (_evacuation_in_progress) {
+  } else if (is_evacuation_in_progress()) {
     st->print("evacuating ");
-  } else if (_update_refs_in_progress) {
+  } else if (is_update_refs_in_progress()) {
     st->print("updating refs ");
   } else {
     st->print("idle ");
@@ -1814,7 +1814,7 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
 
   BoolObjectClosure* is_alive = is_alive_closure();
 
-  bool purged_class = false;
+  bool purged_class;
 
   // Unload classes and purge SystemDictionary.
   {

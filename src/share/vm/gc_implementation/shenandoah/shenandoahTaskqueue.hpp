@@ -249,7 +249,7 @@ public:
   using GenericTaskQueueSet<T, F>::size;
 
 public:
-  ParallelClaimableQueueSet(int n) : GenericTaskQueueSet<T, F>(n) {
+  ParallelClaimableQueueSet(int n) : GenericTaskQueueSet<T, F>(n), _claimed_index(0) {
     debug_only(_reserved = 0; )
   }
 

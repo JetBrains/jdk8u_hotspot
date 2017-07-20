@@ -42,7 +42,7 @@ class ShenandoahGCPhase : public StackObj {
 private:
   const ShenandoahCollectorPolicy::TimingPhase   _phase;
 public:
-  ShenandoahGCPhase(const ShenandoahCollectorPolicy::TimingPhase phase);
+  ShenandoahGCPhase(ShenandoahCollectorPolicy::TimingPhase phase);
   ~ShenandoahGCPhase();
 };
 

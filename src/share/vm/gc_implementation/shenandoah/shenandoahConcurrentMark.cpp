@@ -357,7 +357,7 @@ void ShenandoahConcurrentMark::initialize(uint workers) {
 }
 
 void ShenandoahConcurrentMark::mark_from_roots() {
-  ShenandoahHeap* sh = (ShenandoahHeap *) Universe::heap();
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
   WorkGang* workers = sh->workers();
   uint nworkers = workers->active_workers();
 
@@ -399,7 +399,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
 
   IsGCActiveMark is_active;
 
-  ShenandoahHeap* sh = (ShenandoahHeap *) Universe::heap();
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
 
   TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
 
@@ -416,7 +416,6 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
   ShenandoahHeap* sh = ShenandoahHeap::heap();
-  ShenandoahCollectorPolicy* policy = sh->shenandoahPolicy();
 
   uint nworkers = sh->workers()->active_workers();
 
@@ -513,7 +512,7 @@ void ShenandoahConcurrentMark::print_taskqueue_stats() const {
   outputStream* st = gclog_or_tty;
   print_taskqueue_stats_hdr(st);
 
-  ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
   TaskQueueStats totals;
   const int n = _task_queues->size();
   for (int i = 0; i < n; ++i) {
@@ -528,7 +527,7 @@ void ShenandoahConcurrentMark::print_taskqueue_stats() const {
 }
 
 void ShenandoahConcurrentMark::reset_taskqueue_stats() {
-  ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
   const int n = task_queues()->size();
   for (int i = 0; i < n; ++i) {
     task_queues()->queue(i)->stats.reset();
@@ -870,8 +869,6 @@ void ShenandoahConcurrentMark::preclean_weak_refs() {
 }
 
 void ShenandoahConcurrentMark::cancel() {
-  ShenandoahHeap* sh = ShenandoahHeap::heap();
-
   // Clean up marking stacks.
   SCMObjToScanQueueSet* queues = task_queues();
   queues->clear();
@@ -937,7 +934,7 @@ void ShenandoahConcurrentMark::mark_loop_prework(uint w, ParallelTaskTerminator 
 template <class T, bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS>
 void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint worker_id, ParallelTaskTerminator *terminator) {
   int seed = 17;
-  uint stride = CANCELLABLE ? ShenandoahMarkLoopStride : 1;
+  uintx stride = CANCELLABLE ? ShenandoahMarkLoopStride : 1;
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   SCMObjToScanQueueSet* queues = task_queues();
