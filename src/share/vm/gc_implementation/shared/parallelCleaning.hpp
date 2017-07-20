@@ -340,9 +340,47 @@ public:
   }
 };
 
+class ParallelCleaningTask;
+
+class ParallelCleaningTimes {
+  friend class ParallelCleaningTask;
+private:
+  // All times are in microseconds, making room for ~2 hrs in jint
+  jint _sync, _codecache_work, _tables_work, _klass_work;
+
+public:
+  ParallelCleaningTimes() :
+          _sync(0),
+          _codecache_work(0),
+          _tables_work(0),
+          _klass_work(0) {};
+
+  jint sync_us()           const { return _sync; }
+  jint codecache_work_us() const { return _codecache_work; }
+  jint tables_work_us()    const { return _tables_work; }
+  jint klass_work_us()     const { return _klass_work; }
+};
+
+class ParallelCleaningTaskTimer {
+  volatile jint* _timer_us;
+  jlong start;
+public:
+  ParallelCleaningTaskTimer(jint* timer_us) : _timer_us(timer_us) {
+    start = os::javaTimeNanos();
+  }
+  ~ParallelCleaningTaskTimer() {
+    jlong ns = os::javaTimeNanos() - start;
+    jlong us = ns / 1000;
+    assert (us < max_jint, "overflow");
+    Atomic::add((jint) us, _timer_us);
+  }
+};
+
 // To minimize the remark pause times, the tasks below are done in parallel.
 class ParallelCleaningTask : public AbstractGangTask {
+  friend class ParallelCleaningTimes;
 private:
+  ParallelCleaningTimes       _times;
   StringSymbolTableUnlinkTask _string_symbol_task;
   CodeCacheUnloadingTask      _code_cache_task;
   KlassCleaningTask           _klass_cleaning_task;
@@ -366,31 +404,50 @@ public:
     assert(!MetadataOnStackMark::has_buffer_for_thread(Thread::current()), "Should be empty");
   }
 
+  ParallelCleaningTimes times() {
+    return _times;
+  }
+
   // The parallel work done by all worker threads.
   void work(uint worker_id) {
-    pre_work_verification();
+    {
+      ParallelCleaningTaskTimer timer(&_times._codecache_work);
+      // Do first pass of code cache cleaning.
+      _code_cache_task.work_first_pass(worker_id);
+    }
 
-    // Do first pass of code cache cleaning.
-    _code_cache_task.work_first_pass(worker_id);
+    {
+      ParallelCleaningTaskTimer timer(&_times._sync);
+      // Let the threads mark that the first pass is done.
+      _code_cache_task.barrier_mark(worker_id);
+    }
 
-    // Let the threads mark that the first pass is done.
-    _code_cache_task.barrier_mark(worker_id);
+    {
+      ParallelCleaningTaskTimer timer(&_times._tables_work);
+      // Clean the Strings and Symbols.
+      _string_symbol_task.work(worker_id);
+    }
 
-    // Clean the Strings and Symbols.
-    _string_symbol_task.work(worker_id);
+    {
+      ParallelCleaningTaskTimer timer(&_times._sync);
+      // Wait for all workers to finish the first code cache cleaning pass.
+      _code_cache_task.barrier_wait(worker_id);
+    }
 
-    // Wait for all workers to finish the first code cache cleaning pass.
-    _code_cache_task.barrier_wait(worker_id);
+    {
+      ParallelCleaningTaskTimer timer(&_times._codecache_work);
+      // Do the second code cache cleaning work, which realize on
+      // the liveness information gathered during the first pass.
+      _code_cache_task.work_second_pass(worker_id);
+    }
 
-    // Do the second code cache cleaning work, which realize on
-    // the liveness information gathered during the first pass.
-    _code_cache_task.work_second_pass(worker_id);
-
-    // Clean all klasses that were not unloaded.
-    _klass_cleaning_task.work();
-
-    post_work_verification();
+    {
+      ParallelCleaningTaskTimer timer(&_times._klass_work);
+      // Clean all klasses that were not unloaded.
+      _klass_cleaning_task.work();
+    }
   }
+
 };
 
 #endif // SHARE_VM_GC_IMPLEMENTATION_SHARED_PARALLELCLEANING_HPP
