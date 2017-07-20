@@ -59,6 +59,7 @@ private:
   AdaptiveWeightedAverage _allocation_fraction;  // fraction of eden allocated in tlabs
 
   bool _gclab;
+  bool _initialized;
 
   void set_start(HeapWord* start)                { _start = start; }
   void set_end(HeapWord* end)                    { _end = end; }
@@ -97,9 +98,11 @@ private:
   static GlobalTLABStats* global_stats() { return _global_stats; }
 
 public:
-  ThreadLocalAllocBuffer() : _allocation_fraction(TLABAllocationWeight), _allocated_before_last_gc(0) {
+  ThreadLocalAllocBuffer() : _allocation_fraction(TLABAllocationWeight), _allocated_before_last_gc(0), _initialized(false) {
     // do nothing.  tlabs must be inited by initialize() calls
   }
+
+  bool is_initialized() const { return _initialized; };
 
   static const size_t min_size()                 { return align_object_size(MinTLABSize / HeapWordSize) + alignment_reserve(); }
   static const size_t max_size()                 { assert(_max_size != 0, "max_size not set up"); return _max_size; }

@@ -229,6 +229,12 @@ inline void ShenandoahHeap::clear_cancelled_concgc() {
 
 inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size) {
   if (UseTLAB) {
+    if (!thread->gclab().is_initialized()) {
+      assert(!thread->is_Java_thread() && !thread->is_Worker_thread(),
+             err_msg("Performance: thread should have GCLAB: %s", thread->name()));
+      // No GCLABs in this thread, fallback to shared allocation
+      return NULL;
+    }
     HeapWord* obj = thread->gclab().allocate(size);
     if (obj != NULL) {
       return obj;
