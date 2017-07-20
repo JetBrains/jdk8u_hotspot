@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2015, Red Hat, Inc. and/or its affiliates.
+ * Copyright (c) 2013, 2017, Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -59,9 +59,11 @@ protected:
     RegionGarbage* res = _region_garbage;
     if (res == NULL) {
       res = NEW_C_HEAP_ARRAY(RegionGarbage, num, mtGC);
+      _region_garbage = res;
       _region_garbage_size = num;
     } else if (_region_garbage_size < num) {
-      REALLOC_C_HEAP_ARRAY(RegionGarbage, _region_garbage, num, mtGC);
+      res = REALLOC_C_HEAP_ARRAY(RegionGarbage, _region_garbage, num, mtGC);
+      _region_garbage = res;
       _region_garbage_size = num;
     }
     return res;
@@ -380,6 +382,12 @@ void ShenandoahCollectorPolicy::record_phase_end(TimingPhase phase) {
     _timing_data[phase]._secs.add(elapsed);
   }
   _heuristics->record_phase_end(phase);
+}
+
+void ShenandoahCollectorPolicy::record_phase_time(TimingPhase phase, jint time_us) {
+  if (!is_at_shutdown()) {
+    _timing_data[phase]._secs.add((double)time_us / 1000 / 1000);
+  }
 }
 
 void ShenandoahCollectorPolicy::record_gc_start() {
@@ -765,7 +773,12 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[weakrefs_enqueue]                = "    Enqueue";
   _phase_names[purge]                           = "  System Purge";
   _phase_names[purge_class_unload]              = "    Unload Classes";
-  _phase_names[purge_tables_cc]                 = "    Str/Sym, Code Cache";
+  _phase_names[purge_par]                       = "    Parallel Cleanup";
+  _phase_names[purge_par_codecache]             = "      Code Cache";
+  _phase_names[purge_par_symbstring]            = "      String/Symbol Tables";
+  _phase_names[purge_par_rmt]                   = "      Resolved Methods";
+  _phase_names[purge_par_classes]               = "      Clean Classes";
+  _phase_names[purge_par_sync]                  = "      Synchronization";
   _phase_names[purge_cldg]                      = "    CLDG";
   _phase_names[prepare_evac]                    = "  Prepare Evacuation";
 
@@ -836,7 +849,12 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[full_gc_weakrefs_enqueue]        = "      Enqueue";
   _phase_names[full_gc_purge]                   = "    System Purge";
   _phase_names[full_gc_purge_class_unload]      = "      Unload Classes";
-  _phase_names[full_gc_purge_tables_cc]         = "      Str/Sym, Code Cache";
+  _phase_names[full_gc_purge_par]               = "    Parallel Cleanup";
+  _phase_names[full_gc_purge_par_codecache]     = "      Code Cache";
+  _phase_names[full_gc_purge_par_symbstring]    = "      String/Symbol Tables";
+  _phase_names[full_gc_purge_par_rmt]           = "      Resolved Methods";
+  _phase_names[full_gc_purge_par_classes]       = "      Clean Classes";
+  _phase_names[full_gc_purge_par_sync]          = "      Synchronization";
   _phase_names[full_gc_purge_cldg]              = "      CLDG";
   _phase_names[full_gc_calculate_addresses]     = "  Calculate Addresses";
   _phase_names[full_gc_adjust_pointers]         = "  Adjust Pointers";

@@ -122,7 +122,7 @@ void ShenandoahCollectionSet::print(outputStream* out) const {
 
   debug_only(size_t regions = 0;)
   for (size_t index = 0; index < _heap->num_regions(); index ++) {
-    if (_cset_map[index]) {
+    if (is_in(index)) {
       _heap->regions()->get(index)->print_on(out);
       debug_only(regions ++;)
     }

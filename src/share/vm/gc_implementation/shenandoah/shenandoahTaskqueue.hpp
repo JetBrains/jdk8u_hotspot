@@ -249,7 +249,7 @@ public:
   using GenericTaskQueueSet<T, F>::size;
 
 public:
-  ParallelClaimableQueueSet(int n) : GenericTaskQueueSet<T, F>(n) {
+  ParallelClaimableQueueSet(int n) : GenericTaskQueueSet<T, F>(n), _claimed_index(0) {
     debug_only(_reserved = 0; )
   }
 
@@ -318,6 +318,11 @@ public:
   ShenandoahTaskTerminator(uint n_threads, TaskQueueSetSuper* queue_set) :
     ParallelTaskTerminator(n_threads, queue_set), _spin_master(NULL) {
     _blocker = new Monitor(Mutex::leaf, "ShenandoahTaskTerminator", false);
+  }
+
+  ~ShenandoahTaskTerminator() {
+    assert(_blocker != NULL, "Can not be NULL");
+    delete _blocker;
   }
 
   bool offer_termination(TerminatorTerminator* terminator);

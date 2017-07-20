@@ -3301,7 +3301,8 @@ Node *PhaseIdealLoop::get_late_ctrl( Node *n, Node *early ) {
     }
     while(worklist.size() != 0 && LCA != early) {
       Node* s = worklist.pop();
-      if (s->is_Load() || s->is_ShenandoahBarrier()) {
+      if (s->is_Load() || s->is_ShenandoahBarrier() || s->Opcode() == Op_SafePoint ||
+          (s->is_CallStaticJava() && s->as_CallStaticJava()->uncommon_trap_request() != 0)) {
         continue;
       } else if (s->is_MergeMem()) {
         for (DUIterator_Fast imax, i = s->fast_outs(imax); i < imax; i++) {
@@ -3590,11 +3591,25 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
   // which can inhibit range check elimination.
   if (least != early) {
     Node* ctrl_out = least->unique_ctrl_out();
-    if (ctrl_out && ctrl_out->is_CountedLoop() &&
+    if (ctrl_out && ctrl_out->is_Loop() &&
         least == ctrl_out->in(LoopNode::EntryControl)) {
-      Node* least_dom = idom(least);
-      if (get_loop(least_dom)->is_member(get_loop(least))) {
-        least = least_dom;
+      Node* new_ctrl = least;
+      if (find_predicate_insertion_point(new_ctrl, Deoptimization::Reason_loop_limit_check) != NULL) {
+        new_ctrl = new_ctrl->in(0)->in(0);
+        assert(is_dominator(early, new_ctrl), "least != early so we can move up the dominator tree");
+      }
+      if (find_predicate_insertion_point(new_ctrl, Deoptimization::Reason_predicate) != NULL) {
+        Node* c = new_ctrl->in(0)->in(0);
+        assert(is_dominator(early, c), "least != early so we can move up the dominator tree");
+        new_ctrl = c;
+      }
+      if (new_ctrl != ctrl_out) {
+        least = new_ctrl;
+      } else if (ctrl_out->is_CountedLoop()) {
+        Node* least_dom = idom(least);
+        if (get_loop(least_dom)->is_member(get_loop(least))) {
+          least = least_dom;
+        }
       }
     }
   }

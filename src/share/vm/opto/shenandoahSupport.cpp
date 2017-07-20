@@ -1616,8 +1616,12 @@ bool PhaseIdealLoop::shenandoah_memory_dominates_all_paths(Node* mem, Node* rep_
           if (u->is_Proj() && u->as_Proj()->is_uncommon_trap_proj(Deoptimization::Reason_none)) {
             if (trace) { tty->print("X not seen but unc"); u->dump(); }
           } else {
-            if (u->unique_ctrl_out() != NULL && u->unique_ctrl_out()->Opcode() == Op_Halt) {
-              if (trace) { tty->print("X not seen but sink in halt"); u->dump(); }
+            Node* c = u;
+            do {
+              c = c->unique_ctrl_out();
+            } while (c != NULL && c->is_Region());
+            if (c != NULL && c->Opcode() == Op_Halt) {
+              if (trace) { tty->print("X not seen but halt"); c->dump(); }
             } else {
               if (trace) { tty->print("X not seen"); u->dump(); }
               return false;

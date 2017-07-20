@@ -3232,6 +3232,11 @@ void MacroAssembler::store_check(Register obj) {
   store_check_part_2(obj);
 }
 
+void MacroAssembler::cmpoops(Register src1, Register src2) {
+  cmp(src1, src2);
+  oopDesc::bs()->asm_acmp_barrier(this, src1, src2);
+}
+
 void MacroAssembler::store_check(Register obj, Address dst) {
   store_check(obj);
 }
@@ -4961,8 +4966,7 @@ void MacroAssembler::char_arrays_equals(Register ary1, Register ary2,
     mov(result, false);
 
     // same array?
-    cmp(ary1, ary2);
-    oopDesc::bs()->asm_acmp_barrier(this, ary1, ary2);
+    cmpoops(ary1, ary2);
     br(Assembler::EQ, SAME);
 
     // ne if either null
@@ -5081,7 +5085,7 @@ void MacroAssembler::encode_iso_array(Register src, Register dst,
 // objects during concurrent marking.  These methods check for that.
 
 void MacroAssembler::in_heap_check(Register r, Register tmp, Label &nope) {
-  ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
+  ShenandoahHeap* h = ShenandoahHeap::heap();
 
   HeapWord* heap_base = (HeapWord*) h->base();
   HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();

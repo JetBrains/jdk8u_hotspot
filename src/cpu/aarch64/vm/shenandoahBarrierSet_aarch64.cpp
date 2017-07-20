@@ -79,7 +79,7 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
   __ strd(v0, __ pre(sp, 2 * -wordSize));
 
   // Call into runtime
-  __ super_call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_interp), dst);
+  __ super_call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_IRT), dst);
 
   // Move result into dst reg.
   __ mov(dst, r0);

@@ -88,11 +88,6 @@ public:
     weakrefs,
     weakrefs_process,
     weakrefs_enqueue,
-    purge,
-    purge_class_unload,
-    purge_tables_cc,
-    purge_cldg,
-
     prepare_evac,
     recycle_regions,
 
@@ -159,14 +154,31 @@ public:
     full_gc_weakrefs,
     full_gc_weakrefs_process,
     full_gc_weakrefs_enqueue,
-    full_gc_purge,
-    full_gc_purge_class_unload,
-    full_gc_purge_tables_cc,
-    full_gc_purge_cldg,
     full_gc_calculate_addresses,
     full_gc_adjust_pointers,
     full_gc_copy_objects,
     full_gc_resize_tlabs,
+
+    // Per-phase purge blocks, should come in the same order
+    purge,
+    purge_class_unload,
+    purge_par,
+    purge_par_codecache,
+    purge_par_symbstring,
+    purge_par_rmt,
+    purge_par_classes,
+    purge_par_sync,
+    purge_cldg,
+
+    full_gc_purge,
+    full_gc_purge_class_unload,
+    full_gc_purge_par,
+    full_gc_purge_par_codecache,
+    full_gc_purge_par_symbstring,
+    full_gc_purge_par_rmt,
+    full_gc_purge_par_classes,
+    full_gc_purge_par_sync,
+    full_gc_purge_cldg,
 
     // Longer concurrent phases at the end
     conc_mark,
@@ -235,6 +247,7 @@ public:
 
   void record_phase_start(TimingPhase phase);
   void record_phase_end(TimingPhase phase);
+  void record_phase_time(TimingPhase phase, jint time_us);
 
   void record_workers_start(TimingPhase phase);
   void record_workers_end(TimingPhase phase);

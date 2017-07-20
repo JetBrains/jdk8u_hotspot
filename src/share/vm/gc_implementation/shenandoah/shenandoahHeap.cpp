@@ -286,7 +286,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _complete_top_at_mark_starts_base(NULL),
   _mark_bit_map0(),
   _mark_bit_map1(),
-  _cancelled_concgc(false),
+  _cancelled_concgc(0),
   _need_update_refs(false),
   _need_reset_bitmaps(false),
   _verifier(NULL),
@@ -392,11 +392,11 @@ void ShenandoahHeap::print_on(outputStream* st) const {
             ShenandoahHeapRegion::region_size_bytes() / K, num_regions(), _max_regions);
 
   st->print("Status: ");
-  if (_concurrent_mark_in_progress) {
+  if (concurrent_mark_in_progress()) {
     st->print("marking ");
-  } else if (_evacuation_in_progress) {
+  } else if (is_evacuation_in_progress()) {
     st->print("evacuating ");
-  } else if (_update_refs_in_progress) {
+  } else if (is_update_refs_in_progress()) {
     st->print("updating refs ");
   } else {
     st->print("idle ");
@@ -433,18 +433,10 @@ public:
 
 void ShenandoahHeap::post_initialize() {
   if (UseTLAB) {
-    // This is a very tricky point in VM lifetime. We cannot easily call Threads::threads_do
-    // here, because some system threads (VMThread, WatcherThread, etc) are not yet available.
-    // Their initialization should be handled separately. Is we miss some threads here,
-    // then any other TLAB-related activity would fail with asserts.
+    MutexLocker ml(Threads_lock);
 
     InitGCLABClosure init_gclabs;
-    {
-      MutexLocker ml(Threads_lock);
-      for (JavaThread *thread = Threads::first(); thread != NULL; thread = thread->next()) {
-        init_gclabs.do_thread(thread);
-      }
-    }
+    Threads::java_threads_do(&init_gclabs);
     gc_threads_do(&init_gclabs);
   }
 
@@ -808,17 +800,14 @@ public:
 
 class ParallelEvacuateRegionObjectClosure : public ObjectClosure {
 private:
-  ShenandoahHeap* _heap;
-  Thread* _thread;
-  public:
+  ShenandoahHeap* const _heap;
+  Thread* const _thread;
+public:
   ParallelEvacuateRegionObjectClosure(ShenandoahHeap* heap) :
     _heap(heap), _thread(Thread::current()) {
   }
 
   void do_object(oop p) {
-
-    log_develop_trace(gc, compaction)("Calling ParallelEvacuateRegionObjectClosure on "PTR_FORMAT" of size %d\n", p2i((HeapWord*) p), p->size());
-
     assert(_heap->is_marked_complete(p), "expect only marked objects");
     if (oopDesc::unsafe_equals(p, ShenandoahBarrierSet::resolve_oop_static_not_null(p))) {
       bool evac;
@@ -827,19 +816,10 @@ private:
   }
 };
 
-void ShenandoahHeap::parallel_evacuate_region(ShenandoahHeapRegion* from_region) {
-
-  assert(from_region->has_live(), "all-garbage regions are reclaimed earlier");
-
-  ParallelEvacuateRegionObjectClosure evacuate_region(this);
-
-  marked_object_iterate(from_region, &evacuate_region);
-}
-
 class ParallelEvacuationTask : public AbstractGangTask {
 private:
-  ShenandoahHeap* _sh;
-  ShenandoahCollectionSet* _cs;
+  ShenandoahHeap* const _sh;
+  ShenandoahCollectionSet* const _cs;
   volatile jbyte _claimed_codecache;
 
   bool claim_codecache() {
@@ -867,21 +847,20 @@ public:
       CodeCache::blobs_do(&blobs);
     }
 
-    ShenandoahHeapRegion* from_hr = _cs->claim_next();
-
-    while (from_hr != NULL) {
+    ParallelEvacuateRegionObjectClosure cl(_sh);
+    ShenandoahHeapRegion* r;
+    while ((r =_cs->claim_next()) != NULL) {
       log_develop_trace(gc, region)("Thread "INT32_FORMAT" claimed Heap Region "SIZE_FORMAT,
                                     worker_id,
-                                    from_hr->region_number());
+                                    r->region_number());
 
-      assert(from_hr->has_live(), "all-garbage regions are reclaimed early");
-      _sh->parallel_evacuate_region(from_hr);
+      assert(r->has_live(), "all-garbage regions are reclaimed early");
+      _sh->marked_object_iterate(r, &cl);
 
       if (_sh->cancelled_concgc()) {
-        log_develop_trace(gc, region)("Cancelled concgc while evacuating region " SIZE_FORMAT "\n", from_hr->region_number());
+        log_develop_trace(gc, region)("Cancelled concgc while evacuating region " SIZE_FORMAT, r->region_number());
         break;
       }
-      from_hr = _cs->claim_next();
     }
   }
 };
@@ -1036,6 +1015,7 @@ public:
   }
 
   void do_thread(Thread* thread) {
+    assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
     thread->gclab().make_parsable(_retire);
   }
 };
@@ -1044,7 +1024,8 @@ void ShenandoahHeap::ensure_parsability(bool retire_tlabs) {
   if (UseTLAB) {
     CollectedHeap::ensure_parsability(retire_tlabs);
     RetireTLABClosure cl(retire_tlabs);
-    Threads::threads_do(&cl);
+    Threads::java_threads_do(&cl);
+    gc_threads_do(&cl);
   }
 }
 
@@ -1121,23 +1102,6 @@ void ShenandoahHeap::evacuate_and_update_roots() {
 
 
 void ShenandoahHeap::do_evacuation() {
-
-  parallel_evacuate();
-
-  if (ShenandoahVerify && !_shenandoah_policy->update_refs() && !cancelled_concgc()) {
-    VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
-    if (Thread::current()->is_VM_thread()) {
-      verify_after_evacuation.doit();
-    } else {
-      VMThread::execute(&verify_after_evacuation);
-    }
-  }
-
-}
-
-void ShenandoahHeap::parallel_evacuate() {
-  log_develop_trace(gc)("starting parallel_evacuate");
-
   ShenandoahGCPhase conc_evac_phase(ShenandoahCollectorPolicy::conc_evac);
 
   if (ShenandoahLogTrace) {
@@ -1157,8 +1121,8 @@ void ShenandoahHeap::parallel_evacuate() {
     _free_regions->print(out);
   }
 
-  ParallelEvacuationTask evacuationTask = ParallelEvacuationTask(this, _collection_set);
-  workers()->run_task(&evacuationTask);
+  ParallelEvacuationTask task(this, _collection_set);
+  workers()->run_task(&task);
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
@@ -1179,6 +1143,14 @@ void ShenandoahHeap::parallel_evacuate() {
     print_heap_regions(out);
   }
 
+  if (ShenandoahVerify && !_shenandoah_policy->update_refs() && !cancelled_concgc()) {
+    VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
+    if (Thread::current()->is_VM_thread()) {
+      verify_after_evacuation.doit();
+    } else {
+      VMThread::execute(&verify_after_evacuation);
+    }
+  }
 }
 
 void ShenandoahHeap::roots_iterate(OopClosure* cl) {
@@ -1217,6 +1189,7 @@ size_t ShenandoahHeap::max_tlab_size() const {
 class ResizeGCLABClosure : public ThreadClosure {
 public:
   void do_thread(Thread* thread) {
+    assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
     thread->gclab().resize();
   }
 };
@@ -1225,12 +1198,14 @@ void ShenandoahHeap::resize_all_tlabs() {
   CollectedHeap::resize_all_tlabs();
 
   ResizeGCLABClosure cl;
-  Threads::threads_do(&cl);
+  Threads::java_threads_do(&cl);
+  gc_threads_do(&cl);
 }
 
 class AccumulateStatisticsGCLABClosure : public ThreadClosure {
 public:
   void do_thread(Thread* thread) {
+    assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
     thread->gclab().accumulate_statistics();
     thread->gclab().initialize_statistics();
   }
@@ -1238,7 +1213,8 @@ public:
 
 void ShenandoahHeap::accumulate_statistics_all_gclabs() {
   AccumulateStatisticsGCLABClosure cl;
-  Threads::threads_do(&cl);
+  Threads::java_threads_do(&cl);
+  gc_threads_do(&cl);
 }
 
 bool  ShenandoahHeap::can_elide_tlab_store_barriers() const {
@@ -1805,16 +1781,36 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
           ShenandoahCollectorPolicy::full_gc_purge_cldg :
           ShenandoahCollectorPolicy::purge_cldg;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_tables_cc =
+  ShenandoahCollectorPolicy::TimingPhase phase_par =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_tables_cc :
-          ShenandoahCollectorPolicy::purge_tables_cc;
+          ShenandoahCollectorPolicy::full_gc_purge_par :
+          ShenandoahCollectorPolicy::purge_par;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_par_classes =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_par_classes :
+          ShenandoahCollectorPolicy::purge_par_classes;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_par_codecache =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_par_codecache :
+          ShenandoahCollectorPolicy::purge_par_codecache;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_par_symbstring =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_par_symbstring :
+          ShenandoahCollectorPolicy::purge_par_symbstring;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_par_sync =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_par_sync :
+          ShenandoahCollectorPolicy::purge_par_sync;
 
   ShenandoahGCPhase root_phase(phase_root);
 
   BoolObjectClosure* is_alive = is_alive_closure();
 
-  bool purged_class = false;
+  bool purged_class;
 
   // Unload classes and purge SystemDictionary.
   {
@@ -1823,9 +1819,20 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
   }
 
   {
-    ShenandoahGCPhase phase(phase_tables_cc);
-    ParallelCleaningTask unlink_task(is_alive, true, true, _workers->active_workers(), purged_class);
+    ShenandoahGCPhase phase(phase_par);
+    uint active = _workers->active_workers();
+    ParallelCleaningTask unlink_task(is_alive, true, true, active, purged_class);
     _workers->run_task(&unlink_task);
+
+    ShenandoahCollectorPolicy* p = ShenandoahHeap::heap()->shenandoahPolicy();
+    ParallelCleaningTimes times = unlink_task.times();
+
+    // "times" report total time, phase_tables_cc reports wall time. Divide total times
+    // by active workers to get average time per worker, that would add up to wall time.
+    p->record_phase_time(phase_par_classes,    times.klass_work_us() / active);
+    p->record_phase_time(phase_par_codecache,  times.codecache_work_us() / active);
+    p->record_phase_time(phase_par_symbstring, times.tables_work_us() / active);
+    p->record_phase_time(phase_par_sync,       times.sync_us() / active);
   }
 
   {

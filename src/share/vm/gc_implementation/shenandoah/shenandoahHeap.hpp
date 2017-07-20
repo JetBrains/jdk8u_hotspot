@@ -234,7 +234,7 @@ public:
   oop new_store_pre_barrier(JavaThread* thread, oop new_obj) /* override */;
   bool can_elide_initializing_store_barrier(oop new_obj) /* override */;
   bool card_mark_must_follow_store() const /* override */;
-  void collect(GCCause::Cause) /* override */;
+  void collect(GCCause::Cause cause) /* override */;
   void do_full_collection(bool clear_all_soft_refs) /* override */;
   AdaptiveSizePolicy* size_policy() /* override */;
   CollectorPolicy* collector_policy() const /* override */;
@@ -302,7 +302,7 @@ public:
 
   void start_concurrent_marking();
   void stop_concurrent_marking();
-  inline bool concurrent_mark_in_progress();
+  inline bool concurrent_mark_in_progress() const;
   static address concurrent_mark_in_progress_addr();
 
   void prepare_for_concurrent_evacuation();
@@ -319,7 +319,7 @@ private:
   void set_evacuation_in_progress(bool in_progress);
 
 public:
-  inline bool is_evacuation_in_progress();
+  inline bool is_evacuation_in_progress() const;
   void set_evacuation_in_progress_concurrently(bool in_progress);
   void set_evacuation_in_progress_at_safepoint(bool in_progress);
 
@@ -385,8 +385,6 @@ public:
   inline bool is_marked_next(oop obj) const;
   bool is_next_bitmap_clear();
   bool is_complete_bitmap_clear_range(HeapWord* start, HeapWord* end);
-
-  void parallel_evacuate_region(ShenandoahHeapRegion* from_region);
 
   template <class T>
   inline oop update_oop_ref_not_null(T* p, oop obj);
@@ -483,8 +481,6 @@ private:
   ShenandoahConcurrentThread* concurrent_thread() { return _concurrent_gc_thread; }
 
   inline bool mark_next_no_checks(oop obj) const;
-
-  void parallel_evacuate();
 
   inline oop atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c);
   inline oop atomic_compare_exchange_oop(oop n, oop* addr, oop c);

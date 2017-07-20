@@ -199,9 +199,8 @@ HeapWord* ShenandoahHeapRegion::object_iterate_careful(ObjectClosureCareful* blk
     size_t size = blk->do_object_careful(oop(p));
     if (size == 0) {
       return p;  // failed at p
-    } else {
-      p += size + BrooksPointer::word_size();
     }
+    p += size + BrooksPointer::word_size();
   }
   return NULL; // all done
 }
@@ -212,7 +211,7 @@ void ShenandoahHeapRegion::oop_iterate_skip_unreachable(ExtendedOopClosure* cl, 
 }
 
 void ShenandoahHeapRegion::fill_region() {
-  ShenandoahHeap* sh = (ShenandoahHeap*) Universe::heap();
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
 
   if (free() > (BrooksPointer::word_size() + CollectedHeap::min_fill_size())) {
     HeapWord* filler = allocate(BrooksPointer::word_size(), ShenandoahHeap::_alloc_shared);
