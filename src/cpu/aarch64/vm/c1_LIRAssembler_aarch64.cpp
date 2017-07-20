@@ -2016,10 +2016,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
       // cpu register - cpu register
       Register reg2 = opr2->as_register();
       if (opr1->type() == T_OBJECT || opr1->type() == T_ARRAY) {
-        __ cmp(reg1, reg2);
-        if (UseShenandoahGC) {
-          oopDesc::bs()->asm_acmp_barrier(masm(), reg1, reg2);
-        }
+        __ cmpoops(reg1, reg2);
       } else {
         assert(opr2->type() != T_OBJECT && opr2->type() != T_ARRAY, "cmp int, oop?");
         __ cmpw(reg1, reg2);
@@ -2061,11 +2058,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
 
       if (opr2->type() == T_OBJECT || opr2->type() == T_ARRAY) {
         jobject2reg(opr2->as_constant_ptr()->as_jobject(), rscratch1);
-        __ cmp(reg1, rscratch1);
-        if (UseShenandoahGC
-            && (opr1->type() == T_OBJECT || opr1->type() == T_ARRAY)) {
-          oopDesc::bs()->asm_acmp_barrier(masm(), reg1, rscratch1);
-        }
+        __ cmpoops(reg1, rscratch1);
         return;
       }
 
