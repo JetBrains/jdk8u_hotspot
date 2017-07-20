@@ -7198,9 +7198,10 @@ void MacroAssembler::char_arrays_equals(bool is_array_equ, Register ary1, Regist
   int base_offset    = arrayOopDesc::base_offset_in_bytes(T_CHAR);
 
   // Check the input args
-  cmpptr(ary1, ary2);
   if (is_array_equ) {
-    oopDesc::bs()->asm_acmp_barrier(this, ary1, ary2);
+    cmpoops(ary1, ary2);
+  } else {
+    cmpptr(ary1, ary2);
   }
   jcc(Assembler::equal, TRUE_LABEL);
 
@@ -8882,4 +8883,22 @@ SkipIfEqual::SkipIfEqual(
 
 SkipIfEqual::~SkipIfEqual() {
   _masm->bind(_label);
+}
+
+void MacroAssembler::cmpoops(Register src1, Register src2) {
+  cmpptr(src1, src2);
+  oopDesc::bs()->asm_acmp_barrier(this, src1, src2);
+}
+
+void MacroAssembler::cmpoops(Register src1, Address src2) {
+  cmpptr(src1, src2);
+  if (UseShenandoahGC) {
+    Label done;
+    jccb(Assembler::equal, done);
+    movptr(rscratch2, src2);
+    oopDesc::bs()->interpreter_read_barrier(this, src1);
+    oopDesc::bs()->interpreter_read_barrier(this, rscratch2);
+    cmpptr(src1, rscratch2);
+    bind(done);
+  }
 }

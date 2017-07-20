@@ -3232,6 +3232,11 @@ void MacroAssembler::store_check(Register obj) {
   store_check_part_2(obj);
 }
 
+void MacroAssembler::cmpoops(Register src1, Register src2) {
+  cmp(src1, src2);
+  oopDesc::bs()->asm_acmp_barrier(this, src1, src2);
+}
+
 void MacroAssembler::store_check(Register obj, Address dst) {
   store_check(obj);
 }

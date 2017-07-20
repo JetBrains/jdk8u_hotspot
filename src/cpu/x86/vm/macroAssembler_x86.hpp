@@ -762,6 +762,10 @@ class MacroAssembler: public Assembler {
   // cmp64 to avoild hiding cmpq
   void cmp64(Register src1, AddressLiteral src);
 
+  // Special cmp for heap objects, possibly inserting required barriers.
+  void cmpoops(Register src1, Register src2);
+  void cmpoops(Register src1, Address src2);
+
   void cmpxchgptr(Register reg, Address adr);
 
   // Special Shenandoah CAS implementation that handles false negatives
