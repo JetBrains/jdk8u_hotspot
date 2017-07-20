@@ -1805,10 +1805,30 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
           ShenandoahCollectorPolicy::full_gc_purge_cldg :
           ShenandoahCollectorPolicy::purge_cldg;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_tables_cc =
+  ShenandoahCollectorPolicy::TimingPhase phase_par =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_tables_cc :
-          ShenandoahCollectorPolicy::purge_tables_cc;
+          ShenandoahCollectorPolicy::full_gc_purge_par :
+          ShenandoahCollectorPolicy::purge_par;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_par_classes =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_par_classes :
+          ShenandoahCollectorPolicy::purge_par_classes;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_par_codecache =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_par_codecache :
+          ShenandoahCollectorPolicy::purge_par_codecache;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_par_symbstring =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_par_symbstring :
+          ShenandoahCollectorPolicy::purge_par_symbstring;
+
+  ShenandoahCollectorPolicy::TimingPhase phase_par_sync =
+          full_gc ?
+          ShenandoahCollectorPolicy::full_gc_purge_par_sync :
+          ShenandoahCollectorPolicy::purge_par_sync;
 
   ShenandoahGCPhase root_phase(phase_root);
 
@@ -1823,9 +1843,20 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
   }
 
   {
-    ShenandoahGCPhase phase(phase_tables_cc);
-    ParallelCleaningTask unlink_task(is_alive, true, true, _workers->active_workers(), purged_class);
+    ShenandoahGCPhase phase(phase_par);
+    uint active = _workers->active_workers();
+    ParallelCleaningTask unlink_task(is_alive, true, true, active, purged_class);
     _workers->run_task(&unlink_task);
+
+    ShenandoahCollectorPolicy* p = ShenandoahHeap::heap()->shenandoahPolicy();
+    ParallelCleaningTimes times = unlink_task.times();
+
+    // "times" report total time, phase_tables_cc reports wall time. Divide total times
+    // by active workers to get average time per worker, that would add up to wall time.
+    p->record_phase_time(phase_par_classes,    times.klass_work_us() / active);
+    p->record_phase_time(phase_par_codecache,  times.codecache_work_us() / active);
+    p->record_phase_time(phase_par_symbstring, times.tables_work_us() / active);
+    p->record_phase_time(phase_par_sync,       times.sync_us() / active);
   }
 
   {
