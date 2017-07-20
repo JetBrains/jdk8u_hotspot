@@ -712,7 +712,7 @@ class StubGenerator: public StubCodeGenerator {
       __ push_call_clobbered_fp_registers();
     }
 
-    __ mov(lr, CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_c2));
+    __ mov(lr, CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_JRT));
     __ blrt(lr, 1, 0, MacroAssembler::ret_type_integral);
     if (!c_abi) {
       __ mov(rscratch1, obj);

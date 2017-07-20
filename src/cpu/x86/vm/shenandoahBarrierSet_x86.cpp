@@ -105,7 +105,7 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
   __ movdbl(Address(rsp, 0), xmm0);
 
   // Call into runtime
-  __ super_call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_interp), dst);
+  __ super_call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_IRT), dst);
   __ mov(rscratch1, rax);
 
   // Restore possibly live regs.
