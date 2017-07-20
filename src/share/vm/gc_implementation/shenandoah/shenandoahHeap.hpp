@@ -386,8 +386,6 @@ public:
   bool is_next_bitmap_clear();
   bool is_complete_bitmap_clear_range(HeapWord* start, HeapWord* end);
 
-  void parallel_evacuate_region(ShenandoahHeapRegion* from_region);
-
   template <class T>
   inline oop update_oop_ref_not_null(T* p, oop obj);
 
@@ -483,8 +481,6 @@ private:
   ShenandoahConcurrentThread* concurrent_thread() { return _concurrent_gc_thread; }
 
   inline bool mark_next_no_checks(oop obj) const;
-
-  void parallel_evacuate();
 
   inline oop atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c);
   inline oop atomic_compare_exchange_oop(oop n, oop* addr, oop c);

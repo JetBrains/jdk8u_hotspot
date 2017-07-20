@@ -800,17 +800,14 @@ public:
 
 class ParallelEvacuateRegionObjectClosure : public ObjectClosure {
 private:
-  ShenandoahHeap* _heap;
-  Thread* _thread;
-  public:
+  ShenandoahHeap* const _heap;
+  Thread* const _thread;
+public:
   ParallelEvacuateRegionObjectClosure(ShenandoahHeap* heap) :
     _heap(heap), _thread(Thread::current()) {
   }
 
   void do_object(oop p) {
-
-    log_develop_trace(gc, compaction)("Calling ParallelEvacuateRegionObjectClosure on "PTR_FORMAT" of size %d\n", p2i((HeapWord*) p), p->size());
-
     assert(_heap->is_marked_complete(p), "expect only marked objects");
     if (oopDesc::unsafe_equals(p, ShenandoahBarrierSet::resolve_oop_static_not_null(p))) {
       bool evac;
@@ -819,19 +816,10 @@ private:
   }
 };
 
-void ShenandoahHeap::parallel_evacuate_region(ShenandoahHeapRegion* from_region) {
-
-  assert(from_region->has_live(), "all-garbage regions are reclaimed earlier");
-
-  ParallelEvacuateRegionObjectClosure evacuate_region(this);
-
-  marked_object_iterate(from_region, &evacuate_region);
-}
-
 class ParallelEvacuationTask : public AbstractGangTask {
 private:
-  ShenandoahHeap* _sh;
-  ShenandoahCollectionSet* _cs;
+  ShenandoahHeap* const _sh;
+  ShenandoahCollectionSet* const _cs;
   volatile jbyte _claimed_codecache;
 
   bool claim_codecache() {
@@ -859,21 +847,20 @@ public:
       CodeCache::blobs_do(&blobs);
     }
 
-    ShenandoahHeapRegion* from_hr = _cs->claim_next();
-
-    while (from_hr != NULL) {
+    ParallelEvacuateRegionObjectClosure cl(_sh);
+    ShenandoahHeapRegion* r;
+    while ((r =_cs->claim_next()) != NULL) {
       log_develop_trace(gc, region)("Thread "INT32_FORMAT" claimed Heap Region "SIZE_FORMAT,
                                     worker_id,
-                                    from_hr->region_number());
+                                    r->region_number());
 
-      assert(from_hr->has_live(), "all-garbage regions are reclaimed early");
-      _sh->parallel_evacuate_region(from_hr);
+      assert(r->has_live(), "all-garbage regions are reclaimed early");
+      _sh->marked_object_iterate(r, &cl);
 
       if (_sh->cancelled_concgc()) {
-        log_develop_trace(gc, region)("Cancelled concgc while evacuating region " SIZE_FORMAT "\n", from_hr->region_number());
+        log_develop_trace(gc, region)("Cancelled concgc while evacuating region " SIZE_FORMAT, r->region_number());
         break;
       }
-      from_hr = _cs->claim_next();
     }
   }
 };
@@ -1115,23 +1102,6 @@ void ShenandoahHeap::evacuate_and_update_roots() {
 
 
 void ShenandoahHeap::do_evacuation() {
-
-  parallel_evacuate();
-
-  if (ShenandoahVerify && !_shenandoah_policy->update_refs() && !cancelled_concgc()) {
-    VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
-    if (Thread::current()->is_VM_thread()) {
-      verify_after_evacuation.doit();
-    } else {
-      VMThread::execute(&verify_after_evacuation);
-    }
-  }
-
-}
-
-void ShenandoahHeap::parallel_evacuate() {
-  log_develop_trace(gc)("starting parallel_evacuate");
-
   ShenandoahGCPhase conc_evac_phase(ShenandoahCollectorPolicy::conc_evac);
 
   if (ShenandoahLogTrace) {
@@ -1151,8 +1121,8 @@ void ShenandoahHeap::parallel_evacuate() {
     _free_regions->print(out);
   }
 
-  ParallelEvacuationTask evacuationTask = ParallelEvacuationTask(this, _collection_set);
-  workers()->run_task(&evacuationTask);
+  ParallelEvacuationTask task(this, _collection_set);
+  workers()->run_task(&task);
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
@@ -1173,6 +1143,14 @@ void ShenandoahHeap::parallel_evacuate() {
     print_heap_regions(out);
   }
 
+  if (ShenandoahVerify && !_shenandoah_policy->update_refs() && !cancelled_concgc()) {
+    VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
+    if (Thread::current()->is_VM_thread()) {
+      verify_after_evacuation.doit();
+    } else {
+      VMThread::execute(&verify_after_evacuation);
+    }
+  }
 }
 
 void ShenandoahHeap::roots_iterate(OopClosure* cl) {
