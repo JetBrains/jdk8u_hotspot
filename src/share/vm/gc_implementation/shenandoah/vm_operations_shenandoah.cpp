@@ -33,7 +33,7 @@
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 void VM_ShenandoahInitMark::doit() {
-  ShenandoahHeap *sh = (ShenandoahHeap*) Universe::heap();
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
 
   GCTraceTime time("Pause Init Mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
   ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause);

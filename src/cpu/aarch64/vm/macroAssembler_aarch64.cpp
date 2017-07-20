@@ -5081,7 +5081,7 @@ void MacroAssembler::encode_iso_array(Register src, Register dst,
 // objects during concurrent marking.  These methods check for that.
 
 void MacroAssembler::in_heap_check(Register r, Register tmp, Label &nope) {
-  ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
+  ShenandoahHeap* h = ShenandoahHeap::heap();
 
   HeapWord* heap_base = (HeapWord*) h->base();
   HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();

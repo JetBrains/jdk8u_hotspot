@@ -279,7 +279,6 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
 
   if (VerifyDuringGC) {
     HandleMark hm;  // handle scope
-    //    Universe::heap()->prepare_for_verify();
     _heap->prepare_for_verify();
     // Note: we can verify only the heap here. When an object is
     // marked, the previous value of the mark word (including
@@ -291,7 +290,6 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
     // fail. At the end of the GC, the original mark word values
     // (including hash values) are restored to the appropriate
     // objects.
-    //    Universe::heap()->verify(VerifySilently, VerifyOption_G1UseMarkWord);
     _heap->verify(true, VerifyOption_G1UseMarkWord);
   }
 }
@@ -419,9 +417,6 @@ public:
     while (to_regions->count() > 0) {
       ShenandoahHeapRegion* r = to_regions->current();
       to_regions->next();
-      if (r == NULL) {
-        to_regions->print();
-      }
       assert(r != NULL, "should not happen");
       r->set_new_top(r->bottom());
     }
@@ -453,8 +448,9 @@ private:
 
 public:
 
-  ShenandoahAdjustPointersClosure() : _heap(ShenandoahHeap::heap()) {
-  }
+  ShenandoahAdjustPointersClosure() :
+          _heap(ShenandoahHeap::heap())
+  {}
 
 private:
   template <class T>
