@@ -201,6 +201,7 @@ void ThreadLocalAllocBuffer::initialize(HeapWord* start,
 }
 
 void ThreadLocalAllocBuffer::initialize(bool gclab) {
+  _initialized = true;
   _gclab = gclab;
   initialize(NULL,                    // start
              NULL,                    // top

@@ -1245,13 +1245,6 @@ WatcherThread::WatcherThread() : Thread(), _crash_protection(NULL) {
   if (os::create_thread(this, os::watcher_thread)) {
     _watcher_thread = this;
 
-    // WatcherThread needs GCLAB for cases when it writes to Java heap,
-    // and needs the space to evacuate. Have to initialize here, because
-    // WatcherThread is initialized before the Universe.
-    if (UseShenandoahGC && UseTLAB) {
-      gclab().initialize(true);
-    }
-
     // Set the watcher thread to the highest OS priority which should not be
     // used, unless a Java thread with priority java.lang.Thread.MAX_PRIORITY
     // is created. The only normal thread using this priority is the reference
@@ -1935,7 +1928,7 @@ void JavaThread::exit(bool destroy_vm, ExitType exit_type) {
   if (UseG1GC || UseShenandoahGC) {
     flush_barrier_queues();
   }
-  if (UseShenandoahGC && UseTLAB) {
+  if (UseShenandoahGC && UseTLAB && gclab().is_initialized()) {
     gclab().make_parsable(true);
   }
 #endif // INCLUDE_ALL_GCS
@@ -2022,7 +2015,7 @@ void JavaThread::cleanup_failed_attach_current_thread() {
   if (UseG1GC || UseShenandoahGC) {
     flush_barrier_queues();
   }
-  if (UseShenandoahGC && UseTLAB) {
+  if (UseShenandoahGC && UseTLAB && gclab().is_initialized()) {
     gclab().make_parsable(true);
   }
 #endif // INCLUDE_ALL_GCS
@@ -3315,6 +3308,13 @@ bool        Threads::_vm_complete = false;
 
 // All JavaThreads
 #define ALL_JAVA_THREADS(X) for (JavaThread* X = _thread_list; X; X = X->next())
+
+void Threads::java_threads_do(ThreadClosure* tc) {
+  assert_locked_or_safepoint(Threads_lock);
+  ALL_JAVA_THREADS(p) {
+    tc->do_thread(p);
+  }
+}
 
 // All JavaThreads + all non-JavaThreads (i.e., every thread in the system)
 void Threads::threads_do(ThreadClosure* tc) {

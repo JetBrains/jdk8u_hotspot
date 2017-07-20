@@ -433,18 +433,10 @@ public:
 
 void ShenandoahHeap::post_initialize() {
   if (UseTLAB) {
-    // This is a very tricky point in VM lifetime. We cannot easily call Threads::threads_do
-    // here, because some system threads (VMThread, WatcherThread, etc) are not yet available.
-    // Their initialization should be handled separately. Is we miss some threads here,
-    // then any other TLAB-related activity would fail with asserts.
+    MutexLocker ml(Threads_lock);
 
     InitGCLABClosure init_gclabs;
-    {
-      MutexLocker ml(Threads_lock);
-      for (JavaThread *thread = Threads::first(); thread != NULL; thread = thread->next()) {
-        init_gclabs.do_thread(thread);
-      }
-    }
+    Threads::java_threads_do(&init_gclabs);
     gc_threads_do(&init_gclabs);
   }
 
@@ -1036,6 +1028,7 @@ public:
   }
 
   void do_thread(Thread* thread) {
+    assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
     thread->gclab().make_parsable(_retire);
   }
 };
@@ -1044,7 +1037,8 @@ void ShenandoahHeap::ensure_parsability(bool retire_tlabs) {
   if (UseTLAB) {
     CollectedHeap::ensure_parsability(retire_tlabs);
     RetireTLABClosure cl(retire_tlabs);
-    Threads::threads_do(&cl);
+    Threads::java_threads_do(&cl);
+    gc_threads_do(&cl);
   }
 }
 
@@ -1217,6 +1211,7 @@ size_t ShenandoahHeap::max_tlab_size() const {
 class ResizeGCLABClosure : public ThreadClosure {
 public:
   void do_thread(Thread* thread) {
+    assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
     thread->gclab().resize();
   }
 };
@@ -1225,12 +1220,14 @@ void ShenandoahHeap::resize_all_tlabs() {
   CollectedHeap::resize_all_tlabs();
 
   ResizeGCLABClosure cl;
-  Threads::threads_do(&cl);
+  Threads::java_threads_do(&cl);
+  gc_threads_do(&cl);
 }
 
 class AccumulateStatisticsGCLABClosure : public ThreadClosure {
 public:
   void do_thread(Thread* thread) {
+    assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
     thread->gclab().accumulate_statistics();
     thread->gclab().initialize_statistics();
   }
@@ -1238,7 +1235,8 @@ public:
 
 void ShenandoahHeap::accumulate_statistics_all_gclabs() {
   AccumulateStatisticsGCLABClosure cl;
-  Threads::threads_do(&cl);
+  Threads::java_threads_do(&cl);
+  gc_threads_do(&cl);
 }
 
 bool  ShenandoahHeap::can_elide_tlab_store_barriers() const {
