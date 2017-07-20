@@ -331,63 +331,33 @@ bool ShenandoahBarrierSet::is_safe(narrowOop o) {
 }
 #endif
 
-oop ShenandoahBarrierSet::resolve_and_maybe_copy_oop_work(oop src) {
-  assert(src != NULL, "only evacuated non NULL oops");
-
-  if (_heap->in_collection_set(src)) {
-    return resolve_and_maybe_copy_oop_work2(src);
-  } else {
-    return src;
-  }
-}
-
-oop ShenandoahBarrierSet::resolve_and_maybe_copy_oop_work2(oop src) {
-  assert(src != NULL, "only evacuated non NULL oops");
-  assert(_heap->in_collection_set(src), "only evacuate objects in collection set");
-  assert(! _heap->heap_region_containing(src)->is_humongous(), "never evacuate humongous objects");
-  // TODO: Consider passing thread from caller.
-  bool evac;
-  oop dst = _heap->evacuate_object(src, Thread::current(), evac);
-
-  log_develop_trace(gc, compaction)("src = "PTR_FORMAT" dst = "PTR_FORMAT" src-2 = "PTR_FORMAT,
-                                    p2i(src), p2i(dst), p2i(((HeapWord*) src) - 2));
-
-  assert(_heap->is_in(dst), "result should be in the heap");
-  return dst;
-}
-
-oop ShenandoahBarrierSet::resolve_and_maybe_copy_oopHelper(oop src) {
-  assert(src != NULL, "checked before");
-  bool evac = _heap->is_evacuation_in_progress();
-  OrderAccess::loadload();
-  src = resolve_oop_static_not_null(src);
-  if (evac) {
-    return resolve_and_maybe_copy_oop_work(src);
-  } else {
-    return src;
-  }
-}
-
-JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_c2(oopDesc* src))
-  oop result = ((ShenandoahBarrierSet*) oopDesc::bs())->resolve_and_maybe_copy_oop_work2(src);
+JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_JRT(oopDesc* src))
+  oop result = ((ShenandoahBarrierSet*)oopDesc::bs())->write_barrier(src);
   return (oopDesc*) result;
 JRT_END
 
-IRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_interp(oopDesc* src))
-  oop result = ((ShenandoahBarrierSet*)oopDesc::bs())->resolve_and_maybe_copy_oop_work2(src);
+IRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_IRT(oopDesc* src))
+  oop result = ((ShenandoahBarrierSet*)oopDesc::bs())->write_barrier(src);
   return (oopDesc*) result;
 IRT_END
 
-oop ShenandoahBarrierSet::write_barrier(oop src) {
-  if (! oopDesc::is_null(src)) {
-    assert(_heap->is_in(src), "sanity");
-    assert(src != NULL, "checked before");
-    oop result = resolve_and_maybe_copy_oopHelper(src);
-    assert(_heap->is_in(result) /*&& result->is_oop()*/, "resolved oop must be NULL, or a valid oop in the heap");
-    return result;
-  } else {
-    return NULL;
+oop ShenandoahBarrierSet::write_barrier(oop obj) {
+  if (ShenandoahWriteBarrier) {
+    if (!oopDesc::is_null(obj)) {
+      bool evac_in_progress = _heap->is_evacuation_in_progress();
+      OrderAccess::loadload();
+      oop fwd = resolve_oop_static_not_null(obj);
+      if (evac_in_progress &&
+          _heap->in_collection_set(obj) &&
+          oopDesc::unsafe_equals(obj, fwd)) {
+        bool evac;
+        return _heap->evacuate_object(obj, Thread::current(), evac);
+      } else {
+        return fwd;
+      }
+    }
   }
+  return obj;
 }
 
 #ifdef ASSERT

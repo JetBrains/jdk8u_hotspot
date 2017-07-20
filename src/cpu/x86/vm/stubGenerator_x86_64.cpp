@@ -915,7 +915,7 @@ class StubGenerator: public StubCodeGenerator {
     }
     __ save_vector_registers();
     __ movptr(rdi, rax);
-    __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_c2), rdi);
+    __ call_VM_leaf(CAST_FROM_FN_PTR(address, ShenandoahBarrierSet::write_barrier_JRT), rdi);
     __ restore_vector_registers();
     if (!c_abi) {
       __ pop(r15);

@@ -97,10 +97,9 @@ public:
 
   static inline oop resolve_oop_static(oop p);
 
-  oop resolve_and_maybe_copy_oopHelper(oop src);
-  oop resolve_and_maybe_copy_oop_work(oop src);
-  oop resolve_and_maybe_copy_oop_work2(oop src);
-  virtual oop write_barrier(oop src);
+  virtual oop write_barrier(oop obj);
+  static oopDesc* write_barrier_IRT(oopDesc* src);
+  static oopDesc* write_barrier_JRT(oopDesc* src);
 
   bool obj_equals(oop obj1, oop obj2);
   bool obj_equals(narrowOop obj1, narrowOop obj2);
@@ -110,9 +109,6 @@ public:
   virtual bool is_safe(narrowOop o);
   virtual void verify_safe_oop(oop p);
 #endif
-
-  static oopDesc* write_barrier_c2(oopDesc* src);
-  static oopDesc* write_barrier_interp(oopDesc* src);
 
 private:
   bool need_update_refs_barrier();
