@@ -4966,8 +4966,7 @@ void MacroAssembler::char_arrays_equals(Register ary1, Register ary2,
     mov(result, false);
 
     // same array?
-    cmp(ary1, ary2);
-    oopDesc::bs()->asm_acmp_barrier(this, ary1, ary2);
+    cmpoops(ary1, ary2);
     br(Assembler::EQ, SAME);
 
     // ne if either null
