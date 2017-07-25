@@ -21,6 +21,8 @@
  *
  */
 
+#include "precompiled.hpp"
+
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
