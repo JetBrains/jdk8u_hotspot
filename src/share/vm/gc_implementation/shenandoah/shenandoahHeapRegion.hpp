@@ -77,7 +77,7 @@ public:
   }
 
   // Convert to jint with sanity checking
-  inline static size_t region_size_words_jint() {
+  inline static jint region_size_words_jint() {
     assert (ShenandoahHeapRegion::RegionSizeWords <= (size_t)max_jint, "sanity");
     return (jint)ShenandoahHeapRegion::RegionSizeWords;
   }
