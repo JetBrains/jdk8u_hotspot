@@ -302,7 +302,9 @@ bool MacroAssembler::needs_explicit_null_check(intptr_t offset) {
   // Exception handler checks the nmethod's implicit null checks table
   // only when this method returns false.
 #ifdef AARCH64
-  // AArch64 uses 48-bit addresses
+  // AArch64 addresses passed from the signal handler may have
+  // their top 8 bits zeroed. That affects the case where
+  // Shenandoah tries to load a Brooks pointer via a null oop.
   const uintptr_t address_bits = (uintptr_t)0xfffffffffffful;
 #else
   const uintptr_t address_bits = ~(uintptr_t)0;
