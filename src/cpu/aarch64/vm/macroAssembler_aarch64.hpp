@@ -791,12 +791,6 @@ public:
                              Register tmp,
                              Register tmp2);
 
-  void shenandoah_write_barrier_post(Register store_addr,
-                                     Register new_val,
-                                     Register thread,
-                                     Register tmp,
-                                     Register tmp2);
-
   void shenandoah_write_barrier(Register dst);
 
 #endif // INCLUDE_ALL_GCS
@@ -986,6 +980,8 @@ public:
 
   void addptr(const Address &dst, int32_t src);
   void cmpptr(Register src1, Address src2);
+
+  void cmpoops(Register src1, Register src2);
 
   void cmpxchgptr(Register oldv, Register newv, Register addr, Register tmp,
 		  Label &suceed, Label *fail);
