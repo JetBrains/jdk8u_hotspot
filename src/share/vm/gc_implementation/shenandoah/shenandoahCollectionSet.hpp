@@ -26,6 +26,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_HPP
 
 #include "memory/allocation.hpp"
+#include "utilities/ostream.hpp"
 
 class ShenandoahHeap;
 class ShenandoahHeapRegion;
