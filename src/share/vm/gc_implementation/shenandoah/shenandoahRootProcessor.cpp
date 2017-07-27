@@ -23,6 +23,7 @@
 
 #include "precompiled.hpp"
 
+#include "classfile/javaClasses.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "code/codeCache.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
