@@ -779,7 +779,12 @@ class StubGenerator: public StubCodeGenerator {
     if (!c_abi) {
       __ mov(rdi, rax);
     } else {
+#ifdef _WINDOWS
+       // Windows VSC calling convention: RCX - first argument
+       __ mov(rax, rcx);
+#else
       __ mov(rax, rdi);
+#endif // _WINDOWS
     }
     if (do_cset_test) {
       __ shrptr(rdi, ShenandoahHeapRegion::region_size_shift_jint());
@@ -4239,8 +4244,8 @@ class StubGenerator: public StubCodeGenerator {
 
     // entry points that are platform specific
     if (UseShenandoahGC && ShenandoahWriteBarrier) {
-      StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb(false, true);
-      StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
+         StubRoutines::x86::_shenandoah_wb = generate_shenandoah_wb(false, true);
+         StubRoutines::_shenandoah_wb_C = generate_shenandoah_wb(true, !ShenandoahWriteBarrierCsetTestInIR);
     }
     StubRoutines::x86::_f2i_fixup = generate_f2i_fixup();
     StubRoutines::x86::_f2l_fixup = generate_f2l_fixup();
