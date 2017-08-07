@@ -884,50 +884,9 @@ static inline Node* isa_java_mirror_load(PhaseGVN* phase, Node* n) {
       return isa_java_mirror_load_helper(phase, n);
     }
   } else {
-    // When Shenandoah is enabled acmp is compiled as:
-    // if (a != b) {
-    //   a = read_barrier(a);
-    //   b = read_barrier(b);
-    // }
-    // if (a == b) {
-    //   ..
-    // } else {
-    //   ..
-    // }
-    //
-    // If the comparison of the form is a.getClass() == b.getClass(),
-    // then that would be optimized to:
-    // c = a.getClass();
-    // d = b.getClass();
-    // if (a.klass != b.klass) {
-    //   c = read_barrier(c);
-    //   d = read_barrier(d);
-    // }
-    // if (c == d) {
-    //
-    // And the second comparison can happen without barriers (and
-    // fail). Here we match the second comparison only and optimize
-    // that pattern to:
-    // c = a.getClass();
-    // d = b.getClass();
-    // if (c != d) {
-    //   c = read_barrier(c);
-    //   d = read_barrier(d);
-    // }
-    // if (a.klass == b.klass) {
-    //
-    // Because c and d are not not used anymore, the first if should
-    // go away as well
-    if (n->is_Phi() && n->req() == 3 &&
-        n->in(2) != NULL &&
-        n->in(2)->is_ShenandoahBarrier() &&
-        n->in(1) == n->in(2)->in(ShenandoahBarrierNode::ValueIn) &&
-        n->in(1) != NULL &&
-        n->in(1)->Opcode() == Op_LoadP) {
-      return isa_java_mirror_load_helper(phase, n->in(1));
-    } else if (n->is_ShenandoahBarrier() &&
+    if (n->is_ShenandoahBarrier() &&
                n->in(ShenandoahBarrierNode::ValueIn)->Opcode() == Op_LoadP) {
-      // After split if, the pattern above becomes:
+      // When Shenandoah is enabled acmp is compiled as:
       // if (a != b) {
       //   a = read_barrier(a);
       //   b = read_barrier(b);
@@ -972,58 +931,7 @@ static inline Node* isa_const_java_mirror(PhaseGVN* phase, Node* n) {
 
 bool CmpPNode::shenandoah_optimize_java_mirror_cmp(PhaseGVN *phase, bool can_reshape) {
   assert(UseShenandoahGC, "shenandoah only");
-  if (in(1)->is_Phi()) {
-    Node* region = in(1)->in(0);
-    if (!in(2)->is_Phi() || region == in(2)->in(0)) {
-      if (region->in(1) != NULL &&
-          region->in(2) != NULL &&
-          region->in(2)->is_Proj() &&
-          region->in(2)->in(0) != NULL &&
-          region->in(2)->in(0)->is_MemBar() &&
-          region->in(2)->in(0)->in(0) != NULL &&
-          region->in(1)->in(0) == region->in(2)->in(0)->in(0)->in(0) &&
-          region->in(1)->in(0)->is_If()) {
-        Node* iff = region->in(1)->in(0);
-        if (iff->in(1) != NULL &&
-            iff->in(1)->is_Bool() &&
-            iff->in(1)->in(1) != NULL &&
-            iff->in(1)->in(1)->Opcode() == Op_CmpP) {
-          Node* cmp = iff->in(1)->in(1);
-          if (in(1)->in(1) == cmp->in(1) &&
-              (!in(2)->is_Phi() || in(2)->in(1) == cmp->in(2)) &&
-              in(1)->in(2)->in(ShenandoahBarrierNode::ValueIn) == cmp->in(1) &&
-              (!in(2)->is_Phi() || in(2)->in(2)->in(ShenandoahBarrierNode::ValueIn) == cmp->in(2))) {
-            MemBarNode* membar = region->in(2)->in(0)->as_MemBar();
-            Node* ctrl_proj = membar->proj_out(TypeFunc::Control);
-            Node* mem_proj = membar->proj_out(TypeFunc::Memory);
-            Node* rb1 = in(1)->in(2);
-            Node* rb2 = in(2)->is_Phi() ? in(2)->in(2) : NULL;
-            uint nb_rb = (rb2 == NULL) ? 1 : 2;
-            if (region->in(1)->outcnt() == 1 &&
-                membar->in(0)->outcnt() == 1 &&
-                mem_proj->outcnt() == nb_rb + 1 &&
-                ctrl_proj->outcnt() == nb_rb + 1 &&
-                rb1->in(ShenandoahBarrierNode::Control) == ctrl_proj &&
-                rb1->in(ShenandoahBarrierNode::Memory) == mem_proj &&
-                (rb2 == NULL || (rb2->in(ShenandoahBarrierNode::Control) == ctrl_proj &&
-                                 rb2->in(ShenandoahBarrierNode::Memory) == mem_proj))) {
-              if (can_reshape) {
-                PhaseIterGVN* igvn = phase->is_IterGVN();
-                igvn->replace_input_of(region, 2, membar->in(0));
-                igvn->replace_input_of(membar, 0, phase->C->top());
-              } else {
-                region->set_req(2, membar->in(0));
-                membar->set_req(0, phase->C->top());
-                phase->C->record_for_igvn(region);
-                phase->C->record_for_igvn(membar);
-              }
-              return true;
-            }
-          }
-        }
-      }
-    }
-  } else if (in(1)->is_ShenandoahBarrier()) {
+  if (in(1)->is_ShenandoahBarrier()) {
     // For this pattern:
     // if (a != b) {
     //   a = read_barrier(a);
