@@ -903,8 +903,8 @@ class GraphKit : public Phase {
 
   Node* shenandoah_read_barrier(Node* obj);
   Node* shenandoah_read_barrier_storeval(Node* obj);
+  Node* shenandoah_read_barrier_acmp(Node* obj);
   Node* shenandoah_write_barrier(Node* obj);
-  Node* cmp_objects(Node* a, Node* b);
 private:
   Node* shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_mem, bool allow_fromspace);
 };

@@ -591,6 +591,8 @@ void GraphKit::builtin_throw(Deoptimization::DeoptReason reason, Node* arg) {
       const TypeInstPtr* ex_con  = TypeInstPtr::make(ex_obj);
       Node*              ex_node = _gvn.transform( ConNode::make(C, ex_con) );
 
+      ex_node = shenandoah_write_barrier(ex_node);
+
       // Clear the detail message of the preallocated exception object.
       // Weblogic sometimes mutates the detail message of exceptions
       // using reflection.
@@ -4220,6 +4222,10 @@ Node* GraphKit::shenandoah_read_barrier_storeval(Node* obj) {
   return shenandoah_read_barrier_impl(obj, true, false, false);
 }
 
+Node* GraphKit::shenandoah_read_barrier_acmp(Node* obj) {
+  return shenandoah_read_barrier_impl(obj, true, true, false);
+}
+
 Node* GraphKit::shenandoah_read_barrier_impl(Node* obj, bool use_ctrl, bool use_mem, bool allow_fromspace) {
 
   if (UseShenandoahGC && ShenandoahReadBarrier) {
@@ -4331,115 +4337,5 @@ Node* GraphKit::shenandoah_write_barrier(Node* obj) {
 
   } else {
     return obj;
-  }
-}
-
-/**
- * In Shenandoah, we need barriers on acmp (and similar instructions that compare two
- * oops) to avoid false negatives. If it compares a from-space and a to-space
- * copy of an object, a regular acmp would return false, even though both are
- * the same. The acmp barrier compares the two objects, and when they are
- * *not equal* it does a read-barrier on both, and compares them again. When it
- * failed because of different copies of the object, we know that the object
- * must already have been evacuated (and therefore doesn't require a write-barrier).
- */
-Node* GraphKit::cmp_objects(Node* a, Node* b) {
-  // TODO: Refactor into proper GC interface.
-  if (UseShenandoahGC) {
-    const Type* a_type = a->bottom_type();
-    const Type* b_type = b->bottom_type();
-    if (a_type->higher_equal(TypePtr::NULL_PTR) || b_type->higher_equal(TypePtr::NULL_PTR)) {
-      // We know one arg is gonna be null. No need for barriers.
-      return _gvn.transform(new (C) CmpPNode(b, a));
-    }
-
-    const TypePtr* a_adr_type = ShenandoahBarrierNode::brooks_pointer_type(a_type);
-    const TypePtr* b_adr_type = ShenandoahBarrierNode::brooks_pointer_type(b_type);
-    if ((! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, a, memory(a_adr_type), false)) &&
-        (! ShenandoahBarrierNode::needs_barrier(&_gvn, NULL, b, memory(b_adr_type), false))) {
-      // We know both args are in to-space already. No acmp barrier needed.
-      return _gvn.transform(new (C) CmpPNode(b, a));
-    }
-
-    C->set_has_split_ifs(true);
-
-    if (ShenandoahVerifyOptoBarriers) {
-      a = shenandoah_write_barrier(a);
-      b = shenandoah_write_barrier(b);
-      return _gvn.transform(new (C) CmpPNode(b, a));
-    }
-
-    enum { _equal = 1, _not_equal, PATH_LIMIT };
-    RegionNode* region = new (C) RegionNode(PATH_LIMIT);
-    PhiNode* phiA = PhiNode::make(region, a, _gvn.type(a)->is_oopptr()->cast_to_nonconst());
-    PhiNode* phiB = PhiNode::make(region, b, _gvn.type(b)->is_oopptr()->cast_to_nonconst());
-
-    Node* cmp = _gvn.transform(new (C) CmpPNode(b, a));
-    Node* tst = _gvn.transform(new (C) BoolNode(cmp, BoolTest::eq));
-
-    // TODO: Use profiling data.
-    IfNode* iff = create_and_map_if(control(), tst, PROB_FAIR, COUNT_UNKNOWN);
-    Node* iftrue = _gvn.transform(new (C) IfTrueNode(iff));
-    Node* iffalse = _gvn.transform(new (C) IfFalseNode(iff));
-
-    // Equal path: Use original values.
-    region->init_req(_equal, iftrue);
-    phiA->init_req(_equal, a);
-    phiB->init_req(_equal, b);
-
-    uint alias_a = C->get_alias_index(a_adr_type);
-    uint alias_b = C->get_alias_index(b_adr_type);
-    PhiNode* mem_phi = NULL;
-    if (alias_a == alias_b) {
-      mem_phi = PhiNode::make(region, memory(alias_a), Type::MEMORY, C->get_adr_type(alias_a));
-    } else {
-      mem_phi = PhiNode::make(region, map()->memory(), Type::MEMORY, TypePtr::BOTTOM);
-    }
-
-    // Unequal path: retry after read barriers.
-    set_control(iffalse);
-    if (!iffalse->is_top()) {
-      Node* mb = NULL;
-      if (alias_a == alias_b) {
-        Node* mem = reset_memory();
-        mb = MemBarNode::make(C, Op_MemBarAcquire, alias_a);
-        mb->init_req(TypeFunc::Control, control());
-        mb->init_req(TypeFunc::Memory, mem);
-        Node* membar = _gvn.transform(mb);
-        set_control(_gvn.transform(new (C) ProjNode(membar, TypeFunc::Control)));
-        Node* newmem = _gvn.transform(new (C) ProjNode(membar, TypeFunc::Memory));
-        set_all_memory(mem);
-        set_memory(newmem, alias_a);
-      } else {
-        mb = insert_mem_bar(Op_MemBarAcquire);
-      }
-    } else {
-      a = top();
-      b = top();
-    }
-
-    a = shenandoah_read_barrier_impl(a, true, true, false);
-    b = shenandoah_read_barrier_impl(b, true, true, false);
-
-    region->init_req(_not_equal, control());
-    phiA->init_req(_not_equal, a);
-    phiB->init_req(_not_equal, b);
-    if (alias_a == alias_b) {
-      mem_phi->init_req(_not_equal, memory(alias_a));
-      set_memory(mem_phi, alias_a);
-    } else {
-      mem_phi->init_req(_not_equal, reset_memory());
-      set_all_memory(mem_phi);
-    }
-    record_for_igvn(mem_phi);
-    _gvn.set_type(mem_phi, Type::MEMORY);
-    set_control(_gvn.transform(region));
-    record_for_igvn(region);
-
-    a = _gvn.transform(phiA);
-    b = _gvn.transform(phiB);
-    return _gvn.transform(new (C) CmpPNode(b, a));
-  } else {
-    return _gvn.transform(new (C) CmpPNode(b, a));
   }
 }

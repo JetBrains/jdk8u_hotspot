@@ -347,7 +347,8 @@ Node *PhaseIdealLoop::has_local_phi_input( Node *n ) {
           get_ctrl(m->in(2)) != n_ctrl &&
           get_ctrl(m->in(3)) != n_ctrl) {
         // Move the AddP up to dominating point
-        set_ctrl_and_loop(m, find_non_split_ctrl(idom(n_ctrl)));
+        Node* c = find_non_split_ctrl(idom(n_ctrl));
+        set_ctrl_and_loop(m, c);
         continue;
       }
       return NULL;

@@ -1264,7 +1264,9 @@ bool LibraryCallKit::inline_string_equals() {
   Node* phi = new (C) PhiNode(region, TypeInt::BOOL);
 
   // does source == target string?
-  Node* cmp = cmp_objects(receiver, argument);
+  receiver = shenandoah_write_barrier(receiver);
+  argument = shenandoah_write_barrier(argument);
+  Node* cmp = _gvn.transform(new (C) CmpPNode(receiver, argument));
   Node* bol = _gvn.transform(new (C) BoolNode(cmp, BoolTest::eq));
 
   Node* if_eq = generate_slow_guard(bol, NULL);
@@ -3389,7 +3391,9 @@ bool LibraryCallKit::inline_native_isInterrupted() {
   Node* rec_thr = argument(0);
   Node* tls_ptr = NULL;
   Node* cur_thr = generate_current_thread(tls_ptr);
-  Node* cmp_thr = cmp_objects(cur_thr, rec_thr);
+  cur_thr = shenandoah_write_barrier(cur_thr);
+  rec_thr = shenandoah_write_barrier(rec_thr);
+  Node* cmp_thr = _gvn.transform(new (C) CmpPNode(cur_thr, rec_thr));
   Node* bol_thr = _gvn.transform(new (C) BoolNode(cmp_thr, BoolTest::ne));
 
   generate_slow_guard(bol_thr, slow_region);
@@ -3755,11 +3759,8 @@ bool LibraryCallKit::inline_native_subtype_check() {
     klasses[which_arg] = _gvn.transform(kls);
   }
 
-  if (ShenandoahVerifyOptoBarriers) {
-    args[0] = shenandoah_write_barrier(args[0]);
-    args[1] = shenandoah_write_barrier(args[1]);
-  }
-
+  args[0] = shenandoah_write_barrier(args[0]);
+  args[1] = shenandoah_write_barrier(args[1]);
 
   // Having loaded both klasses, test each for null.
   bool never_see_null = !too_many_traps(Deoptimization::Reason_null_check);
@@ -3788,7 +3789,7 @@ bool LibraryCallKit::inline_native_subtype_check() {
   set_control(region->in(_prim_0_path)); // go back to first null check
   if (!stopped()) {
     // Since superc is primitive, make a guard for the superc==subc case.
-    Node* cmp_eq = cmp_objects(args[0], args[1]);
+    Node* cmp_eq = _gvn.transform(new (C)CmpPNode(args[0], args[1]));
     Node* bol_eq = _gvn.transform(new (C) BoolNode(cmp_eq, BoolTest::eq));
     generate_guard(bol_eq, region, PROB_FAIR);
     if (region->req() == PATH_LIMIT+1) {
@@ -6698,7 +6699,7 @@ Node* LibraryCallKit::inline_cipherBlockChaining_AESCrypt_predicate(bool decrypt
   RegionNode* region = new(C) RegionNode(3);
   region->init_req(1, instof_false);
 
-  Node* cmp_src_dest = cmp_objects(src, dest);
+  Node* cmp_src_dest = _gvn.transform(new (C) CmpPNode(src, dest));
   Node* bool_src_dest = _gvn.transform(new (C) BoolNode(cmp_src_dest, BoolTest::eq));
   Node* src_dest_conjoint = generate_guard(bool_src_dest, NULL, PROB_MIN);
   region->init_req(2, src_dest_conjoint);

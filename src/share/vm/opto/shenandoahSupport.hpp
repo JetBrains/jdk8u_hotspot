@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "memory/allocation.hpp"
 #include "opto/addnode.hpp"
+#include "opto/graphKit.hpp"
 #include "opto/machnode.hpp"
 #include "opto/memnode.hpp"
 #include "opto/multnode.hpp"
@@ -107,6 +108,7 @@ public:
 #ifndef PRODUCT
   virtual void dump_spec(outputStream *st) const;
 #endif
+  static void do_cmpp_if(GraphKit& kit, Node*& taken_branch, Node*& untaken_branch, Node*& taken_memory, Node*& untaken_memory);
 
 protected:
   uint hash() const;

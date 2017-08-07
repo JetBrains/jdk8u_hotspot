@@ -170,6 +170,154 @@ bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Shenandoah
   return true;
 }
 
+/**
+ * In Shenandoah, we need barriers on acmp (and similar instructions that compare two
+ * oops) to avoid false negatives. If it compares a from-space and a to-space
+ * copy of an object, a regular acmp would return false, even though both are
+ * the same. The acmp barrier compares the two objects, and when they are
+ * *not equal* it does a read-barrier on both, and compares them again. When it
+ * failed because of different copies of the object, we know that the object
+ * must already have been evacuated (and therefore doesn't require a write-barrier).
+ */
+void ShenandoahBarrierNode::do_cmpp_if(GraphKit& kit, Node*& taken_branch, Node*& untaken_branch, Node*& taken_memory, Node*& untaken_memory) {
+  assert(taken_memory == NULL && untaken_memory == NULL, "unexpected memory inputs");
+  if (!UseShenandoahGC || ShenandoahVerifyOptoBarriers) {
+    return;
+  }
+  if (taken_branch->is_top() || untaken_branch->is_top()) {
+    // one of the branches is known to be untaken
+    return;
+  }
+  assert(taken_branch->is_IfProj() && untaken_branch->is_IfProj(), "if projections only");
+  assert(taken_branch->in(0) == untaken_branch->in(0), "should come from same if");
+  IfNode* iff = taken_branch->in(0)->as_If();
+  BoolNode* bol = iff->in(1)->as_Bool();
+  Node* cmp = bol->in(1);
+  if (cmp->Opcode() != Op_CmpP) {
+    return;
+  }
+  Node* a = cmp->in(1);
+  Node* b = cmp->in(2);
+  const Type* a_type = kit.gvn().type(a);
+  const Type* b_type = kit.gvn().type(b);
+  if (a_type->higher_equal(TypePtr::NULL_PTR) || b_type->higher_equal(TypePtr::NULL_PTR)) {
+    // We know one arg is gonna be null. No need for barriers.
+    return;
+  }
+
+  const TypePtr* a_adr_type = ShenandoahBarrierNode::brooks_pointer_type(a_type);
+  const TypePtr* b_adr_type = ShenandoahBarrierNode::brooks_pointer_type(b_type);
+  if ((! ShenandoahBarrierNode::needs_barrier(&kit.gvn(), NULL, a, kit.memory(a_adr_type), false)) &&
+      (! ShenandoahBarrierNode::needs_barrier(&kit.gvn(), NULL, b, kit.memory(b_adr_type), false))) {
+    // We know both args are in to-space already. No acmp barrier needed.
+    return;
+  }
+
+  Node* equal_path = iff->proj_out(true);
+  Node* not_equal_path = iff->proj_out(false);
+
+  if (bol->_test._test == BoolTest::ne) {
+    Node* tmp = equal_path;
+    equal_path = not_equal_path;
+    not_equal_path = tmp;
+  }
+
+  Node* init_equal_path = equal_path;
+  Node* init_not_equal_path = not_equal_path;
+
+  uint alias_a = kit.C->get_alias_index(a_adr_type);
+  uint alias_b = kit.C->get_alias_index(b_adr_type);
+
+  Node* equal_memory = NULL;
+  Node* not_equal_memory = NULL;
+
+  RegionNode* region = new (kit.C) RegionNode(3);
+  region->init_req(1, equal_path);
+  PhiNode* mem_phi = NULL;
+  if (alias_a == alias_b) {
+    mem_phi = PhiNode::make(region, kit.memory(alias_a), Type::MEMORY, kit.C->get_adr_type(alias_a));
+  } else {
+    Node* mem = kit.reset_memory();
+    mem_phi = PhiNode::make(region, mem, Type::MEMORY, TypePtr::BOTTOM);
+    kit.set_all_memory(mem);
+  }
+
+  kit.set_control(not_equal_path);
+
+  Node* mb = NULL;
+  if (alias_a == alias_b) {
+    Node* mem = kit.reset_memory();
+    mb = MemBarNode::make(kit.C, Op_MemBarAcquire, alias_a);
+    mb->init_req(TypeFunc::Control, kit.control());
+    mb->init_req(TypeFunc::Memory, mem);
+    Node* membar = kit.gvn().transform(mb);
+    kit.set_control(kit.gvn().transform(new (kit.C) ProjNode(membar, TypeFunc::Control)));
+    Node* newmem = kit.gvn().transform(new (kit.C) ProjNode(membar, TypeFunc::Memory));
+    kit.set_all_memory(mem);
+    kit.set_memory(newmem, alias_a);
+  } else {
+    mb = kit.insert_mem_bar(Op_MemBarAcquire);
+  }
+
+  a = kit.shenandoah_read_barrier_acmp(a);
+  b = kit.shenandoah_read_barrier_acmp(b);
+
+  Node* cmp2 = kit.gvn().transform(new (kit.C) CmpPNode(a, b));
+  Node* bol2 = bol->clone();
+  bol2->set_req(1, cmp2);
+  bol2 = kit.gvn().transform(bol2);
+  Node* iff2 = iff->clone();
+  iff2->set_req(0, kit.control());
+  iff2->set_req(1, bol2);
+  kit.gvn().set_type(iff2, kit.gvn().type(iff));
+  Node* equal_path2 = equal_path->clone();
+  equal_path2->set_req(0, iff2);
+  equal_path2 = kit.gvn().transform(equal_path2);
+  Node* not_equal_path2 = not_equal_path->clone();
+  not_equal_path2->set_req(0, iff2);
+  not_equal_path2 = kit.gvn().transform(not_equal_path2);
+
+  region->init_req(2, equal_path2);
+  not_equal_memory = kit.reset_memory();
+  not_equal_path = not_equal_path2;
+
+  kit.set_all_memory(not_equal_memory);
+
+  if (alias_a == alias_b) {
+    mem_phi->init_req(2, kit.memory(alias_a));
+    kit.set_memory(mem_phi, alias_a);
+  } else {
+    mem_phi->init_req(2, kit.reset_memory());
+  }
+
+  kit.record_for_igvn(mem_phi);
+  kit.gvn().set_type(mem_phi, Type::MEMORY);
+
+  if (alias_a == alias_b) {
+    equal_memory = kit.reset_memory();
+  } else {
+    equal_memory = mem_phi;
+  }
+
+  assert(kit.map()->memory() == NULL, "no live memory state");
+  equal_path = kit.gvn().transform(region);
+
+  if (taken_branch == init_equal_path) {
+    assert(untaken_branch == init_not_equal_path, "inconsistent");
+    taken_branch = equal_path;
+    untaken_branch = not_equal_path;
+    taken_memory = equal_memory;
+    untaken_memory = not_equal_memory;
+  } else {
+    assert(taken_branch == init_not_equal_path, "inconsistent");
+    assert(untaken_branch == init_equal_path, "inconsistent");
+    taken_branch = not_equal_path;
+    untaken_branch = equal_path;
+    taken_memory = not_equal_memory;
+    untaken_memory = equal_memory;
+  }
+}
+
 bool ShenandoahReadBarrierNode::dominates_memory_rb_impl(PhaseTransform* phase,
                                                          Node* b1,
                                                          Node* b2,
@@ -627,7 +775,7 @@ bool ShenandoahBarrierNode::verify_helper(Node* in, Node_Stack& phis, VectorSet&
         assert(!in->in(AddPNode::Address)->is_top(), "no raw memory access");
         in = in->in(AddPNode::Address);
         continue;
-      } else if (in->is_Con()) {
+      } else if (in->is_Con() && !ShenandoahBarriersForConst) {
         if (trace) {tty->print("Found constant"); in->dump();}
       } else if (in->is_ShenandoahBarrier()) {
         if (t == ShenandoahStore && in->Opcode() != Op_ShenandoahWriteBarrier) {
@@ -714,7 +862,8 @@ void ShenandoahBarrierNode::verify(RootNode* root) {
         } else {
           bool verify = true;
           if (adr_type->isa_instptr() && ShenandoahOptimizeFinals) {
-            ciKlass* k = adr_type->is_instptr()->klass();
+            const TypeInstPtr* tinst = adr_type->is_instptr();
+            ciKlass* k = tinst->klass();
             assert(k->is_instance_klass(), "");
             ciInstanceKlass* ik = (ciInstanceKlass*)k;
             int offset = adr_type->offset();
@@ -722,6 +871,14 @@ void ShenandoahBarrierNode::verify(RootNode* root) {
             if (ik->debug_final_or_stable_field_at(offset)) {
               if (trace) {tty->print_cr("Final/stable");}
               verify = false;
+            } else if (k == ciEnv::current()->Class_klass() &&
+                       tinst->const_oop() != NULL &&
+                       tinst->offset() >= (ik->size_helper() * wordSize)) {
+              ciInstanceKlass* k = tinst->const_oop()->as_instance()->java_lang_Class_klass()->as_instance_klass();
+              ciField* field = k->get_field_by_offset(tinst->offset(), true);
+              if (field->is_final() || field->is_stable()) {
+                verify = false;
+              }
             }
           }
 
@@ -778,7 +935,8 @@ void ShenandoahBarrierNode::verify(RootNode* root) {
         if (trace) {tty->print("Verifying"); n->dump();}
 
         bool mark_inputs = false;
-        if (in1->is_Con() || in2->is_Con()) {
+        if (in1->bottom_type() == TypePtr::NULL_PTR || in2->bottom_type() == TypePtr::NULL_PTR ||
+            ((in1->is_Con() || in2->is_Con()) && !ShenandoahBarriersForConst)) {
           if (trace) {tty->print_cr("Comparison against a constant");}
           mark_inputs = true;
         } else if ((in1->is_CheckCastPP() && in1->in(1)->is_Proj() && in1->in(1)->in(0)->is_Allocate()) ||
@@ -1479,7 +1637,6 @@ void PhaseIdealLoop::shenandoah_memory_dominates_all_paths_helper(Node* c, Node*
       controls.push(c);
     }
   }
-
 }
 
 bool PhaseIdealLoop::shenandoah_memory_dominates_all_paths(Node* mem, Node* rep_ctrl, int alias) {
@@ -1615,6 +1772,8 @@ bool PhaseIdealLoop::shenandoah_memory_dominates_all_paths(Node* mem, Node* rep_
         if (!controls.member(u)) {
           if (u->is_Proj() && u->as_Proj()->is_uncommon_trap_proj(Deoptimization::Reason_none)) {
             if (trace) { tty->print("X not seen but unc"); u->dump(); }
+          } else if (u->unique_ctrl_out() != NULL && u->unique_ctrl_out()->Opcode() == Op_Halt) {
+            if (trace) { tty->print("X not seen but halt"); u->dump(); }
           } else {
             Node* c = u;
             do {
@@ -2666,7 +2825,7 @@ Node* PhaseIdealLoop::shenandoah_find_bottom_mem(Node* ctrl) {
 void PhaseIdealLoop::shenandoah_follow_barrier_uses(Node* n, Node* ctrl, Unique_Node_List& uses) {
   for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
     Node* u = n->fast_out(i);
-    if (!u->is_CFG() && !u->is_Phi() && get_ctrl(u) == ctrl) {
+    if (!u->is_CFG() && get_ctrl(u) == ctrl && (!u->is_Phi() || !u->in(0)->is_Loop() || u->in(LoopNode::LoopBackControl) != n)) {
       uses.push(u);
     }
   }
@@ -3501,7 +3660,7 @@ void PhaseIdealLoop::shenandoah_evacuation_in_progress(Node* c, Node* val, Node*
   register_new_node(mem_proj, call);
   Node* res_proj = new (C) ProjNode(call, TypeFunc::Parms);
   register_new_node(res_proj, call);
-  Node* res = new (C) CheckCastPPNode(ctrl_proj, res_proj, _igvn.type(val));
+  Node* res = new (C) CheckCastPPNode(ctrl_proj, res_proj, _igvn.type(val)->is_oopptr()->cast_to_nonconst());
   register_new_node(res, ctrl_proj);
   region->init_req(2, ctrl_proj);
   val_phi->init_req(2, res);
