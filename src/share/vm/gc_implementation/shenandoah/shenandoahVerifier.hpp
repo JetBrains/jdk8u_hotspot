@@ -21,8 +21,8 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFY_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFY_HPP
+#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFIER_HPP
+#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFIER_HPP
 
 #include "memory/allocation.hpp"
 #include "gc_implementation/shared/markBitMap.hpp"
@@ -156,4 +156,4 @@ public:
   static void verify_oop_fwdptr(oop obj, oop new_fwd);
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFY_HPP
+#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFIER_HPP

@@ -21,8 +21,8 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_UTILS_HPP
-#define SHARE_VM_GC_SHENANDOAH_UTILS_HPP
+#ifndef SHARE_VM_GC_SHENANDOAHUTILS_HPP
+#define SHARE_VM_GC_SHENANDOAHUTILS_HPP
 
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
@@ -47,4 +47,4 @@ public:
 };
 
 
-#endif // SHARE_VM_GC_SHENANDOAH_UTILS_HPP
+#endif // SHARE_VM_GC_SHENANDOAHUTILS_HPP

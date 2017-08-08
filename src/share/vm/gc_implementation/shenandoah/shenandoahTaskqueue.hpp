@@ -21,8 +21,8 @@
  *
  */
 
-#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAH_TASKQUEUE_HPP
-#define SHARE_VM_GC_SHENANDOAH_SHENANDOAH_TASKQUEUE_HPP
+#ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP
+#define SHARE_VM_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP
 
 #include "memory/padded.hpp"
 #include "utilities/taskqueue.hpp"
@@ -348,4 +348,4 @@ class ShenandoahCancelledTerminatorTerminator : public TerminatorTerminator {
   }
 };
 
-#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAH_TASKQUEUE_HPP
+#endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_HPP
