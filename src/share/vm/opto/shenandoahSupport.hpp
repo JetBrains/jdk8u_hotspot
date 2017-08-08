@@ -121,6 +121,10 @@ private:
 
   static bool dominates_memory(PhaseTransform* phase, Node* b1, Node* b2, bool linear);
   static bool dominates_memory_impl(PhaseTransform* phase, Node* b1, Node* b2, Node* current, bool linear);
+
+public:
+  static bool is_dominator(Node *d_c, Node *n_c, Node* d, Node* n, PhaseIdealLoop* phase);
+  static bool is_dominator_same_ctrl(Node* c, Node* d, Node* n, PhaseIdealLoop* phase);
 };
 
 class ShenandoahReadBarrierNode : public ShenandoahBarrierNode {
@@ -156,6 +160,20 @@ public:
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape);
   virtual Node* Identity(PhaseTransform* phase);
   virtual bool depends_only_on_test() const { return false; }
+
+  static bool should_process_phi(Node* phi, int alias, Compile* C);
+  static void fix_memory_uses(Node* mem, Node* replacement, Node* rep_proj, Node* rep_ctrl, int alias, PhaseIdealLoop* phase);
+  static MergeMemNode* allocate_merge_mem(Node* mem, int alias, Node* rep_proj, Node* rep_ctrl, PhaseIdealLoop* phase);
+  static MergeMemNode* clone_merge_mem(Node* u, Node* mem, int alias, Node* rep_proj, Node* rep_ctrl, DUIterator& i, PhaseIdealLoop* phase);
+  static Node* find_raw_mem(Node* ctrl, Node* wb, const Node_List& memory_nodes, PhaseIdealLoop* phase);
+  static void collect_memory_nodes(int alias, Node_List& memory_nodes, PhaseIdealLoop* phase);
+  static void fix_raw_mem(Node* ctrl, Node* region, Node* raw_mem, Node* raw_mem_for_ctrl,
+                          Node* raw_mem_phi, Node_List& memory_nodes,
+                          Unique_Node_List& uses,
+                          PhaseIdealLoop* phase);
+  static Node* get_ctrl(Node* n, PhaseIdealLoop* phase);
+  static Node* ctrl_or_self(Node* n, PhaseIdealLoop* phase);
+  static bool mem_is_valid(Node* m, Node* c, PhaseIdealLoop* phase);
 
   // virtual void set_req( uint i, Node *n ) {
   //   if (i == MemNode::Memory) { assert(n == Compiler::current()->immutable_memory(), "set only immutable mem on wb"); }

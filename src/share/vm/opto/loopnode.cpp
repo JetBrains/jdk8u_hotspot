@@ -3802,6 +3802,7 @@ void PhaseIdealLoop::dump( IdealLoopTree *loop, uint idx, Node_List &rpo_list ) 
     }
   }
 }
+#endif
 
 // Collect a R-P-O for the whole CFG.
 // Result list is in post-order (scan backwards for RPO)
@@ -3824,7 +3825,6 @@ void PhaseIdealLoop::rpo( Node *start, Node_Stack &stk, VectorSet &visited, Node
     }
   }
 }
-#endif
 
 
 //=============================================================================

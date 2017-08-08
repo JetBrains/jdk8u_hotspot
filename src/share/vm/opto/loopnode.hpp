@@ -560,10 +560,12 @@ class PhaseIdealLoop : public PhaseTransform {
   // Mark as post visited
   void set_postvisited( Node *n ) { assert( !is_postvisited( n ), "" ); _preorders[n->_idx] |= 1; }
 
+public:
   // Set/get control node out.  Set lower bit to distinguish from IdealLoopTree
   // Returns true if "n" is a data node, false if it's a control node.
   bool has_ctrl( Node *n ) const { return ((intptr_t)_nodes[n->_idx]) & 1; }
 
+private:
   // clear out dead code after build_loop_late
   Node_List _deadlist;
 
@@ -736,6 +738,7 @@ private:
     }
     return n;
   }
+public:
   Node *idom(Node* d) const {
     uint didx = d->_idx;
     Node *n = idom_no_update(d);
@@ -748,6 +751,8 @@ private:
     return _dom_depth[d->_idx];
   }
   void set_idom(Node* d, Node* n, uint dom_depth);
+
+private:
   // Locally compute IDOM using dom_lca call
   Node *compute_idom( Node *region ) const;
   // Recompute dom_depth
@@ -1062,11 +1067,8 @@ private:
   MergeMemNode* shenandoah_allocate_merge_mem(Node* mem, int alias, Node* rep_proj, Node* rep_ctrl);
   bool shenandoah_should_process_phi(Node* phi, int alias);
   MergeMemNode* shenandoah_clone_merge_mem(Node* u, Node* mem, int alias, Node* rep_proj, Node* rep_ctrl, DUIterator& i);
-  bool shenandoah_is_dominator(Node *d_c, Node *n_c, Node* d, Node* n);
-  bool shenandoah_is_dominator_same_ctrl(Node* c, Node* d, Node* n);
   Node* shenandoah_no_branches(Node* c, Node* dom, bool allow_one_proj);
   Node* try_move_shenandoah_barrier_before_loop(Node* n, Node *n_ctrl);
-  void shenandoah_fix_memory_uses(Node* mem, Node* replacement, Node* rep_proj, Node* rep_ctrl, int alias);
 #ifdef ASSERT
   bool shenandoah_memory_dominates_all_paths(Node* mem, Node* rep_ctrl, int alias);
   void shenandoah_memory_dominates_all_paths_helper(Node* c, Node* rep_ctrl, Unique_Node_List& controls);
@@ -1081,18 +1083,13 @@ private:
   void shenandoah_pin_and_expand_barriers();
   CallStaticJavaNode* shenandoah_pin_and_expand_barriers_null_check(ShenandoahBarrierNode* wb);
   void shenandoah_pin_and_expand_barriers_move_barrier(ShenandoahBarrierNode* wb);
-  Node* shenandoah_find_raw_mem(Node* ctrl, Node* wb, const Node_List& memory_nodes, const Node_List& phis, bool strict);
   Node* shenandoah_pick_phi(Node* phi1, Node* phi2, Node_Stack& phis, VectorSet& visited);
   Node* shenandoah_find_bottom_mem(Node* ctrl);
   void shenandoah_follow_barrier_uses(Node* n, Node* ctrl, Unique_Node_List& uses);
   bool shenandoah_already_has_better_phi(Node* region, int alias, Node* m, Node* m_ctrl);
-  void shenandoah_collect_memory_nodes(int alias, Node_List& memory_nodes, Node_List& phis);
-  void shenandoah_collect_memory_nodes_helper(Node* n, int alias, GrowableArray<Node*>& inputs, int adj,
-                                              Node_List& memory_nodes, Node_List& phis, Node*& cur_mem,
-                                              Unique_Node_List& wq);
   void shenandoah_fix_raw_mem(Node* ctrl, Node* region, Node* raw_mem, Node* raw_mem_for_ctrl,
                               Node* raw_mem_phi, Node_List& memory_nodes,
-                              Node_List& memory_phis, Unique_Node_List& uses);
+                              Unique_Node_List& uses);
   void shenandoah_test_evacuation_in_progress(Node* ctrl, int alias, Node*& raw_mem, Node*& wb_mem,
                                               IfNode*& evacuation_iff, Node*& evac_in_progress,
                                               Node*& evac_not_in_progress);
@@ -1117,11 +1114,11 @@ public:
 #ifdef ASSERT
   void dump_bad_graph(const char* msg, Node* n, Node* early, Node* LCA);
 #endif
+  void rpo( Node *start, Node_Stack &stk, VectorSet &visited, Node_List &rpo_list ) const;
 
 #ifndef PRODUCT
   void dump( ) const;
   void dump( IdealLoopTree *loop, uint rpo_idx, Node_List &rpo_list ) const;
-  void rpo( Node *start, Node_Stack &stk, VectorSet &visited, Node_List &rpo_list ) const;
   void verify() const;          // Major slow  :-)
   void verify_compare( Node *n, const PhaseIdealLoop *loop_verify, VectorSet &visited ) const;
   IdealLoopTree *get_loop_idx(Node* n) const {
@@ -1133,6 +1130,9 @@ public:
   static int _loop_invokes;     // Count of PhaseIdealLoop invokes
   static int _loop_work;        // Sum of PhaseIdealLoop x _unique
 #endif
+
+  PhaseIterGVN& igvn() { return _igvn; }
+  IdealLoopTree* ltree_root() const { return _ltree_root; }
 };
 
 inline Node* IdealLoopTree::tail() {
