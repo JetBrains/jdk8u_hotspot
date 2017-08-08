@@ -51,11 +51,11 @@
 #include "runtime/vmThread.hpp"
 #include "services/mallocTracker.hpp"
 
-SCMUpdateRefsClosure::SCMUpdateRefsClosure() : _heap(ShenandoahHeap::heap()) {}
+ShenandoahUpdateRefsClosure::ShenandoahUpdateRefsClosure() : _heap(ShenandoahHeap::heap()) {}
 
 #ifdef ASSERT
 template <class T>
-void AssertToSpaceClosure::do_oop_nv(T* p) {
+void ShenandoahAssertToSpaceClosure::do_oop_nv(T* p) {
   T o = oopDesc::load_heap_oop(p);
   if (! oopDesc::is_null(o)) {
     oop obj = oopDesc::decode_heap_oop_not_null(o);
@@ -65,8 +65,8 @@ void AssertToSpaceClosure::do_oop_nv(T* p) {
   }
 }
 
-void AssertToSpaceClosure::do_oop(narrowOop* p) { do_oop_nv(p); }
-void AssertToSpaceClosure::do_oop(oop* p)       { do_oop_nv(p); }
+void ShenandoahAssertToSpaceClosure::do_oop(narrowOop* p) { do_oop_nv(p); }
+void ShenandoahAssertToSpaceClosure::do_oop(oop* p)       { do_oop_nv(p); }
 #endif
 
 const char* ShenandoahHeap::name() const {
@@ -315,12 +315,12 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   }
 }
 
-class ResetNextBitmapTask : public AbstractGangTask {
+class ShenandoahResetNextBitmapTask : public AbstractGangTask {
 private:
   ShenandoahHeapRegionSet* _regions;
 
 public:
-  ResetNextBitmapTask(ShenandoahHeapRegionSet* regions) :
+  ShenandoahResetNextBitmapTask(ShenandoahHeapRegionSet* regions) :
     AbstractGangTask("Parallel Reset Bitmap Task"),
     _regions(regions) {
     _regions->clear_current_index();
@@ -341,16 +341,16 @@ public:
 };
 
 void ShenandoahHeap::reset_next_mark_bitmap(WorkGang* workers) {
-  ResetNextBitmapTask task = ResetNextBitmapTask(_ordered_regions);
+  ShenandoahResetNextBitmapTask task = ShenandoahResetNextBitmapTask(_ordered_regions);
   workers->run_task(&task);
 }
 
-class ResetCompleteBitmapTask : public AbstractGangTask {
+class ShenandoahResetCompleteBitmapTask : public AbstractGangTask {
 private:
   ShenandoahHeapRegionSet* _regions;
 
 public:
-  ResetCompleteBitmapTask(ShenandoahHeapRegionSet* regions) :
+  ShenandoahResetCompleteBitmapTask(ShenandoahHeapRegionSet* regions) :
     AbstractGangTask("Parallel Reset Bitmap Task"),
     _regions(regions) {
     _regions->clear_current_index();
@@ -371,7 +371,7 @@ public:
 };
 
 void ShenandoahHeap::reset_complete_mark_bitmap(WorkGang* workers) {
-  ResetCompleteBitmapTask task = ResetCompleteBitmapTask(_ordered_regions);
+  ShenandoahResetCompleteBitmapTask task = ShenandoahResetCompleteBitmapTask(_ordered_regions);
   workers->run_task(&task);
 }
 
@@ -424,7 +424,7 @@ void ShenandoahHeap::print_on(outputStream* st) const {
   }
 }
 
-class InitGCLABClosure : public ThreadClosure {
+class ShenandoahInitGCLABClosure : public ThreadClosure {
 public:
   void do_thread(Thread* thread) {
     thread->gclab().initialize(true);
@@ -435,7 +435,7 @@ void ShenandoahHeap::post_initialize() {
   if (UseTLAB) {
     MutexLocker ml(Threads_lock);
 
-    InitGCLABClosure init_gclabs;
+    ShenandoahInitGCLABClosure init_gclabs;
     Threads::java_threads_do(&init_gclabs);
     gc_threads_do(&init_gclabs);
   }
@@ -798,14 +798,13 @@ public:
   }
 };
 
-class ParallelEvacuateRegionObjectClosure : public ObjectClosure {
+class ShenandoahParallelEvacuateRegionObjectClosure : public ObjectClosure {
 private:
   ShenandoahHeap* const _heap;
   Thread* const _thread;
 public:
-  ParallelEvacuateRegionObjectClosure(ShenandoahHeap* heap) :
-    _heap(heap), _thread(Thread::current()) {
-  }
+  ShenandoahParallelEvacuateRegionObjectClosure(ShenandoahHeap* heap) :
+    _heap(heap), _thread(Thread::current()) {}
 
   void do_object(oop p) {
     assert(_heap->is_marked_complete(p), "expect only marked objects");
@@ -816,7 +815,7 @@ public:
   }
 };
 
-class ParallelEvacuationTask : public AbstractGangTask {
+class ShenandoahParallelEvacuationTask : public AbstractGangTask {
 private:
   ShenandoahHeap* const _sh;
   ShenandoahCollectionSet* const _cs;
@@ -827,7 +826,7 @@ private:
     return old == 0;
   }
 public:
-  ParallelEvacuationTask(ShenandoahHeap* sh,
+  ShenandoahParallelEvacuationTask(ShenandoahHeap* sh,
                          ShenandoahCollectionSet* cs) :
     AbstractGangTask("Parallel Evacuation Task"),
     _cs(cs),
@@ -847,7 +846,7 @@ public:
       CodeCache::blobs_do(&blobs);
     }
 
-    ParallelEvacuateRegionObjectClosure cl(_sh);
+    ShenandoahParallelEvacuateRegionObjectClosure cl(_sh);
     ShenandoahHeapRegion* r;
     while ((r =_cs->claim_next()) != NULL) {
       log_develop_trace(gc, region)("Thread "INT32_FORMAT" claimed Heap Region "SIZE_FORMAT,
@@ -943,7 +942,7 @@ class ShenandoahReclaimHumongousRegionsClosure : public ShenandoahHeapRegionClos
 };
 
 #ifdef ASSERT
-class CheckCollectionSetClosure: public ShenandoahHeapRegionClosure {
+class ShenandoahCheckCollectionSetClosure: public ShenandoahHeapRegionClosure {
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     assert(! ShenandoahHeap::heap()->in_collection_set(r), "Should have been cleared by now");
     return false;
@@ -987,7 +986,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
       heap_region_iterate(&reclaim);
 
 #ifdef ASSERT
-      CheckCollectionSetClosure ccsc;
+      ShenandoahCheckCollectionSetClosure ccsc;
       _ordered_regions->heap_region_iterate(&ccsc);
 #endif
 
@@ -1006,13 +1005,12 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
 }
 
 
-class RetireTLABClosure : public ThreadClosure {
+class ShenandoahRetireTLABClosure : public ThreadClosure {
 private:
   bool _retire;
 
 public:
-  RetireTLABClosure(bool retire) : _retire(retire) {
-  }
+  ShenandoahRetireTLABClosure(bool retire) : _retire(retire) {}
 
   void do_thread(Thread* thread) {
     assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
@@ -1023,7 +1021,7 @@ public:
 void ShenandoahHeap::ensure_parsability(bool retire_tlabs) {
   if (UseTLAB) {
     CollectedHeap::ensure_parsability(retire_tlabs);
-    RetireTLABClosure cl(retire_tlabs);
+    ShenandoahRetireTLABClosure cl(retire_tlabs);
     Threads::java_threads_do(&cl);
     gc_threads_do(&cl);
   }
@@ -1064,7 +1062,7 @@ public:
   }
 
   void work(uint worker_id) {
-    SCMUpdateRefsClosure cl;
+    ShenandoahUpdateRefsClosure cl;
     MarkingCodeBlobClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
 
     _rp->process_evacuate_roots(&cl, &blobsCl, worker_id);
@@ -1121,7 +1119,7 @@ void ShenandoahHeap::do_evacuation() {
     _free_regions->print(out);
   }
 
-  ParallelEvacuationTask task(this, _collection_set);
+  ShenandoahParallelEvacuationTask task(this, _collection_set);
   workers()->run_task(&task);
 
   if (ShenandoahLogTrace) {
@@ -1186,7 +1184,7 @@ size_t ShenandoahHeap::max_tlab_size() const {
   return ShenandoahHeapRegion::region_size_bytes();
 }
 
-class ResizeGCLABClosure : public ThreadClosure {
+class ShenandoahResizeGCLABClosure : public ThreadClosure {
 public:
   void do_thread(Thread* thread) {
     assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
@@ -1197,12 +1195,12 @@ public:
 void ShenandoahHeap::resize_all_tlabs() {
   CollectedHeap::resize_all_tlabs();
 
-  ResizeGCLABClosure cl;
+  ShenandoahResizeGCLABClosure cl;
   Threads::java_threads_do(&cl);
   gc_threads_do(&cl);
 }
 
-class AccumulateStatisticsGCLABClosure : public ThreadClosure {
+class ShenandoahAccumulateStatisticsGCLABClosure : public ThreadClosure {
 public:
   void do_thread(Thread* thread) {
     assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
@@ -1212,7 +1210,7 @@ public:
 };
 
 void ShenandoahHeap::accumulate_statistics_all_gclabs() {
-  AccumulateStatisticsGCLABClosure cl;
+  ShenandoahAccumulateStatisticsGCLABClosure cl;
   Threads::java_threads_do(&cl);
   gc_threads_do(&cl);
 }
@@ -1419,10 +1417,10 @@ void ShenandoahHeap::oop_iterate(ExtendedOopClosure* cl, bool skip_dirty_regions
   heap_region_iterate(&blk, skip_dirty_regions, true);
 }
 
-class SpaceClosureRegionClosure: public ShenandoahHeapRegionClosure {
+class ShenandoahSpaceClosureRegionClosure: public ShenandoahHeapRegionClosure {
   SpaceClosure* _cl;
 public:
-  SpaceClosureRegionClosure(SpaceClosure* cl) : _cl(cl) {}
+  ShenandoahSpaceClosureRegionClosure(SpaceClosure* cl) : _cl(cl) {}
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     _cl->do_space(r);
     return false;
@@ -1430,7 +1428,7 @@ public:
 };
 
 void  ShenandoahHeap::space_iterate(SpaceClosure* cl) {
-  SpaceClosureRegionClosure blk(cl);
+  ShenandoahSpaceClosureRegionClosure blk(cl);
   heap_region_iterate(&blk);
 }
 
@@ -1464,10 +1462,11 @@ void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool 
   }
 }
 
-class ClearLivenessClosure : public ShenandoahHeapRegionClosure {
+class ShenandoahClearLivenessClosure : public ShenandoahHeapRegionClosure {
+private:
   ShenandoahHeap* sh;
 public:
-  ClearLivenessClosure(ShenandoahHeap* heap) : sh(heap) { }
+  ShenandoahClearLivenessClosure(ShenandoahHeap* heap) : sh(heap) {}
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     r->clear_live_data();
@@ -1499,7 +1498,7 @@ void ShenandoahHeap::start_concurrent_marking() {
 
   {
     ShenandoahGCPhase phase(ShenandoahCollectorPolicy::clear_liveness);
-    ClearLivenessClosure clc(this);
+    ShenandoahClearLivenessClosure clc(this);
     heap_region_iterate(&clc);
   }
 
@@ -1647,12 +1646,7 @@ ShenandoahForwardedIsAliveClosure::ShenandoahForwardedIsAliveClosure() :
   _heap(ShenandoahHeap::heap_no_check()) {
 }
 
-void ShenandoahForwardedIsAliveClosure::init(ShenandoahHeap* heap) {
-  _heap = heap;
-}
-
 bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
-
   assert(_heap != NULL, "sanity");
   obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
 #ifdef ASSERT
@@ -1666,10 +1660,6 @@ bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
 
 ShenandoahIsAliveClosure::ShenandoahIsAliveClosure() :
   _heap(ShenandoahHeap::heap_no_check()) {
-}
-
-void ShenandoahIsAliveClosure::init(ShenandoahHeap* heap) {
-  _heap = heap;
 }
 
 bool ShenandoahIsAliveClosure::do_object_b(oop obj) {

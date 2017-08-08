@@ -29,10 +29,10 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahCodeRoots.hpp"
 
-class NMethodCountOops : public OopClosure {
+class ShenandoahNMethodCountOops : public OopClosure {
 public:
   size_t _non_null_oops;
-  NMethodCountOops() : _non_null_oops(0) {};
+  ShenandoahNMethodCountOops() : _non_null_oops(0) {};
 
 private:
   template <class T>
@@ -55,11 +55,11 @@ public:
   }
 };
 
-class NMethodHasCSetOops : public OopClosure {
+class ShenandoahNMethodHasCSetOops : public OopClosure {
 public:
   ShenandoahHeap* _heap;
   bool _has_cset_oops;
-  NMethodHasCSetOops(ShenandoahHeap* heap) : _heap(heap), _has_cset_oops(false) {};
+  ShenandoahNMethodHasCSetOops(ShenandoahHeap* heap) : _heap(heap), _has_cset_oops(false) {};
 
 private:
   template <class T>
@@ -86,9 +86,9 @@ public:
   }
 };
 
-class NMethodOopInitializer : public OopClosure {
+class ShenandoahNMethodOopInitializer : public OopClosure {
 public:
-  NMethodOopInitializer() {};
+  ShenandoahNMethodOopInitializer() {};
 
 private:
   template <class T>
@@ -126,7 +126,7 @@ void ShenandoahCodeRoots::add_nmethod(nmethod* nm) {
   switch (ShenandoahCodeRootsStyle) {
     case 0:
     case 1: {
-      NMethodOopInitializer init;
+      ShenandoahNMethodOopInitializer init;
       nm->oops_do(&init);
       nm->fix_oop_relocations();
       break;
@@ -155,10 +155,10 @@ void ShenandoahCodeRoots::remove_nmethod(nmethod* nm) {
 }
 
 void ShenandoahCodeRoots::fast_add_nmethod(nmethod *nm) {
-  NMethodCountOops count;
+  ShenandoahNMethodCountOops count;
   nm->oops_do(&count);
   if (count.has_oops()) {
-    NMethodOopInitializer init;
+    ShenandoahNMethodOopInitializer init;
     nm->oops_do(&init);
     nm->fix_oop_relocations();
 
@@ -171,7 +171,7 @@ void ShenandoahCodeRoots::fast_add_nmethod(nmethod *nm) {
 }
 
 void ShenandoahCodeRoots::fast_remove_nmethod(nmethod* nm) {
-  NMethodCountOops count;
+  ShenandoahNMethodCountOops count;
   nm->oops_do(&count, /* allow_zombie = */ true);
   if (count.has_oops()) {
     ShenandoahCodeRootsLock lock(true);
@@ -184,15 +184,15 @@ void ShenandoahCodeRoots::fast_remove_nmethod(nmethod* nm) {
   }
 };
 
-AllCodeRootsIterator ShenandoahCodeRoots::iterator() {
-  return AllCodeRootsIterator();
+ShenandoahAllCodeRootsIterator ShenandoahCodeRoots::iterator() {
+  return ShenandoahAllCodeRootsIterator();
 }
 
-CsetCodeRootsIterator ShenandoahCodeRoots::cset_iterator() {
-  return CsetCodeRootsIterator();
+ShenandoahCsetCodeRootsIterator ShenandoahCodeRoots::cset_iterator() {
+  return ShenandoahCsetCodeRootsIterator();
 }
 
-CodeRootsIterator::CodeRootsIterator() :
+ShenandoahCodeRootsIterator::ShenandoahCodeRootsIterator() :
         _claimed(0), _heap(ShenandoahHeap::heap()),
         _par_iterator(CodeCache::parallel_iterator()), _seq_claimed(0) {
   switch (ShenandoahCodeRootsStyle) {
@@ -207,7 +207,7 @@ CodeRootsIterator::CodeRootsIterator() :
   }
 }
 
-CodeRootsIterator::~CodeRootsIterator() {
+ShenandoahCodeRootsIterator::~ShenandoahCodeRootsIterator() {
   switch (ShenandoahCodeRootsStyle) {
     case 0:
     case 1:
@@ -221,7 +221,7 @@ CodeRootsIterator::~CodeRootsIterator() {
 }
 
 template<bool CSET_FILTER>
-void CodeRootsIterator::dispatch_parallel_blobs_do(CodeBlobClosure *f) {
+void ShenandoahCodeRootsIterator::dispatch_parallel_blobs_do(CodeBlobClosure *f) {
   switch (ShenandoahCodeRootsStyle) {
     case 0:
       if (Atomic::cmpxchg(1, &_seq_claimed, 0) == 0) {
@@ -232,7 +232,7 @@ void CodeRootsIterator::dispatch_parallel_blobs_do(CodeBlobClosure *f) {
       _par_iterator.parallel_blobs_do(f);
       break;
     case 2: {
-      CodeRootsIterator::fast_parallel_blobs_do<false>(f);
+      ShenandoahCodeRootsIterator::fast_parallel_blobs_do<false>(f);
       break;
     }
     default:
@@ -240,16 +240,16 @@ void CodeRootsIterator::dispatch_parallel_blobs_do(CodeBlobClosure *f) {
   }
 }
 
-void AllCodeRootsIterator::possibly_parallel_blobs_do(CodeBlobClosure *f) {
-  CodeRootsIterator::dispatch_parallel_blobs_do<false>(f);
+void ShenandoahAllCodeRootsIterator::possibly_parallel_blobs_do(CodeBlobClosure *f) {
+  ShenandoahCodeRootsIterator::dispatch_parallel_blobs_do<false>(f);
 }
 
-void CsetCodeRootsIterator::possibly_parallel_blobs_do(CodeBlobClosure *f) {
-  CodeRootsIterator::dispatch_parallel_blobs_do<true>(f);
+void ShenandoahCsetCodeRootsIterator::possibly_parallel_blobs_do(CodeBlobClosure *f) {
+  ShenandoahCodeRootsIterator::dispatch_parallel_blobs_do<true>(f);
 }
 
 template <bool CSET_FILTER>
-void CodeRootsIterator::fast_parallel_blobs_do(CodeBlobClosure *f) {
+void ShenandoahCodeRootsIterator::fast_parallel_blobs_do(CodeBlobClosure *f) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at safepoint");
 
   size_t stride = 256; // educated guess
@@ -268,7 +268,7 @@ void CodeRootsIterator::fast_parallel_blobs_do(CodeBlobClosure *f) {
       assert (nm->is_alive(), "only alive nmethods here");
 
       if (CSET_FILTER) {
-        NMethodHasCSetOops scan(_heap);
+        ShenandoahNMethodHasCSetOops scan(_heap);
         nm->oops_do(&scan);
         if (!scan.has_in_cset_oops()) {
           continue;

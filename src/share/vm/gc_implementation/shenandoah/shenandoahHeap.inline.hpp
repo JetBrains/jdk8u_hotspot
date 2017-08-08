@@ -40,7 +40,7 @@
 #include "utilities/copy.hpp"
 
 template <class T>
-void SCMUpdateRefsClosure::do_oop_work(T* p) {
+void ShenandoahUpdateRefsClosure::do_oop_work(T* p) {
   T o = oopDesc::load_heap_oop(p);
   if (! oopDesc::is_null(o)) {
     oop obj = oopDesc::decode_heap_oop_not_null(o);
@@ -48,8 +48,8 @@ void SCMUpdateRefsClosure::do_oop_work(T* p) {
   }
 }
 
-void SCMUpdateRefsClosure::do_oop(oop* p)       { do_oop_work(p); }
-void SCMUpdateRefsClosure::do_oop(narrowOop* p) { do_oop_work(p); }
+void ShenandoahUpdateRefsClosure::do_oop(oop* p)       { do_oop_work(p); }
+void ShenandoahUpdateRefsClosure::do_oop(narrowOop* p) { do_oop_work(p); }
 
 inline size_t ShenandoahHeap::num_regions() const {
   assert(regions() != NULL, "Sanity");

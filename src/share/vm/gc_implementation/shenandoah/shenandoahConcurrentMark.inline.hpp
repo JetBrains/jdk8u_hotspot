@@ -34,7 +34,7 @@
 #include "runtime/prefetch.inline.hpp"
 
 template <class T, bool COUNT_LIVENESS>
-void ShenandoahConcurrentMark::do_task(SCMObjToScanQueue* q, T* cl, jushort* live_data, SCMTask* task) {
+void ShenandoahConcurrentMark::do_task(ShenandoahObjToScanQueue* q, T* cl, jushort* live_data, ShenandoahMarkTask* task) {
   oop obj = task->obj();
 
   assert(obj != NULL, "expect non-null object");
@@ -89,7 +89,7 @@ inline void ShenandoahConcurrentMark::count_liveness(jushort* live_data, oop obj
 }
 
 template <class T>
-inline void ShenandoahConcurrentMark::do_chunked_array_start(SCMObjToScanQueue* q, T* cl, oop obj) {
+inline void ShenandoahConcurrentMark::do_chunked_array_start(ShenandoahObjToScanQueue* q, T* cl, oop obj) {
   assert(obj->is_objArray(), "expect object array");
   objArrayOop array = objArrayOop(obj);
   int len = array->length();
@@ -120,20 +120,20 @@ inline void ShenandoahConcurrentMark::do_chunked_array_start(SCMObjToScanQueue* 
       pow--;
       chunk = 2;
       last_idx = (1 << pow);
-      bool pushed = q->push(SCMTask(array, 1, pow));
+      bool pushed = q->push(ShenandoahMarkTask(array, 1, pow));
       assert(pushed, "overflow queue should always succeed pushing");
     }
 
     // Split out tasks, as suggested in ObjArrayChunkedTask docs. Record the last
     // successful right boundary to figure out the irregular tail.
     while ((1 << pow) > (int)ObjArrayMarkingStride &&
-           (chunk*2 < SCMTask::chunk_size())) {
+           (chunk*2 < ShenandoahMarkTask::chunk_size())) {
       pow--;
       int left_chunk = chunk*2 - 1;
       int right_chunk = chunk*2;
       int left_chunk_end = left_chunk * (1 << pow);
       if (left_chunk_end < len) {
-        bool pushed = q->push(SCMTask(array, left_chunk, pow));
+        bool pushed = q->push(ShenandoahMarkTask(array, left_chunk, pow));
         assert(pushed, "overflow queue should always succeed pushing");
         chunk = right_chunk;
         last_idx = left_chunk_end;
@@ -151,7 +151,7 @@ inline void ShenandoahConcurrentMark::do_chunked_array_start(SCMObjToScanQueue* 
 }
 
 template <class T>
-inline void ShenandoahConcurrentMark::do_chunked_array(SCMObjToScanQueue* q, T* cl, oop obj, int chunk, int pow) {
+inline void ShenandoahConcurrentMark::do_chunked_array(ShenandoahObjToScanQueue* q, T* cl, oop obj, int chunk, int pow) {
   assert(obj->is_objArray(), "expect object array");
   objArrayOop array = objArrayOop(obj);
 
@@ -159,10 +159,10 @@ inline void ShenandoahConcurrentMark::do_chunked_array(SCMObjToScanQueue* q, T* 
 
   // Split out tasks, as suggested in ObjArrayChunkedTask docs. Avoid pushing tasks that
   // are known to start beyond the array.
-  while ((1 << pow) > (int)ObjArrayMarkingStride && (chunk*2 < SCMTask::chunk_size())) {
+  while ((1 << pow) > (int)ObjArrayMarkingStride && (chunk*2 < ShenandoahMarkTask::chunk_size())) {
     pow--;
     chunk *= 2;
-    bool pushed = q->push(SCMTask(array, chunk - 1, pow));
+    bool pushed = q->push(ShenandoahMarkTask(array, chunk - 1, pow));
     assert(pushed, "overflow queue should always succeed pushing");
   }
 
@@ -180,7 +180,7 @@ inline void ShenandoahConcurrentMark::do_chunked_array(SCMObjToScanQueue* q, T* 
   array->oop_iterate_range(cl, from, to);
 }
 
-inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, SCMTask &task) {
+inline bool ShenandoahConcurrentMark::try_queue(ShenandoahObjToScanQueue* q, ShenandoahMarkTask &task) {
   return (q->pop_buffer(task) ||
           q->pop_local(task) ||
           q->pop_overflow(task));
@@ -188,10 +188,10 @@ inline bool ShenandoahConcurrentMark::try_queue(SCMObjToScanQueue* q, SCMTask &t
 
 class ShenandoahSATBBufferClosure : public SATBBufferClosure {
 private:
-  SCMObjToScanQueue* _queue;
+  ShenandoahObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 public:
-  ShenandoahSATBBufferClosure(SCMObjToScanQueue* q) :
+  ShenandoahSATBBufferClosure(ShenandoahObjToScanQueue* q) :
     _queue(q), _heap(ShenandoahHeap::heap())
   {
   }
@@ -204,7 +204,7 @@ public:
   }
 };
 
-inline bool ShenandoahConcurrentMark::try_draining_satb_buffer(SCMObjToScanQueue *q, SCMTask &task) {
+inline bool ShenandoahConcurrentMark::try_draining_satb_buffer(ShenandoahObjToScanQueue *q, ShenandoahMarkTask &task) {
   ShenandoahSATBBufferClosure cl(q);
   SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
   bool had_refs = satb_mq_set.apply_closure_to_completed_buffer(&cl);
@@ -212,7 +212,7 @@ inline bool ShenandoahConcurrentMark::try_draining_satb_buffer(SCMObjToScanQueue
 }
 
 template<class T, UpdateRefsMode UPDATE_REFS>
-inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* heap, SCMObjToScanQueue* q) {
+inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q) {
   T o = oopDesc::load_heap_oop(p);
   if (! oopDesc::is_null(o)) {
     oop obj = oopDesc::decode_heap_oop_not_null(o);
@@ -244,7 +244,7 @@ inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* hea
       if (heap->mark_next(obj)) {
         log_develop_trace(gc, marking)("Marked obj: " PTR_FORMAT, p2i((HeapWord*) obj));
 
-        bool pushed = q->push(SCMTask(obj));
+        bool pushed = q->push(ShenandoahMarkTask(obj));
         assert(pushed, "overflow queue should always succeed pushing");
       } else {
         log_develop_trace(gc, marking)("Failed to mark obj (already marked): " PTR_FORMAT, p2i((HeapWord*) obj));

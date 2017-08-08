@@ -235,9 +235,9 @@ private:
 };
 #endif
 
-typedef ObjArrayChunkedTask SCMTask;
-typedef BufferedOverflowTaskQueue<SCMTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
-typedef Padded<ShenandoahBufferedOverflowTaskQueue> SCMObjToScanQueue;
+typedef ObjArrayChunkedTask ShenandoahMarkTask;
+typedef BufferedOverflowTaskQueue<ShenandoahMarkTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
+typedef Padded<ShenandoahBufferedOverflowTaskQueue> ShenandoahObjToScanQueue;
 
 template <class T, MEMFLAGS F>
 class ParallelClaimableQueueSet: public GenericTaskQueueSet<T, F> {
@@ -284,10 +284,10 @@ T* ParallelClaimableQueueSet<T, F>::claim_next() {
   }
 }
 
-class SCMObjToScanQueueSet: public ParallelClaimableQueueSet<SCMObjToScanQueue, mtGC> {
+class ShenandoahObjToScanQueueSet: public ParallelClaimableQueueSet<ShenandoahObjToScanQueue, mtGC> {
 
 public:
-  SCMObjToScanQueueSet(int n) : ParallelClaimableQueueSet<SCMObjToScanQueue, mtGC>(n) {
+  ShenandoahObjToScanQueueSet(int n) : ParallelClaimableQueueSet<ShenandoahObjToScanQueue, mtGC>(n) {
   }
 
   bool is_empty();

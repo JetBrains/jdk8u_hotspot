@@ -46,7 +46,7 @@
 template<UpdateRefsMode UPDATE_REFS>
 class ShenandoahInitMarkRootsClosure : public OopClosure {
 private:
-  SCMObjToScanQueue* _queue;
+  ShenandoahObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 
   template <class T>
@@ -55,14 +55,14 @@ private:
   }
 
 public:
-  ShenandoahInitMarkRootsClosure(SCMObjToScanQueue* q) :
+  ShenandoahInitMarkRootsClosure(ShenandoahObjToScanQueue* q) :
     _queue(q), _heap(ShenandoahHeap::heap()) {};
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
   void do_oop(oop* p)       { do_oop_nv(p); }
 };
 
-ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(ShenandoahObjToScanQueue* q, ReferenceProcessor* rp) :
   MetadataAwareOopClosure(rp),
   _queue(q),
   _heap((ShenandoahHeap*) Universe::heap())
@@ -85,10 +85,10 @@ public:
     assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    SCMObjToScanQueueSet* queues = heap->concurrentMark()->task_queues();
+    ShenandoahObjToScanQueueSet* queues = heap->concurrentMark()->task_queues();
     assert(queues->get_reserved() > worker_id, err_msg("Queue has not been reserved for worker id: %d", worker_id));
 
-    SCMObjToScanQueue* q = queues->queue(worker_id);
+    ShenandoahObjToScanQueue* q = queues->queue(worker_id);
     ShenandoahInitMarkRootsClosure<UPDATE_REFS> mark_cl(q);
     CLDToOopClosure cldCl(&mark_cl);
     MarkingCodeBlobClosure blobsCl(&mark_cl, ! CodeBlobToOopClosure::FixRelocations);
@@ -113,7 +113,7 @@ public:
       if (ShenandoahConcurrentScanCodeRoots) {
         CodeBlobClosure* code_blobs = NULL;
 #ifdef ASSERT
-        AssertToSpaceClosure assert_to_space_oops;
+        ShenandoahAssertToSpaceClosure assert_to_space_oops;
         CodeBlobToOopClosure assert_to_space(&assert_to_space_oops, !CodeBlobToOopClosure::FixRelocations);
         // If conc code cache evac is disabled, code cache should have only to-space ptrs.
         // Otherwise, it should have to-space ptrs only if mark does not update refs.
@@ -144,13 +144,13 @@ public:
     assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    SCMUpdateRefsClosure cl;
+    ShenandoahUpdateRefsClosure cl;
     CLDToOopClosure cldCl(&cl);
 
     CodeBlobClosure* code_blobs;
     CodeBlobToOopClosure update_blobs(&cl, CodeBlobToOopClosure::FixRelocations);
 #ifdef ASSERT
-    AssertToSpaceClosure assert_to_space_oops;
+    ShenandoahAssertToSpaceClosure assert_to_space_oops;
     CodeBlobToOopClosure assert_to_space(&assert_to_space_oops, !CodeBlobToOopClosure::FixRelocations);
 #endif
     if (_update_code_cache) {
@@ -164,20 +164,20 @@ public:
   }
 };
 
-class SCMConcurrentMarkingTask : public AbstractGangTask {
+class ShenandoahConcurrentMarkingTask : public AbstractGangTask {
 private:
   ShenandoahConcurrentMark* _cm;
   ParallelTaskTerminator* _terminator;
   bool _update_refs;
 
 public:
-  SCMConcurrentMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs) :
+  ShenandoahConcurrentMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs) :
     AbstractGangTask("Root Region Scan"), _cm(cm), _terminator(terminator), _update_refs(update_refs) {
   }
 
 
   void work(uint worker_id) {
-    SCMObjToScanQueue* q = _cm->get_queue(worker_id);
+    ShenandoahObjToScanQueue* q = _cm->get_queue(worker_id);
     jushort* live_data = _cm->get_liveness(worker_id);
     ReferenceProcessor* rp;
     if (_cm->process_references()) {
@@ -212,7 +212,7 @@ public:
   }
 };
 
-class SCMFinalMarkingTask : public AbstractGangTask {
+class ShenandoahFinalMarkingTask : public AbstractGangTask {
 private:
   ShenandoahConcurrentMark* _cm;
   ParallelTaskTerminator* _terminator;
@@ -221,7 +221,7 @@ private:
   bool _unload_classes;
 
 public:
-  SCMFinalMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs, bool count_live, bool unload_classes) :
+  ShenandoahFinalMarkingTask(ShenandoahConcurrentMark* cm, ParallelTaskTerminator* terminator, bool update_refs, bool count_live, bool unload_classes) :
     AbstractGangTask("Shenandoah Final Marking"), _cm(cm), _terminator(terminator), _update_refs(update_refs), _count_live(count_live), _unload_classes(unload_classes) {
   }
 
@@ -336,10 +336,10 @@ void ShenandoahConcurrentMark::initialize(uint workers) {
 
   uint num_queues = MAX2(workers, 1U);
 
-  _task_queues = new SCMObjToScanQueueSet((int) num_queues);
+  _task_queues = new ShenandoahObjToScanQueueSet((int) num_queues);
 
   for (uint i = 0; i < num_queues; ++i) {
-    SCMObjToScanQueue* task_queue = new SCMObjToScanQueue();
+    ShenandoahObjToScanQueue* task_queue = new ShenandoahObjToScanQueue();
     task_queue->initialize();
     _task_queues->register_queue(i, task_queue);
   }
@@ -378,11 +378,11 @@ void ShenandoahConcurrentMark::mark_from_roots() {
 
   if (UseShenandoahOWST) {
     ShenandoahTaskTerminator terminator(nworkers, task_queues());
-    SCMConcurrentMarkingTask markingTask = SCMConcurrentMarkingTask(this, &terminator, update_refs);
+    ShenandoahConcurrentMarkingTask markingTask = ShenandoahConcurrentMarkingTask(this, &terminator, update_refs);
     workers->run_task(&markingTask);
   } else {
     ParallelTaskTerminator terminator(nworkers, task_queues());
-    SCMConcurrentMarkingTask markingTask = SCMConcurrentMarkingTask(this, &terminator, update_refs);
+    ShenandoahConcurrentMarkingTask markingTask = ShenandoahConcurrentMarkingTask(this, &terminator, update_refs);
     workers->run_task(&markingTask);
   }
 
@@ -436,11 +436,11 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
     SharedHeap::StrongRootsScope scope(sh, true);
     if (UseShenandoahOWST) {
       ShenandoahTaskTerminator terminator(nworkers, task_queues());
-      SCMFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
+      ShenandoahFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
       sh->workers()->run_task(&task);
     } else {
       ParallelTaskTerminator terminator(nworkers, task_queues());
-      SCMFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
+      ShenandoahFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
       sh->workers()->run_task(&task);
     }
   }
@@ -485,7 +485,7 @@ class ShenandoahSATBThreadsClosure : public ThreadClosure {
 };
 
 void ShenandoahConcurrentMark::drain_satb_buffers(uint worker_id, bool remark) {
-  SCMObjToScanQueue* q = get_queue(worker_id);
+  ShenandoahObjToScanQueue* q = get_queue(worker_id);
   ShenandoahSATBBufferClosure cl(q);
 
   SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
@@ -574,7 +574,7 @@ public:
 
 class ShenandoahCMKeepAliveClosure : public OopClosure {
 private:
-  SCMObjToScanQueue* _queue;
+  ShenandoahObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 
   template <class T>
@@ -583,7 +583,7 @@ private:
   }
 
 public:
-  ShenandoahCMKeepAliveClosure(SCMObjToScanQueue* q) :
+  ShenandoahCMKeepAliveClosure(ShenandoahObjToScanQueue* q) :
     _queue(q), _heap(ShenandoahHeap::heap()) {};
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
@@ -592,7 +592,7 @@ public:
 
 class ShenandoahCMKeepAliveUpdateClosure : public OopClosure {
 private:
-  SCMObjToScanQueue* _queue;
+  ShenandoahObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 
   template <class T>
@@ -601,7 +601,7 @@ private:
   }
 
 public:
-  ShenandoahCMKeepAliveUpdateClosure(SCMObjToScanQueue* q) :
+  ShenandoahCMKeepAliveUpdateClosure(ShenandoahObjToScanQueue* q) :
     _queue(q), _heap(ShenandoahHeap::heap()) {};
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
@@ -812,7 +812,7 @@ public:
 
 class ShenandoahPrecleanKeepAliveUpdateClosure : public OopClosure {
 private:
-  SCMObjToScanQueue* _queue;
+  ShenandoahObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 
   template <class T>
@@ -821,7 +821,7 @@ private:
   }
 
 public:
-  ShenandoahPrecleanKeepAliveUpdateClosure(SCMObjToScanQueue* q) :
+  ShenandoahPrecleanKeepAliveUpdateClosure(ShenandoahObjToScanQueue* q) :
     _queue(q), _heap(ShenandoahHeap::heap()) {}
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
@@ -870,19 +870,19 @@ void ShenandoahConcurrentMark::preclean_weak_refs() {
 
 void ShenandoahConcurrentMark::cancel() {
   // Clean up marking stacks.
-  SCMObjToScanQueueSet* queues = task_queues();
+  ShenandoahObjToScanQueueSet* queues = task_queues();
   queues->clear();
 
   // Cancel SATB buffers.
   JavaThread::satb_mark_queue_set().abandon_partial_marking();
 }
 
-SCMObjToScanQueue* ShenandoahConcurrentMark::get_queue(uint worker_id) {
+ShenandoahObjToScanQueue* ShenandoahConcurrentMark::get_queue(uint worker_id) {
   assert(task_queues()->get_reserved() > worker_id, err_msg("No reserved queue for worker id: %d", worker_id));
   return _task_queues->queue(worker_id);
 }
 
-void ShenandoahConcurrentMark::clear_queue(SCMObjToScanQueue *q) {
+void ShenandoahConcurrentMark::clear_queue(ShenandoahObjToScanQueue *q) {
   q->set_empty();
   q->overflow_stack()->clear();
   q->clear_buffer();
@@ -890,7 +890,7 @@ void ShenandoahConcurrentMark::clear_queue(SCMObjToScanQueue *q) {
 
 template <bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS, bool CLASS_UNLOAD, bool UPDATE_REFS>
 void ShenandoahConcurrentMark::mark_loop_prework(uint w, ParallelTaskTerminator *t, ReferenceProcessor *rp) {
-  SCMObjToScanQueue* q = get_queue(w);
+  ShenandoahObjToScanQueue* q = get_queue(w);
 
   jushort* ld;
   if (COUNT_LIVENESS) {
@@ -937,9 +937,9 @@ void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint wo
   uintx stride = CANCELLABLE ? ShenandoahMarkLoopStride : 1;
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  SCMObjToScanQueueSet* queues = task_queues();
-  SCMObjToScanQueue* q;
-  SCMTask t;
+  ShenandoahObjToScanQueueSet* queues = task_queues();
+  ShenandoahObjToScanQueue* q;
+  ShenandoahMarkTask t;
 
   /*
    * Process outstanding queues, if any.

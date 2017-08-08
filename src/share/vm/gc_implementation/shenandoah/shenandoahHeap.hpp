@@ -40,7 +40,7 @@ class ShenandoahVerifier;
 class ShenandoahConcurrentThread;
 class ShenandoahMonitoringSupport;
 
-class SCMUpdateRefsClosure: public OopClosure {
+class ShenandoahUpdateRefsClosure: public OopClosure {
 private:
   ShenandoahHeap* _heap;
 
@@ -48,15 +48,13 @@ private:
   inline void do_oop_work(T* p);
 
 public:
-  SCMUpdateRefsClosure();
-
-public:
+  ShenandoahUpdateRefsClosure();
   inline void do_oop(oop* p);
   inline void do_oop(narrowOop* p);
 };
 
 #ifdef ASSERT
-class AssertToSpaceClosure : public OopClosure {
+class ShenandoahAssertToSpaceClosure : public OopClosure {
 private:
   template <class T>
   void do_oop_nv(T* p);
@@ -71,14 +69,14 @@ public:
   bool do_object_b(oop p) { return true; }
 };
 
-
 class ShenandoahForwardedIsAliveClosure: public BoolObjectClosure {
-
 private:
   ShenandoahHeap* _heap;
 public:
   ShenandoahForwardedIsAliveClosure();
-  void init(ShenandoahHeap* heap);
+  void init(ShenandoahHeap* heap) {
+    _heap = heap;
+  }
   bool do_object_b(oop obj);
 };
 
@@ -87,7 +85,9 @@ private:
   ShenandoahHeap* _heap;
 public:
   ShenandoahIsAliveClosure();
-  void init(ShenandoahHeap* heap);
+  void init(ShenandoahHeap* heap) {
+    _heap = heap;
+  }
   bool do_object_b(oop obj);
 };
 

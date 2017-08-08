@@ -2604,10 +2604,10 @@ void G1CollectedHeap::object_iterate(ObjectClosure* cl) {
 
 // Calls a SpaceClosure on a HeapRegion.
 
-class SpaceClosureRegionClosure: public HeapRegionClosure {
+class ShenandoahSpaceClosureRegionClosure: public HeapRegionClosure {
   SpaceClosure* _cl;
 public:
-  SpaceClosureRegionClosure(SpaceClosure* cl) : _cl(cl) {}
+  ShenandoahSpaceClosureRegionClosure(SpaceClosure* cl) : _cl(cl) {}
   bool doHeapRegion(HeapRegion* r) {
     _cl->do_space(r);
     return false;
@@ -2615,7 +2615,7 @@ public:
 };
 
 void G1CollectedHeap::space_iterate(SpaceClosure* cl) {
-  SpaceClosureRegionClosure blk(cl);
+  ShenandoahSpaceClosureRegionClosure blk(cl);
   heap_region_iterate(&blk);
 }
 

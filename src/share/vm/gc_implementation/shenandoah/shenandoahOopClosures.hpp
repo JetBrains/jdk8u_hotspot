@@ -37,10 +37,10 @@ enum UpdateRefsMode {
 
 class ShenandoahMarkRefsSuperClosure : public MetadataAwareOopClosure {
 private:
-  SCMObjToScanQueue* _queue;
+  ShenandoahObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
 public:
-  ShenandoahMarkRefsSuperClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp);
+  ShenandoahMarkRefsSuperClosure(ShenandoahObjToScanQueue* q, ReferenceProcessor* rp);
 
   template <class T, UpdateRefsMode UPDATE_MODE>
   void work(T *p);
@@ -48,7 +48,7 @@ public:
 
 class ShenandoahMarkUpdateRefsClosure : public ShenandoahMarkRefsSuperClosure {
 public:
-  ShenandoahMarkUpdateRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+  ShenandoahMarkUpdateRefsClosure(ShenandoahObjToScanQueue* q, ReferenceProcessor* rp) :
           ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
@@ -61,7 +61,7 @@ public:
 
 class ShenandoahMarkUpdateRefsMetadataClosure : public ShenandoahMarkRefsSuperClosure {
 public:
-  ShenandoahMarkUpdateRefsMetadataClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+  ShenandoahMarkUpdateRefsMetadataClosure(ShenandoahObjToScanQueue* q, ReferenceProcessor* rp) :
           ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
@@ -74,7 +74,7 @@ public:
 
 class ShenandoahMarkRefsClosure : public ShenandoahMarkRefsSuperClosure {
 public:
-  ShenandoahMarkRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+  ShenandoahMarkRefsClosure(ShenandoahObjToScanQueue* q, ReferenceProcessor* rp) :
     ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
@@ -87,7 +87,7 @@ public:
 
 class ShenandoahMarkResolveRefsClosure : public ShenandoahMarkRefsSuperClosure {
 public:
-  ShenandoahMarkResolveRefsClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+  ShenandoahMarkResolveRefsClosure(ShenandoahObjToScanQueue* q, ReferenceProcessor* rp) :
     ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>
@@ -100,7 +100,7 @@ public:
 
 class ShenandoahMarkRefsMetadataClosure : public ShenandoahMarkRefsSuperClosure {
 public:
-  ShenandoahMarkRefsMetadataClosure(SCMObjToScanQueue* q, ReferenceProcessor* rp) :
+  ShenandoahMarkRefsMetadataClosure(ShenandoahObjToScanQueue* q, ReferenceProcessor* rp) :
     ShenandoahMarkRefsSuperClosure(q, rp) {};
 
   template <class T>

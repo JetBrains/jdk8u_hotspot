@@ -114,13 +114,12 @@ void ShenandoahHeapRegionSet::heap_region_iterate(ShenandoahHeapRegionClosure* b
   active_heap_region_iterate(blk, skip_dirty_regions, skip_humongous_continuation);
 }
 
-class PrintHeapRegionsClosure : public
-   ShenandoahHeapRegionClosure {
+class ShenandoahPrintHeapRegionsClosure : public ShenandoahHeapRegionClosure {
 private:
   outputStream* _st;
 public:
-  PrintHeapRegionsClosure() : _st(tty) {}
-  PrintHeapRegionsClosure(outputStream* st) : _st(st) {}
+  ShenandoahPrintHeapRegionsClosure() : _st(tty) {}
+  ShenandoahPrintHeapRegionsClosure(outputStream* st) : _st(st) {}
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     r->print_on(_st);
@@ -131,7 +130,7 @@ public:
 void ShenandoahHeapRegionSet::print(outputStream* out) {
   out->print_cr("_current_index: "SIZE_FORMAT" current region: %p, _active_end: "SIZE_FORMAT, _current_index, _regions[_current_index], _active_end);
 
-  PrintHeapRegionsClosure pc1(out);
+  ShenandoahPrintHeapRegionsClosure pc1(out);
   heap_region_iterate(&pc1, false, false);
 }
 
@@ -151,12 +150,13 @@ ShenandoahHeapRegion* ShenandoahHeapRegionSet::claim_next() {
   return NULL;
 }
 
-class FindRegionClosure : public ShenandoahHeapRegionClosure {
+class ShenandoahFindRegionClosure : public ShenandoahHeapRegionClosure {
+private:
   ShenandoahHeapRegion* _query;
   bool _result;
-public:
 
-  FindRegionClosure(ShenandoahHeapRegion* query) : _query(query), _result(false) {}
+public:
+  ShenandoahFindRegionClosure(ShenandoahHeapRegion* query) : _query(query), _result(false) {}
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     _result = (r == _query);
@@ -167,7 +167,7 @@ public:
 };
 
 bool ShenandoahHeapRegionSet::contains(ShenandoahHeapRegion* r) {
-  FindRegionClosure cl(r);
+  ShenandoahFindRegionClosure cl(r);
   unclaimed_heap_region_iterate(&cl);
   return cl.result();
 }

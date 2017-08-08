@@ -28,8 +28,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "runtime/interfaceSupport.hpp"
 
-class UpdateRefsForOopClosure: public ExtendedOopClosure {
-
+class ShenandoahUpdateRefsForOopClosure: public ExtendedOopClosure {
 private:
   ShenandoahHeap* _heap;
   template <class T>
@@ -37,18 +36,9 @@ private:
     _heap->maybe_update_oop_ref(p);
   }
 public:
-  UpdateRefsForOopClosure() {
-    _heap = ShenandoahHeap::heap();
-  }
-
-  void do_oop(oop* p)       {
-    do_oop_work(p);
-  }
-
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
-
+  ShenandoahUpdateRefsForOopClosure() : _heap(ShenandoahHeap::heap()) {}
+  void do_oop(oop* p)       { do_oop_work(p); }
+  void do_oop(narrowOop* p) { do_oop_work(p); }
 };
 
 ShenandoahBarrierSet::ShenandoahBarrierSet(ShenandoahHeap* heap) :
@@ -291,7 +281,7 @@ void ShenandoahBarrierSet::write_region_work(MemRegion mr) {
 
   oop obj = oop(mr.start());
   assert(obj->is_oop(), "must be an oop");
-  UpdateRefsForOopClosure cl;
+  ShenandoahUpdateRefsForOopClosure cl;
   obj->oop_iterate(&cl);
 }
 

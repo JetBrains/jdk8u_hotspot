@@ -33,7 +33,7 @@
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
 
-class VerifyReachableHeapClosure : public ExtendedOopClosure {
+class ShenandoahVerifyOopClosure : public ExtendedOopClosure {
 private:
   const char* _phase;
   ShenandoahVerifier::VerifyOptions _options;
@@ -44,12 +44,12 @@ private:
   oop _loc;
 
 public:
-  VerifyReachableHeapClosure(ShenandoahVerifierStack* stack, MarkBitMap* map, const char* phase, ShenandoahVerifier::VerifyOptions options) :
+  ShenandoahVerifyOopClosure(ShenandoahVerifierStack* stack, MarkBitMap* map, const char* phase, ShenandoahVerifier::VerifyOptions options) :
           _stack(stack), _heap(ShenandoahHeap::heap()), _map(map), _loc(NULL), _interior_loc(NULL),
           _phase(phase), _options(options) {};
 
 private:
-  void print_obj(MessageBuffer& msg, oop obj) {
+  void print_obj(ShenandoahMessageBuffer& msg, oop obj) {
     ShenandoahHeapRegion *r = _heap->heap_region_containing(obj);
     stringStream ss;
     r->print_on(&ss);
@@ -63,14 +63,14 @@ private:
     msg.append("  region: %s", ss.as_string());
   }
 
-  void print_non_obj(MessageBuffer& msg, void* loc) {
+  void print_non_obj(ShenandoahMessageBuffer& msg, void* loc) {
     msg.append("  outside of Java heap\n");
     stringStream ss;
     os::print_location(&ss, (intptr_t) loc, false);
     msg.append("  %s\n", ss.as_string());
   }
 
-  void print_obj_safe(MessageBuffer& msg, void* loc) {
+  void print_obj_safe(ShenandoahMessageBuffer& msg, void* loc) {
     msg.append("  " PTR_FORMAT " - safe print, no details\n", p2i(loc));
     if (_heap->is_in(loc)) {
       ShenandoahHeapRegion* r = _heap->heap_region_containing(loc);
@@ -94,7 +94,7 @@ private:
 
     bool loc_in_heap = (_loc != NULL && _heap->is_in(_loc));
 
-    MessageBuffer msg("Shenandoah verification failed; %s: %s\n\n", _phase, label);
+    ShenandoahMessageBuffer msg("Shenandoah verification failed; %s: %s\n\n", _phase, label);
 
     msg.append("Referenced from:\n");
     if (_interior_loc != NULL) {
@@ -165,7 +165,7 @@ private:
       HeapWord* addr = (HeapWord*) obj;
       if (_map->parMark(addr)) {
         verify_oop_at(p, obj);
-        _stack->push(VerifierTask(obj));
+        _stack->push(ShenandoahVerifierTask(obj));
       }
     }
   }
@@ -336,11 +336,11 @@ public:
   void do_oop(narrowOop* p) { do_oop_work(p); }
 };
 
-class CalculateRegionStatsClosure : public ShenandoahHeapRegionClosure {
+class ShenandoahCalculateRegionStatsClosure : public ShenandoahHeapRegionClosure {
 private:
   size_t _used, _garbage;
 public:
-  CalculateRegionStatsClosure() : _used(0), _garbage(0) {};
+  ShenandoahCalculateRegionStatsClosure() : _used(0), _garbage(0) {};
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     _used += r->used();
@@ -352,16 +352,16 @@ public:
   size_t garbage() { return _garbage; }
 };
 
-class VerifyHeapRegionClosure : public ShenandoahHeapRegionClosure {
+class ShenandoahVerifyHeapRegionClosure : public ShenandoahHeapRegionClosure {
 private:
   ShenandoahHeap* _heap;
 public:
-  VerifyHeapRegionClosure() : _heap(ShenandoahHeap::heap()) {};
+  ShenandoahVerifyHeapRegionClosure() : _heap(ShenandoahHeap::heap()) {};
 
   void print_failure(ShenandoahHeapRegion* r, const char* label) {
     ResourceMark rm;
 
-    MessageBuffer msg("Shenandoah verification failed; %s\n\n", label);
+    ShenandoahMessageBuffer msg("Shenandoah verification failed; %s\n\n", label);
 
     stringStream ss;
     r->print_on(&ss);
@@ -449,8 +449,8 @@ public:
     // extended parallelism would buy us out.
     if (((ShenandoahVerifyLevel == 2) && (worker_id == 0))
         || (ShenandoahVerifyLevel >= 3)) {
-        VerifyReachableHeapClosure cl(&stack, _bitmap,
-                                      MessageBuffer("%s, Roots", _label),
+        ShenandoahVerifyOopClosure cl(&stack, _bitmap,
+                                      ShenandoahMessageBuffer("%s, Roots", _label),
                                       _options);
         _rp->process_all_roots_slow(&cl);
     }
@@ -458,12 +458,12 @@ public:
     jlong processed = 0;
 
     if (ShenandoahVerifyLevel >= 3) {
-      VerifyReachableHeapClosure cl(&stack, _bitmap,
-                                    MessageBuffer("%s, Reachable", _label),
+      ShenandoahVerifyOopClosure cl(&stack, _bitmap,
+                                    ShenandoahMessageBuffer("%s, Reachable", _label),
                                     _options);
       while (!stack.is_empty()) {
         processed++;
-        VerifierTask task = stack.pop();
+        ShenandoahVerifierTask task = stack.pop();
         cl.verify_oops_from(task.obj());
       }
     }
@@ -496,8 +496,8 @@ public:
 
   virtual void work(uint worker_id) {
     ShenandoahVerifierStack stack;
-    VerifyReachableHeapClosure cl(&stack, _bitmap,
-                                  MessageBuffer("%s, Marked", _label),
+    ShenandoahVerifyOopClosure cl(&stack, _bitmap,
+                                  ShenandoahMessageBuffer("%s, Marked", _label),
                                   _options);
 
     while (true) {
@@ -513,7 +513,7 @@ public:
     }
   }
 
-  virtual void work_region(ShenandoahHeapRegion *r, ShenandoahVerifierStack& stack, VerifyReachableHeapClosure& cl) {
+  virtual void work_region(ShenandoahHeapRegion *r, ShenandoahVerifierStack& stack, ShenandoahVerifyOopClosure& cl) {
     jlong processed = 0;
     MarkBitMap* mark_bit_map = _heap->complete_mark_bit_map();
     HeapWord* tams = _heap->complete_top_at_mark_start(r->bottom());
@@ -546,7 +546,7 @@ public:
     Atomic::add(processed, &_processed);
   }
 
-  void verify_and_follow(HeapWord *addr, ShenandoahVerifierStack &stack, VerifyReachableHeapClosure &cl, jlong *processed) {
+  void verify_and_follow(HeapWord *addr, ShenandoahVerifierStack &stack, ShenandoahVerifyOopClosure &cl, jlong *processed) {
     if (!_bitmap->parMark(addr)) return;
 
     // Verify the object itself:
@@ -557,7 +557,7 @@ public:
     stack.push(obj);
     while (!stack.is_empty()) {
       (*processed)++;
-      VerifierTask task = stack.pop();
+      ShenandoahVerifierTask task = stack.pop();
       cl.verify_oops_from(task.obj());
     }
   }
@@ -573,7 +573,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
   // Heap size checks
   {
-    CalculateRegionStatsClosure cl;
+    ShenandoahCalculateRegionStatsClosure cl;
     _heap->heap_region_iterate(&cl);
     size_t heap_used = _heap->used();
     guarantee(cl.used() == heap_used,
@@ -583,7 +583,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
   // Internal heap region checks
   if (ShenandoahVerifyLevel >= 1) {
-    VerifyHeapRegionClosure cl;
+    ShenandoahVerifyHeapRegionClosure cl;
     _heap->heap_region_iterate(&cl, true, true);
   }
 

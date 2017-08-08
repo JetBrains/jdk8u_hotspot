@@ -31,20 +31,20 @@
 class Thread;
 class ShenandoahHeapRegionSet;
 class ShenandoahHeap;
-class VerifyReachableHeapClosure;
+class ShenandoahVerifyOopClosure;
 
-class VerifierTask {
+class ShenandoahVerifierTask {
 public:
-  VerifierTask(oop o = NULL, int idx = 0): _obj(o) { }
-  VerifierTask(oop o, size_t idx): _obj(o) { }
-  VerifierTask(const VerifierTask& t): _obj(t._obj) { }
+  ShenandoahVerifierTask(oop o = NULL, int idx = 0): _obj(o) { }
+  ShenandoahVerifierTask(oop o, size_t idx): _obj(o) { }
+  ShenandoahVerifierTask(const ShenandoahVerifierTask& t): _obj(t._obj) { }
 
-  VerifierTask& operator =(const VerifierTask& t) {
+  ShenandoahVerifierTask& operator =(const ShenandoahVerifierTask& t) {
     _obj = t._obj;
     return *this;
   }
-  volatile VerifierTask&
-  operator =(const volatile VerifierTask& t) volatile {
+  volatile ShenandoahVerifierTask&
+  operator =(const volatile ShenandoahVerifierTask& t) volatile {
     (void)const_cast<oop&>(_obj = t._obj);
     return *this;
   }
@@ -57,8 +57,8 @@ private:
   oop _obj;
 };
 
-typedef FormatBuffer<8192> MessageBuffer;
-typedef Stack<VerifierTask, mtGC> ShenandoahVerifierStack;
+typedef FormatBuffer<8192> ShenandoahMessageBuffer;
+typedef Stack<ShenandoahVerifierTask, mtGC> ShenandoahVerifierStack;
 
 class ShenandoahVerifier : public CHeapObj<mtGC> {
 private:

@@ -37,7 +37,7 @@ private:
   ShenandoahHeap* _heap;
 
   // The per-worker-thread work queues
-  SCMObjToScanQueueSet* _task_queues;
+  ShenandoahObjToScanQueueSet* _task_queues;
 
   bool _process_references;
   bool _unload_classes;
@@ -56,13 +56,13 @@ private:
 
 private:
   template <class T, bool COUNT_LIVENESS>
-  inline void do_task(SCMObjToScanQueue* q, T* cl, jushort* live_data, SCMTask* task);
+  inline void do_task(ShenandoahObjToScanQueue* q, T* cl, jushort* live_data, ShenandoahMarkTask* task);
 
   template <class T>
-  inline void do_chunked_array_start(SCMObjToScanQueue* q, T* cl, oop array);
+  inline void do_chunked_array_start(ShenandoahObjToScanQueue* q, T* cl, oop array);
 
   template <class T>
-  inline void do_chunked_array(SCMObjToScanQueue* q, T* cl, oop array, int chunk, int pow);
+  inline void do_chunked_array(ShenandoahObjToScanQueue* q, T* cl, oop array, int chunk, int pow);
 
   inline void count_liveness(jushort* live_data, oop obj);
 
@@ -127,7 +127,7 @@ public:
   void clear_claim_codecache();
 
   template<class T, UpdateRefsMode UPDATE_REFS>
-  static inline void mark_through_ref(T* p, ShenandoahHeap* heap, SCMObjToScanQueue* q);
+  static inline void mark_through_ref(T* p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q);
 
   void mark_from_roots();
 
@@ -152,14 +152,14 @@ public:
     }
   }
 
-  inline bool try_queue(SCMObjToScanQueue* q, SCMTask &task);
+  inline bool try_queue(ShenandoahObjToScanQueue* q, ShenandoahMarkTask &task);
 
-  SCMObjToScanQueue* get_queue(uint worker_id);
-  void clear_queue(SCMObjToScanQueue *q);
+  ShenandoahObjToScanQueue* get_queue(uint worker_id);
+  void clear_queue(ShenandoahObjToScanQueue *q);
 
-  inline bool try_draining_satb_buffer(SCMObjToScanQueue *q, SCMTask &task);
+  inline bool try_draining_satb_buffer(ShenandoahObjToScanQueue *q, ShenandoahMarkTask &task);
   void drain_satb_buffers(uint worker_id, bool remark = false);
-  SCMObjToScanQueueSet* task_queues() { return _task_queues;}
+  ShenandoahObjToScanQueueSet* task_queues() { return _task_queues;}
 
   jushort* get_liveness(uint worker_id);
 

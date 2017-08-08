@@ -33,7 +33,7 @@ class ShenandoahHeap;
 class ShenandoahHeapRegion;
 class ShenandoahCodeRootsLock;
 
-class CodeRootsIterator VALUE_OBJ_CLASS_SPEC {
+class ShenandoahCodeRootsIterator VALUE_OBJ_CLASS_SPEC {
   friend class ShenandoahCodeRoots;
 protected:
   ShenandoahHeap* _heap;
@@ -41,8 +41,8 @@ protected:
   volatile jbyte _seq_claimed;
   volatile jlong _claimed;
 protected:
-  CodeRootsIterator();
-  ~CodeRootsIterator();
+  ShenandoahCodeRootsIterator();
+  ~ShenandoahCodeRootsIterator();
 
   template<bool CSET_FILTER>
   void dispatch_parallel_blobs_do(CodeBlobClosure *f);
@@ -51,22 +51,22 @@ protected:
   void fast_parallel_blobs_do(CodeBlobClosure *f);
 };
 
-class AllCodeRootsIterator : public CodeRootsIterator {
+class ShenandoahAllCodeRootsIterator : public ShenandoahCodeRootsIterator {
 public:
-  AllCodeRootsIterator() : CodeRootsIterator() {};
+  ShenandoahAllCodeRootsIterator() : ShenandoahCodeRootsIterator() {};
   void possibly_parallel_blobs_do(CodeBlobClosure *f);
 };
 
-class CsetCodeRootsIterator : public CodeRootsIterator {
+class ShenandoahCsetCodeRootsIterator : public ShenandoahCodeRootsIterator {
 public:
-  CsetCodeRootsIterator() : CodeRootsIterator() {};
+  ShenandoahCsetCodeRootsIterator() : ShenandoahCodeRootsIterator() {};
   void possibly_parallel_blobs_do(CodeBlobClosure* f);
 };
 
 class ShenandoahCodeRoots : public CHeapObj<mtGC> {
   friend class ShenandoahHeap;
   friend class ShenandoahCodeRootsLock;
-  friend class CodeRootsIterator;
+  friend class ShenandoahCodeRootsIterator;
 
 public:
   static void initialize();
@@ -77,13 +77,13 @@ public:
    * Provides the iterator over all nmethods in the code cache that have oops.
    * @return
    */
-  static AllCodeRootsIterator iterator();
+  static ShenandoahAllCodeRootsIterator iterator();
 
   /**
    * Provides the iterator over nmethods that have at least one oop in collection set.
    * @return
    */
-  static CsetCodeRootsIterator cset_iterator();
+  static ShenandoahCsetCodeRootsIterator cset_iterator();
 
 private:
   static volatile jint _recorded_nmethods_lock;

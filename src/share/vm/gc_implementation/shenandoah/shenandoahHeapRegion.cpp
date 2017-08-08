@@ -162,13 +162,13 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
 }
 
 
-class SkipUnreachableObjectToOopClosure: public ObjectClosure {
+class ShenandoahSkipUnreachableObjectToOopClosure: public ObjectClosure {
   ExtendedOopClosure* _cl;
   bool _skip_unreachable_objects;
   ShenandoahHeap* _heap;
 
 public:
-  SkipUnreachableObjectToOopClosure(ExtendedOopClosure* cl, bool skip_unreachable_objects) :
+  ShenandoahSkipUnreachableObjectToOopClosure(ExtendedOopClosure* cl, bool skip_unreachable_objects) :
     _cl(cl), _skip_unreachable_objects(skip_unreachable_objects), _heap(ShenandoahHeap::heap()) {}
 
   void do_object(oop obj) {
@@ -207,7 +207,7 @@ HeapWord* ShenandoahHeapRegion::object_iterate_careful(ObjectClosureCareful* blk
 }
 
 void ShenandoahHeapRegion::oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects) {
-  SkipUnreachableObjectToOopClosure cl2(cl, skip_unreachable_objects);
+  ShenandoahSkipUnreachableObjectToOopClosure cl2(cl, skip_unreachable_objects);
   object_iterate_interruptible(&cl2, false);
 }
 

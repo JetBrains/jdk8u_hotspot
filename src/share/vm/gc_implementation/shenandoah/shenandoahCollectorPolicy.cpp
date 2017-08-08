@@ -421,9 +421,9 @@ void ShenandoahHeuristics::record_bytes_end_CM(size_t bytes) {
                                                                    : bytes;
 }
 
-class PassiveHeuristics : public ShenandoahHeuristics {
+class ShenandoahPassiveHeuristics : public ShenandoahHeuristics {
 public:
-  PassiveHeuristics() : ShenandoahHeuristics() {
+  ShenandoahPassiveHeuristics() : ShenandoahHeuristics() {
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
@@ -448,9 +448,9 @@ public:
   }
 };
 
-class AggressiveHeuristics : public ShenandoahHeuristics {
+class ShenandoahAggressiveHeuristics : public ShenandoahHeuristics {
 public:
-  AggressiveHeuristics() : ShenandoahHeuristics() {
+  ShenandoahAggressiveHeuristics() : ShenandoahHeuristics() {
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
@@ -474,9 +474,9 @@ public:
   }
 };
 
-class DynamicHeuristics : public ShenandoahHeuristics {
+class ShenandoahDynamicHeuristics : public ShenandoahHeuristics {
 public:
-  DynamicHeuristics() : ShenandoahHeuristics() {
+  ShenandoahDynamicHeuristics() : ShenandoahHeuristics() {
   }
 
   void print_thresholds() {
@@ -486,7 +486,7 @@ public:
                        ShenandoahGarbageThreshold);
   }
 
-  virtual ~DynamicHeuristics() {}
+  virtual ~ShenandoahDynamicHeuristics() {}
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
 
@@ -527,7 +527,7 @@ public:
 };
 
 
-class AdaptiveHeuristics : public ShenandoahHeuristics {
+class ShenandoahAdaptiveHeuristics : public ShenandoahHeuristics {
 private:
   uintx _free_threshold;
   TruncatedSeq* _cset_history;
@@ -539,7 +539,7 @@ private:
   double _conc_uprefs_start;
   TruncatedSeq* _conc_uprefs_duration_history;
 public:
-  AdaptiveHeuristics() :
+  ShenandoahAdaptiveHeuristics() :
     ShenandoahHeuristics(),
     _free_threshold(ShenandoahInitFreeThreshold),
     _peak_occupancy(0),
@@ -555,7 +555,7 @@ public:
     _cset_history->add((double) ShenandoahCSetThreshold);
   }
 
-  virtual ~AdaptiveHeuristics() {
+  virtual ~ShenandoahAdaptiveHeuristics() {
     delete _cset_history;
   }
 
@@ -891,16 +891,16 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   if (ShenandoahGCHeuristics != NULL) {
     if (strcmp(ShenandoahGCHeuristics, "aggressive") == 0) {
       log_info(gc, init)("Shenandoah heuristics: aggressive");
-      _heuristics = new AggressiveHeuristics();
+      _heuristics = new ShenandoahAggressiveHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "dynamic") == 0) {
       log_info(gc, init)("Shenandoah heuristics: dynamic");
-      _heuristics = new DynamicHeuristics();
+      _heuristics = new ShenandoahDynamicHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "adaptive") == 0) {
       log_info(gc, init)("Shenandoah heuristics: adaptive");
-      _heuristics = new AdaptiveHeuristics();
+      _heuristics = new ShenandoahAdaptiveHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "passive") == 0) {
       log_info(gc, init)("Shenandoah heuristics: passive");
-      _heuristics = new PassiveHeuristics();
+      _heuristics = new ShenandoahPassiveHeuristics();
     } else {
       vm_exit_during_initialization("Unknown -XX:ShenandoahGCHeuristics option");
     }

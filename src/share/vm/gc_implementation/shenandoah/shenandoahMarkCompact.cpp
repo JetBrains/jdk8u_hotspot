@@ -68,13 +68,12 @@ public:
 #endif
 };
 
-class ClearInCollectionSetHeapRegionClosure: public ShenandoahHeapRegionClosure {
+class ShenandoahClearInCollectionSetHeapRegionClosure: public ShenandoahHeapRegionClosure {
 private:
   ShenandoahHeap* _heap;
-public:
 
-  ClearInCollectionSetHeapRegionClosure() : _heap(ShenandoahHeap::heap()) {
-  }
+public:
+  ShenandoahClearInCollectionSetHeapRegionClosure() : _heap(ShenandoahHeap::heap()) {}
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     _heap->set_next_top_at_mark_start(r->bottom(), r->top());
@@ -147,7 +146,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       rp->abandon_partial_discovery();
       rp->verify_no_references_recorded();
 
-      ClearInCollectionSetHeapRegionClosure cl;
+      ShenandoahClearInCollectionSetHeapRegionClosure cl;
       _heap->heap_region_iterate(&cl, false, false);
 
       if (ShenandoahVerify) {

@@ -27,10 +27,10 @@
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 
-void SCMObjToScanQueueSet::clear() {
-  uint size = GenericTaskQueueSet<SCMObjToScanQueue, mtGC>::size();
+void ShenandoahObjToScanQueueSet::clear() {
+  uint size = GenericTaskQueueSet<ShenandoahObjToScanQueue, mtGC>::size();
   for (uint index = 0; index < size; index ++) {
-    SCMObjToScanQueue* q = queue(index);
+    ShenandoahObjToScanQueue* q = queue(index);
     assert(q != NULL, "Sanity");
     q->set_empty();
     q->overflow_stack()->clear();
@@ -39,10 +39,10 @@ void SCMObjToScanQueueSet::clear() {
 }
 
 
-bool SCMObjToScanQueueSet::is_empty() {
-  uint size = GenericTaskQueueSet<SCMObjToScanQueue, mtGC>::size();
+bool ShenandoahObjToScanQueueSet::is_empty() {
+  uint size = GenericTaskQueueSet<ShenandoahObjToScanQueue, mtGC>::size();
   for (uint index = 0; index < size; index ++) {
-    SCMObjToScanQueue* q = queue(index);
+    ShenandoahObjToScanQueue* q = queue(index);
     assert(q != NULL, "Sanity");
     if (!q->is_empty()) {
       return false;
