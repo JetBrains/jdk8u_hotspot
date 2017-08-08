@@ -103,12 +103,15 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
     {
       ShenandoahGCPhase prepare_evac(ShenandoahCollectorPolicy::prepare_evac);
       sh->prepare_for_concurrent_evacuation();
+    }
+
+    // If collection set has candidates, start evacuation.
+    // Otherwise, bypass the rest of the cycle.
+    if (!sh->collection_set()->is_empty()) {
       sh->set_evacuation_in_progress_at_safepoint(true);
       // From here on, we need to update references.
       sh->set_need_update_refs(true);
-    }
 
-    {
       ShenandoahGCPhase init_evac(ShenandoahCollectorPolicy::init_evac);
       sh->evacuate_and_update_roots();
     }

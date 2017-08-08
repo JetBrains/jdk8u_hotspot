@@ -150,9 +150,16 @@
   experimental(uintx, ShenandoahMaxFreeThreshold, 70,                       \
                "Maximum remaining free threshold for adaptive heuristics")  \
                                                                             \
+  experimental(uintx, ShenandoahImmediateThreshold, 90,                     \
+               "If mark identifies more than this much immediate garbage "  \
+               "regions, it shall recycle them, and shall not continue the "\
+               "rest of the GC cycle. The value is in percents of total "   \
+               "number of candidates for collection set. Setting this "     \
+               "threshold to 100% effectively disables this shortcut.")     \
+                                                                            \
   experimental(uintx, ShenandoahHappyCyclesThreshold, 3,                    \
           "How many successful marking cycles before improving free "       \
-               "threshold for adaptive heuristics")                    \
+               "threshold for adaptive heuristics")                         \
                                                                             \
   experimental(uintx, ShenandoahMarkLoopStride, 1000,                       \
           "How many items are processed during one marking step")           \

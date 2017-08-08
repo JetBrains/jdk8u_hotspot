@@ -60,7 +60,8 @@ public:
   // Single-thread version
   ShenandoahHeapRegion* next();
 
-  size_t count() const { return _region_count; }
+  size_t count()  const { return _region_count; }
+  bool is_empty() const { return _region_count == 0; }
 
   void clear_current_index() {
     _current_index = 0;

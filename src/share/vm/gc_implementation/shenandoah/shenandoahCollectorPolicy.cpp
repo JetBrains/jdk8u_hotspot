@@ -313,16 +313,28 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 
   end_choose_collection_set();
 
+  // Step 3. Look back at collection set, and see if it's worth it to collect,
+  // given the amount of immediately reclaimable garbage.
+
   log_info(gc, ergo)("Total Garbage: "SIZE_FORMAT"M",
                      total_garbage / M);
-  log_info(gc, ergo)("Immediate Garbage: "SIZE_FORMAT"M, "SIZE_FORMAT" regions",
-                     immediate_garbage / M, immediate_regions);
-  log_info(gc, ergo)("Garbage to be collected: "SIZE_FORMAT"M ("SIZE_FORMAT"%% of total), "SIZE_FORMAT" regions",
-                     collection_set->garbage() / M, collection_set->garbage() * 100 / MAX2(total_garbage, (size_t)1), collection_set->count());
-  log_info(gc, ergo)("Live objects to be evacuated: "SIZE_FORMAT"M",
-                     collection_set->live_data() / M);
-  log_info(gc, ergo)("Live/garbage ratio in collected regions: "SIZE_FORMAT"%%",
-                     collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
+
+  size_t total_garbage_regions = immediate_regions + collection_set->count();
+  size_t immediate_percent = total_garbage_regions == 0 ? 0 : (immediate_regions * 100 / total_garbage_regions);
+
+  log_info(gc, ergo)("Immediate Garbage: "SIZE_FORMAT"M, "SIZE_FORMAT" regions ("SIZE_FORMAT"%% of total)",
+                     immediate_garbage / M, immediate_regions, immediate_percent);
+
+  if (immediate_percent > ShenandoahImmediateThreshold) {
+    collection_set->clear();
+  } else {
+    log_info(gc, ergo)("Garbage to be collected: "SIZE_FORMAT"M ("SIZE_FORMAT"%% of total), "SIZE_FORMAT" regions",
+                       collection_set->garbage() / M, collection_set->garbage() * 100 / MAX2(total_garbage, (size_t)1), collection_set->count());
+    log_info(gc, ergo)("Live objects to be evacuated: "SIZE_FORMAT"M",
+                       collection_set->live_data() / M);
+    log_info(gc, ergo)("Live/garbage ratio in collected regions: "SIZE_FORMAT"%%",
+                       collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
+  }
 }
 
 void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
@@ -451,6 +463,10 @@ public:
 class ShenandoahAggressiveHeuristics : public ShenandoahHeuristics {
 public:
   ShenandoahAggressiveHeuristics() : ShenandoahHeuristics() {
+    // Do not shortcut evacuation
+    if (FLAG_IS_DEFAULT(ShenandoahImmediateThreshold)) {
+      FLAG_SET_DEFAULT(ShenandoahImmediateThreshold, 100);
+    }
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {

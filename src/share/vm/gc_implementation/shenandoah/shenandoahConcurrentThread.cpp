@@ -189,8 +189,10 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     reset_full_gc();
   }
 
-  // Continue concurrent evacuation:
-  {
+  // Perform concurrent evacuation, if required.
+  // This phase can be skipped if there is nothing to evacuate. If so, evac_in_progress would be unset
+  // by collection set preparation code.
+  if (heap->is_evacuation_in_progress()) {
     // Setup workers for concurrent evacuation phase
     FlexibleWorkGang* workers = heap->workers();
     uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_evacuation(workers->active_workers(),
@@ -200,26 +202,34 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     GCTraceTime time("Concurrent evacuation", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
     TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
     heap->do_evacuation();
+
+    // Allocations happen during evacuation, record peak after the phase:
+    heap->shenandoahPolicy()->record_peak_occupancy();
+
+    // Do an update-refs phase if required.
+    if (check_cancellation()) return;
   }
 
-  // Allocations happen during evacuation, record peak after the phase:
-  heap->shenandoahPolicy()->record_peak_occupancy();
-
-  // Do an update-refs phase if required.
-  if (check_cancellation()) return;
-
+  // Perform update-refs phase, if required.
+  // This phase can be skipped if there was nothing evacuated. If so, need_update_refs would be unset
+  // by collection set preparation code. However, adaptive heuristics need to record "success" when
+  // this phase is skipped. Therefore, we conditionally execute all ops, leaving heuristics adjustments
+  // intact.
   if (heap->shenandoahPolicy()->should_start_update_refs()) {
 
-    {
-      ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
-      ShenandoahGCPhase init_update_refs_phase(ShenandoahCollectorPolicy::init_update_refs_gross);
-      VM_ShenandoahInitUpdateRefs init_update_refs;
-      VMThread::execute(&init_update_refs);
-    }
+    bool do_it = heap->need_update_refs();
+    if (do_it) {
+      {
+        ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
+        ShenandoahGCPhase init_update_refs_phase(ShenandoahCollectorPolicy::init_update_refs_gross);
+        VM_ShenandoahInitUpdateRefs init_update_refs;
+        VMThread::execute(&init_update_refs);
+      }
 
-    {
-      GCTraceTime time("Concurrent update references ", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
-      heap->concurrent_update_heap_references();
+      {
+        GCTraceTime time("Concurrent update references ", ShenandoahLogInfo, gc_timer, gc_tracer->gc_id(), true);
+        heap->concurrent_update_heap_references();
+      }
     }
 
     // Allocations happen during update-refs, record peak after the phase:
@@ -239,7 +249,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
       heap->shenandoahPolicy()->record_uprefs_success();
     }
 
-    {
+    if (do_it) {
       ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause_gross);
       ShenandoahGCPhase final_update_refs_phase(ShenandoahCollectorPolicy::final_update_refs_gross);
       VM_ShenandoahFinalUpdateRefs final_update_refs;

@@ -661,17 +661,17 @@ void ShenandoahVerifier::verify_before_concmark() {
 }
 
 void ShenandoahVerifier::verify_after_concmark() {
-  // No need, will unconditionally do evacuation
-}
-
-void ShenandoahVerifier::verify_before_evacuation() {
   verify_at_safepoint(
-          "Before Evacuation",
+          "After Mark",
           _verify_forwarded_none,      // no forwarded references
           _verify_marked_complete,     // bitmaps as precise as we can get
           _verify_matrix_disable,      // matrix might be foobared
           _verify_cset_none            // no cset, no references to it
   );
+}
+
+void ShenandoahVerifier::verify_before_evacuation() {
+  // No need, evacuation is always preceded by mark
 }
 
 void ShenandoahVerifier::verify_after_evacuation() {
