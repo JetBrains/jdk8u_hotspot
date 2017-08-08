@@ -2695,15 +2695,6 @@ Node* PhaseIdealLoop::shenandoah_pick_phi(Node* phi1, Node* phi2, Node_Stack& ph
   return NULL;
 }
 
-static Node* memory_for(Node* mem, const Node_List& phis) {
-  Node *m = mem;
-  while (m != NULL) {
-    mem = m;
-    m = phis[m->_idx];
-  }
-  return mem;
-}
-
 bool ShenandoahWriteBarrierNode::mem_is_valid(Node* m, Node* c, PhaseIdealLoop* phase) {
   return m != NULL && get_ctrl(m, phase) == c;
 }
