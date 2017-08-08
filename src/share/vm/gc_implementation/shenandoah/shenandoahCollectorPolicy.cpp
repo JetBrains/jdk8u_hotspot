@@ -648,7 +648,8 @@ public:
   }
 
   void adjust_free_threshold(intx adj) {
-    uintx new_threshold = _free_threshold + adj;
+    intx new_value = adj + _free_threshold;
+    uintx new_threshold = (uintx)MAX2<intx>(new_value, 0);
     new_threshold = MAX2(new_threshold, ShenandoahMinFreeThreshold);
     new_threshold = MIN2(new_threshold, ShenandoahMaxFreeThreshold);
     if (new_threshold != _free_threshold) {
