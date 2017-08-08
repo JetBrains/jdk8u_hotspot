@@ -85,6 +85,8 @@ protected:
 
   size_t _bytes_in_cset;
 
+  double _last_cycle_end;
+
 public:
 
   ShenandoahHeuristics();
@@ -108,7 +110,7 @@ public:
   }
 
   virtual void record_cycle_end() {
-    // Do nothing
+    _last_cycle_end = os::elapsedTime();
   }
 
   virtual void record_phase_start(ShenandoahCollectorPolicy::TimingPhase phase) {
@@ -219,7 +221,8 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   _region_garbage(NULL),
   _region_garbage_size(0),
   _update_refs_early(false),
-  _update_refs_adaptive(false)
+  _update_refs_adaptive(false),
+  _last_cycle_end(0)
 {
   if (strcmp(ShenandoahUpdateRefsEarly, "on") == 0 ||
       strcmp(ShenandoahUpdateRefsEarly, "true") == 0 ) {
@@ -523,12 +526,19 @@ public:
     uintx threshold = ShenandoahFreeThreshold + ShenandoahCSetThreshold;
     size_t targetStartMarking = (capacity * threshold) / 100;
 
+    double last_time_ms = (os::elapsedTime() - _last_cycle_end) * 1000;
+    bool periodic_gc = (last_time_ms > ShenandoahGuaranteedGCInterval);
+
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
     if (available < targetStartMarking &&
-        heap->bytes_allocated_since_cm() > threshold_bytes_allocated)
-    {
+        heap->bytes_allocated_since_cm() > threshold_bytes_allocated) {
       // Need to check that an appropriate number of regions have
       // been allocated since last concurrent mark too.
+      shouldStartConcurrentMark = true;
+    } else if (periodic_gc) {
+      // TODO: This should really be (gc,ergo)
+      log_info(gc)("Periodic GC triggered. Time since last GC: %.0f ms, Guaranteed Interval: " UINTX_FORMAT " ms",
+                        last_time_ms, ShenandoahGuaranteedGCInterval);
       shouldStartConcurrentMark = true;
     }
 
@@ -548,7 +558,6 @@ private:
   uintx _free_threshold;
   TruncatedSeq* _cset_history;
   size_t _peak_occupancy;
-  double _last_cycle_end;
   TruncatedSeq* _cycle_gap_history;
   double _conc_mark_start;
   TruncatedSeq* _conc_mark_duration_history;
@@ -559,7 +568,6 @@ public:
     ShenandoahHeuristics(),
     _free_threshold(ShenandoahInitFreeThreshold),
     _peak_occupancy(0),
-    _last_cycle_end(0),
     _conc_mark_start(0),
     _conc_mark_duration_history(new TruncatedSeq(5)),
     _conc_uprefs_start(0),
@@ -621,7 +629,6 @@ public:
   void record_cycle_end() {
     ShenandoahHeuristics::record_cycle_end();
     handle_cycle_success();
-    _last_cycle_end = os::elapsedTime();
   }
 
   void record_cycle_start() {
@@ -709,6 +716,8 @@ public:
       factor += cset_threshold;
     }
 
+    double last_time_ms = (os::elapsedTime() - _last_cycle_end) * 1000;
+    bool periodic_gc = (last_time_ms > ShenandoahGuaranteedGCInterval);
     size_t threshold_available = (capacity * factor) / 100;
     size_t bytes_allocated = heap->bytes_allocated_since_cm();
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
@@ -720,6 +729,11 @@ public:
                         available / M, threshold_available / M, available / M, threshold_bytes_allocated / M);
       // Need to check that an appropriate number of regions have
       // been allocated since last concurrent mark too.
+      shouldStartConcurrentMark = true;
+    } else if (periodic_gc) {
+      // TODO: This should really be (gc,ergo)
+      log_info(gc)("Periodic GC triggered. Time since last GC: %.0f ms, Guaranteed Interval: " UINTX_FORMAT " ms",
+          last_time_ms, ShenandoahGuaranteedGCInterval);
       shouldStartConcurrentMark = true;
     }
 

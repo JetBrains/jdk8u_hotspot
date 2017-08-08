@@ -157,6 +157,12 @@
                "number of candidates for collection set. Setting this "     \
                "threshold to 100% effectively disables this shortcut.")     \
                                                                             \
+  experimental(uintx, ShenandoahGuaranteedGCInterval, 5*60*1000,            \
+               "Adaptive and dynamic heuristics would guarantee a GC cycle "\
+               "at least with this interval. This is useful when large idle"\
+               " intervals are present, where GC can run without stealing " \
+               "time from active application. Time is in milliseconds.")    \
+                                                                            \
   experimental(uintx, ShenandoahHappyCyclesThreshold, 3,                    \
           "How many successful marking cycles before improving free "       \
                "threshold for adaptive heuristics")                         \
