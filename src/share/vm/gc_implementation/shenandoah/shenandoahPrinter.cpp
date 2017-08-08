@@ -23,6 +23,8 @@
 
 #include "precompiled.hpp"
 
+#ifdef ASSERT
+
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
@@ -99,3 +101,5 @@ void ShenandoahPrinter::print_all_refs(const char* prefix) {
   ShenandoahPrintAllRefsObjectClosure cl2(prefix);
   _heap->object_iterate(&cl2);
 }
+
+#endif

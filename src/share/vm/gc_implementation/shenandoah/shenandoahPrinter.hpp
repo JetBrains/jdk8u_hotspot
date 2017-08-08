@@ -24,6 +24,13 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHPRINTER_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHPRINTER_HPP
 
+/*
+ * This file/class is not referenced by any production code.
+ * We keep it around for debugging purpose.
+ */
+
+#ifdef ASSERT
+
 #include "memory/allocation.hpp"
 
 class ShenandoahHeap;
@@ -38,5 +45,7 @@ public:
 
   void print_all_refs(const char* prefix);
 };
+
+#endif // ASSERT
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHPRINTER_HPP
