@@ -553,12 +553,15 @@ public:
     oop obj = oop(addr);
     cl.verify_oop_standalone(obj);
 
-    // Verify everything reachable from that object too:
-    stack.push(obj);
+    // Verify everything reachable from that object too, hopefully realizing
+    // everything was already marked, and never touching further:
+    cl.verify_oops_from(obj);
+    (*processed)++;
+
     while (!stack.is_empty()) {
-      (*processed)++;
       ShenandoahVerifierTask task = stack.pop();
       cl.verify_oops_from(task.obj());
+      (*processed)++;
     }
   }
 };
