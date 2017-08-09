@@ -31,16 +31,12 @@
  * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=dynamic    RetainObjects
  * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=aggressive RetainObjects
  *
- * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m                                       -XX:-UseTLAB RetainObjects
- * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=passive    -XX:-UseTLAB RetainObjects
- * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=adaptive   -XX:-UseTLAB RetainObjects
- * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=dynamic    -XX:-UseTLAB RetainObjects
- * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=aggressive -XX:-UseTLAB RetainObjects
- *
  * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m                                       -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify RetainObjects
  * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=passive    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify RetainObjects
  * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=adaptive   -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify RetainObjects
  * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=dynamic    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify RetainObjects
+ *
+ * @run main/othervm -XX:+UseShenandoahGC -Xms256m -Xmx256m                                       -XX:-UseTLAB RetainObjects
  */
 
 public class RetainObjects {
@@ -49,8 +45,6 @@ public class RetainObjects {
   static final int WINDOW = 10_000;
 
   static final String[] reachable = new String[WINDOW];
-
-  static volatile Object sink;
 
   public static void main(String[] args) throws Exception {
     int rIdx = 0;

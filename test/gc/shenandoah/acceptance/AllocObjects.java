@@ -37,18 +37,19 @@
  * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify AllocObjects
  */
 
+import java.util.Random;
+
 public class AllocObjects {
 
-  static final long TARGET_MB = Long.getLong("target", 20_000); // 20 Gb allocation
+  static final long TARGET_MB = Long.getLong("target", 10_000); // 10 Gb allocation
 
   static volatile Object sink;
 
   public static void main(String[] args) throws Exception {
-      long count = TARGET_MB * 1024 * 1024 / 16;
-      for (long c = 0; c < count; c++) {
-          sink = new Object();
-      }
+    long count = TARGET_MB * 1024 * 1024 / 16;
+    for (long c = 0; c < count; c++) {
+      sink = new Object();
+    }
   }
-
 
 }

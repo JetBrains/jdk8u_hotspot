@@ -29,14 +29,11 @@
  * @run main/othervm -XX:+UseShenandoahGC -Xmx16m -XX:ShenandoahGCHeuristics=adaptive     LotsOfCycles
  * @run main/othervm -XX:+UseShenandoahGC -Xmx16m -XX:ShenandoahGCHeuristics=dynamic      LotsOfCycles
  * @run main/othervm -XX:+UseShenandoahGC -Xmx16m -XX:ShenandoahGCHeuristics=aggressive   LotsOfCycles
- * @run main/othervm -XX:+UseShenandoahGC -Xmx16m -XX:ShenandoahGCHeuristics=connected    LotsOfCycles
- * @run main/othervm -XX:+UseShenandoahGC -Xmx16m -XX:ShenandoahGCHeuristics=generational LotsOfCycles
- * @run main/othervm -XX:+UseShenandoahGC -Xmx16m -XX:ShenandoahGCHeuristics=LRU          LotsOfCycles
  */
 
 public class LotsOfCycles {
 
-  static final long TARGET_MB = Long.getLong("target", 20_000); // 20 Gb allocation, around 1K cycles to handle
+  static final long TARGET_MB = Long.getLong("target", 10_000); // 10 Gb allocation, around 1K cycles to handle
 
   static Object sink;
 
