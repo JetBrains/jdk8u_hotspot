@@ -572,7 +572,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   guarantee(SafepointSynchronize::is_at_safepoint(), "only when nothing else happens");
   guarantee(ShenandoahVerify, "only when enabled, and bitmap is initialized in ShenandoahHeap::initialize");
 
-  log_info(gc)("Starting level " INTX_FORMAT " verification: %s", ShenandoahVerifyLevel, label);
+  log_info(gc,start)("Verify %s, Level " INTX_FORMAT, label, ShenandoahVerifyLevel);
 
   // Heap size checks
   {
@@ -627,7 +627,8 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
     guarantee(ShenandoahVerifyLevel < 4 || marked == _verify_marked_next || marked == _verify_marked_disable, "Should be");
   }
 
-  log_info(gc)("Verification finished: " SIZE_FORMAT " reachable, " SIZE_FORMAT " marked", count_reachable, count_marked);
+  log_info(gc)("Verify %s, Level " INTX_FORMAT " (" SIZE_FORMAT " reachable, " SIZE_FORMAT " marked)",
+               label, ShenandoahVerifyLevel, count_reachable, count_marked);
 }
 
 void ShenandoahVerifier::verify_generic(VerifyOption vo) {
