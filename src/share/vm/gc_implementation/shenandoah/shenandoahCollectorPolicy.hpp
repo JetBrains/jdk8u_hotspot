@@ -191,7 +191,6 @@ private:
   struct TimingData {
     HdrSeq _secs;
     double _start;
-    size_t _count;
   };
 
 private:

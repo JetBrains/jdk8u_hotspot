@@ -34,8 +34,6 @@ ShenandoahFreeSet::ShenandoahFreeSet(size_t max_regions) :
 {
 }
 
-ShenandoahFreeSet::~ShenandoahFreeSet() {
-}
 
 void ShenandoahFreeSet::increase_used(size_t num_bytes) {
   assert_heaplock_owned_by_current_thread();
@@ -46,13 +44,6 @@ void ShenandoahFreeSet::increase_used(size_t num_bytes) {
 				     _used, _capacity, num_bytes));
 }
 
-size_t ShenandoahFreeSet::used() {
-  return _used;
-}
-
-size_t ShenandoahFreeSet::capacity() {
-  return _capacity;
-}
 
 /**
  * Return 0 if the range starting at start is a contiguous range with

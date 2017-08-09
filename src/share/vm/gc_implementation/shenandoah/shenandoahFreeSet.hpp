@@ -42,13 +42,11 @@ private:
 
 public:
   ShenandoahFreeSet(size_t max_regions);
-  ~ShenandoahFreeSet();
 
   void add_region(ShenandoahHeapRegion* r);
 
-  size_t capacity();
-
-  size_t used();
+  size_t capacity() const { return _capacity; }
+  size_t used()     const { return _used;     }
 
   size_t unsafe_peek_next_no_humongous() const;
 

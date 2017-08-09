@@ -512,11 +512,10 @@ void ShenandoahConcurrentMark::print_taskqueue_stats() const {
   outputStream* st = gclog_or_tty;
   print_taskqueue_stats_hdr(st);
 
-  ShenandoahHeap* sh = ShenandoahHeap::heap();
   TaskQueueStats totals;
-  const int n = _task_queues->size();
-  for (int i = 0; i < n; ++i) {
-    st->print(INT32_FORMAT_W(3), i);
+  const uint n = _task_queues->size();
+  for (uint i = 0; i < n; ++i) {
+    st->print(UINT32_FORMAT_W(3), i);
     _task_queues->queue(i)->stats.print(st);
     st->cr();
     totals += _task_queues->queue(i)->stats;
@@ -527,9 +526,8 @@ void ShenandoahConcurrentMark::print_taskqueue_stats() const {
 }
 
 void ShenandoahConcurrentMark::reset_taskqueue_stats() {
-  ShenandoahHeap* sh = ShenandoahHeap::heap();
-  const int n = task_queues()->size();
-  for (int i = 0; i < n; ++i) {
+  const uint n = task_queues()->size();
+  for (uint i = 0; i < n; ++i) {
     task_queues()->queue(i)->stats.reset();
   }
 }
