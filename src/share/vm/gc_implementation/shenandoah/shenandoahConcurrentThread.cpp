@@ -255,6 +255,12 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
       VM_ShenandoahFinalUpdateRefs final_update_refs;
       VMThread::execute(&final_update_refs);
     }
+  } else {
+    // If update-refs were skipped, need to do another verification pass after evacuation.
+    if (ShenandoahVerify && !check_cancellation()) {
+      VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
+      VMThread::execute(&verify_after_evacuation);
+    }
   }
 
   // Prepare for the next normal cycle:

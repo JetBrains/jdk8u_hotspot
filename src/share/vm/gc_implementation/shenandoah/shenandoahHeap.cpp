@@ -1140,15 +1140,6 @@ void ShenandoahHeap::do_evacuation() {
     out->print_cr("All regions after evacuation:");
     print_heap_regions(out);
   }
-
-  if (ShenandoahVerify && !_shenandoah_policy->update_refs() && !cancelled_concgc()) {
-    VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
-    if (Thread::current()->is_VM_thread()) {
-      verify_after_evacuation.doit();
-    } else {
-      VMThread::execute(&verify_after_evacuation);
-    }
-  }
 }
 
 void ShenandoahHeap::roots_iterate(OopClosure* cl) {
