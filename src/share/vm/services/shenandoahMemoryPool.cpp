@@ -37,7 +37,7 @@ ShenandoahMemoryPool::ShenandoahMemoryPool(ShenandoahHeap* gen,
 MemoryUsage ShenandoahMemoryPool::get_memory_usage() {
   size_t maxSize   = max_size();
   size_t used      = used_in_bytes();
-  size_t committed = _gen->capacity();
+  size_t committed = _gen->committed();
 
   return MemoryUsage(initial_size(), used, committed, maxSize);
 }

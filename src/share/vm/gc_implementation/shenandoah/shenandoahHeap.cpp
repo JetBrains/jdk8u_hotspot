@@ -143,6 +143,7 @@ jint ShenandoahHeap::initialize() {
   set_barrier_set(new ShenandoahBarrierSet(this));
   ReservedSpace pgc_rs = heap_rs.first_part(max_byte_size);
   _storage.initialize(pgc_rs, init_byte_size);
+  _committed = init_byte_size;
 
   size_t num_regions = init_byte_size / ShenandoahHeapRegion::region_size_bytes();
   _max_regions = max_byte_size / ShenandoahHeapRegion::region_size_bytes();
@@ -387,7 +388,8 @@ bool ShenandoahHeap::is_complete_bitmap_clear_range(HeapWord* start, HeapWord* e
 
 void ShenandoahHeap::print_on(outputStream* st) const {
   st->print_cr("Shenandoah Heap");
-  st->print_cr(" " SIZE_FORMAT "K total, " SIZE_FORMAT "K used", capacity() / K, used() / K);
+  st->print_cr(" " SIZE_FORMAT "K total, " SIZE_FORMAT "K committed, " SIZE_FORMAT "K used",
+               capacity() / K, committed() / K, used() / K);
   st->print_cr(" " SIZE_FORMAT "K regions, " SIZE_FORMAT " active, " SIZE_FORMAT " total",
             ShenandoahHeapRegion::region_size_bytes() / K, num_regions(), _max_regions);
 
@@ -450,6 +452,21 @@ size_t ShenandoahHeap::used() const {
   return _used;
 }
 
+size_t ShenandoahHeap::committed() const {
+  OrderAccess::acquire();
+  return _committed;
+}
+
+void ShenandoahHeap::increase_committed(size_t bytes) {
+  assert_heaplock_or_safepoint();
+  _committed += bytes;
+}
+
+void ShenandoahHeap::decrease_committed(size_t bytes) {
+  assert_heaplock_or_safepoint();
+  _committed -= bytes;
+}
+
 void ShenandoahHeap::increase_used(size_t bytes) {
   assert_heaplock_or_safepoint();
   _used += bytes;
@@ -500,6 +517,35 @@ bool ShenandoahHeap::is_in_partial_collection(const void* p ) {
 
 bool ShenandoahHeap::is_scavengable(const void* p) {
   return true;
+}
+
+void ShenandoahHeap::ensure_committed(ShenandoahHeapRegion* r) {
+  assert_heaplock_owned_by_current_thread();
+
+  if (r->try_commit()) {
+    increase_committed(ShenandoahHeapRegion::region_size_bytes());
+  }
+}
+
+void ShenandoahHeap::handle_heap_shrinkage() {
+  ShenandoahHeapLock lock(this);
+
+  ShenandoahHeapRegionSet* set = regions();
+
+  size_t count = 0;
+  double current = os::elapsedTime();
+  for (size_t i = 0; i < num_regions(); i++) {
+    ShenandoahHeapRegion* r = set->get(i);
+    if (r->try_uncommit(current)) {
+      decrease_committed(ShenandoahHeapRegion::region_size_bytes());
+      count++;
+    }
+  }
+
+  if (count > 0) {
+    log_info(gc)("Uncommitted " SIZE_FORMAT "M. Heap: " SIZE_FORMAT "M reserved, " SIZE_FORMAT "M committed, " SIZE_FORMAT "M used",
+                 count * ShenandoahHeapRegion::region_size_bytes() / M, capacity() / M, committed() / M, used() / M);
+  }
 }
 
 HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) {
@@ -889,6 +935,7 @@ void ShenandoahHeap::recycle_dirty_regions() {
 
 void ShenandoahHeap::print_heap_regions(outputStream* st) const {
   st->print_cr("Heap Regions:");
+  st->print_cr("*=committed, .=recycled");
   st->print_cr("BTE=bottom/top/end, U=used, T=TLAB allocs, G=GCLAB allocs, S=shared allocs, L=live data, "
                        "HS=humongous(starts), HC=humongous(continuation),");
   st->print_cr("CS=collection set, R=root, CP=critical pins, "
@@ -1633,6 +1680,9 @@ void ShenandoahHeap::ensure_new_regions(size_t new_regions) {
   size_t expand_size = new_regions * ShenandoahHeapRegion::region_size_bytes();
   log_trace(gc, region)("expanding storage by "SIZE_FORMAT_HEX" bytes, for "SIZE_FORMAT" new regions", expand_size, new_regions);
   bool success = _storage.expand_by(expand_size, ShenandoahAlwaysPreTouch);
+  if (success) {
+    increase_committed(expand_size);
+  }
   assert(success, "should always be able to expand by requested size");
 }
 

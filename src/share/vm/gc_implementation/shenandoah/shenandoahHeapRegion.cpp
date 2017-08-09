@@ -47,13 +47,15 @@ ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start
   _tlab_allocs(0),
   _gclab_allocs(0),
   _shared_allocs(0),
-  reserved(MemRegion(start, regionSizeWords)),
+  _reserved(MemRegion(start, regionSizeWords)),
   _humongous_start(false),
   _humongous_continuation(false),
   _new_top(NULL),
+  _mem_status(_recycled),
+  _recycled_time(os::elapsedTime()),
   _critical_pins(0) {
 
-  ContiguousSpace::initialize(reserved, true, true);
+  ContiguousSpace::initialize(_reserved, true, true);
 }
 
 size_t ShenandoahHeapRegion::region_number() const {
@@ -135,6 +137,17 @@ bool ShenandoahHeapRegion::in_collection_set() const {
 void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|" PTR_FORMAT, p2i(this));
   st->print("|" SIZE_FORMAT_W(5), this->_region_number);
+  switch (_mem_status) {
+    case _active:
+      st->print("|*");
+      break;
+    case _recycled:
+      st->print("|.");
+      break;
+    case _uncommitted:
+      st->print("| ");
+      break;
+  }
   st->print("|BTE " PTR_FORMAT ", " PTR_FORMAT ", " PTR_FORMAT,
             p2i(bottom()), p2i(top()), p2i(end()));
   st->print("|U %3d%%", (int) ((double) used() * 100 / capacity()));
@@ -270,6 +283,74 @@ void ShenandoahHeapRegion::recycle() {
   _heap->set_complete_top_at_mark_start(bottom(), bottom());
   // We can only safely reset the C-TAMS pointer if the bitmap is clear for that region.
   assert(_heap->is_complete_bitmap_clear_range(bottom(), end()), "must be clear");
+
+  _recycled_time = os::elapsedTime();
+  _mem_status = _recycled;
+}
+
+bool ShenandoahHeapRegion::is_committed() {
+  switch (_mem_status) {
+    case _active:
+    case _recycled:
+      return true;
+    case _uncommitted:
+      return false;
+    default:
+      ShouldNotReachHere();
+  }
+  return false;
+}
+
+bool ShenandoahHeapRegion::is_active() {
+  switch (_mem_status) {
+    case _active:
+      return true;
+    case _recycled:
+    case _uncommitted:
+      return false;
+    default:
+      ShouldNotReachHere();
+  }
+  return false;
+}
+
+bool ShenandoahHeapRegion::try_commit() {
+  ShenandoahHeap::heap()->assert_heaplock_owned_by_current_thread();
+
+  switch (_mem_status) {
+    case _active:
+      return false;
+    case _recycled:
+      _mem_status = _active;
+      return false;
+    case _uncommitted:
+      os::commit_memory((char *) _reserved.start(), _reserved.byte_size(), false);
+      _mem_status = _active;
+      return true;
+  }
+
+  ShouldNotReachHere();
+  return false;
+}
+
+bool ShenandoahHeapRegion::try_uncommit(double time) {
+  ShenandoahHeap::heap()->assert_heaplock_owned_by_current_thread();
+
+  switch (_mem_status) {
+    case _active:
+    case _uncommitted:
+      return false;
+    case _recycled:
+      if ((time - _recycled_time) * 1000 > ShenandoahUncommitDelay) {
+        os::uncommit_memory((char *) _reserved.start(), _reserved.byte_size());
+        _mem_status = _uncommitted;
+        return true;
+      }
+      return false;
+  }
+
+  ShouldNotReachHere();
+  return false;
 }
 
 HeapWord* ShenandoahHeapRegion::block_start_const(const void* p) const {

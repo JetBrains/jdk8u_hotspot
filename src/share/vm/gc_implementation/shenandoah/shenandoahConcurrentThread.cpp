@@ -84,6 +84,9 @@ void ShenandoahConcurrentThread::run() {
     }
     heap->monitoring_support()->update_counters();
 
+    // Try to uncommit stale regions
+    heap->handle_heap_shrinkage();
+
     // Make sure the _do_full_gc flag changes are seen.
     OrderAccess::storeload();
   }

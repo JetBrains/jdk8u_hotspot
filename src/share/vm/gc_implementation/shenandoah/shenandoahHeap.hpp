@@ -165,6 +165,7 @@ private:
   FlexibleWorkGang* _workers;
 
   volatile size_t _used;
+  volatile size_t _committed;
 
   MarkBitMap _verification_bit_map;
   MarkBitMap _mark_bit_map0;
@@ -224,6 +225,7 @@ public:
   void post_initialize() /* override */;
   size_t capacity() const /* override */;
   size_t used() const /* override */;
+  size_t committed() const;
   bool is_maximal_no_gc() const /* override */;
   size_t max_capacity() const /* override */;
   size_t min_capacity() const /* override */;
@@ -372,6 +374,12 @@ public:
   void decrease_used(size_t bytes);
 
   void set_used(size_t bytes);
+
+  void increase_committed(size_t bytes);
+  void decrease_committed(size_t bytes);
+
+  void ensure_committed(ShenandoahHeapRegion* r);
+  void handle_heap_shrinkage();
 
   size_t garbage();
 

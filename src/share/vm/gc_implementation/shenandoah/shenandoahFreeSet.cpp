@@ -100,6 +100,7 @@ void ShenandoahFreeSet::initialize_humongous_regions(size_t first, size_t num) {
   assert_heaplock_owned_by_current_thread();
   for (size_t i = 0; i < num; i++) {
     ShenandoahHeapRegion* current = get(first + i);
+    ShenandoahHeap::heap()->ensure_committed(current);
     if (i == 0)
       current->set_humongous_start(true);
     else

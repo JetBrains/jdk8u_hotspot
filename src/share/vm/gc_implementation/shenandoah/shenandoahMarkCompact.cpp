@@ -83,6 +83,18 @@ public:
   }
 };
 
+class ShenandoahEnsureHeapCommittedClosure: public ShenandoahHeapRegionClosure {
+private:
+  ShenandoahHeap* _heap;
+
+public:
+  ShenandoahEnsureHeapCommittedClosure() : _heap(ShenandoahHeap::heap()) {}
+  bool doHeapRegion(ShenandoahHeapRegion* r) {
+    _heap->ensure_committed(r);
+    return false;
+  }
+};
+
 STWGCTimer* ShenandoahMarkCompact::_gc_timer = NULL;
 
 GCTimer* ShenandoahMarkCompact::gc_timer() {
@@ -148,6 +160,14 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
       ShenandoahClearInCollectionSetHeapRegionClosure cl;
       _heap->heap_region_iterate(&cl, false, false);
+
+      // Make sure all regions are active. This is needed because we are potentially
+      // sliding the data through them
+      {
+        ShenandoahHeap::ShenandoahHeapLock lock(_heap);
+        ShenandoahEnsureHeapCommittedClosure ecl;
+        _heap->heap_region_iterate(&ecl, false, false);
+      }
 
       if (ShenandoahVerify) {
         // Full GC should only be called between regular concurrent cycles, therefore
@@ -429,6 +449,15 @@ void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegi
 
   ShenandoahMCReclaimHumongousRegionClosure cl;
   heap->heap_region_iterate(&cl);
+
+  // After some humongous regions were reclaimed, we need to ensure their
+  // backing storage is active. This is needed because we are potentially
+  // sliding the data through them.
+  {
+    ShenandoahHeap::ShenandoahHeapLock lock(heap);
+    ShenandoahEnsureHeapCommittedClosure ecl;
+    heap->heap_region_iterate(&ecl, false, false);
+  }
 
   // Initialize copy queues.
   for (uint i = 0; i < heap->max_workers(); i++) {

@@ -2124,6 +2124,13 @@ void check_gclog_consistency() {
       }
     }
   }
+
+  if (AlwaysPreTouch || ShenandoahAlwaysPreTouch) {
+    if (!FLAG_IS_DEFAULT(ShenandoahUncommitDelay)) {
+      warning("AlwaysPreTouch is enabled, disabling ShenandoahUncommitDelay");
+    }
+    FLAG_SET_DEFAULT(ShenandoahUncommitDelay, max_uintx);
+  }
 }
 
 // This function is called for -Xloggc:<filename>, it can be used

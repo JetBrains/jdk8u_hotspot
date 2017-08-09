@@ -183,6 +183,14 @@
           " 1 - parallel iterator;"                                         \
           " 2 - parallel iterator with filters;")                           \
                                                                             \
+  experimental(uintx, ShenandoahUncommitDelay, 5*60*1000,                   \
+           "Shenandoah would start to uncommit memory for regions that were"\
+           " not used for more than this time. First use after that would " \
+           "incur allocation stalls. Actively used regions would never be " \
+           "uncommitted, because they never decay. Time is in milliseconds."\
+           "Setting this delay to 0 effectively makes Shenandoah to "       \
+           "uncommit the regions almost immediately.")                      \
+                                                                            \
   experimental(bool, ShenandoahBarriersForConst, false,                     \
           "Emit barriers for constant oops in generated code, improving "   \
           "throughput. If no barriers are emitted, GC will need to "        \

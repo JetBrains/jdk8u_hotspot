@@ -28,6 +28,29 @@
 
 class ShenandoahHeapRegion : public ContiguousSpace {
 private:
+  // Underlying memory state. Allowed transitions:
+  //
+  //  a) active -> recycled:
+  //    Done by recycling code, at safepoint. Therefore, this transition is
+  //    not supposed to be racy.
+  //
+  //  b) recycled -> active:
+  //    Done by allocation code, synchronously. This brings the region back
+  //    to active set, thus precluding any further cleanup.
+  //
+  //  c) recycled -> uncommitted:
+  //    Done by periodic task, asynchronously.
+  //
+  //  d) uncommitted -> active:
+  //    Done by allocation code, synchronously. This brings the region back to
+  //    committed state, and then to active.
+  //
+  enum RegionStatus {
+    _active,       // region in use, memory committed
+    _recycled,     // region not in use, memory committed
+    _uncommitted,  // region memory is uncommitted
+  };
+
   static size_t RegionSizeBytes;
   static size_t RegionSizeWords;
   static size_t RegionSizeShift;
@@ -36,7 +59,7 @@ private:
   ShenandoahHeap* _heap;
   size_t _region_number;
   volatile jint _live_data;
-  MemRegion reserved;
+  MemRegion _reserved;
 
   bool _humongous_start;
   bool _humongous_continuation;
@@ -49,10 +72,18 @@ private:
 
   volatile jint _critical_pins;
 
+  RegionStatus _mem_status;
+  double _recycled_time;
+
 public:
   ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t regionSize, size_t index);
 
   static void setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size);
+
+  bool is_committed();
+  bool is_active();
+  bool try_commit();
+  bool try_uncommit(double time);
 
   inline static size_t required_regions(size_t bytes) {
     return (bytes + ShenandoahHeapRegion::region_size_bytes() - 1) / ShenandoahHeapRegion::region_size_bytes();

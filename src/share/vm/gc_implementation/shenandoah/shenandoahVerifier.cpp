@@ -207,6 +207,9 @@ private:
 
       // ------------ obj is safe at this point --------------
 
+      verify(_safe_oop, obj, obj_reg->is_active(),
+            "Object should be in active region");
+
       switch (_options._verify_liveness) {
         case ShenandoahVerifier::_verify_liveness_disable:
           // skip
@@ -355,17 +358,19 @@ public:
 
 class ShenandoahCalculateRegionStatsClosure : public ShenandoahHeapRegionClosure {
 private:
-  size_t _used, _garbage;
+  size_t _used, _committed, _garbage;
 public:
-  ShenandoahCalculateRegionStatsClosure() : _used(0), _garbage(0) {};
+  ShenandoahCalculateRegionStatsClosure() : _used(0), _committed(0), _garbage(0) {};
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
     _used += r->used();
     _garbage += r->garbage();
+    _committed += r->is_committed() ? ShenandoahHeapRegion::region_size_bytes() : 0;
     return false;
   }
 
   size_t used() { return _used; }
+  size_t committed() { return _committed; }
   size_t garbage() { return _garbage; }
 };
 
@@ -429,6 +434,30 @@ public:
 
     verify(r, !r->is_pinned() || !r->in_collection_set(),
            "Region cannot be both pinned and in collection set");
+
+    verify(r, r->is_committed() || r->is_empty(),
+           "Region cannot be both uncommited and non-empty");
+
+    verify(r, r->is_committed() || !r->has_live(),
+           "Region cannot be both uncommited and have live data");
+
+    verify(r, r->is_committed() || !r->is_pinned(),
+           "Region cannot be both uncommited and pinned");
+
+    verify(r, r->is_committed() || !r->is_humongous(),
+           "Region cannot be both uncommited and humongous");
+
+    verify(r, r->is_active() || r->is_empty(),
+           "Region cannot both have live data and be non-active");
+
+    verify(r, r->is_active() || !r->has_live(),
+           "Region cannot be both non-active and have live data");
+
+    verify(r, r->is_active() || !r->is_pinned(),
+           "Region cannot be both non-active and pinned");
+
+    verify(r, r->is_active() || !r->is_humongous(),
+           "Region cannot be both non-active and humongous");
 
     return false;
   }
@@ -598,12 +627,19 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
   // Heap size checks
   {
+    ShenandoahHeap::ShenandoahHeapLock lock(_heap);
+
     ShenandoahCalculateRegionStatsClosure cl;
     _heap->heap_region_iterate(&cl);
     size_t heap_used = _heap->used();
     guarantee(cl.used() == heap_used,
-              err_msg("heap used size must be consistent: heap-used = " SIZE_FORMAT ", regions-used = " SIZE_FORMAT,
-                      heap_used, cl.used()));
+              err_msg("heap used size must be consistent: heap-used = " SIZE_FORMAT "K, regions-used = " SIZE_FORMAT "K",
+                      heap_used/K, cl.used()/K));
+
+    size_t heap_committed = _heap->committed();
+    guarantee(cl.committed() == heap_committed,
+              err_msg("heap committed size must be consistent: heap-committed = " SIZE_FORMAT "K, regions-committed = " SIZE_FORMAT "K",
+                      heap_committed/K, cl.committed()/K));
   }
 
   // Internal heap region checks
