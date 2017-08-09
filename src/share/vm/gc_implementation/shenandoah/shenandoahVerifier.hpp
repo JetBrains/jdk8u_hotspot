@@ -59,6 +59,7 @@ private:
 
 typedef FormatBuffer<8192> ShenandoahMessageBuffer;
 typedef Stack<ShenandoahVerifierTask, mtGC> ShenandoahVerifierStack;
+typedef volatile jlong ShenandoahLivenessData;
 
 class ShenandoahVerifier : public CHeapObj<mtGC> {
 private:
@@ -115,18 +116,33 @@ public:
     _verify_cset_forwarded,
   } VerifyCollectionSet;
 
+  typedef enum {
+    // Disable liveness verification
+    _verify_liveness_disable,
+
+    // All objects should belong to live regions
+    _verify_liveness_conservative,
+
+    // All objects should belong to live regions,
+    // and liveness data should be accurate
+    _verify_liveness_complete,
+  } VerifyLiveness;
+
   struct VerifyOptions {
     VerifyForwarded     _verify_forwarded;
     VerifyMarked        _verify_marked;
     VerifyMatrix        _verify_matrix;
     VerifyCollectionSet _verify_cset;
+    VerifyLiveness      _verify_liveness;
 
     VerifyOptions(VerifyForwarded verify_forwarded,
                   VerifyMarked verify_marked,
                   VerifyMatrix verify_matrix,
-                  VerifyCollectionSet verify_collection_set) :
+                  VerifyCollectionSet verify_collection_set,
+                  VerifyLiveness verify_liveness) :
             _verify_forwarded(verify_forwarded), _verify_marked(verify_marked),
-            _verify_matrix(verify_matrix), _verify_cset(verify_collection_set) {}
+            _verify_matrix(verify_matrix), _verify_cset(verify_collection_set),
+            _verify_liveness(verify_liveness) {}
   };
 
 private:
@@ -134,7 +150,8 @@ private:
                            VerifyForwarded forwarded,
                            VerifyMarked marked,
                            VerifyMatrix matrix,
-                           VerifyCollectionSet cset);
+                           VerifyCollectionSet cset,
+                           VerifyLiveness liveness);
 
 public:
   ShenandoahVerifier(ShenandoahHeap* heap, MarkBitMap* verification_bitmap) :

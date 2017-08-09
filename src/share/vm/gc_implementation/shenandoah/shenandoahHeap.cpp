@@ -959,14 +959,13 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
     // Allocations might have happened before we STWed here, record peak:
     shenandoahPolicy()->record_peak_occupancy();
 
-    recycle_dirty_regions();
-
     ensure_parsability(true);
 
     if (ShenandoahVerify) {
       verifier()->verify_after_concmark();
-      verifier()->verify_before_evacuation();
     }
+
+    recycle_dirty_regions();
 
     // NOTE: This needs to be done during a stop the world pause, because
     // putting regions into the collection set concurrently with Java threads
@@ -1001,6 +1000,10 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
     _bytes_allocated_since_cm = 0;
 
     Universe::update_heap_info_at_gc();
+
+    if (ShenandoahVerify) {
+      verifier()->verify_before_evacuation();
+    }
   }
 }
 
