@@ -950,13 +950,15 @@ void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
   oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
   size_t size = humongous_obj->size() + BrooksPointer::word_size();
   size_t required_regions = ShenandoahHeapRegion::required_regions(size * HeapWordSize);
-  size_t index = r->region_number();
+  size_t index = r->region_number() + required_regions - 1;
 
   assert(!r->has_live(), "liveness must be zero");
   log_trace(gc, humongous)("Reclaiming "SIZE_FORMAT" humongous regions for object of size: "SIZE_FORMAT" words", required_regions, size);
 
   for(size_t i = 0; i < required_regions; i++) {
-    ShenandoahHeapRegion* region = _ordered_regions->get(index++);
+     // Reclaim from tail. Otherwise, assertion fails when printing region to trace log,
+     // as it expects that every region belongs to a humongous region starting with a humongous start region.
+     ShenandoahHeapRegion* region = _ordered_regions->get(index --);
 
     if (ShenandoahLogDebug) {
       ResourceMark rm;
@@ -1653,10 +1655,8 @@ void ShenandoahHeap::grow_heap_by(size_t num_regs) {
     ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion(this, start, ShenandoahHeapRegion::region_size_words(), new_region_index);
 
     if (ShenandoahLogTrace) {
-      ResourceMark rm;
       outputStream* out = gclog_or_tty;
       out->print_cr("Allocating new region at index: "SIZE_FORMAT, new_region_index);
-      new_region->print_on(out);
     }
 
     assert(_ordered_regions->active_regions() == new_region->region_number(), "must match");
