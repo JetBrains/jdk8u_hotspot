@@ -207,6 +207,7 @@ private:
 
 #ifdef ASSERT
   Thread* volatile _heap_lock_owner;
+  int     _heap_expansion_count;
 #endif
 
 public:
@@ -495,8 +496,15 @@ private:
 
   void ref_processing_init();
 
-  void grow_heap_by(size_t num_regions);
-  void ensure_new_regions(size_t num_new_regions);
+  /* Expand heap by specified number of regions
+   * return true if heap is successfully expanded
+   */
+  bool grow_heap_by(size_t num_regions);
+
+  /* Commit heap space to ensure expansion of specified
+   * number of new regions
+   */
+  bool ensure_new_regions(size_t num_new_regions);
 
   void set_concurrent_mark_in_progress(bool in_progress);
 

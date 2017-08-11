@@ -250,6 +250,10 @@
   develop(bool, ShenandoahVerifyOptoBarriers, false,                        \
           "Verify no missing barriers in c2")                               \
                                                                             \
+  develop(int, ShenandoahFailHeapExpansionAfter, -1,                        \
+          "Artificially fails heap expansion after specified times."        \
+          "Used to verify allocation handling. Default -1 to disable it.")  \
+                                                                            \
   product(bool, ShenandoahAlwaysPreTouch, false,                            \
           "Pre-touch heap memory, overrides global AlwaysPreTouch")         \
                                                                             \
