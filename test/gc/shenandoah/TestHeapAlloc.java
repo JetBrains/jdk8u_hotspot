@@ -25,15 +25,10 @@
  * @test TestHeapAlloc
  * @key gc
  * @summary Fail to expand Java heap should not result fatal errors
- * @requires (vm.debug == true)
- * @library /test/lib
- * @modules java.base/jdk.internal.misc
- *          java.management
+ * @library /testlibrary
  */
 
-import jdk.test.lib.process.ProcessTools;
-import jdk.test.lib.process.OutputAnalyzer;
-import jdk.test.lib.Platform;
+import com.oracle.java.testlibrary.*;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -52,7 +47,7 @@ public class TestHeapAlloc {
         "-Xms256M",
         "-XX:+UseShenandoahGC",
         "-XX:ShenandoahFailHeapExpansionAfter=50",
-        "-Xlog:gc+region=debug",
+        "-XX:+ShenandoahLogDebug",
         AllocALotObjects.class.getName());
     OutputAnalyzer output = new OutputAnalyzer(pb.start());
     output.shouldContain("Artificially fails heap expansion");
