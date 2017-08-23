@@ -536,8 +536,7 @@ public:
       // been allocated since last concurrent mark too.
       shouldStartConcurrentMark = true;
     } else if (periodic_gc) {
-      // TODO: This should really be (gc,ergo)
-      log_info(gc)("Periodic GC triggered. Time since last GC: %.0f ms, Guaranteed Interval: " UINTX_FORMAT " ms",
+      log_info(gc,ergo)("Periodic GC triggered. Time since last GC: %.0f ms, Guaranteed Interval: " UINTX_FORMAT " ms",
                         last_time_ms, ShenandoahGuaranteedGCInterval);
       shouldStartConcurrentMark = true;
     }
@@ -731,8 +730,7 @@ public:
       // been allocated since last concurrent mark too.
       shouldStartConcurrentMark = true;
     } else if (periodic_gc) {
-      // TODO: This should really be (gc,ergo)
-      log_info(gc)("Periodic GC triggered. Time since last GC: %.0f ms, Guaranteed Interval: " UINTX_FORMAT " ms",
+      log_info(gc,ergo)("Periodic GC triggered. Time since last GC: %.0f ms, Guaranteed Interval: " UINTX_FORMAT " ms",
           last_time_ms, ShenandoahGuaranteedGCInterval);
       shouldStartConcurrentMark = true;
     }

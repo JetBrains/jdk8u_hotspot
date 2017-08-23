@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, Red Hat, Inc. and/or its affiliates.
+ * Copyright (c) 2016, 2017, Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -24,13 +24,13 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHLOGGING_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHLOGGING_HPP
 
-#define log_trace(...)   if (ShenandoahLogTrace) gclog_or_tty->print_cr
-#define log_debug(...)   if (ShenandoahLogDebug) gclog_or_tty->print_cr
-#define log_warning(...) if (ShenandoahLogInfo) gclog_or_tty->print_cr
+#define log_trace(...)   if (ShenandoahLogTrace)   gclog_or_tty->print_cr
+#define log_debug(...)   if (ShenandoahLogDebug)   gclog_or_tty->print_cr
+#define log_warning(...) if (ShenandoahLogWarning) gclog_or_tty->print_cr
 
 // With ShenandoahLogInfo, only print out the single-"gc"-tag messages.
-#define log_info(...)    if (((strcmp(#__VA_ARGS__, "gc") == 0) && ShenandoahLogInfo) || \
-                             ((strcmp(#__VA_ARGS__, "gc") != 0) && ShenandoahLogDebug))  \
+#define log_info(...)    if (((strcmp(#__VA_ARGS__, "gc") == 0) && (ShenandoahLogInfo  || PrintGC || PrintGCDetails)) || \
+                             ((strcmp(#__VA_ARGS__, "gc") != 0) && (ShenandoahLogDebug || PrintGCDetails)))  \
                                 gclog_or_tty->print_cr
 
 #ifndef PRODUCT
