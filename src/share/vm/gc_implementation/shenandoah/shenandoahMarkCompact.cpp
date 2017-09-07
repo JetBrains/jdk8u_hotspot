@@ -181,7 +181,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     oopDesc::set_bs(&bs);
 
     {
-      GCTraceTime time("Pause Full", ShenandoahLogInfo, _gc_timer, _gc_tracer->gc_id(), true);
+      GCTraceTime time("Pause Full", PrintGC, _gc_timer, _gc_tracer->gc_id(), true);
 
       if (UseTLAB) {
         _heap->ensure_parsability(true);

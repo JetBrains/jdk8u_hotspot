@@ -30,7 +30,8 @@
 
 // With ShenandoahLogInfo, only print out the single-"gc"-tag messages.
 #define log_info(...)    if (((strcmp(#__VA_ARGS__, "gc") == 0) && (ShenandoahLogInfo  || PrintGC || PrintGCDetails)) || \
-                             ((strcmp(#__VA_ARGS__, "gc") != 0) && (ShenandoahLogDebug || PrintGCDetails)))  \
+                             ((strcmp(#__VA_ARGS__, "gc") > 0)  && (ShenandoahLogInfo  || PrintGCDetails)) || \
+                             ShenandoahLogDebug)  \
                                 gclog_or_tty->print_cr
 
 #ifndef PRODUCT

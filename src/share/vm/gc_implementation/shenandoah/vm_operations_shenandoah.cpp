@@ -35,7 +35,7 @@
 void VM_ShenandoahInitMark::doit() {
   ShenandoahHeap* sh = ShenandoahHeap::heap();
 
-  GCTraceTime time("Pause Init Mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
+  GCTraceTime time("Pause Init Mark", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
   ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause);
   ShenandoahGCPhase init_mark_phase(ShenandoahCollectorPolicy::init_mark);
 
@@ -96,7 +96,7 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
   ShenandoahWorkerScope scope(workers, n_workers);
 
   if (! sh->cancelled_concgc()) {
-    GCTraceTime time("Pause Final Mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id(), true);
+    GCTraceTime time("Pause Final Mark", PrintGC, sh->gc_timer(), sh->tracer()->gc_id(), true);
     sh->concurrentMark()->finish_mark_from_roots();
     sh->stop_concurrent_marking();
 
@@ -116,7 +116,7 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
       sh->evacuate_and_update_roots();
     }
   } else {
-    GCTraceTime time("Cancel concurrent mark", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
+    GCTraceTime time("Cancel concurrent mark", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
   }
@@ -126,7 +126,7 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
 
 void VM_ShenandoahInitUpdateRefs::doit() {
   ShenandoahHeap *sh = ShenandoahHeap::heap();
-  GCTraceTime time("Pause Init Update Refs", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id());
+  GCTraceTime time("Pause Init Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
   ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause);
   ShenandoahGCPhase init_update_refs(ShenandoahCollectorPolicy::init_update_refs);
 
@@ -135,7 +135,7 @@ void VM_ShenandoahInitUpdateRefs::doit() {
 
 void VM_ShenandoahFinalUpdateRefs::doit() {
   ShenandoahHeap *sh = ShenandoahHeap::heap();
-  GCTraceTime time("Pause Final Update Refs", ShenandoahLogInfo, sh->gc_timer(), sh->tracer()->gc_id(), true);
+  GCTraceTime time("Pause Final Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id(), true);
   ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause);
   ShenandoahGCPhase final_update_refs(ShenandoahCollectorPolicy::final_update_refs);
 

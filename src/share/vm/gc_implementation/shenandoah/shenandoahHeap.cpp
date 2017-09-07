@@ -1353,7 +1353,7 @@ void ShenandoahHeap::gc_threads_do(ThreadClosure* tcl) const {
 }
 
 void ShenandoahHeap::print_tracing_info() const {
-  if (ShenandoahLogInfo || TraceGen0Time || TraceGen1Time) {
+  if (PrintGC || TraceGen0Time || TraceGen1Time) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
     _shenandoah_policy->print_tracing_info(out);

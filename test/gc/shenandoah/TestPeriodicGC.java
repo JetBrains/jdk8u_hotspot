@@ -70,7 +70,7 @@ public class TestPeriodicGC {
         for (String h : enabled) {
             testWith("Short period with " + h,
                 true,
-                "-verbose:gc",
+                "-XX:+PrintGCDetails",
                 "-XX:+UseShenandoahGC",
                 "-XX:+UnlockExperimentalVMOptions",
                 "-XX:ShenandoahGCHeuristics=" + h,
@@ -79,7 +79,7 @@ public class TestPeriodicGC {
 
             testWith("Long period with " + h,
                 false,
-                "-verbose:gc",
+                "-XX:+PrintGCDetails",
                 "-XX:+UseShenandoahGC",
                 "-XX:+UnlockExperimentalVMOptions",
                 "-XX:ShenandoahGCHeuristics=" + h,
@@ -90,7 +90,7 @@ public class TestPeriodicGC {
         for (String h : disabled) {
             testWith("Short period with " + h,
                 false,
-                "-verbose:gc",
+                "-XX:+PrintGCDetails",
                 "-XX:+UseShenandoahGC",
                 "-XX:+UnlockExperimentalVMOptions",
                 "-XX:ShenandoahGCHeuristics=" + h,

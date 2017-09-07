@@ -1785,10 +1785,6 @@ void Arguments::set_shenandoah_gc_flags() {
     FLAG_SET_DEFAULT(AlwaysPreTouch, false);
     FLAG_SET_DEFAULT(ShenandoahAlwaysPreTouch, true);
   }
-
-  if (PrintGC && FLAG_IS_DEFAULT(ShenandoahLogInfo)) {
-    FLAG_SET_DEFAULT(ShenandoahLogInfo, true);
-  }
 }
 
 #if !INCLUDE_ALL_GCS
