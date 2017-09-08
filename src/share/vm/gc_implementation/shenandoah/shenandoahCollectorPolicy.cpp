@@ -270,6 +270,17 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   for (size_t i = 0; i < active; i++) {
     ShenandoahHeapRegion* region = regions->get(i);
 
+    // Reclaim humongous regions here, and count them as the immediate garbage
+    if (region->is_humongous_start()) {
+      assert(region->has_live() == heap->is_marked_complete(oop(region->bottom() + BrooksPointer::word_size())),
+             "Humongous liveness and marks should agree");
+      if (!region->has_live()) {
+        size_t reclaimed = heap->reclaim_humongous_region_at(region);
+        immediate_regions += reclaimed;
+        immediate_garbage += reclaimed * ShenandoahHeapRegion::region_size_bytes();
+      }
+    }
+
     if (! region->is_humongous() && ! region->is_pinned()) {
       if ((! region->is_empty()) && ! region->has_live()) {
         // We can recycle it right away and put it in the free set.

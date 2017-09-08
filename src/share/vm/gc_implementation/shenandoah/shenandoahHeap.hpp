@@ -406,7 +406,7 @@ public:
   size_t bytes_allocated_since_cm();
   void set_bytes_allocated_since_cm(size_t bytes);
 
-  void reclaim_humongous_region_at(ShenandoahHeapRegion* r);
+  size_t reclaim_humongous_region_at(ShenandoahHeapRegion* r);
 
   VirtualSpace* storage() const;
 

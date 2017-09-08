@@ -953,7 +953,7 @@ void ShenandoahHeap::print_heap_regions(outputStream* st) const {
   _ordered_regions->print(st);
 }
 
-void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
+size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
   assert(r->is_humongous_start(), "reclaim regions starting with the first one");
 
   oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
@@ -981,23 +981,8 @@ void ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
     region->recycle();
     decrease_used(ShenandoahHeapRegion::region_size_bytes());
   }
+  return required_regions;
 }
-
-class ShenandoahReclaimHumongousRegionsClosure : public ShenandoahHeapRegionClosure {
-
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
-    ShenandoahHeap* heap = ShenandoahHeap::heap();
-
-    if (r->is_humongous_start()) {
-      oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
-      if (! heap->is_marked_complete(humongous_obj)) {
-
-        heap->reclaim_humongous_region_at(r);
-      }
-    }
-    return false;
-  }
-};
 
 #ifdef ASSERT
 class ShenandoahCheckCollectionSetClosure: public ShenandoahHeapRegionClosure {
@@ -1038,9 +1023,6 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
       ShenandoahHeapLock lock(this);
       _collection_set->clear();
       _free_regions->clear();
-
-      ShenandoahReclaimHumongousRegionsClosure reclaim;
-      heap_region_iterate(&reclaim);
 
 #ifdef ASSERT
       ShenandoahCheckCollectionSetClosure ccsc;
