@@ -46,5 +46,14 @@ public:
   ~ShenandoahGCPhase();
 };
 
+class ShenandoahAllocTrace : public StackObj {
+private:
+  double _start;
+  size_t _size;
+  ShenandoahHeap::AllocType _alloc_type;
+public:
+  ShenandoahAllocTrace(size_t words_size, ShenandoahHeap::AllocType alloc_type);
+  ~ShenandoahAllocTrace();
+};
 
 #endif // SHARE_VM_GC_SHENANDOAHUTILS_HPP

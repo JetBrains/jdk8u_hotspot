@@ -354,3 +354,65 @@ double HdrSeq::percentile(double level) const {
   return maximum();
 }
 
+BinaryMagnitudeSeq::BinaryMagnitudeSeq() {
+  _mags = NEW_C_HEAP_ARRAY(jlong, BitsPerJavaLong, mtInternal);
+  for (int c = 0; c < BitsPerJavaLong; c++) {
+    _mags[c] = 0;
+  }
+}
+
+BinaryMagnitudeSeq::~BinaryMagnitudeSeq() {
+  FREE_C_HEAP_ARRAY(size_t, _mags, mtInternal);
+}
+
+void BinaryMagnitudeSeq::add(size_t val) {
+  int mag = log2_intptr(val) + 1;
+
+  // Defensively saturate for product bits:
+  if (mag < 0) {
+    assert (false, err_msg("bucket index (%d) underflow for value (" SIZE_FORMAT ")", mag, val));
+    mag = 0;
+  }
+
+  if (mag >= BitsPerJavaLong) {
+    assert (false, err_msg("bucket index (%d) overflow for value (" SIZE_FORMAT ")", mag, val));
+    mag = BitsPerJavaLong - 1;
+  }
+
+  Atomic::add(1, &_mags[mag]);
+}
+
+size_t BinaryMagnitudeSeq::level(int level) const {
+  if (0 <= level && level < BitsPerJavaLong) {
+    return _mags[level];
+  } else {
+    return 0;
+  }
+}
+
+size_t BinaryMagnitudeSeq::num() const {
+  int r = 0;
+  for (int c = 0; c < BitsPerJavaLong; c++) {
+    r += _mags[c];
+  }
+  return r;
+}
+
+int BinaryMagnitudeSeq::min_level() const {
+  for (int c = 0; c < BitsPerJavaLong; c++) {
+    if (_mags[c] != 0) {
+      return c;
+    }
+  }
+  return BitsPerJavaLong - 1;
+}
+
+int BinaryMagnitudeSeq::max_level() const {
+  for (int c = BitsPerJavaLong - 1; c > 0; c--) {
+    if (_mags[c] != 0) {
+      return c;
+    }
+  }
+  return 0;
+}
+

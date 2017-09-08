@@ -474,7 +474,24 @@ public:
     _alloc_shared_gc,   // Allocate common, outside of GCLAB
     _alloc_tlab,        // Allocate TLAB
     _alloc_gclab,       // Allocate GCLAB
+    _ALLOC_LIMIT,
   } AllocType;
+
+  static const char* alloc_type_to_string(AllocType type) {
+    switch (type) {
+      case _alloc_shared:
+        return "Shared";
+      case _alloc_shared_gc:
+        return "Shared GC";
+      case _alloc_tlab:
+        return "TLAB";
+      case _alloc_gclab:
+        return "GCLAB";
+      default:
+        ShouldNotReachHere();
+        return "";
+    }
+  }
 private:
   HeapWord* allocate_new_lab(size_t word_size, AllocType type);
   HeapWord* allocate_memory_under_lock(size_t word_size, AllocType type);

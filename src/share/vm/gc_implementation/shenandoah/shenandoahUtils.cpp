@@ -26,6 +26,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
+#include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
 
 
@@ -47,4 +48,29 @@ ShenandoahGCPhase::ShenandoahGCPhase(const ShenandoahCollectorPolicy::TimingPhas
 
 ShenandoahGCPhase::~ShenandoahGCPhase() {
   ShenandoahHeap::heap()->shenandoahPolicy()->record_phase_end(_phase);
+}
+
+ShenandoahAllocTrace::ShenandoahAllocTrace(size_t words_size, ShenandoahHeap::AllocType alloc_type) {
+  if (ShenandoahAllocationTrace) {
+    _start = os::elapsedTime();
+    _size = words_size;
+    _alloc_type = alloc_type;
+  } else {
+    _start = 0;
+    _size = 0;
+    _alloc_type = ShenandoahHeap::AllocType(0);
+  }
+}
+
+ShenandoahAllocTrace::~ShenandoahAllocTrace() {
+  if (ShenandoahAllocationTrace) {
+    double stop = os::elapsedTime();
+    double duration_sec = stop - _start;
+    double duration_us = duration_sec * 1000000;
+    ShenandoahHeap::heap()->shenandoahPolicy()->record_alloc_latency(_size, _alloc_type, duration_us);
+    if (duration_us > ShenandoahAllocationStallThreshold) {
+      log_warning(gc)("Allocation stall: %.0f us (threshold: " INTX_FORMAT " us)",
+                      duration_us, ShenandoahAllocationStallThreshold);
+    }
+  }
 }

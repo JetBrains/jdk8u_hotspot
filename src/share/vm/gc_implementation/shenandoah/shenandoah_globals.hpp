@@ -244,6 +244,16 @@
           "3 = previous level, plus all reachable objects; "                \
           "4 = previous level, plus all marked objects")                    \
                                                                             \
+  diagnostic(bool, ShenandoahAllocationTrace, false,                        \
+          "Trace allocation latencies and stalls. Can be expensive when "   \
+          "lots of allocations happen, and may introduce scalability "      \
+          "bottlenecks.")                                                   \
+                                                                            \
+  diagnostic(intx, ShenandoahAllocationStallThreshold, 10000,               \
+          "When allocation tracing is enabled, the allocation stalls "      \
+          "larger than this threshold would be reported as warnings. "      \
+          "Time is in microseconds.")                                       \
+                                                                            \
   develop(bool, VerifyStrictOopOperations, false,                           \
           "Verify that == and != are not used on oops. Only in fastdebug")  \
                                                                             \

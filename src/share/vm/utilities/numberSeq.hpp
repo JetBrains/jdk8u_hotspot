@@ -129,6 +129,24 @@ public:
   double percentile(double level) const;
 };
 
+// Binary magnitude sequence stores the power-of-two histogram.
+// It has very low memory requirements, and is thread-safe. When accuracy
+// is not needed, it is preferred over HdrSeq.
+class BinaryMagnitudeSeq {
+private:
+  jlong* _mags;
+
+public:
+  BinaryMagnitudeSeq();
+  ~BinaryMagnitudeSeq();
+
+  void add(size_t val);
+  size_t num() const;
+  size_t level(int level) const;
+  int min_level() const;
+  int max_level() const;
+};
+
 class TruncatedSeq: public AbsSeq {
 private:
   enum PrivateConstants {

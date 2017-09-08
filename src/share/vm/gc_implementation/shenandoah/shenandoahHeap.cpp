@@ -654,6 +654,8 @@ HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, AllocType type)
 }
 
 HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
+  ShenandoahAllocTrace trace_alloc(word_size, type);
+
   HeapWord* result = NULL;
   result = allocate_memory_work(word_size, type);
 
@@ -766,7 +768,6 @@ HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
 
 HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
                                         bool*  gc_overhead_limit_was_exceeded) {
-
   HeapWord* filler = allocate_memory(size + BrooksPointer::word_size(), _alloc_shared);
   HeapWord* result = filler + BrooksPointer::word_size();
   if (filler != NULL) {

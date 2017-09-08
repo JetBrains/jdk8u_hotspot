@@ -416,6 +416,12 @@ void ShenandoahCollectorPolicy::record_phase_time(TimingPhase phase, jint time_u
   }
 }
 
+void ShenandoahCollectorPolicy::record_alloc_latency(size_t words_size,
+                                                     ShenandoahHeap::AllocType _alloc_type, double latency_us) {
+  _alloc_size[_alloc_type].add(words_size);
+  _alloc_latency[_alloc_type].add((size_t)latency_us);
+}
+
 void ShenandoahCollectorPolicy::record_gc_start() {
   _heuristics->record_gc_start();
 }
@@ -1097,6 +1103,61 @@ void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
   out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated concurrent markings", _successful_cm, _degenerated_cm);
   out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated update references  ", _successful_uprefs, _degenerated_uprefs);
   out->cr();
+
+  out->print_cr("ALLOCATION TRACING");
+  out->print_cr("  These are the slow-path allocations, including TLAB/GCLAB refills, and out-of-TLAB allocations.");
+  out->print_cr("  In-TLAB/GCLAB allocations happen orders of magnitude more frequently, and without delays.");
+  out->cr();
+
+  if (ShenandoahAllocationTrace) {
+    out->print("%18s", "");
+    for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
+      out->print("%12s", ShenandoahHeap::alloc_type_to_string(ShenandoahHeap::AllocType(t)));
+    }
+    out->cr();
+
+    out->print_cr("Counts:");
+    out->print("%18s", "#");
+    for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
+      out->print(SIZE_FORMAT_W(12), _alloc_size[t].num());
+    }
+    out->cr();
+    out->cr();
+
+    // Figure out max and min levels
+    int lat_min_level = +1000;
+    int lat_max_level = -1000;
+    int size_min_level = +1000;
+    int size_max_level = -1000;
+    for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
+      lat_min_level = MIN2(lat_min_level, _alloc_latency[t].min_level());
+      lat_max_level = MAX2(lat_max_level, _alloc_latency[t].max_level());
+      size_min_level = MIN2(size_min_level, _alloc_size[t].min_level());
+      size_max_level = MAX2(size_max_level, _alloc_size[t].max_level());
+    }
+
+    out->print_cr("Latencies (in microseconds):");
+    for (int c = lat_min_level; c <= lat_max_level; c++) {
+      out->print("%7d - %7d:", (c == 0) ? 0 : 1 << (c - 1), 1 << c);
+      for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
+        out->print(SIZE_FORMAT_W(12), _alloc_latency[t].level(c));
+      }
+      out->cr();
+    }
+    out->cr();
+
+    out->print_cr("Sizes (in bytes):");
+    for (int c = size_min_level; c <= size_max_level; c++) {
+      out->print("%7d - %7d:", (c == 0) ? 0 : 1 << (c - 1), 1 << c);
+      for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
+        out->print(SIZE_FORMAT_W(12), _alloc_size[t].level(c));
+      }
+      out->cr();
+    }
+    out->cr();
+  } else {
+    out->print_cr("  Allocation tracing is disabled, use -XX:+ShenandoahAllocationTrace to enable.");
+  }
 }
 
 void ShenandoahCollectorPolicy::print_summary_sd(outputStream* out, const char* str, const HdrSeq* seq)  {
