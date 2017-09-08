@@ -80,10 +80,6 @@ public:
    */
   static inline oop forwardee(oop obj);
 
-  /* Forcefully sets forwardee in $holder to $update.
-   */
-  static inline void set_forwardee(oop obj, oop update);
-
   /* Tries to atomically update forwardee in $holder object to $update.
    * Assumes $holder points at itself.
    * Asserts $holder is in from-space.

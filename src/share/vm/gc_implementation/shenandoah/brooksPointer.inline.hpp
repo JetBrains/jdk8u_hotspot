@@ -36,41 +36,27 @@ inline HeapWord** BrooksPointer::brooks_ptr_addr(oop obj) {
 }
 
 inline void BrooksPointer::initialize(oop obj) {
-  log_develop_trace(gc)("Init forwardee for "PTR_FORMAT" to self", p2i(obj));
 #ifdef ASSERT
   assert(ShenandoahHeap::heap()->is_in(obj), "oop must point to a heap address");
 #endif
   *brooks_ptr_addr(obj) = (HeapWord*) obj;
 }
 
-inline void BrooksPointer::set_forwardee(oop holder, oop update) {
-#ifdef ASSERT
-  ShenandoahVerifier::verify_oop_fwdptr(holder, update);
-#endif
-  log_develop_trace(gc)("Setting forwardee to "PTR_FORMAT" = "PTR_FORMAT, p2i(holder), p2i(update));
-  *brooks_ptr_addr(holder) = (HeapWord*) update;
-}
-
 inline void BrooksPointer::set_raw(oop holder, HeapWord* update) {
-  log_develop_trace(gc)("Setting RAW forwardee for "PTR_FORMAT" = "PTR_FORMAT, p2i(holder), p2i(update));
   assert(UseShenandoahGC, "must only be called when Shenandoah is used.");
   *brooks_ptr_addr(holder) = update;
 }
 
 inline HeapWord* BrooksPointer::get_raw(oop holder) {
   assert(UseShenandoahGC, "must only be called when Shenandoah is used.");
-  HeapWord* res = *brooks_ptr_addr(holder);
-  log_develop_trace(gc)("Getting RAW forwardee for "PTR_FORMAT" = "PTR_FORMAT, p2i(holder), p2i(res));
-  return res;
+  return *brooks_ptr_addr(holder);
 }
 
 inline oop BrooksPointer::forwardee(oop obj) {
 #ifdef ASSERT
   ShenandoahVerifier::verify_oop(obj);
 #endif
-  oop forwardee = oop(*brooks_ptr_addr(obj));
-  log_develop_trace(gc)("Forwardee for "PTR_FORMAT" = "PTR_FORMAT, p2i(obj), p2i(forwardee));
-  return forwardee;
+  return oop(*brooks_ptr_addr(obj));
 }
 
 inline oop BrooksPointer::try_update_forwardee(oop holder, oop update) {
@@ -82,13 +68,7 @@ inline oop BrooksPointer::try_update_forwardee(oop holder, oop update) {
 
 #ifdef ASSERT
   assert(result != NULL, "CAS result is not NULL");
-  assert(ShenandoahHeap::heap()->is_in(result), "CAS result must point to a heap address");
-
-  if (oopDesc::unsafe_equals(result, holder)) {
-    log_develop_trace(gc)("Updated forwardee for "PTR_FORMAT" to "PTR_FORMAT, p2i(holder), p2i(update));
-  } else {
-    log_develop_trace(gc)("Failed to set forwardee for "PTR_FORMAT" to "PTR_FORMAT", was already "PTR_FORMAT, p2i(holder), p2i(update), p2i(result));
-  }
+  ShenandoahVerifier::verify_oop(holder);
 #endif
 
   return result;
