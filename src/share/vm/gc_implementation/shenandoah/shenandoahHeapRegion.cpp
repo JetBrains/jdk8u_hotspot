@@ -69,6 +69,7 @@ bool ShenandoahHeapRegion::make_regular_allocation() {
       _state = _regular;
       return true;
     case _regular:
+    case _pinned:
       return false;
   }
   fatal(err_msg("Disallowed transition from %s to %s",
@@ -88,6 +89,7 @@ void ShenandoahHeapRegion::make_regular_bypass() {
     case _cset:
       _state = _regular;
     case _regular:
+    case _pinned:
       return;
   }
   fatal(err_msg("Disallowed transition from %s to %s",

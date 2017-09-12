@@ -160,7 +160,7 @@ public:
   // Macro-properties:
   bool is_humongous()              const { return is_humongous_start() || is_humongous_continuation(); }
   bool is_committed()              const { return !is_empty_uncommitted(); }
-  bool is_alloc_allowed()          const { return is_empty() || is_regular(); }
+  bool is_alloc_allowed()          const { return is_empty() || is_regular() || is_pinned(); }
 
 private:
   void do_commit() {
