@@ -113,6 +113,9 @@ public:
 private:
   bool need_update_refs_barrier();
 
+  template <class T>
+  void write_ref_array_loop(HeapWord* start, size_t count);
+
 #ifndef CC_INTERP
 public:
   virtual void interpreter_read_barrier(MacroAssembler* masm, Register dst);

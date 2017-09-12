@@ -163,18 +163,21 @@ void ShenandoahBarrierSet::write_ref_array_work(MemRegion r) {
   ShouldNotReachHere();
 }
 
+template <class T>
+void ShenandoahBarrierSet::write_ref_array_loop(HeapWord* start, size_t count) {
+  ShenandoahUpdateRefsForOopClosure cl;
+  T* dst = (T*) start;
+  for (size_t i = 0; i < count; i++) {
+    cl.do_oop(dst++);
+  }
+}
+
 void ShenandoahBarrierSet::write_ref_array(HeapWord* start, size_t count) {
   if (! need_update_refs_barrier()) return;
   if (UseCompressedOops) {
-    narrowOop* dst = (narrowOop*) start;
-    for (size_t i = 0; i < count; i++, dst++) {
-      _heap->maybe_update_oop_ref(dst);
-    }
+    write_ref_array_loop<narrowOop>(start, count);
   } else {
-    oop* dst = (oop*) start;
-    for (size_t i = 0; i < count; i++, dst++) {
-      _heap->maybe_update_oop_ref(dst);
-    }
+    write_ref_array_loop<oop>(start, count);
   }
 }
 
