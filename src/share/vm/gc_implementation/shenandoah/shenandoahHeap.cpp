@@ -607,7 +607,7 @@ HeapWord* ShenandoahHeap::allocate_new_lab(size_t word_size, AllocType type) {
   HeapWord* result = allocate_memory(word_size, type);
 
   if (result != NULL) {
-    assert(! in_collection_set(result), "Never allocate in dirty region");
+    assert(! in_collection_set(result), "Never allocate in collection set");
     _bytes_allocated_since_cm += word_size * HeapWordSize;
 
     log_develop_trace(gc, tlab)("allocating new tlab of size "SIZE_FORMAT" at addr "PTR_FORMAT, word_size, p2i(result));
@@ -913,7 +913,7 @@ public:
   }
 };
 
-void ShenandoahHeap::recycle_dirty_regions() {
+void ShenandoahHeap::recycle_cset_regions() {
   ShenandoahHeapLock lock(this);
 
   size_t bytes_reclaimed = 0;
@@ -1000,7 +1000,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
       verifier()->verify_after_concmark();
     }
 
-    recycle_dirty_regions();
+    recycle_cset_regions();
 
     // NOTE: This needs to be done during a stop the world pause, because
     // putting regions into the collection set concurrently with Java threads
@@ -1411,13 +1411,13 @@ void ShenandoahHeap::safe_object_iterate(ObjectClosure* cl) {
   assert(SafepointSynchronize::is_at_safepoint(), "safe iteration is only available during safepoints");
 
   // Safe iteration does objects only with correct references.
-  // This is why we skip dirty regions that have stale copies of objects,
+  // This is why we skip collection set regions that have stale copies of objects,
   // and fix up the pointers in the returned objects.
 
   ShenandoahSafeObjectIterateAndUpdate safe_cl(cl);
   ShenandoahIterateObjectClosureRegionClosure blk(&safe_cl);
   heap_region_iterate(&blk,
-                      /* skip_dirty_regions = */ true,
+                      /* skip_cset_regions = */ true,
                       /* skip_humongous_continuations = */ true);
 
   _need_update_refs = false; // already updated the references
@@ -1438,9 +1438,9 @@ public:
   }
 };
 
-void ShenandoahHeap::oop_iterate(ExtendedOopClosure* cl, bool skip_dirty_regions, bool skip_unreachable_objects) {
+void ShenandoahHeap::oop_iterate(ExtendedOopClosure* cl, bool skip_cset_regions, bool skip_unreachable_objects) {
   ShenandoahIterateOopClosureRegionClosure blk(cl, skip_unreachable_objects);
-  heap_region_iterate(&blk, skip_dirty_regions, true);
+  heap_region_iterate(&blk, skip_cset_regions, true);
 }
 
 class ShenandoahSpaceClosureRegionClosure: public ShenandoahHeapRegionClosure {
@@ -1473,13 +1473,13 @@ void  ShenandoahHeap::gc_epilogue(bool b) {
 
 // Apply blk->doHeapRegion() on all committed regions in address order,
 // terminating the iteration early if doHeapRegion() returns true.
-void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_dirty_regions, bool skip_humongous_continuation) const {
+void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_cset_regions, bool skip_humongous_continuation) const {
   for (size_t i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* current  = _ordered_regions->get(i);
     if (skip_humongous_continuation && current->is_humongous_continuation()) {
       continue;
     }
-    if (skip_dirty_regions && in_collection_set(current)) {
+    if (skip_cset_regions && in_collection_set(current)) {
       continue;
     }
     if (blk->doHeapRegion(current)) {
@@ -2111,7 +2111,7 @@ void ShenandoahHeap::finish_update_refs() {
 
   ShenandoahGCPhase final_update_refs(ShenandoahCollectorPolicy::final_update_refs_recycle);
 
-  recycle_dirty_regions();
+  recycle_cset_regions();
   set_need_update_refs(false);
 
   if (ShenandoahVerify) {

@@ -670,7 +670,7 @@ public:
       r->make_trash();
     }
 
-    // Recycle all dirty regions
+    // Recycle all trash regions
     if (r->is_trash()) {
       _heap->immediate_recycle(r);
     }

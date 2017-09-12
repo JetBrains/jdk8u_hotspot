@@ -66,7 +66,7 @@ void ShenandoahHeapRegionSet::add_region_check_for_duplicates(ShenandoahHeapRegi
 // Apply blk->doHeapRegion() on all committed regions in address order,
 // terminating the iteration early if doHeapRegion() returns true.
 void ShenandoahHeapRegionSet::active_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                                                  bool skip_dirty_regions,
+                                                  bool skip_cset_regions,
                                                   bool skip_humongous_continuation) const {
   size_t i;
   for (i = 0; i < _active_end; i++) {
@@ -76,7 +76,7 @@ void ShenandoahHeapRegionSet::active_heap_region_iterate(ShenandoahHeapRegionClo
     if (skip_humongous_continuation && current->is_humongous_continuation()) {
       continue;
     }
-    if (skip_dirty_regions && current->in_collection_set()) {
+    if (skip_cset_regions && current->in_collection_set()) {
       continue;
     }
     if (blk->doHeapRegion(current)) {
@@ -86,7 +86,7 @@ void ShenandoahHeapRegionSet::active_heap_region_iterate(ShenandoahHeapRegionClo
 }
 
 void ShenandoahHeapRegionSet::unclaimed_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                                                  bool skip_dirty_regions,
+                                                  bool skip_cset_regions,
                                                   bool skip_humongous_continuation) const {
   size_t i;
 
@@ -98,7 +98,7 @@ void ShenandoahHeapRegionSet::unclaimed_heap_region_iterate(ShenandoahHeapRegion
     if (skip_humongous_continuation && current->is_humongous_continuation()) {
       continue;
     }
-    if (skip_dirty_regions && current->in_collection_set()) {
+    if (skip_cset_regions && current->in_collection_set()) {
       continue;
     }
     if (blk->doHeapRegion(current)) {
@@ -109,9 +109,9 @@ void ShenandoahHeapRegionSet::unclaimed_heap_region_iterate(ShenandoahHeapRegion
 
 // Iterates over all of the regions.
 void ShenandoahHeapRegionSet::heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                                                  bool skip_dirty_regions,
+                                                  bool skip_cset_regions,
                                                   bool skip_humongous_continuation) const {
-  active_heap_region_iterate(blk, skip_dirty_regions, skip_humongous_continuation);
+  active_heap_region_iterate(blk, skip_cset_regions, skip_humongous_continuation);
 }
 
 class ShenandoahPrintHeapRegionsClosure : public ShenandoahHeapRegionClosure {

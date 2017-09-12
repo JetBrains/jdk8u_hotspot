@@ -267,7 +267,7 @@ public:
   bool supports_heap_inspection() const /* override */;
 
   void space_iterate(SpaceClosure* scl) /* override */;
-  void oop_iterate(ExtendedOopClosure* cl, bool skip_dirty_regions,
+  void oop_iterate(ExtendedOopClosure* cl, bool skip_cset_regions,
                    bool skip_unreachable_objects);
   void oop_iterate(ExtendedOopClosure* cl) {
     oop_iterate(cl, false, false);
@@ -301,7 +301,7 @@ public:
   template <class T>
   inline oop maybe_update_oop_ref(T* p);
 
-  void recycle_dirty_regions();
+  void recycle_cset_regions();
 
   void start_concurrent_marking();
   void stop_concurrent_marking();
@@ -422,7 +422,7 @@ public:
   void do_evacuation();
   ShenandoahHeapRegion* next_compaction_region(const ShenandoahHeapRegion* r);
 
-  void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_trash_regions = false, bool skip_humongous_continuation = false) const;
+  void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_cset_regions = false, bool skip_humongous_continuation = false) const;
 
   // Delete entries for dead interned string and clean up unreferenced symbols
   // in symbol table, possibly in parallel.

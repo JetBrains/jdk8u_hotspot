@@ -94,7 +94,7 @@ public:
 public:
 
   void heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                           bool skip_dirty_regions = false,
+                           bool skip_cset_regions = false,
                            bool skip_humongous_continuation = false) const;
 
   size_t current_index()   { return _current_index;}
@@ -106,11 +106,11 @@ public:
 protected:
 
   void active_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                           bool skip_dirty_regions = false,
+                           bool skip_cset_regions = false,
                            bool skip_humongous_continuation = false) const;
 
   void unclaimed_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                           bool skip_dirty_regions = false,
+                           bool skip_cset_regions = false,
                            bool skip_humongous_continuation = false) const;
 
 };
