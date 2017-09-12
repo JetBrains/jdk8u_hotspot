@@ -379,7 +379,6 @@ public:
   void increase_committed(size_t bytes);
   void decrease_committed(size_t bytes);
 
-  void ensure_committed(ShenandoahHeapRegion* r);
   void handle_heap_shrinkage();
 
   size_t garbage();
@@ -423,7 +422,7 @@ public:
   void do_evacuation();
   ShenandoahHeapRegion* next_compaction_region(const ShenandoahHeapRegion* r);
 
-  void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_dirty_regions = false, bool skip_humongous_continuation = false) const;
+  void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_trash_regions = false, bool skip_humongous_continuation = false) const;
 
   // Delete entries for dead interned string and clean up unreferenced symbols
   // in symbol table, possibly in parallel.
@@ -538,6 +537,7 @@ private:
 
 public:
   void start_deferred_recycling();
+  void immediate_recycle(ShenandoahHeapRegion* r);
   void defer_recycle(ShenandoahHeapRegion* r);
   void finish_deferred_recycle();
 

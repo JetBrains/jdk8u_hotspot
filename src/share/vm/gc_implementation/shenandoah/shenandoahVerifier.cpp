@@ -429,35 +429,11 @@ public:
     verify(r, r->get_shared_allocs() + r->get_tlab_allocs() + r->get_gclab_allocs() == r->used(),
            "Accurate accounting: shared + TLAB + GCLAB = used");
 
-    verify(r, !r->is_humongous_start() || !r->is_humongous_continuation(),
-           "Region cannot be both humongous start and humongous continuation");
+    verify(r, !r->is_empty() || !r->has_live(),
+           "Empty regions should not have live data");
 
-    verify(r, !r->is_pinned() || !r->in_collection_set(),
-           "Region cannot be both pinned and in collection set");
-
-    verify(r, r->is_committed() || r->is_empty(),
-           "Region cannot be both uncommited and non-empty");
-
-    verify(r, r->is_committed() || !r->has_live(),
-           "Region cannot be both uncommited and have live data");
-
-    verify(r, r->is_committed() || !r->is_pinned(),
-           "Region cannot be both uncommited and pinned");
-
-    verify(r, r->is_committed() || !r->is_humongous(),
-           "Region cannot be both uncommited and humongous");
-
-    verify(r, r->is_active() || r->is_empty(),
-           "Region cannot both have live data and be non-active");
-
-    verify(r, r->is_active() || !r->has_live(),
-           "Region cannot be both non-active and have live data");
-
-    verify(r, r->is_active() || !r->is_pinned(),
-           "Region cannot be both non-active and pinned");
-
-    verify(r, r->is_active() || !r->is_humongous(),
-           "Region cannot be both non-active and humongous");
+    verify(r, r->is_cset() == r->in_collection_set(),
+           "Transitional: region flags and collection set agree");
 
     return false;
   }

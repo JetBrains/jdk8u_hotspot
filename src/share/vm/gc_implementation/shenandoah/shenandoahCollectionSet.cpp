@@ -63,9 +63,26 @@ void ShenandoahCollectionSet::remove_region(ShenandoahHeapRegion* r) {
   _region_count --;
 }
 
+void ShenandoahCollectionSet::update_region_status() {
+  for (size_t index = 0; index < _heap->num_regions(); index ++) {
+    ShenandoahHeapRegion* r = _heap->regions()->get(index);
+    if (is_in(r)) {
+      r->make_cset();
+    } else {
+      assert (!r->is_cset(), "should not be cset");
+    }
+  }
+}
+
 void ShenandoahCollectionSet::clear() {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
   Copy::zero_to_bytes(_cset_map, _map_size);
+
+#ifdef ASSERT
+  for (size_t index = 0; index < _heap->num_regions(); index ++) {
+    assert (!_heap->regions()->get(index)->is_cset(), "should have been cleared before");
+  }
+#endif
 
   _garbage = 0;
   _live_data = 0;

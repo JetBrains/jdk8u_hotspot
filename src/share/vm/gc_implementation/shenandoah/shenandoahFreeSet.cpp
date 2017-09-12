@@ -100,13 +100,12 @@ void ShenandoahFreeSet::initialize_humongous_regions(size_t first, size_t num) {
   assert_heaplock_owned_by_current_thread();
   for (size_t i = 0; i < num; i++) {
     ShenandoahHeapRegion* current = get(first + i);
-    ShenandoahHeap::heap()->ensure_committed(current);
-    if (i == 0)
-      current->set_humongous_start(true);
-    else
-      current->set_humongous_continuation(true);
+    if (i == 0) {
+      current->make_humongous_start();
+    } else {
+      current->make_humongous_cont();
+    }
 
-    assert(current->is_empty(), "must be empty");
     current->set_top(current->end());
     current->increase_live_data_words(ShenandoahHeapRegion::region_size_words_jint());
     current->reset_alloc_stats_to_shared();

@@ -33,9 +33,7 @@ HeapWord* ShenandoahHeapRegion::allocate(size_t size, ShenandoahHeap::AllocType 
 
   HeapWord* obj = top();
   if (pointer_delta(end(), obj) >= size) {
-    if (is_empty()) {
-      _heap->ensure_committed(this);
-    }
+    make_regular_allocation();
     HeapWord* new_top = obj + size;
     set_top(new_top);
     assert(is_aligned(obj) && is_aligned(new_top), "checking alignment");

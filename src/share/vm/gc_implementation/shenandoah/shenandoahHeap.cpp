@@ -525,14 +525,6 @@ bool ShenandoahHeap::is_scavengable(const void* p) {
   return true;
 }
 
-void ShenandoahHeap::ensure_committed(ShenandoahHeapRegion* r) {
-  assert_heaplock_owned_by_current_thread();
-
-  if (r->try_commit()) {
-    increase_committed(ShenandoahHeapRegion::region_size_bytes());
-  }
-}
-
 void ShenandoahHeap::handle_heap_shrinkage() {
   ShenandoahHeapLock lock(this);
 
@@ -542,8 +534,9 @@ void ShenandoahHeap::handle_heap_shrinkage() {
   double current = os::elapsedTime();
   for (size_t i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* r = set->get(i);
-    if (r->try_uncommit(current)) {
-      decrease_committed(ShenandoahHeapRegion::region_size_bytes());
+    if (r->is_empty_committed() &&
+            (current - r->empty_time()) * 1000 > ShenandoahUncommitDelay &&
+            r->make_empty_uncommitted()) {
       count++;
     }
   }
@@ -945,11 +938,9 @@ void ShenandoahHeap::recycle_dirty_regions() {
 
 void ShenandoahHeap::print_heap_regions(outputStream* st) const {
   st->print_cr("Heap Regions:");
-  st->print_cr("*=committed, .=recycled");
-  st->print_cr("BTE=bottom/top/end, U=used, T=TLAB allocs, G=GCLAB allocs, S=shared allocs, L=live data, "
-                       "HS=humongous(starts), HC=humongous(continuation),");
-  st->print_cr("CS=collection set, R=root, CP=critical pins, "
-                       "TAMS=top-at-mark-start (previous, next)");
+  st->print_cr("EU=empty-uncommitted, EC=empty-committed, R=regular, H=humongous start, HC=humongous continuation, CS=collection set, T=trash, P=pinned");
+  st->print_cr("BTE=bottom/top/end, U=used, T=TLAB allocs, G=GCLAB allocs, S=shared allocs, L=live data");
+  st->print_cr("R=root, CP=critical pins, TAMS=top-at-mark-start (previous, next)");
 
   _ordered_regions->print(st);
 }
@@ -979,7 +970,7 @@ size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
     assert(region->is_humongous(), "expect correct humongous start or continuation");
     assert(!in_collection_set(region), "Humongous region should not be in collection set");
 
-    region->recycle();
+    immediate_recycle(region);
     decrease_used(ShenandoahHeapRegion::region_size_bytes());
   }
   return required_regions;
@@ -1990,13 +1981,14 @@ void ShenandoahHeap::unregister_nmethod(nmethod* nm) {
 }
 
 void ShenandoahHeap::pin_object(oop o) {
-  heap_region_containing(o)->pin();
+  ShenandoahHeapLock lock(this);
+  heap_region_containing(o)->make_pinned();
 }
 
 void ShenandoahHeap::unpin_object(oop o) {
-  heap_region_containing(o)->unpin();
+  ShenandoahHeapLock lock(this);
+  heap_region_containing(o)->make_unpinned();
 }
-
 
 GCTimer* ShenandoahHeap::gc_timer() const {
   return _gc_timer;
@@ -2010,7 +2002,7 @@ public:
   }
 
   bool doHeapRegion(ShenandoahHeapRegion* r) {
-    if (! r->is_humongous() && ! r->is_pinned() && ! r->in_collection_set()) {
+    if (r->is_regular()) {
       _garbage += r->garbage();
     }
     return false;
@@ -2059,7 +2051,7 @@ public:
           _heap->complete_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
         }
       } else {
-        if (!r->is_empty()) {
+        if (r->is_active()) {
           _heap->marked_object_oop_safe_iterate(r, &cl);
         }
       }
@@ -2161,8 +2153,15 @@ void ShenandoahHeap::start_deferred_recycling() {
   _recycled_region_count = 0;
 }
 
+void ShenandoahHeap::immediate_recycle(ShenandoahHeapRegion* r) {
+  assert_heaplock_owned_by_current_thread();
+  r->make_trash();
+  r->recycle();
+}
+
 void ShenandoahHeap::defer_recycle(ShenandoahHeapRegion* r) {
   assert_heaplock_owned_by_current_thread();
+  r->make_trash();
   _recycled_regions[_recycled_region_count++] = r->region_number();
 }
 

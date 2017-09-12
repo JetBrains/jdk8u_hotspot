@@ -281,8 +281,8 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
       }
     }
 
-    if (! region->is_humongous() && ! region->is_pinned()) {
-      if ((! region->is_empty()) && ! region->has_live()) {
+    if (region->is_regular()) {
+      if (!region->has_live()) {
         // We can recycle it right away and put it in the free set.
         immediate_regions++;
         immediate_garbage += region->garbage();
@@ -298,7 +298,6 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
         cand_idx++;
       }
     } else {
-      assert(region->has_live() || region->is_empty() || region->is_pinned() || region->is_humongous(), "check rejected");
       log_develop_trace(gc)("Rejected region " SIZE_FORMAT " with garbage = " SIZE_FORMAT
                             " and live = " SIZE_FORMAT "\n",
                             region->region_number(), region->garbage(), region->get_live_data_bytes());
@@ -349,6 +348,8 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
     log_info(gc, ergo)("Live/garbage ratio in collected regions: "SIZE_FORMAT"%%",
                        collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
   }
+
+  collection_set->update_region_status();
 }
 
 void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
@@ -357,12 +358,9 @@ void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
   size_t i = 0;
   size_t end = ordered_regions->active_regions();
 
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
   while (i < end) {
     ShenandoahHeapRegion* region = ordered_regions->get(i++);
-    if ((! heap->in_collection_set(region))
-        && (! region->is_humongous())
-        && (! region->is_pinned())) {
+    if (region->is_alloc_allowed()) {
       free_set->add_region(region);
     }
   }
