@@ -408,10 +408,10 @@ public:
     verify(r, _heap->complete_top_at_mark_start(r->bottom()) <= r->top(),
            "Complete TAMS should not be larger than top");
 
-    verify(r, (r->get_live_data_bytes() <= r->capacity()),
+    verify(r, r->get_live_data_bytes() <= r->capacity(),
            "Live data cannot be larger than capacity");
 
-    verify(r, (r->garbage() <= r->capacity()) || (r->is_humongous_start()),
+    verify(r, r->garbage() <= r->capacity(),
            "Garbage cannot be larger than capacity");
 
     verify(r, r->used() <= r->capacity(),
@@ -531,7 +531,9 @@ public:
       if (v < _heap->num_regions()) {
         ShenandoahHeapRegion* r = _regions->get(v);
         if (!r->is_humongous()) {
-          work_region(r, stack, cl);
+          work_regular(r, stack, cl);
+        } else if (r->is_humongous_start()) {
+          work_humongous(r, stack, cl);
         }
       } else {
         break;
@@ -539,7 +541,16 @@ public:
     }
   }
 
-  virtual void work_region(ShenandoahHeapRegion *r, ShenandoahVerifierStack& stack, ShenandoahVerifyOopClosure& cl) {
+  virtual void work_humongous(ShenandoahHeapRegion *r, ShenandoahVerifierStack& stack, ShenandoahVerifyOopClosure& cl) {
+    jlong processed = 0;
+    HeapWord* obj = r->bottom() + BrooksPointer::word_size();
+    if (_heap->complete_mark_bit_map()->isMarked(obj)) {
+      verify_and_follow(obj, stack, cl, &processed);
+    }
+    Atomic::add(processed, &_processed);
+  }
+
+  virtual void work_regular(ShenandoahHeapRegion *r, ShenandoahVerifierStack &stack, ShenandoahVerifyOopClosure &cl) {
     jlong processed = 0;
     MarkBitMap* mark_bit_map = _heap->complete_mark_bit_map();
     HeapWord* tams = _heap->complete_top_at_mark_start(r->bottom());
@@ -621,7 +632,9 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   // Internal heap region checks
   if (ShenandoahVerifyLevel >= 1) {
     ShenandoahVerifyHeapRegionClosure cl;
-    _heap->heap_region_iterate(&cl, true, true);
+    _heap->heap_region_iterate(&cl,
+            /* skip_cset = */ false,
+            /* skip_humongous_cont = */ false);
   }
 
   OrderAccess::fence();
