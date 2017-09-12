@@ -614,7 +614,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
   // Heap size checks
   {
-    ShenandoahHeap::ShenandoahHeapLock lock(_heap);
+    ShenandoahHeapLocker lock(_heap->lock());
 
     ShenandoahCalculateRegionStatsClosure cl;
     _heap->heap_region_iterate(&cl);

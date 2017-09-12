@@ -165,7 +165,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       rp->verify_no_references_recorded();
 
       {
-        ShenandoahHeap::ShenandoahHeapLock lock(_heap);
+        ShenandoahHeapLocker lock(_heap->lock());
 
         // e. Make sure all regions are active. This is needed because we are potentially
         // sliding the data through them
@@ -458,7 +458,7 @@ void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegi
   GCTraceTime time("Phase 2: Compute new object addresses", ShenandoahLogDebug, _gc_timer, heap->tracer()->gc_id());
 
   {
-    ShenandoahHeap::ShenandoahHeapLock lock(heap);
+    ShenandoahHeapLocker lock(heap->lock());
 
     ShenandoahMCReclaimHumongousRegionClosure cl;
     heap->heap_region_iterate(&cl);
@@ -704,7 +704,7 @@ void ShenandoahMarkCompact::phase4_compact_objects(ShenandoahHeapRegionSet** cop
   heap->reset_complete_mark_bitmap(heap->workers());
 
   {
-    ShenandoahHeap::ShenandoahHeapLock lock(heap);
+    ShenandoahHeapLocker lock(heap->lock());
     ShenandoahPostCompactClosure post_compact;
     heap->heap_region_iterate(&post_compact);
 

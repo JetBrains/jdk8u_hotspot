@@ -25,6 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP
 
 #include "gc_implementation/shared/markBitMap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapLock.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 
 class ConcurrentGCTimer;
@@ -102,44 +103,13 @@ public:
 // //      ShenandoahHeap
 
 class ShenandoahHeap : public SharedHeap {
-
-  enum LockState { unlocked = 0, locked = 1 };
-
-public:
-  class ShenandoahHeapLock : public StackObj {
-  private:
-    ShenandoahHeap* _heap;
-
-  public:
-    ShenandoahHeapLock(ShenandoahHeap* heap) : _heap(heap) {
-      while (OrderAccess::load_acquire(& _heap->_heap_lock) == locked || Atomic::cmpxchg(locked, &_heap->_heap_lock, unlocked) == locked) {
-        SpinPause();
-      }
-      assert(_heap->_heap_lock == locked, "sanity");
-
-#ifdef ASSERT
-      assert(_heap->_heap_lock_owner == NULL, "must not be owned");
-      _heap->_heap_lock_owner = Thread::current();
-#endif
-    }
-
-    ~ShenandoahHeapLock() {
-#ifdef ASSERT
-      _heap->assert_heaplock_owned_by_current_thread();
-      _heap->_heap_lock_owner = NULL;
-#endif
-      OrderAccess::release_store_fence(&_heap->_heap_lock, unlocked);
-    }
-
-  };
-
 public:
   enum ShenandoahCancelCause {
     _oom_evacuation,
     _vm_stop,
   };
 private:
-
+  ShenandoahHeapLock _lock;
   ShenandoahCollectorPolicy* _shenandoah_policy;
   VirtualSpace _storage;
   size_t _bitmap_size;
@@ -464,6 +434,7 @@ public:
   void cancel_concgc(GCCause::Cause cause);
   void cancel_concgc(ShenandoahCancelCause cause);
 
+  ShenandoahHeapLock* lock() { return &_lock; }
   void assert_heaplock_owned_by_current_thread() PRODUCT_RETURN;
   void assert_heaplock_or_safepoint() PRODUCT_RETURN;
 

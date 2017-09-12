@@ -178,7 +178,7 @@ jint ShenandoahHeap::initialize() {
   }
 
   {
-    ShenandoahHeapLock lock(this);
+    ShenandoahHeapLocker locker(lock());
     for (i = 0; i < num_regions; i++) {
       ShenandoahHeapRegion* current = new ShenandoahHeapRegion(this, (HeapWord*) pgc_rs.base() +
                                                                regionSizeWords * i, regionSizeWords, i);
@@ -526,7 +526,7 @@ bool ShenandoahHeap::is_scavengable(const void* p) {
 }
 
 void ShenandoahHeap::handle_heap_shrinkage() {
-  ShenandoahHeapLock lock(this);
+  ShenandoahHeapLocker locker(lock());
 
   ShenandoahHeapRegionSet* set = regions();
 
@@ -629,8 +629,7 @@ ShenandoahHeap* ShenandoahHeap::heap_no_check() {
 }
 
 HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, AllocType type) {
-
-  ShenandoahHeapLock heap_lock(this);
+  ShenandoahHeapLocker locker(lock());
 
   HeapWord* result = allocate_memory_under_lock(word_size, type);
   size_t grow_by = (word_size + ShenandoahHeapRegion::region_size_words() - 1) / ShenandoahHeapRegion::region_size_words();
@@ -914,7 +913,7 @@ public:
 };
 
 void ShenandoahHeap::recycle_cset_regions() {
-  ShenandoahHeapLock lock(this);
+  ShenandoahHeapLocker locker(lock());
 
   size_t bytes_reclaimed = 0;
 
@@ -1012,7 +1011,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
     // the same, we get false negatives.
 
     {
-      ShenandoahHeapLock lock(this);
+      ShenandoahHeapLocker locker(lock());
       _collection_set->clear();
       _free_regions->clear();
 
@@ -1981,12 +1980,12 @@ void ShenandoahHeap::unregister_nmethod(nmethod* nm) {
 }
 
 void ShenandoahHeap::pin_object(oop o) {
-  ShenandoahHeapLock lock(this);
+  ShenandoahHeapLocker locker(lock());
   heap_region_containing(o)->make_pinned();
 }
 
 void ShenandoahHeap::unpin_object(oop o) {
-  ShenandoahHeapLock lock(this);
+  ShenandoahHeapLocker locker(lock());
   heap_region_containing(o)->make_unpinned();
 }
 
@@ -2120,7 +2119,7 @@ void ShenandoahHeap::finish_update_refs() {
 
   {
     // Rebuild the free set
-    ShenandoahHeapLock hl(this);
+    ShenandoahHeapLocker locker(lock());
     _free_regions->clear();
     size_t end = _ordered_regions->active_regions();
     for (size_t i = 0; i < end; i++) {
@@ -2136,15 +2135,11 @@ void ShenandoahHeap::finish_update_refs() {
 
 #ifdef ASSERT
 void ShenandoahHeap::assert_heaplock_owned_by_current_thread() {
-  assert(_heap_lock == locked, "must be locked");
-  assert(_heap_lock_owner == Thread::current(), "must be owned by current thread");
+  _lock.assert_owned_by_current_thread();
 }
 
 void ShenandoahHeap::assert_heaplock_or_safepoint() {
-  Thread* thr = Thread::current();
-  assert((_heap_lock == locked && _heap_lock_owner == thr) ||
-         (SafepointSynchronize::is_at_safepoint() && thr->is_VM_thread()),
-  "must own heap lock or by VM thread at safepoint");
+  _lock.assert_owned_by_current_thread_or_safepoint();
 }
 #endif
 
