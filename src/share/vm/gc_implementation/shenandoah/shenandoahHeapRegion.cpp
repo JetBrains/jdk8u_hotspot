@@ -137,6 +137,11 @@ void ShenandoahHeapRegion::make_pinned() {
     case _pinned:
       _critical_pins++;
       return;
+    case _humongous_start:
+    case _humongous_cont:
+      // Humongous objects do not move, and thus pinning is no-op.
+      assert (_critical_pins == 0, "sanity");
+      return;
   }
   fatal(err_msg("Disallowed transition from %s to %s",
         region_state_to_string(_state),
@@ -154,6 +159,11 @@ void ShenandoahHeapRegion::make_unpinned() {
       }
       return;
     case _regular:
+      assert (_critical_pins == 0, "sanity");
+      return;
+    case _humongous_start:
+    case _humongous_cont:
+      // Humongous objects do not move, and thus pinning is no-op.
       assert (_critical_pins == 0, "sanity");
       return;
   }
