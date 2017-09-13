@@ -35,9 +35,10 @@
 #include "runtime/os.hpp"
 #include "runtime/safepoint.hpp"
 
-size_t ShenandoahHeapRegion::RegionSizeShift = 0;
 size_t ShenandoahHeapRegion::RegionSizeBytes = 0;
 size_t ShenandoahHeapRegion::RegionSizeWords = 0;
+size_t ShenandoahHeapRegion::RegionSizeBytesShift = 0;
+size_t ShenandoahHeapRegion::RegionSizeWordsShift = 0;
 
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
                                            size_t size_words, size_t index, bool committed) :
@@ -537,8 +538,11 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   region_size = ((uintx)1 << region_size_log);
 
   // Now, set up the globals.
-  guarantee(RegionSizeShift == 0, "we should only set it once");
-  RegionSizeShift = (size_t)region_size_log;
+  guarantee(RegionSizeBytesShift == 0, "we should only set it once");
+  RegionSizeBytesShift = (size_t)region_size_log;
+
+  guarantee(RegionSizeWordsShift == 0, "we should only set it once");
+  RegionSizeWordsShift = RegionSizeBytesShift - LogHeapWordSize;
 
   guarantee(RegionSizeBytes == 0, "we should only set it once");
   RegionSizeBytes = (size_t)region_size;
@@ -547,6 +551,6 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
 
   log_info(gc, heap)("Heap region size: " SIZE_FORMAT "M", RegionSizeBytes / M);
   log_info(gc, init)("Region size in bytes: "SIZE_FORMAT, RegionSizeBytes);
-  log_info(gc, init)("Region size shift: "SIZE_FORMAT, RegionSizeShift);
+  log_info(gc, init)("Region size byte shift: "SIZE_FORMAT, RegionSizeBytesShift);
   log_info(gc, init)("Number of regions: "SIZE_FORMAT, max_heap_size / RegionSizeBytes);
 }

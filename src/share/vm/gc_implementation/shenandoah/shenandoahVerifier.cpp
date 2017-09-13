@@ -195,7 +195,7 @@ private:
                "Object end should be within the region");
       } else {
         size_t humongous_start = obj_reg->region_number();
-        size_t humongous_end = humongous_start + (obj->size() / ShenandoahHeapRegion::region_size_words());
+        size_t humongous_end = humongous_start + (obj->size() >> ShenandoahHeapRegion::region_size_words_shift());
         for (size_t idx = humongous_start + 1; idx < humongous_end; idx++) {
           verify(_safe_unknown, obj, _heap->regions()->get(idx)->is_humongous_continuation(),
                  "Humongous object is in continuation that fits it");

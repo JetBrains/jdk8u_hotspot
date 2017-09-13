@@ -3528,7 +3528,7 @@ void PhaseIdealLoop::shenandoah_in_cset_fast_test(Node*& c, Node* rbtrue, Node* 
     IdealLoopTree *loop = get_loop(c);
     Node* raw_rbtrue = new (C) CastP2XNode(c, rbtrue);
     register_new_node(raw_rbtrue, c);
-    Node* cset_offset = new (C) URShiftXNode(raw_rbtrue, _igvn.intcon(ShenandoahHeapRegion::region_size_shift_jint()));
+    Node* cset_offset = new (C) URShiftXNode(raw_rbtrue, _igvn.intcon(ShenandoahHeapRegion::region_size_bytes_shift_jint()));
     register_new_node(cset_offset, c);
     Node* in_cset_fast_test_base_addr = _igvn.makecon(TypeRawPtr::make(ShenandoahHeap::in_cset_fast_test_addr()));
     set_ctrl(in_cset_fast_test_base_addr, C->root());

@@ -5375,7 +5375,7 @@ void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
 void MacroAssembler::shenandoah_cset_check(Register raddr, Register tmp1, Register tmp2, Label& done) {
   // Test that oop is not in to-space.
   movptr(tmp1, raddr);
-  shrptr(tmp1, ShenandoahHeapRegion::region_size_shift_jint());
+  shrptr(tmp1, ShenandoahHeapRegion::region_size_bytes_shift_jint());
   movptr(tmp2, (intptr_t) ShenandoahHeap::in_cset_fast_test_addr());
   movbool(tmp2, Address(tmp2, tmp1, Address::times_1));
   testbool(tmp2);

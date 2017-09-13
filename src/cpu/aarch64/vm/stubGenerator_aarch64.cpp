@@ -573,7 +573,7 @@ class StubGenerator: public StubCodeGenerator {
     if (do_cset_test) {
       Label work;
       __ mov(rscratch2, ShenandoahHeap::in_cset_fast_test_addr());
-      __ lsr(rscratch1, r0, ShenandoahHeapRegion::region_size_shift_jint());
+      __ lsr(rscratch1, r0, ShenandoahHeapRegion::region_size_bytes_shift_jint());
       __ ldrb(rscratch2, Address(rscratch2, rscratch1));
       __ tbnz(rscratch2, 0, work);
       __ ret(lr);

@@ -39,7 +39,7 @@ ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, HeapWord*
 
   _cset_map = NEW_C_HEAP_ARRAY(jbyte, _map_size, mtGC);
   // Bias cset map's base address for fast test if an oop is in cset
-  _biased_cset_map = _cset_map - ((uintx)heap_base >> ShenandoahHeapRegion::region_size_shift());
+  _biased_cset_map = _cset_map - ((uintx)heap_base >> ShenandoahHeapRegion::region_size_bytes_shift());
 
   // Initialize cset map
   Copy::zero_to_bytes(_cset_map, _map_size);

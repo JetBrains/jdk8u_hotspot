@@ -179,7 +179,8 @@ private:
 
   static size_t RegionSizeBytes;
   static size_t RegionSizeWords;
-  static size_t RegionSizeShift;
+  static size_t RegionSizeBytesShift;
+  static size_t RegionSizeWordsShift;
 
 private:
   ShenandoahHeap* _heap;
@@ -208,7 +209,7 @@ public:
   }
 
   inline static size_t required_regions(size_t bytes) {
-    return (bytes + ShenandoahHeapRegion::region_size_bytes() - 1) / ShenandoahHeapRegion::region_size_bytes();
+    return (bytes + ShenandoahHeapRegion::region_size_bytes() - 1) >> ShenandoahHeapRegion::region_size_bytes_shift();
   }
 
   inline static size_t region_size_bytes() {
@@ -219,8 +220,12 @@ public:
     return ShenandoahHeapRegion::RegionSizeWords;
   }
 
-  inline static size_t region_size_shift() {
-    return ShenandoahHeapRegion::RegionSizeShift;
+  inline static size_t region_size_bytes_shift() {
+    return ShenandoahHeapRegion::RegionSizeBytesShift;
+  }
+
+  inline static size_t region_size_words_shift() {
+    return ShenandoahHeapRegion::RegionSizeWordsShift;
   }
 
   // Convert to jint with sanity checking
@@ -236,9 +241,15 @@ public:
   }
 
   // Convert to jint with sanity checking
-  inline static jint region_size_shift_jint() {
-    assert (ShenandoahHeapRegion::RegionSizeShift <= (size_t)max_jint, "sanity");
-    return (jint)ShenandoahHeapRegion::RegionSizeShift;
+  inline static jint region_size_bytes_shift_jint() {
+    assert (ShenandoahHeapRegion::RegionSizeBytesShift <= (size_t)max_jint, "sanity");
+    return (jint)ShenandoahHeapRegion::RegionSizeBytesShift;
+  }
+
+  // Convert to jint with sanity checking
+  inline static jint region_size_words_shift_jint() {
+    assert (ShenandoahHeapRegion::RegionSizeWordsShift <= (size_t)max_jint, "sanity");
+    return (jint)ShenandoahHeapRegion::RegionSizeWordsShift;
   }
 
   size_t region_number() const;

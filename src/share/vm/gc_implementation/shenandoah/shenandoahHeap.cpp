@@ -167,11 +167,11 @@ jint ShenandoahHeap::initialize() {
 
   _next_top_at_mark_starts_base = NEW_C_HEAP_ARRAY(HeapWord*, _num_regions, mtGC);
   _next_top_at_mark_starts = _next_top_at_mark_starts_base -
-               ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_shift());
+               ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_bytes_shift());
 
   _complete_top_at_mark_starts_base = NEW_C_HEAP_ARRAY(HeapWord*, _num_regions, mtGC);
   _complete_top_at_mark_starts = _complete_top_at_mark_starts_base -
-               ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_shift());
+               ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_bytes_shift());
 
   {
     ShenandoahHeapLocker locker(lock());
@@ -1853,22 +1853,22 @@ void ShenandoahHeap::set_bytes_allocated_since_cm(size_t bytes) {
 }
 
 void ShenandoahHeap::set_next_top_at_mark_start(HeapWord* region_base, HeapWord* addr) {
-  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_shift();
+  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_bytes_shift();
   _next_top_at_mark_starts[index] = addr;
 }
 
 HeapWord* ShenandoahHeap::next_top_at_mark_start(HeapWord* region_base) {
-  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_shift();
+  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_bytes_shift();
   return _next_top_at_mark_starts[index];
 }
 
 void ShenandoahHeap::set_complete_top_at_mark_start(HeapWord* region_base, HeapWord* addr) {
-  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_shift();
+  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_bytes_shift();
   _complete_top_at_mark_starts[index] = addr;
 }
 
 HeapWord* ShenandoahHeap::complete_top_at_mark_start(HeapWord* region_base) {
-  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_shift();
+  uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_bytes_shift();
   return _complete_top_at_mark_starts[index];
 }
 

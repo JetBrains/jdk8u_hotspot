@@ -5050,7 +5050,7 @@ void MacroAssembler::in_heap_check(Register r, Register tmp, Label &nope) {
   ShenandoahHeap* h = ShenandoahHeap::heap();
 
   HeapWord* heap_base = (HeapWord*) h->base();
-  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->num_regions();
+  HeapWord* last_region_end = heap_base + ShenandoahHeapRegion::region_size_words_jint() * h->num_regions();
 
   mov(tmp, (uintptr_t) heap_base);
   cmp(r, tmp);
@@ -5063,7 +5063,7 @@ void MacroAssembler::in_heap_check(Register r, Register tmp, Label &nope) {
 void MacroAssembler::shenandoah_cset_check(Register obj, Register tmp1, Register tmp2, Label& done) {
 
   // Test that oop is not in to-space.
-  lsr(tmp1, obj, ShenandoahHeapRegion::region_size_shift_jint());
+  lsr(tmp1, obj, ShenandoahHeapRegion::region_size_bytes_shift_jint());
   assert(ShenandoahHeap::in_cset_fast_test_addr() != 0, "sanity");
   mov(tmp2, ShenandoahHeap::in_cset_fast_test_addr());
   ldrb(tmp2, Address(tmp2, tmp1));

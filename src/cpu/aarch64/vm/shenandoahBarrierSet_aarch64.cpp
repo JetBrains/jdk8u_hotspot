@@ -67,7 +67,7 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
 
   __ cbzw(rscratch2, done);
 
-  __ lsr(rscratch1, dst, ShenandoahHeapRegion::region_size_shift_jint());
+  __ lsr(rscratch1, dst, ShenandoahHeapRegion::region_size_bytes_shift_jint());
   __ mov(rscratch2,  ShenandoahHeap::in_cset_fast_test_addr());
   __ ldrb(rscratch2, Address(rscratch2, rscratch1));
   __ tst(rscratch2, 0x1);

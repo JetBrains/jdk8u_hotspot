@@ -94,7 +94,7 @@ inline bool ShenandoahHeap::need_update_refs() const {
 
 inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) const {
   uintptr_t region_start = ((uintptr_t) addr);
-  uintptr_t index = (region_start - (uintptr_t) base()) >> ShenandoahHeapRegion::region_size_shift();
+  uintptr_t index = (region_start - (uintptr_t) base()) >> ShenandoahHeapRegion::region_size_bytes_shift();
 #ifdef ASSERT
   if (index >= num_regions()) {
     tty->print_cr("heap region does not contain address, heap base: "PTR_FORMAT \
@@ -363,14 +363,14 @@ inline bool ShenandoahHeap::is_evacuation_in_progress() const {
 }
 
 inline bool ShenandoahHeap::allocated_after_next_mark_start(HeapWord* addr) const {
-  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_shift();
+  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_bytes_shift();
   HeapWord* top_at_mark_start = _next_top_at_mark_starts[index];
   bool alloc_after_mark_start = addr >= top_at_mark_start;
   return alloc_after_mark_start;
 }
 
 inline bool ShenandoahHeap::allocated_after_complete_mark_start(HeapWord* addr) const {
-  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_shift();
+  uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_bytes_shift();
   HeapWord* top_at_mark_start = _complete_top_at_mark_starts[index];
   bool alloc_after_mark_start = addr >= top_at_mark_start;
   return alloc_after_mark_start;
