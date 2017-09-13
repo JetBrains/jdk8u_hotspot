@@ -154,7 +154,7 @@ jint ShenandoahHeap::initialize() {
   _committed = _initial_size;
 
   log_info(gc, heap)("Initialize Shenandoah heap with initial size " SIZE_FORMAT " bytes", init_byte_size);
-  if (!_storage.initialize(pgc_rs, _initial_size)) {
+  if (!os::commit_memory(pgc_rs.base(), _initial_size, false)) {
     vm_exit_out_of_memory(_initial_size, OOM_MMAP_ERROR, "Shenandoah failed to initialize heap");
   }
 
@@ -421,14 +421,6 @@ void ShenandoahHeap::print_on(outputStream* st) const {
   st->print_cr(" - [" PTR_FORMAT ", " PTR_FORMAT ") ",
                p2i(reserved_region().start()),
                p2i(reserved_region().end()));
-  // Adapted from VirtualSpace::print_on(), which is non-PRODUCT only
-  st->print   ("Virtual space:");
-  if (_storage.special()) st->print(" (pinned in memory)");
-  st->cr();
-  st->print_cr(" - committed: " SIZE_FORMAT, _storage.committed_size());
-  st->print_cr(" - reserved:  " SIZE_FORMAT, _storage.reserved_size());
-  st->print_cr(" - [low, high]:     [" INTPTR_FORMAT ", " INTPTR_FORMAT "]",  p2i(_storage.low()), p2i(_storage.high()));
-  st->print_cr(" - [low_b, high_b]: [" INTPTR_FORMAT ", " INTPTR_FORMAT "]",  p2i(_storage.low_boundary()), p2i(_storage.high_boundary()));
 
   if (Verbose) {
     print_heap_regions(st);
@@ -507,10 +499,6 @@ size_t ShenandoahHeap::max_capacity() const {
 
 size_t ShenandoahHeap::initial_capacity() const {
   return _initial_size;
-}
-
-VirtualSpace* ShenandoahHeap::storage() const {
-  return (VirtualSpace*) &_storage;
 }
 
 bool ShenandoahHeap::is_in(const void* p) const {

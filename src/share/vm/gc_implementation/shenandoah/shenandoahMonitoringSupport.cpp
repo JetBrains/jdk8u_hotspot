@@ -29,36 +29,58 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionCounters.hpp"
 
+class ShenandoahYoungGenerationCounters : public GenerationCounters {
+public:
+  ShenandoahYoungGenerationCounters() :
+          GenerationCounters("Young", 0, 0, 0, (size_t)0, (size_t)0) {};
+
+  virtual void update_all() {
+    // no update
+  }
+};
+
+class ShenandoahGenerationCounters : public GenerationCounters {
+private:
+  ShenandoahHeap* _heap;
+public:
+  ShenandoahGenerationCounters(ShenandoahHeap* heap) :
+          GenerationCounters("Heap", 1, 1, heap->initial_capacity(), heap->max_capacity(), heap->committed()),
+          _heap(heap)
+  {};
+
+  virtual void update_all() {
+    _current_size->set_value(_heap->committed());
+  }
+};
+
 ShenandoahMonitoringSupport::ShenandoahMonitoringSupport(ShenandoahHeap* heap) :
-_concurrent_collection_counters(NULL),
-_stw_collection_counters(NULL),
-_full_collection_counters(NULL)
+        _full_counters(NULL)
 {
-  _concurrent_collection_counters = new CollectorCounters("Shenandoah concurrent phases", 0);
-  _stw_collection_counters = new CollectorCounters("Shenandoah pauses", 1);
-  _full_collection_counters = new CollectorCounters("Shenandoah full GC pauses", 2);
+  // Collection counters do not fit Shenandoah very well.
+  // We record full cycles (including full STW GC) as "old".
+  _full_counters     = new CollectorCounters("Shenandoah full",    1);
 
   // We report young gen as unused.
-  _heap_counters = new GenerationCounters("heap", 0, 1, heap->storage());
-  _space_counters = new HSpaceCounters("heap", 0, heap->max_capacity(), heap->initial_capacity(), _heap_counters);
+  _young_counters = new ShenandoahYoungGenerationCounters();
+  _heap_counters  = new ShenandoahGenerationCounters(heap);
+  _space_counters = new HSpaceCounters("Heap", 0, heap->max_capacity(), heap->initial_capacity(), _heap_counters);
 
   _heap_region_counters = new ShenandoahHeapRegionCounters();
 }
 
 CollectorCounters* ShenandoahMonitoringSupport::stw_collection_counters() {
-  return _stw_collection_counters;
+  return _full_counters;
 }
 
-CollectorCounters* ShenandoahMonitoringSupport::full_collection_counters() {
-  return _full_collection_counters;
+CollectorCounters* ShenandoahMonitoringSupport::full_stw_collection_counters() {
+  return _full_counters;
 }
 
 CollectorCounters* ShenandoahMonitoringSupport::concurrent_collection_counters() {
-  return _concurrent_collection_counters;
+  return _full_counters;
 }
 
 void ShenandoahMonitoringSupport::update_counters() {
-
   MemoryService::track_memory_usage();
 
   if (UsePerfData) {
@@ -68,5 +90,9 @@ void ShenandoahMonitoringSupport::update_counters() {
     _heap_counters->update_all();
     _space_counters->update_all(capacity, used);
     _heap_region_counters->update();
+
+    // TODO: We may fall back to non-"try" versions once update_counters() is not called via Universe::genesis() path
+    MetaspaceCounters::try_update_performance_counters();
+    CompressedClassSpaceCounters::try_update_performance_counters();
   }
 }

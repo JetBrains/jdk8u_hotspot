@@ -111,7 +111,6 @@ public:
 private:
   ShenandoahHeapLock _lock;
   ShenandoahCollectorPolicy* _shenandoah_policy;
-  VirtualSpace _storage;
   size_t _bitmap_size;
   MemRegion _heap_region;
 
@@ -376,8 +375,6 @@ public:
   void set_bytes_allocated_since_cm(size_t bytes);
 
   size_t reclaim_humongous_region_at(ShenandoahHeapRegion* r);
-
-  VirtualSpace* storage() const;
 
   ShenandoahMonitoringSupport* monitoring_support();
   ShenandoahConcurrentMark* concurrentMark() { return _scm;}

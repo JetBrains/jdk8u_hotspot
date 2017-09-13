@@ -95,6 +95,12 @@ void MetaspaceCounters::update_performance_counters() {
   }
 }
 
+void MetaspaceCounters::try_update_performance_counters() {
+  if (UsePerfData && _perf_counters != NULL) {
+    _perf_counters->update(capacity(), max_capacity(), used());
+  }
+}
+
 MetaspacePerfCounters* CompressedClassSpaceCounters::_perf_counters = NULL;
 
 size_t CompressedClassSpaceCounters::used() {
@@ -113,6 +119,12 @@ void CompressedClassSpaceCounters::update_performance_counters() {
   if (UsePerfData && UseCompressedClassPointers) {
     assert(_perf_counters != NULL, "Should be initialized");
 
+    _perf_counters->update(capacity(), max_capacity(), used());
+  }
+}
+
+void CompressedClassSpaceCounters::try_update_performance_counters() {
+  if (UsePerfData && UseCompressedClassPointers && _perf_counters != NULL) {
     _perf_counters->update(capacity(), max_capacity(), used());
   }
 }

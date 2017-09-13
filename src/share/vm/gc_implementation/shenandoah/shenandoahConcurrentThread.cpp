@@ -245,6 +245,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     bool do_it = heap->need_update_refs();
     if (do_it) {
       {
+        TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
         ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
         ShenandoahGCPhase init_update_refs_phase(ShenandoahCollectorPolicy::init_update_refs_gross);
         VM_ShenandoahInitUpdateRefs init_update_refs;
@@ -275,6 +276,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     }
 
     if (do_it) {
+      TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
       ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause_gross);
       ShenandoahGCPhase final_update_refs_phase(ShenandoahCollectorPolicy::final_update_refs_gross);
       VM_ShenandoahFinalUpdateRefs final_update_refs;
@@ -351,7 +353,7 @@ void ShenandoahConcurrentThread::service_fullgc_cycle() {
       heap->shenandoahPolicy()->record_user_requested_gc();
     }
 
-    TraceCollectorStats tcs(heap->monitoring_support()->full_collection_counters());
+    TraceCollectorStats tcs(heap->monitoring_support()->full_stw_collection_counters());
     TraceMemoryManagerStats tmms(true, _full_gc_cause);
     VM_ShenandoahFullGC full_gc(_full_gc_cause);
     VMThread::execute(&full_gc);
