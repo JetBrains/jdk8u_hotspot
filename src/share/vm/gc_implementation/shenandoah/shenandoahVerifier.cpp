@@ -544,7 +544,7 @@ public:
   virtual void work_humongous(ShenandoahHeapRegion *r, ShenandoahVerifierStack& stack, ShenandoahVerifyOopClosure& cl) {
     jlong processed = 0;
     HeapWord* obj = r->bottom() + BrooksPointer::word_size();
-    if (_heap->complete_mark_bit_map()->isMarked(obj)) {
+    if (_heap->is_marked_complete((oop)obj)) {
       verify_and_follow(obj, stack, cl, &processed);
     }
     Atomic::add(processed, &_processed);
@@ -685,10 +685,20 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
     ShenandoahHeapRegionSet* set = _heap->regions();
     for (size_t i = 0; i < _heap->num_regions(); i++) {
       ShenandoahHeapRegion* r = set->get(i);
-      if (r->is_humongous()) continue;
+
+      size_t verf_live = 0;
+      if (r->is_humongous()) {
+        // For humongous objects, test if start region is marked live, and if so,
+        // all humongous regions in that chain have live data equal to their "used".
+        size_t start_live = OrderAccess::load_acquire(&ld[r->humongous_start_region()->region_number()]);
+        if (start_live > 0) {
+          verf_live = r->used() / HeapWordSize;
+        }
+      } else {
+        verf_live = OrderAccess::load_acquire(&ld[r->region_number()]);
+      }
 
       size_t reg_live = r->get_live_data_words();
-      size_t verf_live = OrderAccess::load_acquire(&ld[r->region_number()]);
       if (reg_live != verf_live) {
         ResourceMark rm;
         stringStream ss;
