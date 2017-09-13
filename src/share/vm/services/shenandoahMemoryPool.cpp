@@ -24,20 +24,25 @@
 #include "precompiled.hpp"
 #include "services/shenandoahMemoryPool.hpp"
 
-ShenandoahMemoryPool::ShenandoahMemoryPool(ShenandoahHeap* gen,
-                                           const char* name,
-                                           PoolType type,
-                                           bool support_usage_threshold) :
-  CollectedMemoryPool(name, type, gen->capacity(),
-                      gen->max_capacity(),
-                      support_usage_threshold),
-                      _gen(gen) {
-}
+ShenandoahDummyMemoryPool::ShenandoahDummyMemoryPool() :
+        CollectedMemoryPool("Shenandoah Dummy",
+                            MemoryPool::Heap,
+                            0,
+                            0,
+                            false /* support_usage_threshold */) {}
+
+ShenandoahMemoryPool::ShenandoahMemoryPool(ShenandoahHeap* heap) :
+        CollectedMemoryPool("Shenandoah",
+                            MemoryPool::Heap,
+                            heap->capacity(),
+                            heap->max_capacity(),
+                            false /* support_usage_threshold */),
+                            _heap(heap) {}
 
 MemoryUsage ShenandoahMemoryPool::get_memory_usage() {
   size_t maxSize   = max_size();
   size_t used      = used_in_bytes();
-  size_t committed = _gen->committed();
+  size_t committed = _heap->committed();
 
   return MemoryUsage(initial_size(), used, committed, maxSize);
 }

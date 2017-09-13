@@ -196,7 +196,7 @@ void MemoryService::add_g1_heap_info(G1CollectedHeap* g1h) {
   add_g1OldGen_memory_pool(g1h, _major_gc_manager);
 }
 
-void MemoryService::add_shenandoah_heap_info(ShenandoahHeap* pgch) {
+void MemoryService::add_shenandoah_heap_info(ShenandoahHeap* heap) {
   assert(UseShenandoahGC, "sanity");
 
   // Need to have different names for these managers, because having the same name
@@ -206,8 +206,14 @@ void MemoryService::add_shenandoah_heap_info(ShenandoahHeap* pgch) {
   _minor_gc_manager = MemoryManager::get_shenandoah_minor_memory_manager();
   _managers_list->append(_major_gc_manager);
   _managers_list->append(_minor_gc_manager);
-  add_shenandoah_memory_pool(pgch, _minor_gc_manager, true);
-  add_shenandoah_memory_pool(pgch, _minor_gc_manager, false);
+
+  ShenandoahMemoryPool* pool = new ShenandoahMemoryPool(heap);
+  _major_gc_manager->add_pool(pool);
+  _pools_list->append(pool);
+
+  ShenandoahDummyMemoryPool* dummy = new ShenandoahDummyMemoryPool();
+  _minor_gc_manager->add_pool(dummy);
+  _pools_list->append(dummy);
 }
 
 #endif // INCLUDE_ALL_GCS
@@ -409,19 +415,6 @@ void MemoryService::add_g1OldGen_memory_pool(G1CollectedHeap* g1h,
   G1OldGenPool* old_gen = new G1OldGenPool(g1h);
   mgr->add_pool(old_gen);
   _pools_list->append(old_gen);
-}
-
-void MemoryService::add_shenandoah_memory_pool(ShenandoahHeap* pgc,
-                                               MemoryManager* mgr, bool global) {
-  ShenandoahMemoryPool* pool = new ShenandoahMemoryPool(pgc,
-                                                        "Shenandoah",
-                                                        MemoryPool::Heap,
-                                                        false /* support_usage_threshold */);
-
-  mgr->add_pool(pool);
-  if (global) {
-    _pools_list->append(pool);
-  }
 }
 
 

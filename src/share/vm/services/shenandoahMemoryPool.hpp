@@ -30,21 +30,23 @@
 #include "services/memoryUsage.hpp"
 #endif
 
-class ShenandoahMemoryPool : public CollectedMemoryPool {
-private:
-
-   ShenandoahHeap* _gen;
-
+class ShenandoahDummyMemoryPool : public CollectedMemoryPool {
 public:
-
-  ShenandoahMemoryPool(ShenandoahHeap* pool,
-                          const char* name,
-                          PoolType type,
-                          bool support_usage_threshold);
-  MemoryUsage get_memory_usage();
-  size_t used_in_bytes()              { return _gen->used(); }
-  size_t max_size() const             { return _gen->max_capacity(); }
+  ShenandoahDummyMemoryPool();
+  MemoryUsage get_memory_usage()      { return MemoryUsage(0, 0, 0, 0); }
+  size_t used_in_bytes()              { return 0; }
+  size_t max_size() const             { return 0; }
 };
 
+class ShenandoahMemoryPool : public CollectedMemoryPool {
+private:
+   ShenandoahHeap* _heap;
+
+public:
+  ShenandoahMemoryPool(ShenandoahHeap* pool);
+  MemoryUsage get_memory_usage();
+  size_t used_in_bytes()              { return _heap->used(); }
+  size_t max_size() const             { return _heap->max_capacity(); }
+};
 
 #endif //SHARE_VM_SERVICES_SHENANDOAHMEMORYPOOL_HPP

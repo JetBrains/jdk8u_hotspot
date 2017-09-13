@@ -98,10 +98,6 @@ private:
   static void add_g1OldGen_memory_pool(G1CollectedHeap* g1h,
                                        MemoryManager* mgr);
 
-  static void add_shenandoah_memory_pool(ShenandoahHeap* pgc,
-                                         MemoryManager* mgr,
-                                         bool global);
-
   static MemoryPool* add_space(ContiguousSpace* space,
                                const char* name,
                                bool is_heap,
