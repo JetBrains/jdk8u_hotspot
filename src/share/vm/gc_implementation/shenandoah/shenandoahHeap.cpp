@@ -621,8 +621,8 @@ ShenandoahHeap* ShenandoahHeap::heap_no_check() {
 HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
   ShenandoahAllocTrace trace_alloc(word_size, type);
 
-  HeapWord* result = NULL;
-  result = allocate_memory_under_lock(word_size, type);
+  bool in_new_region = false;
+  HeapWord* result = allocate_memory_under_lock(word_size, type, in_new_region);
 
   if (type == _alloc_tlab || type == _alloc_shared) {
     // Allocation failed, try full-GC, then retry allocation.
@@ -640,10 +640,16 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
       log_debug(gc)("[" PTR_FORMAT " Failed to allocate " SIZE_FORMAT " bytes, doing full GC, try %d",
                     p2i(Thread::current()), word_size * HeapWordSize, tries);
       collect(GCCause::_allocation_failure);
-      result = allocate_memory_under_lock(word_size, type);
+      result = allocate_memory_under_lock(word_size, type, in_new_region);
     }
+  }
 
-    // Only update monitoring counters when not calling from a write-barrier.
+  if (type == _alloc_tlab || (type == _alloc_shared && in_new_region)) {
+    // Update monitoring counters when either (large) TLAB allocation happened,
+    // or we did the shared allocation that took a new region. This amortizes the
+    // update costs on slow path.
+    //
+    // Do not update monitoring counters when calling from a write-barrier.
     // Otherwise we might attempt to grab the Service_lock, which we must
     // not do when coming from a write-barrier (because the thread might
     // already hold the Compile_lock).
@@ -656,53 +662,50 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
   return result;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType type) {
+HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType type, bool& in_new_region) {
   ShenandoahHeapLocker locker(lock());
 
   if (word_size > ShenandoahHeapRegion::region_size_words()) {
+    in_new_region = true;
     return allocate_large_memory(word_size);
   }
 
-  // Not enough memory in free region set.
-  // Coming out of full GC, it is possible that there is not
-  // free region available, so current_index may not be valid.
+  in_new_region = false;
+
+  // Not enough memory in free region set. Coming out of full GC, it is possible that
+  // there are no free regions available, so current_index may be invalid. Have to
+  // poll capacity as the precaution here.
   if (word_size * HeapWordSize > _free_regions->capacity()) return NULL;
 
-  ShenandoahHeapRegion* my_current_region = _free_regions->current_no_humongous();
+  ShenandoahHeapRegion* current = _free_regions->current_no_humongous();
 
-  if (my_current_region == NULL) {
-    return NULL; // No more room to make a new region. OOM.
+  if (current == NULL) {
+    // No more room to make a new region. OOM.
+    return NULL;
   }
-  assert(my_current_region != NULL, "should have a region at this point");
-  assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
-  assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
 
-  HeapWord* result = my_current_region->allocate(word_size, type);
+  HeapWord* result = current->allocate(word_size, type);
 
   while (result == NULL) {
-    // 2nd attempt. Try next region.
-#ifdef ASSERT
-    if (my_current_region->free() > 0) {
-      log_debug(gc, alloc)("Retire region with " SIZE_FORMAT " bytes free", my_current_region->free());
-    }
-#endif
-    _free_regions->increase_used(my_current_region->free());
-    ShenandoahHeapRegion* next_region = _free_regions->next_no_humongous();
-    assert(next_region != my_current_region, "must not get current again");
-    my_current_region = next_region;
+    in_new_region = true;
 
-    if (my_current_region == NULL) {
-      return NULL; // No more room to make a new region. OOM.
+    // Retire the current region:
+    _free_regions->increase_used(current->free());
+
+    // Try next region:
+    current = _free_regions->next_no_humongous();
+    if (current == NULL) {
+      // No more room to make a new region. OOM.
+      return NULL;
     }
-    assert(my_current_region != NULL, "should have a region at this point");
-    assert(! in_collection_set(my_current_region), "never get targetted regions in free-lists");
-    assert(! my_current_region->is_humongous(), "never attempt to allocate from humongous object regions");
-    result = my_current_region->allocate(word_size, type);
+    result = current->allocate(word_size, type);
   }
 
-  my_current_region->increase_live_data_words(word_size);
+  // Allocation successful, bump up used/live data:
+  current->increase_live_data_words(word_size);
   increase_used(word_size * HeapWordSize);
   _free_regions->increase_used(word_size * HeapWordSize);
+
   return result;
 }
 

@@ -457,7 +457,7 @@ public:
   }
 private:
   HeapWord* allocate_new_lab(size_t word_size, AllocType type);
-  HeapWord* allocate_memory_under_lock(size_t word_size, AllocType type);
+  HeapWord* allocate_memory_under_lock(size_t word_size, AllocType type, bool &new_region);
   HeapWord* allocate_memory(size_t word_size, AllocType type);
   // Shenandoah functionality.
   inline HeapWord* allocate_from_gclab(Thread* thread, size_t size);
