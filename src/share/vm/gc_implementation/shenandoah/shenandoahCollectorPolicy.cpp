@@ -205,6 +205,10 @@ public:
     // Most of them do not.
     return false;
   }
+
+  virtual const char* name() = 0;
+  virtual bool is_diagnostic() = 0;
+  virtual bool is_experimental() = 0;
 };
 
 ShenandoahHeuristics::ShenandoahHeuristics() :
@@ -476,6 +480,18 @@ public:
     // Always unload classes.
     return true;
   }
+
+  virtual const char* name() {
+    return "passive";
+  }
+
+  virtual bool is_diagnostic() {
+    return true;
+  }
+
+  virtual bool is_experimental() {
+    return false;
+  }
 };
 
 class ShenandoahAggressiveHeuristics : public ShenandoahHeuristics {
@@ -505,6 +521,18 @@ public:
     if (ShenandoahUnloadClassesFrequency == 0) return false;
     // Randomly unload classes with 50% chance.
     return (os::random() & 1) == 1;
+  }
+
+  virtual const char* name() {
+    return "aggressive";
+  }
+
+  virtual bool is_diagnostic() {
+    return true;
+  }
+
+  virtual bool is_experimental() {
+    return false;
   }
 };
 
@@ -564,6 +592,17 @@ public:
     return r->garbage() > threshold;
   }
 
+  virtual const char* name() {
+    return "dynamic";
+  }
+
+  virtual bool is_diagnostic() {
+    return false;
+  }
+
+  virtual bool is_experimental() {
+    return false;
+  }
 };
 
 
@@ -782,6 +821,18 @@ public:
     }
     return _update_refs_early;
   }
+
+  virtual const char* name() {
+    return "adaptive";
+  }
+
+  virtual bool is_diagnostic() {
+    return false;
+  }
+
+  virtual bool is_experimental() {
+    return false;
+  }
 };
 
 ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
@@ -932,22 +983,32 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[final_update_refs_jvmti_roots]          = "    UR: JVMTI Roots";
   _phase_names[final_update_refs_recycle]              = "  Recycle";
 
+
   if (ShenandoahGCHeuristics != NULL) {
     if (strcmp(ShenandoahGCHeuristics, "aggressive") == 0) {
-      log_info(gc, init)("Shenandoah heuristics: aggressive");
       _heuristics = new ShenandoahAggressiveHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "dynamic") == 0) {
-      log_info(gc, init)("Shenandoah heuristics: dynamic");
       _heuristics = new ShenandoahDynamicHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "adaptive") == 0) {
-      log_info(gc, init)("Shenandoah heuristics: adaptive");
       _heuristics = new ShenandoahAdaptiveHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "passive") == 0) {
-      log_info(gc, init)("Shenandoah heuristics: passive");
       _heuristics = new ShenandoahPassiveHeuristics();
     } else {
       vm_exit_during_initialization("Unknown -XX:ShenandoahGCHeuristics option");
     }
+
+    if (_heuristics->is_diagnostic() && !UnlockDiagnosticVMOptions) {
+      vm_exit_during_initialization(
+              err_msg("Heuristics \"%s\" is diagnostic, and must be enabled via -XX:+UnlockDiagnosticVMOptions.",
+                      _heuristics->name()));
+    }
+    if (_heuristics->is_experimental() && !UnlockExperimentalVMOptions) {
+      vm_exit_during_initialization(
+              err_msg("Heuristics \"%s\" is experimental, and must be enabled via -XX:+UnlockExperimentalVMOptions.",
+                      _heuristics->name()));
+    }
+    log_info(gc, init)("Shenandoah heuristics: %s",
+                       _heuristics->name());
     _heuristics->print_thresholds();
   } else {
       ShouldNotReachHere();

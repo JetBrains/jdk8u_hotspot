@@ -72,6 +72,7 @@ public class TestPeriodicGC {
                 true,
                 "-XX:+PrintGCDetails",
                 "-XX:+UseShenandoahGC",
+                "-XX:+UnlockDiagnosticVMOptions",
                 "-XX:+UnlockExperimentalVMOptions",
                 "-XX:ShenandoahGCHeuristics=" + h,
                 "-XX:ShenandoahGuaranteedGCInterval=1000"
@@ -81,6 +82,7 @@ public class TestPeriodicGC {
                 false,
                 "-XX:+PrintGCDetails",
                 "-XX:+UseShenandoahGC",
+                "-XX:+UnlockDiagnosticVMOptions",
                 "-XX:+UnlockExperimentalVMOptions",
                 "-XX:ShenandoahGCHeuristics=" + h,
                 "-XX:ShenandoahGuaranteedGCInterval=100000" // deliberately too long
@@ -92,6 +94,7 @@ public class TestPeriodicGC {
                 false,
                 "-XX:+PrintGCDetails",
                 "-XX:+UseShenandoahGC",
+                "-XX:+UnlockDiagnosticVMOptions",
                 "-XX:+UnlockExperimentalVMOptions",
                 "-XX:ShenandoahGCHeuristics=" + h,
                 "-XX:ShenandoahGuaranteedGCInterval=1000"

@@ -24,7 +24,7 @@
 /*
  * @test MXNotificationsFullGC
  * @summary Check that full GC notifications are reported on Shenandoah's full GCs
- * @run main/othervm -XX:+UseShenandoahGC -XX:ShenandoahGCHeuristics=passive -Xmx1g -Xms1g MXNotificationsFullGC
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=passive -Xmx1g -Xms1g MXNotificationsFullGC
  */
 
 import javax.management.*;

@@ -45,6 +45,8 @@ public class TestShenandoahArgumentRanges {
 
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-XX:+UnlockDiagnosticVMOptions",
+                                                                      "-XX:+UnlockExperimentalVMOptions",
                                                                       "-XX:ShenandoahGCHeuristics=aggressive",
                                                                       "-version");
             OutputAnalyzer output = new OutputAnalyzer(pb.start());
@@ -52,6 +54,8 @@ public class TestShenandoahArgumentRanges {
         }
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-XX:+UnlockDiagnosticVMOptions",
+                                                                      "-XX:+UnlockExperimentalVMOptions",
                                                                       "-XX:ShenandoahGCHeuristics=dynamic",
                                                                       "-version");
             OutputAnalyzer output = new OutputAnalyzer(pb.start());
@@ -59,6 +63,8 @@ public class TestShenandoahArgumentRanges {
         }
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+                                                                      "-XX:+UnlockDiagnosticVMOptions",
+                                                                      "-XX:+UnlockExperimentalVMOptions",
                                                                       "-XX:ShenandoahGCHeuristics=fluff",
                                                                       "-version");
             OutputAnalyzer output = new OutputAnalyzer(pb.start());
