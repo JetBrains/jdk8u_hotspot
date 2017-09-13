@@ -51,7 +51,7 @@ ShenandoahGCTraceTime::ShenandoahGCTraceTime(const char* title, bool doit, GCTim
 
     gclog_or_tty->date_stamp(PrintGCDateStamps);
     gclog_or_tty->stamp(PrintGCTimeStamps);
-    if (!gc_id.is_undefined()) {
+    if (PrintGCID && !gc_id.is_undefined()) {
       gclog_or_tty->print("#%u: ", gc_id.id());
     }
     gclog_or_tty->print("[%s", title);

@@ -26,7 +26,7 @@
 ##
 ## @test
 ## @summary test JNI critical arrays support in Shenandoah
-## @run shell/timeout=30 ShenandoahJNICritical.sh
+## @run shell/timeout=120 ShenandoahJNICritical.sh
 ##
 
 if [ "${TESTSRC}" = "" ]

@@ -136,7 +136,11 @@ hotspot_gc = \
   -gc/g1/TestGreyReclaimedHumongousObjects.java
 
 hotspot_gc_shenandoah = \
+  gc/arguments/TestUseCompressedOopsErgo.java \
+  gc/arguments/TestAlignmentToUseLargePages.java \
+  gc/logging/TestGCId.java \
   gc/metaspace/TestMetaspacePerfCounters.java \
+  gc/startup_warnings/TestShenandoah.java \
   gc/shenandoah/
 
 hotspot_fast_gc_shenandoah = \
