@@ -29,6 +29,7 @@
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=passive    RetainObjects
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=adaptive   RetainObjects
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=dynamic    RetainObjects
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=continuous RetainObjects
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xms256m -Xmx256m -XX:ShenandoahGCHeuristics=aggressive RetainObjects
  *
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xms256m -Xmx256m                                       -XX:+ShenandoahVerify RetainObjects

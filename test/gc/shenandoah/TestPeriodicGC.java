@@ -64,7 +64,8 @@ public class TestPeriodicGC {
 
         String[] disabled = new String[] {
            "aggressive",
-           "passive"
+           "continuous",
+           "passive",
         };
 
         for (String h : enabled) {

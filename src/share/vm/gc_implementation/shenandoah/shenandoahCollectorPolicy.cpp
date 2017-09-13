@@ -605,6 +605,30 @@ public:
   }
 };
 
+class ShenandoahContinuousHeuristics : public ShenandoahHeuristics {
+public:
+  virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
+    // Start the cycle, unless completely idle.
+    return ShenandoahHeap::heap()->bytes_allocated_since_cm() > 0;
+  }
+
+  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
+    size_t threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
+    return r->garbage() > threshold;
+  }
+
+  virtual const char* name() {
+    return "continuous";
+  }
+
+  virtual bool is_diagnostic() {
+    return false;
+  }
+
+  virtual bool is_experimental() {
+    return false;
+  }
+};
 
 class ShenandoahAdaptiveHeuristics : public ShenandoahHeuristics {
 private:
@@ -993,6 +1017,8 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
       _heuristics = new ShenandoahAdaptiveHeuristics();
     } else if (strcmp(ShenandoahGCHeuristics, "passive") == 0) {
       _heuristics = new ShenandoahPassiveHeuristics();
+    } else if (strcmp(ShenandoahGCHeuristics, "continuous") == 0) {
+      _heuristics = new ShenandoahContinuousHeuristics();
     } else {
       vm_exit_during_initialization("Unknown -XX:ShenandoahGCHeuristics option");
     }

@@ -28,6 +28,7 @@
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=passive      LotsOfCycles
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=adaptive     LotsOfCycles
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=dynamic      LotsOfCycles
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=continuous   LotsOfCycles
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=aggressive   LotsOfCycles
  */
 
