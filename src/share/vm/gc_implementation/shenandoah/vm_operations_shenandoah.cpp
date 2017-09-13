@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+#include "gc_implementation/shared/vmGCOperations.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
@@ -33,6 +34,7 @@
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 void VM_ShenandoahInitMark::doit() {
+  SvcGCMarker sgcm(SvcGCMarker::OTHER);
   ShenandoahHeap* sh = ShenandoahHeap::heap();
 
   GCTraceTime time("Pause Init Mark", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
@@ -53,6 +55,7 @@ void VM_ShenandoahInitMark::doit() {
 }
 
 void VM_ShenandoahFullGC::doit() {
+  SvcGCMarker sgcm(SvcGCMarker::FULL);
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   sh->shenandoahPolicy()->record_gc_start();
   ShenandoahMarkCompact::do_mark_compact(_gc_cause);
@@ -79,7 +82,7 @@ void VM_ShenandoahReferenceOperation::doit_epilogue() {
 }
 
 void VM_ShenandoahFinalMarkStartEvac::doit() {
-
+  SvcGCMarker sgcm(SvcGCMarker::OTHER);
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause);
   ShenandoahGCPhase final_mark(ShenandoahCollectorPolicy::final_mark);
@@ -125,6 +128,7 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
 }
 
 void VM_ShenandoahInitUpdateRefs::doit() {
+  SvcGCMarker sgcm(SvcGCMarker::OTHER);
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   GCTraceTime time("Pause Init Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
   ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause);
@@ -134,6 +138,7 @@ void VM_ShenandoahInitUpdateRefs::doit() {
 }
 
 void VM_ShenandoahFinalUpdateRefs::doit() {
+  SvcGCMarker sgcm(SvcGCMarker::OTHER);
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   GCTraceTime time("Pause Final Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id(), true);
   ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause);
