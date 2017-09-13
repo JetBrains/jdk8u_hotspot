@@ -52,11 +52,6 @@ void ShenandoahUpdateRefsClosure::do_oop_work(T* p) {
 void ShenandoahUpdateRefsClosure::do_oop(oop* p)       { do_oop_work(p); }
 void ShenandoahUpdateRefsClosure::do_oop(narrowOop* p) { do_oop_work(p); }
 
-inline size_t ShenandoahHeap::num_regions() const {
-  assert(regions() != NULL, "Sanity");
-  return regions()->active_regions();
-}
-
 /*
  * Marks the object. Returns true if the object has not been marked before and has
  * been marked by this thread. Returns false if the object has already been marked,

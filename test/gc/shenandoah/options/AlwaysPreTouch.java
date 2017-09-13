@@ -24,7 +24,9 @@
 /*
  * @test AlwaysPreTouch
  * @summary Check that Shenandoah's AlwaysPreTouch does not fire asserts
- * @run main/othervm -XX:+UseShenandoahGC -XX:+AlwaysPreTouch -Xmx2g -Xms2g AlwaysPreTouch
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+AlwaysPreTouch          -Xmx2g AlwaysPreTouch
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+AlwaysPreTouch -Xms128m -Xmx2g AlwaysPreTouch
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+AlwaysPreTouch   -Xms2g -Xmx2g AlwaysPreTouch
  */
 
 public class AlwaysPreTouch {

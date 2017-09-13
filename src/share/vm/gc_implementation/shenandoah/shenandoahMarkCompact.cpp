@@ -429,7 +429,7 @@ public:
     ShenandoahHeapRegionSet* copy_queue = _copy_queues[worker_id];
     ShenandoahHeapRegion* from_region = next_from_region(copy_queue);
     if (from_region == NULL) return;
-    ShenandoahHeapRegionSet* to_regions = new ShenandoahHeapRegionSet(ShenandoahHeap::heap()->max_regions());
+    ShenandoahHeapRegionSet* to_regions = new ShenandoahHeapRegionSet(ShenandoahHeap::heap()->num_regions());
     ShenandoahPrepareForCompactionObjectClosure cl(to_regions, from_region);
     while (from_region != NULL) {
       assert(from_region != NULL, "sanity");
@@ -472,7 +472,7 @@ void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegi
 
   // Initialize copy queues.
   for (uint i = 0; i < heap->max_workers(); i++) {
-    copy_queues[i] = new ShenandoahHeapRegionSet(heap->max_regions());
+    copy_queues[i] = new ShenandoahHeapRegionSet(heap->num_regions());
   }
 
   ShenandoahHeapRegionSet* from_regions = heap->regions();

@@ -126,6 +126,11 @@ jint ShenandoahHeap::initialize() {
   size_t max_byte_size = collector_policy()->max_heap_byte_size();
   size_t heap_alignment = collector_policy()->heap_alignment();
 
+  if (ShenandoahAlwaysPreTouch) {
+    // Enabled pre-touch means the entire heap is committed right away.
+    init_byte_size = max_byte_size;
+  }
+
   Universe::check_alignment(max_byte_size,
                             ShenandoahHeapRegion::region_size_bytes(),
                             "shenandoah heap");
@@ -143,55 +148,53 @@ jint ShenandoahHeap::initialize() {
   set_barrier_set(new ShenandoahBarrierSet(this));
   ReservedSpace pgc_rs = heap_rs.first_part(max_byte_size);
 
+  _num_regions = max_byte_size / ShenandoahHeapRegion::region_size_bytes();
+  size_t num_committed_regions = init_byte_size / ShenandoahHeapRegion::region_size_bytes();
+  _initial_size = num_committed_regions * ShenandoahHeapRegion::region_size_bytes();
+  _committed = _initial_size;
+
   log_info(gc, heap)("Initialize Shenandoah heap with initial size " SIZE_FORMAT " bytes", init_byte_size);
-  if (!_storage.initialize(pgc_rs, init_byte_size)) {
-    vm_exit_out_of_memory(init_byte_size, OOM_MMAP_ERROR, "Shenandoah failed to initailize heap");
+  if (!_storage.initialize(pgc_rs, _initial_size)) {
+    vm_exit_out_of_memory(_initial_size, OOM_MMAP_ERROR, "Shenandoah failed to initialize heap");
   }
 
-  _committed = init_byte_size;
+  size_t reg_size_words = ShenandoahHeapRegion::region_size_words();
 
-  size_t num_regions = init_byte_size / ShenandoahHeapRegion::region_size_bytes();
-  _max_regions = max_byte_size / ShenandoahHeapRegion::region_size_bytes();
-  _initialSize = num_regions * ShenandoahHeapRegion::region_size_bytes();
-  size_t regionSizeWords = ShenandoahHeapRegion::region_size_words();
-  assert(init_byte_size == _initialSize, "tautology");
-  _ordered_regions = new ShenandoahHeapRegionSet(_max_regions);
-  _free_regions = new ShenandoahFreeSet(_max_regions);
+  _ordered_regions = new ShenandoahHeapRegionSet(_num_regions);
+  _free_regions = new ShenandoahFreeSet(_num_regions);
 
   _collection_set = new ShenandoahCollectionSet(this, (HeapWord*)pgc_rs.base());
 
-  _next_top_at_mark_starts_base =
-                   NEW_C_HEAP_ARRAY(HeapWord*, _max_regions, mtGC);
+  _next_top_at_mark_starts_base = NEW_C_HEAP_ARRAY(HeapWord*, _num_regions, mtGC);
   _next_top_at_mark_starts = _next_top_at_mark_starts_base -
                ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_shift());
 
-  _complete_top_at_mark_starts_base =
-                   NEW_C_HEAP_ARRAY(HeapWord*, _max_regions, mtGC);
+  _complete_top_at_mark_starts_base = NEW_C_HEAP_ARRAY(HeapWord*, _num_regions, mtGC);
   _complete_top_at_mark_starts = _complete_top_at_mark_starts_base -
                ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_shift());
 
-  size_t i = 0;
-  for (i = 0; i < num_regions; i++) {
-    HeapWord* bottom = (HeapWord*) pgc_rs.base() + regionSizeWords * i;
-    _complete_top_at_mark_starts_base[i] = bottom;
-    _next_top_at_mark_starts_base[i] = bottom;
-  }
-
   {
     ShenandoahHeapLocker locker(lock());
-    for (i = 0; i < num_regions; i++) {
-      ShenandoahHeapRegion* current = new ShenandoahHeapRegion(this, (HeapWord*) pgc_rs.base() +
-                                                               regionSizeWords * i, regionSizeWords, i);
+    for (size_t i = 0; i < _num_regions; i++) {
+      ShenandoahHeapRegion* r = new ShenandoahHeapRegion(this,
+                                                         (HeapWord*) pgc_rs.base() + reg_size_words * i,
+                                                         reg_size_words,
+                                                         i,
+                                                         i < num_committed_regions);
+
+      _complete_top_at_mark_starts_base[i] = r->bottom();
+      _next_top_at_mark_starts_base[i] = r->bottom();
+
       // Add to ordered regions first.
       // We use the active size of ordered regions as the number of active regions in heap,
       // free set and collection set use the number to assert the correctness of incoming regions.
-      _ordered_regions->add_region(current);
-      _free_regions->add_region(current);
+      _ordered_regions->add_region(r);
+      _free_regions->add_region(r);
       assert(!collection_set()->is_in(i), "New region should not be in collection set");
     }
   }
 
-  assert(_ordered_regions->active_regions() == num_regions, "Must match");
+  assert(_ordered_regions->active_regions() == _num_regions, "Must match");
   assert((((size_t) base()) &
           (ShenandoahHeapRegion::region_size_bytes() - 1)) == 0,
          err_msg("misaligned heap: "PTR_FORMAT, p2i(base())));
@@ -205,7 +208,7 @@ jint ShenandoahHeap::initialize() {
     _free_regions->print(out);
   }
 
-  _recycled_regions = NEW_C_HEAP_ARRAY(size_t, _max_regions, mtGC);
+  _recycled_regions = NEW_C_HEAP_ARRAY(size_t, _num_regions, mtGC);
   _recycled_region_count = 0;
 
   // The call below uses stuff (the SATB* things) that are in G1, but probably
@@ -396,8 +399,8 @@ void ShenandoahHeap::print_on(outputStream* st) const {
   st->print_cr("Shenandoah Heap");
   st->print_cr(" " SIZE_FORMAT "K total, " SIZE_FORMAT "K committed, " SIZE_FORMAT "K used",
                capacity() / K, committed() / K, used() / K);
-  st->print_cr(" " SIZE_FORMAT "K regions, " SIZE_FORMAT " active, " SIZE_FORMAT " total",
-            ShenandoahHeapRegion::region_size_bytes() / K, num_regions(), _max_regions);
+  st->print_cr(" " SIZE_FORMAT " x " SIZE_FORMAT"K regions",
+               num_regions(), ShenandoahHeapRegion::region_size_bytes() / K);
 
   st->print("Status: ");
   if (concurrent_mark_in_progress()) {
@@ -499,11 +502,11 @@ bool ShenandoahHeap::is_maximal_no_gc() const {
 }
 
 size_t ShenandoahHeap::max_capacity() const {
-  return _max_regions * ShenandoahHeapRegion::region_size_bytes();
+  return _num_regions * ShenandoahHeapRegion::region_size_bytes();
 }
 
-size_t ShenandoahHeap::min_capacity() const {
-  return _initialSize;
+size_t ShenandoahHeap::initial_capacity() const {
+  return _initial_size;
 }
 
 VirtualSpace* ShenandoahHeap::storage() const {
@@ -603,7 +606,6 @@ HeapWord* ShenandoahHeap::allocate_new_gclab(size_t word_size) {
 }
 
 HeapWord* ShenandoahHeap::allocate_new_lab(size_t word_size, AllocType type) {
-
   HeapWord* result = allocate_memory(word_size, type);
 
   if (result != NULL) {
@@ -628,28 +630,11 @@ ShenandoahHeap* ShenandoahHeap::heap_no_check() {
   return (ShenandoahHeap*) heap;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_work(size_t word_size, AllocType type) {
-  ShenandoahHeapLocker locker(lock());
-
-  HeapWord* result = allocate_memory_under_lock(word_size, type);
-  size_t grow_by = (word_size + ShenandoahHeapRegion::region_size_words() - 1) / ShenandoahHeapRegion::region_size_words();
-
-  while (result == NULL && num_regions() + grow_by <= _max_regions) {
-    if (!grow_heap_by(grow_by)) {
-      return NULL;
-    }
-
-    result = allocate_memory_under_lock(word_size, type);
-  }
-
-  return result;
-}
-
 HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
   ShenandoahAllocTrace trace_alloc(word_size, type);
 
   HeapWord* result = NULL;
-  result = allocate_memory_work(word_size, type);
+  result = allocate_memory_under_lock(word_size, type);
 
   if (type == _alloc_tlab || type == _alloc_shared) {
     // Allocation failed, try full-GC, then retry allocation.
@@ -667,7 +652,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
       log_debug(gc)("[" PTR_FORMAT " Failed to allocate " SIZE_FORMAT " bytes, doing full GC, try %d",
                     p2i(Thread::current()), word_size * HeapWordSize, tries);
       collect(GCCause::_allocation_failure);
-      result = allocate_memory_work(word_size, type);
+      result = allocate_memory_under_lock(word_size, type);
     }
 
     // Only update monitoring counters when not calling from a write-barrier.
@@ -684,7 +669,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
 }
 
 HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType type) {
-  assert_heaplock_owned_by_current_thread();
+  ShenandoahHeapLocker locker(lock());
 
   if (word_size > ShenandoahHeapRegion::region_size_words()) {
     return allocate_large_memory(word_size);
@@ -737,7 +722,7 @@ HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
   assert_heaplock_owned_by_current_thread();
 
   size_t required_regions = ShenandoahHeapRegion::required_regions(words * HeapWordSize);
-  if (required_regions > _max_regions) return NULL;
+  if (required_regions > _num_regions) return NULL;
 
   ShenandoahHeapRegion* r = _free_regions->allocate_contiguous(required_regions);
 
@@ -1625,64 +1610,6 @@ HeapWord* ShenandoahHeap::tlab_post_allocation_setup(HeapWord* obj) {
 
 uint ShenandoahHeap::oop_extra_words() {
   return BrooksPointer::word_size();
-}
-
-bool ShenandoahHeap::grow_heap_by(size_t num_regs) {
-  size_t old_num_regions = num_regions();
-  if (!ensure_new_regions(num_regs)) {
-    return false;
-  }
-
-  for (size_t i = 0; i < num_regs; i++) {
-    size_t new_region_index = i + old_num_regions;
-    HeapWord* start = ((HeapWord*) base()) + ShenandoahHeapRegion::region_size_words() * new_region_index;
-    ShenandoahHeapRegion* new_region = new ShenandoahHeapRegion(this, start, ShenandoahHeapRegion::region_size_words(), new_region_index);
-
-    if (ShenandoahLogTrace) {
-      outputStream* out = gclog_or_tty;
-      out->print_cr("Allocating new region at index: "SIZE_FORMAT, new_region_index);
-    }
-
-    assert(_ordered_regions->active_regions() == new_region->region_number(), "must match");
-    _ordered_regions->add_region(new_region);
-
-    assert(!collection_set()->is_in(new_region_index), "New region can not be in collection set");
-
-    _next_top_at_mark_starts_base[new_region_index] = new_region->bottom();
-    _complete_top_at_mark_starts_base[new_region_index] = new_region->bottom();
-
-    _free_regions->add_region(new_region);
-  }
-
-  return true;
-}
-
-bool ShenandoahHeap::ensure_new_regions(size_t new_regions) {
-#ifdef ASSERT
-  if (ShenandoahFailHeapExpansionAfter != -1) {
-    _heap_expansion_count ++;
-    if (_heap_expansion_count > ShenandoahFailHeapExpansionAfter) {
-      log_debug(gc, region)("Artificially fails heap expansion");
-      return false;
-    }
-  }
-#endif
-
-
-  size_t num_regs = num_regions();
-  size_t new_num_regions = num_regs + new_regions;
-  assert(new_num_regions <= _max_regions, "we checked this earlier");
-
-  size_t expand_size = new_regions * ShenandoahHeapRegion::region_size_bytes();
-  bool success = _storage.expand_by(expand_size, ShenandoahAlwaysPreTouch);
-  if (success) {
-    increase_committed(expand_size);
-    log_trace(gc, region)("Expanded storage by "SIZE_FORMAT" bytes, for "SIZE_FORMAT" new regions", expand_size, new_regions);
-  } else {
-    log_warning(gc, region)("Failed to expand storage by "SIZE_FORMAT" bytes, for "SIZE_FORMAT" new regions", expand_size, new_regions);
-  }
-
-  return success;
 }
 
 ShenandoahForwardedIsAliveClosure::ShenandoahForwardedIsAliveClosure() :

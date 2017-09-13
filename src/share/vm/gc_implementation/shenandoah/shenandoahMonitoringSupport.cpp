@@ -40,7 +40,7 @@ _full_collection_counters(NULL)
 
   // We report young gen as unused.
   _heap_counters = new GenerationCounters("heap", 0, 1, heap->storage());
-  _space_counters = new HSpaceCounters("heap", 0, heap->max_capacity(), heap->min_capacity(), _heap_counters);
+  _space_counters = new HSpaceCounters("heap", 0, heap->max_capacity(), heap->initial_capacity(), _heap_counters);
 
   _heap_region_counters = new ShenandoahHeapRegionCounters();
 }

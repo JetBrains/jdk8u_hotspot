@@ -349,10 +349,10 @@ void ShenandoahConcurrentMark::initialize(uint workers) {
 
   JavaThread::satb_mark_queue_set().set_buffer_size(ShenandoahSATBBufferSize);
 
-  size_t max_regions = ShenandoahHeap::heap()->max_regions();
+  size_t num_regions = ShenandoahHeap::heap()->num_regions();
   _liveness_local = NEW_C_HEAP_ARRAY(jushort*, workers, mtGC);
   for (uint worker = 0; worker < workers; worker++) {
-     _liveness_local[worker] = NEW_C_HEAP_ARRAY(jushort, max_regions, mtGC);
+     _liveness_local[worker] = NEW_C_HEAP_ARRAY(jushort, num_regions, mtGC);
   }
 }
 
@@ -893,7 +893,7 @@ void ShenandoahConcurrentMark::mark_loop_prework(uint w, ParallelTaskTerminator 
   jushort* ld;
   if (COUNT_LIVENESS) {
     ld = get_liveness(w);
-    Copy::fill_to_bytes(ld, _heap->max_regions() * sizeof(jushort));
+    Copy::fill_to_bytes(ld, _heap->num_regions() * sizeof(jushort));
   } else {
     ld = NULL;
   }

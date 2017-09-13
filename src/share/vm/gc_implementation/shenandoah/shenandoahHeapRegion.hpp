@@ -199,7 +199,7 @@ private:
   double _empty_time;
 
 public:
-  ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t regionSize, size_t index);
+  ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t size_words, size_t index, bool committed);
 
   static void setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size);
 

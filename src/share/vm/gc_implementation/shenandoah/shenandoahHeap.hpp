@@ -128,8 +128,8 @@ private:
 
   ShenandoahMonitoringSupport* _monitoring_support;
 
-  size_t _max_regions;
-  size_t _initialSize;
+  size_t _num_regions;
+  size_t _initial_size;
   uint _max_workers;
 
   FlexibleWorkGang* _workers;
@@ -199,7 +199,7 @@ public:
   size_t committed() const;
   bool is_maximal_no_gc() const /* override */;
   size_t max_capacity() const /* override */;
-  size_t min_capacity() const /* override */;
+  size_t initial_capacity() const /* override */;
   bool is_in(const void* p) const /* override */;
   bool is_scavengable(const void* addr) /* override */;
   HeapWord* mem_allocate(size_t size, bool* what) /* override */;
@@ -398,11 +398,7 @@ public:
   // in symbol table, possibly in parallel.
   void unload_classes_and_cleanup_tables(bool full_gc);
 
-  inline size_t num_regions() const;
-
-  size_t max_regions() const { return _max_regions; }
-
-  // TODO: consider moving this into ShenandoahHeapRegion.
+  inline size_t num_regions() const { return _num_regions; }
 
   BoolObjectClosure* is_alive_closure();
 
@@ -483,21 +479,10 @@ private:
 
   void ref_processing_init();
 
-  /* Expand heap by specified number of regions
-   * return true if heap is successfully expanded
-   */
-  bool grow_heap_by(size_t num_regions);
-
-  /* Commit heap space to ensure expansion of specified
-   * number of new regions
-   */
-  bool ensure_new_regions(size_t num_new_regions);
-
   void set_concurrent_mark_in_progress(bool in_progress);
 
   void oom_during_evacuation();
 
-  HeapWord* allocate_memory_work(size_t word_size, AllocType type);
   HeapWord* allocate_large_memory(size_t word_size);
 
   const char* cancel_cause_to_string(ShenandoahCancelCause cause);

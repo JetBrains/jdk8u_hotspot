@@ -5361,7 +5361,7 @@ void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
   ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
 
   HeapWord* heap_base = (HeapWord*) h->base();
-  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();
+  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->num_regions();
   guarantee(heap_base < last_region_end, err_msg("sanity: %p < %p", heap_base, last_region_end));
   movptr(tmp, (intptr_t) heap_base);
   cmpptr(raddr, tmp);

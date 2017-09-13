@@ -357,13 +357,9 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 }
 
 void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
-
   ShenandoahHeapRegionSet* ordered_regions = ShenandoahHeap::heap()->regions();
-  size_t i = 0;
-  size_t end = ordered_regions->active_regions();
-
-  while (i < end) {
-    ShenandoahHeapRegion* region = ordered_regions->get(i++);
+  for (size_t i = 0; i < ordered_regions->active_regions(); i++) {
+    ShenandoahHeapRegion* region = ordered_regions->get(i);
     if (region->is_alloc_allowed()) {
       free_set->add_region(region);
     }

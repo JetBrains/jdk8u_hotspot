@@ -35,7 +35,7 @@ ShenandoahHeapRegionCounters::ShenandoahHeapRegionCounters() :
     EXCEPTION_MARK;
     ResourceMark rm;
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    size_t max_regions = heap->max_regions();
+    size_t num_regions = heap->num_regions();
     const char* cns = PerfDataManager::name_space("shenandoah", "regions");
     _name_space = NEW_C_HEAP_ARRAY(char, strlen(cns)+1, mtGC);
     strcpy(_name_space, cns);
@@ -44,7 +44,7 @@ ShenandoahHeapRegionCounters::ShenandoahHeapRegionCounters() :
     _timestamp = PerfDataManager::create_long_variable(SUN_GC, cname, PerfData::U_None, CHECK);
 
     cname = PerfDataManager::counter_name(_name_space, "max_regions");
-    PerfDataManager::create_constant(SUN_GC, cname, PerfData::U_None, max_regions, CHECK);
+    PerfDataManager::create_constant(SUN_GC, cname, PerfData::U_None, num_regions, CHECK);
 
     cname = PerfDataManager::counter_name(_name_space, "region_size");
     PerfDataManager::create_constant(SUN_GC, cname, PerfData::U_None, ShenandoahHeapRegion::region_size_bytes() >> 10, CHECK);
@@ -53,8 +53,8 @@ ShenandoahHeapRegionCounters::ShenandoahHeapRegionCounters() :
     _status = PerfDataManager::create_long_variable(SUN_GC, cname,
                                                     PerfData::U_None, CHECK);
 
-    _regions_data = NEW_C_HEAP_ARRAY(PerfVariable*, max_regions, mtGC);
-    for (uint i = 0; i < max_regions; i++) {
+    _regions_data = NEW_C_HEAP_ARRAY(PerfVariable*, num_regions, mtGC);
+    for (uint i = 0; i < num_regions; i++) {
       const char* reg_name = PerfDataManager::name_space(_name_space, "region", i);
       const char* data_name = PerfDataManager::counter_name(reg_name, "data");
       const char* ns = PerfDataManager::ns_to_string(SUN_GC);
@@ -87,10 +87,9 @@ void ShenandoahHeapRegionCounters::update() {
       _timestamp->set_value(os::elapsed_counter());
 
       size_t num_regions = heap->num_regions();
-      size_t max_regions = heap->max_regions();
       ShenandoahHeapRegionSet* regions = heap->regions();
       size_t rs = ShenandoahHeapRegion::region_size_bytes();
-      for (uint i = 0; i < max_regions; i++) {
+      for (uint i = 0; i < num_regions; i++) {
         if (i < num_regions) {
           ShenandoahHeapRegion* r = regions->get(i);
           jlong data = 0;

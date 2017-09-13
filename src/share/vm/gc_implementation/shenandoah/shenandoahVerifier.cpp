@@ -645,8 +645,8 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   _verification_bit_map->clear_range_large(mr);
 
   // Allocate temporary array for storing liveness data
-  ShenandoahLivenessData* ld = NEW_C_HEAP_ARRAY(ShenandoahLivenessData, _heap->max_regions(), mtGC);
-  Copy::fill_to_bytes((void*)ld, _heap->max_regions()*sizeof(ShenandoahLivenessData), 0);
+  ShenandoahLivenessData* ld = NEW_C_HEAP_ARRAY(ShenandoahLivenessData, _heap->num_regions(), mtGC);
+  Copy::fill_to_bytes((void*)ld, _heap->num_regions()*sizeof(ShenandoahLivenessData), 0);
 
   const VerifyOptions& options = ShenandoahVerifier::VerifyOptions(forwarded, marked, matrix, cset, liveness);
 

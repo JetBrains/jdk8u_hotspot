@@ -5050,7 +5050,7 @@ void MacroAssembler::in_heap_check(Register r, Register tmp, Label &nope) {
   ShenandoahHeap* h = ShenandoahHeap::heap();
 
   HeapWord* heap_base = (HeapWord*) h->base();
-  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->max_regions();
+  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->num_regions();
 
   mov(tmp, (uintptr_t) heap_base);
   cmp(r, tmp);

@@ -26,7 +26,7 @@
  * @key gc
  * @summary Fail to expand Java heap should not result fatal errors
  * @library /testlibrary
- * @ignore
+ * @ignore // heap is not resized in a conventional manner, ignore for now
  */
 
 import com.oracle.java.testlibrary.*;

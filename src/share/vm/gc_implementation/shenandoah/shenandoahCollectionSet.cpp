@@ -33,7 +33,7 @@
 
 ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, HeapWord* heap_base) :
         _garbage(0), _live_data(0), _heap(heap), _region_count(0),
-        _map_size(heap->max_regions()), _current_index(0) {
+        _map_size(heap->num_regions()), _current_index(0) {
   // Use 1-byte data type
   STATIC_ASSERT(sizeof(jbyte) == 1);
 

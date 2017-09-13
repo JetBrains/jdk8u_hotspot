@@ -40,20 +40,20 @@ size_t ShenandoahHeapRegion::RegionSizeBytes = 0;
 size_t ShenandoahHeapRegion::RegionSizeWords = 0;
 
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
-                                           size_t regionSizeWords, size_t index) :
+                                           size_t size_words, size_t index, bool committed) :
   _heap(heap),
   _region_number(index),
   _live_data(0),
   _tlab_allocs(0),
   _gclab_allocs(0),
   _shared_allocs(0),
-  _reserved(MemRegion(start, regionSizeWords)),
+  _reserved(MemRegion(start, size_words)),
   _new_top(NULL),
-  _state(_empty_committed),
+  _state(committed ? _empty_committed : _empty_uncommitted),
   _empty_time(os::elapsedTime()),
   _critical_pins(0) {
 
-  ContiguousSpace::initialize(_reserved, true, true);
+  ContiguousSpace::initialize(_reserved, true, committed);
 }
 
 size_t ShenandoahHeapRegion::region_number() const {
@@ -538,6 +538,5 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   log_info(gc, heap)("Heap region size: " SIZE_FORMAT "M", RegionSizeBytes / M);
   log_info(gc, init)("Region size in bytes: "SIZE_FORMAT, RegionSizeBytes);
   log_info(gc, init)("Region size shift: "SIZE_FORMAT, RegionSizeShift);
-  log_info(gc, init)("Initial number of regions: "SIZE_FORMAT, initial_heap_size / RegionSizeBytes);
-  log_info(gc, init)("Maximum number of regions: "SIZE_FORMAT, max_heap_size / RegionSizeBytes);
+  log_info(gc, init)("Number of regions: "SIZE_FORMAT, max_heap_size / RegionSizeBytes);
 }
