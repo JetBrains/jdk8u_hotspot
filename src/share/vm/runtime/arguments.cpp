@@ -2127,6 +2127,14 @@ void check_gclog_consistency() {
     }
     FLAG_SET_DEFAULT(ShenandoahUncommitDelay, max_uintx);
   }
+
+  // Current Hotspot machinery for biased locking may introduce lots of latency hiccups
+  // that negate the benefits of low-latency GC. The throughput improvements granted by
+  // biased locking on modern hardware are not covering the latency problems induced by
+  // it. Therefore, unless user really wants it, disable biased locking.
+  if (FLAG_IS_DEFAULT(UseBiasedLocking)) {
+    FLAG_SET_DEFAULT(UseBiasedLocking, false);
+  }
 }
 
 // This function is called for -Xloggc:<filename>, it can be used
