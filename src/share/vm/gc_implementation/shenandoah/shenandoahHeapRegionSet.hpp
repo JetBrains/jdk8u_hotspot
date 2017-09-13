@@ -100,7 +100,7 @@ public:
     QuickSort::sort<ShenandoahHeapRegion*>(_regions, (int)_active_end, comparator, false);
   }
 
-  void print(outputStream* out = tty);
+  void print_on(outputStream* out) const;
 };
 
 #endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGIONSET_HPP

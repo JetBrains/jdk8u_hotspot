@@ -369,7 +369,7 @@ public:
   template <class T>
   inline oop maybe_update_oop_ref_not_null(T* p, oop obj);
 
-  void print_heap_regions(outputStream* st = tty) const;
+  void print_heap_regions_on(outputStream* st) const;
 
   size_t bytes_allocated_since_cm();
   void set_bytes_allocated_since_cm(size_t bytes);

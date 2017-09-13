@@ -134,7 +134,7 @@ ShenandoahHeapRegion* ShenandoahCollectionSet::next() {
 }
 
 
-void ShenandoahCollectionSet::print(outputStream* out) const {
+void ShenandoahCollectionSet::print_on(outputStream* out) const {
   out->print_cr("Collection Set : " SIZE_FORMAT "", count());
 
   debug_only(size_t regions = 0;)

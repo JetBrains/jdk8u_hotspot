@@ -203,9 +203,9 @@ jint ShenandoahHeap::initialize() {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
     log_trace(gc, region)("All Regions");
-    _ordered_regions->print(out);
+    _ordered_regions->print_on(out);
     log_trace(gc, region)("Free Regions");
-    _free_regions->print(out);
+    _free_regions->print_on(out);
   }
 
   _recycled_regions = NEW_C_HEAP_ARRAY(size_t, _num_regions, mtGC);
@@ -423,7 +423,7 @@ void ShenandoahHeap::print_on(outputStream* st) const {
                p2i(reserved_region().end()));
 
   if (Verbose) {
-    print_heap_regions(st);
+    print_heap_regions_on(st);
   }
 }
 
@@ -911,13 +911,13 @@ void ShenandoahHeap::recycle_cset_regions() {
   collection_set()->clear();
 }
 
-void ShenandoahHeap::print_heap_regions(outputStream* st) const {
+void ShenandoahHeap::print_heap_regions_on(outputStream* st) const {
   st->print_cr("Heap Regions:");
   st->print_cr("EU=empty-uncommitted, EC=empty-committed, R=regular, H=humongous start, HC=humongous continuation, CS=collection set, T=trash, P=pinned");
   st->print_cr("BTE=bottom/top/end, U=used, T=TLAB allocs, G=GCLAB allocs, S=shared allocs, L=live data");
   st->print_cr("R=root, CP=critical pins, TAMS=top-at-mark-start (previous, next)");
 
-  _ordered_regions->print(st);
+  _ordered_regions->print_on(st);
 }
 
 size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
@@ -1116,17 +1116,17 @@ void ShenandoahHeap::do_evacuation() {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
     out->print_cr("All available regions:");
-    print_heap_regions(out);
+    print_heap_regions_on(out);
   }
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
     out->print_cr("Collection set ("SIZE_FORMAT" regions):", _collection_set->count());
-    _collection_set->print(out);
+    _collection_set->print_on(out);
 
     out->print_cr("Free set ("SIZE_FORMAT" regions):", _free_regions->count());
-    _free_regions->print(out);
+    _free_regions->print_on(out);
   }
 
   ShenandoahParallelEvacuationTask task(this, _collection_set);
@@ -1137,18 +1137,18 @@ void ShenandoahHeap::do_evacuation() {
     outputStream* out = gclog_or_tty;
     out->print_cr("After evacuation collection set ("SIZE_FORMAT" regions):",
                   _collection_set->count());
-    _collection_set->print(out);
+    _collection_set->print_on(out);
 
     out->print_cr("After evacuation free set ("SIZE_FORMAT" regions):",
                   _free_regions->count());
-    _free_regions->print(out);
+    _free_regions->print_on(out);
   }
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
     out->print_cr("All regions after evacuation:");
-    print_heap_regions(out);
+    print_heap_regions_on(out);
   }
 }
 
@@ -1543,7 +1543,7 @@ void ShenandoahHeap::stop_concurrent_marking() {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
     out->print_cr("Regions at stopping the concurrent mark:");
-    print_heap_regions(out);
+    print_heap_regions_on(out);
   }
 }
 
@@ -2087,5 +2087,5 @@ void ShenandoahHeap::finish_deferred_recycle() {
 
 void ShenandoahHeap::print_extended_on(outputStream *st) const {
   print_on(st);
-  print_heap_regions(st);
+  print_heap_regions_on(st);
 }

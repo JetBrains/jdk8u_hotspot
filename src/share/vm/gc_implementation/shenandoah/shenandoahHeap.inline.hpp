@@ -171,7 +171,7 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(T* p, oop heap_oop) {
 
 #ifdef ASSERT
   if (! is_in(heap_oop)) {
-    print_heap_regions();
+    print_heap_regions_on(tty);
     tty->print_cr("object not in heap: "PTR_FORMAT", referenced by: "PTR_FORMAT, p2i((HeapWord*) heap_oop), p2i(p));
     assert(is_in(heap_oop), "object must be in heap");
   }

@@ -86,7 +86,7 @@ public:
   }
 };
 
-void ShenandoahHeapRegionSet::print(outputStream* out) {
+void ShenandoahHeapRegionSet::print_on(outputStream* out) const {
   out->print_cr("_current_index: "SIZE_FORMAT" current region: %p, _active_end: "SIZE_FORMAT, _current_index, _regions[_current_index], _active_end);
 
   ShenandoahPrintHeapRegionsClosure pc1(out);

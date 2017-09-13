@@ -26,7 +26,6 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_HPP
 
 #include "memory/allocation.hpp"
-#include "utilities/ostream.hpp"
 
 class ShenandoahHeap;
 class ShenandoahHeapRegion;
@@ -76,7 +75,7 @@ public:
   inline bool is_in(size_t region_number)    const;
   inline bool is_in(HeapWord* p)             const;
 
-  void print(outputStream* out = tty) const;
+  void print_on(outputStream* out) const;
 
   size_t live_data() const { return _live_data; }
   size_t garbage()   const { return _garbage;   }
