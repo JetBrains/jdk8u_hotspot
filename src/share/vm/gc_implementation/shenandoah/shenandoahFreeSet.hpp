@@ -27,35 +27,39 @@
 
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 
-class ShenandoahFreeSet : public ShenandoahHeapRegionSet {
-
+class ShenandoahFreeSet : public CHeapObj<mtGC> {
 private:
+  ShenandoahHeapRegion** _regions;
+  size_t _active_end;
+  size_t _reserved_end;
+  size_t _current;
   size_t _capacity;
   size_t _used;
 
-  size_t is_contiguous(size_t start, size_t num);
-  size_t find_contiguous(size_t start, size_t num);
-  void initialize_humongous_regions(size_t first, size_t num);
-  ShenandoahHeapRegion* skip_humongous(ShenandoahHeapRegion* r);
-
-  void assert_heaplock_owned_by_current_thread() PRODUCT_RETURN;
+  void assert_heaplock_owned_by_current_thread() const PRODUCT_RETURN;
 
 public:
   ShenandoahFreeSet(size_t max_regions);
+  ~ShenandoahFreeSet();
 
   void add_region(ShenandoahHeapRegion* r);
+  void clear();
 
   size_t capacity() const { return _capacity; }
   size_t used()     const { return _used;     }
-
-  size_t unsafe_peek_next_no_humongous() const;
-
-  ShenandoahHeapRegion* allocate_contiguous(size_t num);
-  void clear();
+  size_t count()    const { return _active_end - _current; }
 
   void increase_used(size_t amount);
-  ShenandoahHeapRegion* current_no_humongous();
+
+  // Regular allocation:
+  ShenandoahHeapRegion* current_no_humongous() const;
   ShenandoahHeapRegion* next_no_humongous();
+  size_t unsafe_peek_free() const;
+
+  // Humongous allocation:
+  ShenandoahHeapRegion* allocate_contiguous(size_t num);
+
+  void print_on(outputStream* out) const;
 };
 
 #endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHFREESET_HPP

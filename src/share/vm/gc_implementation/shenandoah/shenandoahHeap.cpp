@@ -713,25 +713,21 @@ HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
   assert_heaplock_owned_by_current_thread();
 
   size_t required_regions = ShenandoahHeapRegion::required_regions(words * HeapWordSize);
-  if (required_regions > _num_regions) return NULL;
-
-  ShenandoahHeapRegion* r = _free_regions->allocate_contiguous(required_regions);
-
-  HeapWord* result = NULL;
-
-  if (r != NULL)  {
-    result = r->bottom();
-
-    log_debug(gc, humongous)("allocating humongous object of size: "SIZE_FORMAT" KB at location "PTR_FORMAT" in start region "SIZE_FORMAT,
-                             (words * HeapWordSize) / K, p2i(result), r->region_number());
-  } else {
-    log_debug(gc, humongous)("allocating humongous object of size: "SIZE_FORMAT" KB at location "PTR_FORMAT" failed",
-                             (words * HeapWordSize) / K, p2i(result));
+  if (required_regions > _num_regions) {
+    return NULL;
   }
 
-
-  return result;
-
+  ShenandoahHeapRegion* r = _free_regions->allocate_contiguous(required_regions);
+  if (r != NULL)  {
+    HeapWord* result = r->bottom();
+    log_debug(gc, humongous)("allocating humongous object of size: "SIZE_FORMAT" KB at location "PTR_FORMAT" in start region "SIZE_FORMAT,
+                             (words * HeapWordSize) / K, p2i(result), r->region_number());
+    return result;
+  } else {
+    log_debug(gc, humongous)("allocating humongous object of size: "SIZE_FORMAT" KB failed",
+                             (words * HeapWordSize) / K);
+    return NULL;
+  }
 }
 
 HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
@@ -1166,18 +1162,8 @@ bool ShenandoahHeap::supports_tlab_allocation() const {
   return true;
 }
 
-
 size_t  ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
-  ShenandoahHeapRegion* current = _free_regions->current();
-  if (current == NULL) {
-    return 0;
-  } else if (current->free() >= MinTLABSize) {
-    // Current region has enough space left, can use it.
-    return current->free();
-  } else {
-    // No more space in current region, peek next region
-    return _free_regions->unsafe_peek_next_no_humongous();
-  }
+  return _free_regions->unsafe_peek_free();
 }
 
 size_t ShenandoahHeap::max_tlab_size() const {
