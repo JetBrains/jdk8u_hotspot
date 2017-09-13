@@ -66,26 +66,48 @@ void ShenandoahConcurrentThread::run() {
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  while (! _should_terminate) {
-    if (in_graceful_shutdown()) {
-      break;
-    } else if (is_full_gc()) {
+  double last_shrink_time = os::elapsedTime();
+
+  // Shrink period avoids constantly polling regions for shrinking.
+  // Having a period 10x lower than the delay would mean we hit the
+  // shrinking with lag of less than 1/10-th of true delay.
+  // ShenandoahUncommitDelay is in msecs, but shrink_period is in seconds.
+  double shrink_period = (double)ShenandoahUncommitDelay / 1000 / 10;
+
+  while (!in_graceful_shutdown() && !_should_terminate) {
+    bool conc_gc_requested = heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity());
+    bool full_gc_requested = is_full_gc();
+    bool gc_requested = conc_gc_requested || full_gc_requested;
+
+    if (full_gc_requested) {
       service_fullgc_cycle();
-    } else if (heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity())) {
+    } else if (conc_gc_requested) {
       service_normal_cycle();
+    }
+
+    if (gc_requested) {
+      // Counters are already updated on allocation path. Makes sense to update them
+      // them here only when GC happened.
+      heap->monitoring_support()->update_counters();
+
+      // Coming out of (cancelled) concurrent GC, reset these for sanity
       if (heap->is_evacuation_in_progress()) {
         heap->set_evacuation_in_progress_concurrently(false);
       }
+
       if (heap->is_update_refs_in_progress()) {
         heap->set_update_refs_in_progress(false);
       }
     } else {
       Thread::current()->_ParkEvent->park(10);
     }
-    heap->monitoring_support()->update_counters();
 
     // Try to uncommit stale regions
-    heap->handle_heap_shrinkage();
+    double current = os::elapsedTime();
+    if (current - last_shrink_time > shrink_period) {
+      heap->handle_heap_shrinkage();
+      last_shrink_time = current;
+    }
 
     // Make sure the _do_full_gc flag changes are seen.
     OrderAccess::storeload();
