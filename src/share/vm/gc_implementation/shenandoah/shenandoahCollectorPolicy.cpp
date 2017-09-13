@@ -454,6 +454,8 @@ void ShenandoahHeuristics::record_bytes_end_CM(size_t bytes) {
 class ShenandoahPassiveHeuristics : public ShenandoahHeuristics {
 public:
   ShenandoahPassiveHeuristics() : ShenandoahHeuristics() {
+    // Do not allow concurrent cycles.
+    FLAG_SET_DEFAULT(ExplicitGCInvokesConcurrent, false);
   }
 
   virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {

@@ -35,7 +35,10 @@ class ShenandoahConcurrentThread: public ConcurrentGCThread {
   friend class VMStructs;
 
 private:
+  // While we could have a single lock for these, it may risk unblocking
+  // full GC waiters when concurrent cycle finishes.
   Monitor _full_gc_lock;
+  Monitor _conc_gc_lock;
 
  private:
   static SurrogateLockerThread* _slt;
@@ -45,6 +48,7 @@ public:
   void stop();
 
 private:
+  volatile jbyte _do_concurrent_gc;
   volatile jbyte _do_full_gc;
   volatile jbyte _graceful_shutdown;
   GCCause::Cause _full_gc_cause;
@@ -65,11 +69,15 @@ public:
   void print_on(outputStream* st) const;
   void print() const;
 
+  void do_conc_gc();
   void do_full_gc(GCCause::Cause cause);
 
   bool try_set_full_gc();
   void reset_full_gc();
   bool is_full_gc();
+
+  bool is_conc_gc_requested();
+  void reset_conc_gc_requested();
 
   char* name() const { return (char*)"ShenandoahConcurrentThread";}
   void start();

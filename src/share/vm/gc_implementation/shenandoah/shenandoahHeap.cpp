@@ -1225,8 +1225,12 @@ bool ShenandoahHeap::supports_heap_inspection() const {
 void ShenandoahHeap::collect(GCCause::Cause cause) {
   assert(cause != GCCause::_gc_locker, "no JNI critical callback");
   if (GCCause::is_user_requested_gc(cause)) {
-    if (! DisableExplicitGC) {
-      _concurrent_gc_thread->do_full_gc(cause);
+    if (!DisableExplicitGC) {
+      if (ExplicitGCInvokesConcurrent) {
+        _concurrent_gc_thread->do_conc_gc();
+      } else {
+        _concurrent_gc_thread->do_full_gc(cause);
+      }
     }
   } else if (cause == GCCause::_allocation_failure) {
     collector_policy()->set_should_clear_all_soft_refs(true);

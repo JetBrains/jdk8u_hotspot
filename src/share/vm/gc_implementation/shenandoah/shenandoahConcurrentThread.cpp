@@ -40,7 +40,9 @@ SurrogateLockerThread* ShenandoahConcurrentThread::_slt = NULL;
 ShenandoahConcurrentThread::ShenandoahConcurrentThread() :
   ConcurrentGCThread(),
   _full_gc_lock(Mutex::leaf, "ShenandoahFullGC_lock", true),
+  _conc_gc_lock(Mutex::leaf, "ShenandoahConcGC_lock", true),
   _do_full_gc(0),
+  _do_concurrent_gc(0),
   _full_gc_cause(GCCause::_no_cause_specified),
   _graceful_shutdown(0)
 {
@@ -75,7 +77,7 @@ void ShenandoahConcurrentThread::run() {
   double shrink_period = (double)ShenandoahUncommitDelay / 1000 / 10;
 
   while (!in_graceful_shutdown() && !_should_terminate) {
-    bool conc_gc_requested = heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity());
+    bool conc_gc_requested = is_conc_gc_requested() || heap->shenandoahPolicy()->should_start_concurrent_mark(heap->used(), heap->capacity());
     bool full_gc_requested = is_full_gc();
     bool gc_requested = conc_gc_requested || full_gc_requested;
 
@@ -98,6 +100,8 @@ void ShenandoahConcurrentThread::run() {
       if (heap->is_update_refs_in_progress()) {
         heap->set_update_refs_in_progress(false);
       }
+
+      reset_conc_gc_requested();
     } else {
       Thread::current()->_ParkEvent->park(10);
     }
@@ -411,6 +415,22 @@ bool ShenandoahConcurrentThread::try_set_full_gc() {
 
 bool ShenandoahConcurrentThread::is_full_gc() {
   return OrderAccess::load_acquire(&_do_full_gc) == 1;
+}
+
+bool ShenandoahConcurrentThread::is_conc_gc_requested() {
+  return OrderAccess::load_acquire(&_do_concurrent_gc) == 1;
+}
+
+void ShenandoahConcurrentThread::do_conc_gc() {
+  OrderAccess::release_store_fence(&_do_concurrent_gc, 1);
+  MonitorLockerEx ml(&_conc_gc_lock);
+  ml.wait();
+}
+
+void ShenandoahConcurrentThread::reset_conc_gc_requested() {
+  OrderAccess::release_store_fence(&_do_concurrent_gc, 0);
+  MonitorLockerEx ml(&_conc_gc_lock);
+  ml.notify_all();
 }
 
 void ShenandoahConcurrentThread::print() const {
