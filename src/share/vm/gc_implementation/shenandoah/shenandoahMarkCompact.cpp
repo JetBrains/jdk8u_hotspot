@@ -75,7 +75,7 @@ private:
 public:
   ShenandoahClearRegionStatusClosure() : _heap(ShenandoahHeap::heap()) {}
 
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion *r) {
     _heap->set_next_top_at_mark_start(r->bottom(), r->top());
     r->clear_live_data();
     r->set_concurrent_iteration_safe_limit(r->top());
@@ -89,7 +89,7 @@ private:
 
 public:
   ShenandoahEnsureHeapActiveClosure() : _heap(ShenandoahHeap::heap()) {}
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     if (r->is_trash()) {
       _heap->immediate_recycle(r);
     }
@@ -328,7 +328,7 @@ public:
   ShenandoahMCReclaimHumongousRegionClosure() : _heap(ShenandoahHeap::heap()) {
   }
 
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     if (r->is_humongous_start()) {
       oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
       if (! _heap->is_marked_complete(humongous_obj)) {
@@ -645,7 +645,7 @@ public:
     _heap->clear_free_regions();
   }
 
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     // Need to reset the complete-top-at-mark-start pointer here because
     // the complete marking bitmap is no longer valid. This ensures
     // size-based iteration in marked_object_iterate().

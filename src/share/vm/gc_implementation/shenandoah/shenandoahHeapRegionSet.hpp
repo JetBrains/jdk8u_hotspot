@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2015, Red Hat, Inc. and/or its affiliates.
+ * Copyright (c) 2013, 2017, Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -30,20 +30,10 @@
 
 class ShenandoahHeapRegion;
 
-extern outputStream* tty;
-
 class ShenandoahHeapRegionClosure : public StackObj {
-  bool _complete;
-  void incomplete() {_complete = false;}
-
 public:
-
-  ShenandoahHeapRegionClosure(): _complete(true) {}
-
   // typically called on each region until it returns true;
-  virtual bool doHeapRegion(ShenandoahHeapRegion* r) = 0;
-
-  bool complete() { return _complete;}
+  virtual bool heap_region_do(ShenandoahHeapRegion* r) = 0;
 };
 
 // The basic set.
@@ -55,35 +45,55 @@ protected:
   size_t                 _reserved_end;
   volatile size_t        _current_index;
 
+  // Check if region is present
+  bool contains(ShenandoahHeapRegion* r);
+
 public:
-
   ShenandoahHeapRegionSet(size_t max_regions);
-
   virtual ~ShenandoahHeapRegionSet();
 
-  size_t   max_regions()     const { return _reserved_end;}
-  size_t   active_regions()  const { return _active_end;}
+  size_t   max_regions()     const { return _reserved_end; }
+  size_t   active_regions()  const { return _active_end; }
+  size_t   count()           const { return _active_end - _current_index; }
 
   HeapWord* bottom() const;
   HeapWord* end() const;
 
   void clear();
 
-  size_t count() const;
+  virtual void add_region(ShenandoahHeapRegion* r);
 
-  ShenandoahHeapRegion* get_or_null(size_t i) const;
+  inline ShenandoahHeapRegion* get_or_null(size_t i) const {
+    if (i < _active_end) {
+      return _regions[i];
+    } else {
+      return NULL;
+    }
+  }
+
   inline ShenandoahHeapRegion* get(size_t i) const {
     assert (i < _active_end, "sanity");
     return _regions[i];
   }
 
-  virtual void add_region(ShenandoahHeapRegion* r);
-  virtual void add_region_check_for_duplicates(ShenandoahHeapRegion* r);
+  // External iteration:
 
-  // Advance the iteration pointer to the next region.
+  // Clear current cursor:
+  void clear_current_index() { _current_index = 0; }
+
+  // Get current region
+  ShenandoahHeapRegion* current() const;
+
+  // Advance the cursor to next region
   void next();
-  // Return the current region, and advance iteration pointer to next one, atomically.
+
+  // Atomically return the current region, and advance iteration pointer to next one
   ShenandoahHeapRegion* claim_next();
+
+  // Internal iteration:
+  void heap_region_iterate(ShenandoahHeapRegionClosure* blk,
+                           bool skip_cset_regions = false,
+                           bool skip_humongous_continuation = false) const;
 
   template<class C>
   void sort(C comparator) {
@@ -91,28 +101,6 @@ public:
   }
 
   void print(outputStream* out = tty);
-public:
-
-  void heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                           bool skip_cset_regions = false,
-                           bool skip_humongous_continuation = false) const;
-
-  size_t current_index()   { return _current_index;}
-  void clear_current_index() {_current_index = 0; }
-
-  bool contains(ShenandoahHeapRegion* r);
-  ShenandoahHeapRegion* current() const;
-
-protected:
-
-  void active_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                           bool skip_cset_regions = false,
-                           bool skip_humongous_continuation = false) const;
-
-  void unclaimed_heap_region_iterate(ShenandoahHeapRegionClosure* blk,
-                           bool skip_cset_regions = false,
-                           bool skip_humongous_continuation = false) const;
-
 };
 
 #endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGIONSET_HPP

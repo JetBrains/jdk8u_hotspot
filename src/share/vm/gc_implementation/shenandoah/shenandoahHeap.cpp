@@ -977,7 +977,7 @@ size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
 
 #ifdef ASSERT
 class ShenandoahCheckCollectionSetClosure: public ShenandoahHeapRegionClosure {
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     assert(! ShenandoahHeap::heap()->in_collection_set(r), "Should have been cleared by now");
     return false;
   }
@@ -1192,8 +1192,7 @@ bool ShenandoahHeap::supports_tlab_allocation() const {
 
 
 size_t  ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
-  size_t idx = _free_regions->current_index();
-  ShenandoahHeapRegion* current = _free_regions->get_or_null(idx);
+  ShenandoahHeapRegion* current = _free_regions->current();
   if (current == NULL) {
     return 0;
   } else if (current->free() >= MinTLABSize) {
@@ -1351,7 +1350,7 @@ class ShenandoahIterateObjectClosureRegionClosure: public ShenandoahHeapRegionCl
   ObjectClosure* _cl;
 public:
   ShenandoahIterateObjectClosureRegionClosure(ObjectClosure* cl) : _cl(cl) {}
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     ShenandoahHeap::heap()->marked_object_iterate(r, _cl);
     return false;
   }
@@ -1431,7 +1430,7 @@ public:
     _cl(cl), _skip_unreachable_objects(skip_unreachable_objects) {}
   ShenandoahIterateOopClosureRegionClosure(MemRegion mr, ExtendedOopClosure* cl)
     :_mr(mr), _cl(cl) {}
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     r->oop_iterate_skip_unreachable(_cl, _skip_unreachable_objects);
     return false;
   }
@@ -1446,7 +1445,7 @@ class ShenandoahSpaceClosureRegionClosure: public ShenandoahHeapRegionClosure {
   SpaceClosure* _cl;
 public:
   ShenandoahSpaceClosureRegionClosure(SpaceClosure* cl) : _cl(cl) {}
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     _cl->do_space(r);
     return false;
   }
@@ -1470,8 +1469,8 @@ void  ShenandoahHeap::gc_epilogue(bool b) {
   Unimplemented();
 }
 
-// Apply blk->doHeapRegion() on all committed regions in address order,
-// terminating the iteration early if doHeapRegion() returns true.
+// Apply blk->heap_region_do() on all committed regions in address order,
+// terminating the iteration early if heap_region_do() returns true.
 void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_cset_regions, bool skip_humongous_continuation) const {
   for (size_t i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* current  = _ordered_regions->get(i);
@@ -1481,7 +1480,7 @@ void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool 
     if (skip_cset_regions && in_collection_set(current)) {
       continue;
     }
-    if (blk->doHeapRegion(current)) {
+    if (blk->heap_region_do(current)) {
       return;
     }
   }
@@ -1493,7 +1492,7 @@ private:
 public:
   ShenandoahClearLivenessClosure(ShenandoahHeap* heap) : sh(heap) {}
 
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     r->clear_live_data();
     sh->set_next_top_at_mark_start(r->bottom(), r->top());
     return false;
@@ -2000,7 +1999,7 @@ public:
   ShenandoahCountGarbageClosure() : _garbage(0) {
   }
 
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     if (r->is_regular()) {
       _garbage += r->garbage();
     }

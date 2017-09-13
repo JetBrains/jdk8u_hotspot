@@ -362,7 +362,7 @@ private:
 public:
   ShenandoahCalculateRegionStatsClosure() : _used(0), _committed(0), _garbage(0) {};
 
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     _used += r->used();
     _garbage += r->garbage();
     _committed += r->is_committed() ? ShenandoahHeapRegion::region_size_bytes() : 0;
@@ -398,7 +398,7 @@ public:
     }
   }
 
-  bool doHeapRegion(ShenandoahHeapRegion* r) {
+  bool heap_region_do(ShenandoahHeapRegion* r) {
     verify(r, r->capacity() == ShenandoahHeapRegion::region_size_bytes(),
            "Capacity should match region size");
 
