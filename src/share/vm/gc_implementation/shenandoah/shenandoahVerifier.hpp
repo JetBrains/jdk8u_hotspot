@@ -59,7 +59,7 @@ private:
 
 typedef FormatBuffer<8192> ShenandoahMessageBuffer;
 typedef Stack<ShenandoahVerifierTask, mtGC> ShenandoahVerifierStack;
-typedef volatile jlong ShenandoahLivenessData;
+typedef volatile jint ShenandoahLivenessData;
 
 class ShenandoahVerifier : public CHeapObj<mtGC> {
 private:

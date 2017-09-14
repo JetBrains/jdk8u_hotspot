@@ -686,24 +686,24 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
     for (size_t i = 0; i < _heap->num_regions(); i++) {
       ShenandoahHeapRegion* r = set->get(i);
 
-      size_t verf_live = 0;
+      jint verf_live = 0;
       if (r->is_humongous()) {
         // For humongous objects, test if start region is marked live, and if so,
         // all humongous regions in that chain have live data equal to their "used".
-        size_t start_live = OrderAccess::load_acquire(&ld[r->humongous_start_region()->region_number()]);
+        jint start_live = OrderAccess::load_acquire(&ld[r->humongous_start_region()->region_number()]);
         if (start_live > 0) {
-          verf_live = r->used() / HeapWordSize;
+          verf_live = (jint)(r->used() / HeapWordSize);
         }
       } else {
         verf_live = OrderAccess::load_acquire(&ld[r->region_number()]);
       }
 
       size_t reg_live = r->get_live_data_words();
-      if (reg_live != verf_live) {
+      if (reg_live != (size_t)verf_live) {
         ResourceMark rm;
         stringStream ss;
         r->print_on(&ss);
-        fatal(err_msg("Live data should match: region-live = " SIZE_FORMAT ", verifier-live = " SIZE_FORMAT "\n%s",
+        fatal(err_msg("Live data should match: region-live = " SIZE_FORMAT ", verifier-live = " INT32_FORMAT "\n%s",
                       reg_live, verf_live, ss.as_string()));
       }
     }
