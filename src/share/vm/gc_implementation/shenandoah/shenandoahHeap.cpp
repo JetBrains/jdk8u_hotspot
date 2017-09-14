@@ -1008,7 +1008,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
     }
 
     if (UseShenandoahMatrix) {
-      _collection_set->print();
+      _collection_set->print_on(tty);
     }
 
     _bytes_allocated_since_cm = 0;
