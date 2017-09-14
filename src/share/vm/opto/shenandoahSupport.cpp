@@ -1861,8 +1861,10 @@ bool PhaseIdealLoop::shenandoah_fix_mem_phis_helper(Node* c, Node* mem, Node* me
 #endif
 
       if (controls.test(c->_idx)) {
-        int i = 0;
-        for (; i < regions.length() && regions.at(i) != c; i+=2);
+        int i;
+        for (i = 0; i < regions.length() && regions.at(i) != c; i+=2) {
+          // deliberately empty, rolling over the regions
+        }
         assert(i < regions.length(), "missing region");
         Node* prev_m = regions.at(i+1);
         if (prev_m == m) {
