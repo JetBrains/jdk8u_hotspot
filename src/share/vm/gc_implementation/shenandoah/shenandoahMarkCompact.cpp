@@ -25,7 +25,6 @@
 #include "code/codeCache.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
-#include "gc_implementation/shared/isGCActiveMark.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
@@ -117,7 +116,6 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
   ShenandoahHeap* _heap = ShenandoahHeap::heap();
   {
     ShenandoahGCSession session(/* is_full_gc */true);
-    ShenandoahGCPhase full_gc(ShenandoahCollectorPolicy::full_gc);
 
     GCTracer *_gc_tracer = _heap->tracer();
     if (_gc_tracer->has_reported_gc_start()) {
@@ -128,8 +126,6 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     _heap->set_full_gc_in_progress(true);
 
     assert(SafepointSynchronize::is_at_safepoint(), "must be at a safepoint");
-    IsGCActiveMark is_active;
-
     assert(Thread::current()->is_VM_thread(), "Do full GC only while world is stopped");
 
     {

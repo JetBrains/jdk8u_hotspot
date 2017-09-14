@@ -185,6 +185,10 @@ public:
     conc_update_refs,
     conc_reset_bitmaps,
 
+    // Unclassified
+    pause_other,
+    conc_other,
+
     _num_phases
   };
 

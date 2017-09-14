@@ -983,10 +983,13 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[full_gc_copy_objects]            = "  Copy Objects";
   _phase_names[full_gc_resize_tlabs]            = "  Resize TLABs";
 
+  _phase_names[pause_other]                     = "Pause Other";
+
   _phase_names[conc_mark]                       = "Concurrent Marking";
   _phase_names[conc_preclean]                   = "Concurrent Precleaning";
   _phase_names[conc_evac]                       = "Concurrent Evacuation";
   _phase_names[conc_reset_bitmaps]              = "Concurrent Reset Bitmaps";
+  _phase_names[conc_other]                      = "Concurrent Other";
 
   _phase_names[init_update_refs_gross]          = "Pause Init  Update Refs (G)";
   _phase_names[init_update_refs]                = "Pause Init  Update Refs (N)";

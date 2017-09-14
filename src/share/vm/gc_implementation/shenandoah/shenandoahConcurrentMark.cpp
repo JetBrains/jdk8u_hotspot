@@ -22,7 +22,6 @@
  */
 
 #include "precompiled.hpp"
-#include "gc_implementation/shared/isGCActiveMark.hpp"
 #include "gc_implementation/shared/parallelCleaning.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
@@ -396,8 +395,6 @@ void ShenandoahConcurrentMark::mark_from_roots() {
 
 void ShenandoahConcurrentMark::finish_mark_from_roots() {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
-
-  IsGCActiveMark is_active;
 
   ShenandoahHeap* sh = ShenandoahHeap::heap();
 

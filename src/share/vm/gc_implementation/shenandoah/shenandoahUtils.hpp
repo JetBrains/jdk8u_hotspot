@@ -24,6 +24,8 @@
 #ifndef SHARE_VM_GC_SHENANDOAHUTILS_HPP
 #define SHARE_VM_GC_SHENANDOAHUTILS_HPP
 
+#include "gc_implementation/shared/isGCActiveMark.hpp"
+#include "gc_implementation/shared/vmGCOperations.hpp"
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 
@@ -44,6 +46,18 @@ private:
 public:
   ShenandoahGCPhase(ShenandoahCollectorPolicy::TimingPhase phase);
   ~ShenandoahGCPhase();
+};
+
+// Aggregates all the things that should happen before/after the pause.
+class ShenandoahGCPauseMark : public StackObj {
+private:
+  const ShenandoahGCPhase _phase_total;
+  const ShenandoahGCPhase _phase_this;
+  const SvcGCMarker       _svc_gc_mark;
+  const IsGCActiveMark    _is_gc_active_mark;
+public:
+  ShenandoahGCPauseMark(ShenandoahCollectorPolicy::TimingPhase phase, SvcGCMarker::reason_type type);
+  ~ShenandoahGCPauseMark();
 };
 
 class ShenandoahAllocTrace : public StackObj {

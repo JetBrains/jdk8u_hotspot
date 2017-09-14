@@ -34,12 +34,10 @@
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 void VM_ShenandoahInitMark::doit() {
-  SvcGCMarker sgcm(SvcGCMarker::OTHER);
+  ShenandoahGCPauseMark mark(ShenandoahCollectorPolicy::init_mark, SvcGCMarker::OTHER);
   ShenandoahHeap* sh = ShenandoahHeap::heap();
 
   GCTraceTime time("Pause Init Mark", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
-  ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause);
-  ShenandoahGCPhase init_mark_phase(ShenandoahCollectorPolicy::init_mark);
 
   FlexibleWorkGang*       workers = sh->workers();
 
@@ -55,11 +53,8 @@ void VM_ShenandoahInitMark::doit() {
 }
 
 void VM_ShenandoahFullGC::doit() {
-  SvcGCMarker sgcm(SvcGCMarker::FULL);
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  sh->shenandoahPolicy()->record_gc_start();
+  ShenandoahGCPauseMark mark(ShenandoahCollectorPolicy::full_gc, SvcGCMarker::FULL);
   ShenandoahMarkCompact::do_mark_compact(_gc_cause);
-  sh->shenandoahPolicy()->record_gc_end();
 }
 
 bool VM_ShenandoahReferenceOperation::doit_prologue() {
@@ -82,12 +77,9 @@ void VM_ShenandoahReferenceOperation::doit_epilogue() {
 }
 
 void VM_ShenandoahFinalMarkStartEvac::doit() {
-  SvcGCMarker sgcm(SvcGCMarker::OTHER);
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause);
-  ShenandoahGCPhase final_mark(ShenandoahCollectorPolicy::final_mark);
+  ShenandoahGCPauseMark mark(ShenandoahCollectorPolicy::final_mark, SvcGCMarker::OTHER);
 
-  sh->shenandoahPolicy()->record_gc_start();
+  ShenandoahHeap *sh = ShenandoahHeap::heap();
 
   // It is critical that we
   // evacuate roots right after finishing marking, so that we don't
@@ -123,31 +115,27 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
   }
-
-  sh->shenandoahPolicy()->record_gc_end();
 }
 
 void VM_ShenandoahInitUpdateRefs::doit() {
-  SvcGCMarker sgcm(SvcGCMarker::OTHER);
+  ShenandoahGCPauseMark mark(ShenandoahCollectorPolicy::init_update_refs, SvcGCMarker::OTHER);
+
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   GCTraceTime time("Pause Init Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
-  ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause);
-  ShenandoahGCPhase init_update_refs(ShenandoahCollectorPolicy::init_update_refs);
 
   sh->prepare_update_refs();
 }
 
 void VM_ShenandoahFinalUpdateRefs::doit() {
-  SvcGCMarker sgcm(SvcGCMarker::OTHER);
+  ShenandoahGCPauseMark mark(ShenandoahCollectorPolicy::final_update_refs, SvcGCMarker::OTHER);
+
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   GCTraceTime time("Pause Final Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id(), true);
-  ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause);
-  ShenandoahGCPhase final_update_refs(ShenandoahCollectorPolicy::final_update_refs);
 
   sh->finish_update_refs();
 }
 
 void VM_ShenandoahVerifyHeapAfterEvacuation::doit() {
-  ShenandoahHeap *sh = ShenandoahHeap::heap();
-  sh->verifier()->verify_after_evacuation();
+  ShenandoahGCPauseMark mark(ShenandoahCollectorPolicy::pause_other, SvcGCMarker::OTHER);
+  ShenandoahHeap::heap()->verifier()->verify_after_evacuation();
 }
