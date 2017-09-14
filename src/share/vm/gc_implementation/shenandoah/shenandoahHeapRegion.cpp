@@ -39,6 +39,10 @@ size_t ShenandoahHeapRegion::RegionSizeBytes = 0;
 size_t ShenandoahHeapRegion::RegionSizeWords = 0;
 size_t ShenandoahHeapRegion::RegionSizeBytesShift = 0;
 size_t ShenandoahHeapRegion::RegionSizeWordsShift = 0;
+size_t ShenandoahHeapRegion::RegionSizeBytesMask = 0;
+size_t ShenandoahHeapRegion::RegionSizeWordsMask = 0;
+size_t ShenandoahHeapRegion::HumongousThresholdBytes = 0;
+size_t ShenandoahHeapRegion::HumongousThresholdWords = 0;
 
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
                                            size_t size_words, size_t index, bool committed) :
@@ -105,7 +109,6 @@ void ShenandoahHeapRegion::make_humongous_start() {
       do_commit();
     case _empty_committed:
       _state = _humongous_start;
-    case _humongous_start:
       return;
   }
   fatal(err_msg("Disallowed transition from %s to %s",
@@ -120,7 +123,6 @@ void ShenandoahHeapRegion::make_humongous_cont() {
       do_commit();
     case _empty_committed:
       _state = _humongous_cont;
-    case _humongous_cont:
       return;
   }
   fatal(err_msg("Disallowed transition from %s to %s",
@@ -524,6 +526,10 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
     region_size = ShenandoahHeapRegionSize;
   }
 
+  if (1 > ShenandoahHumongousThreshold || ShenandoahHumongousThreshold > 100) {
+    vm_exit_during_initialization("Invalid -XX:ShenandoahHumongousThreshold option, should be within [1..100]");
+  }
+
   // Make sure region size is at least one large page, if enabled.
   // Otherwise, mem-protecting one region may falsely protect the adjacent
   // regions too.
@@ -549,8 +555,23 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   RegionSizeWords = RegionSizeBytes >> LogHeapWordSize;
   assert (RegionSizeWords*HeapWordSize == RegionSizeBytes, "sanity");
 
+  guarantee(RegionSizeWordsMask == 0, "we should only set it once");
+  RegionSizeWordsMask = RegionSizeWords - 1;
+
+  guarantee(RegionSizeBytesMask == 0, "we should only set it once");
+  RegionSizeBytesMask = RegionSizeBytes - 1;
+
+  guarantee(HumongousThresholdWords == 0, "we should only set it once");
+  HumongousThresholdWords = RegionSizeWords * ShenandoahHumongousThreshold / 100;
+  assert (HumongousThresholdWords <= RegionSizeWords, "sanity");
+
+  guarantee(HumongousThresholdBytes == 0, "we should only set it once");
+  HumongousThresholdBytes = HumongousThresholdWords * HeapWordSize;
+  assert (HumongousThresholdBytes <= RegionSizeBytes, "sanity");
+
   log_info(gc, heap)("Heap region size: " SIZE_FORMAT "M", RegionSizeBytes / M);
   log_info(gc, init)("Region size in bytes: "SIZE_FORMAT, RegionSizeBytes);
   log_info(gc, init)("Region size byte shift: "SIZE_FORMAT, RegionSizeBytesShift);
+  log_info(gc, init)("Humongous threshold in bytes: "SIZE_FORMAT, HumongousThresholdBytes);
   log_info(gc, init)("Number of regions: "SIZE_FORMAT, max_heap_size / RegionSizeBytes);
 }

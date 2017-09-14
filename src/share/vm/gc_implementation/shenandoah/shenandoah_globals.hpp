@@ -55,6 +55,11 @@
   experimental(uintx, ShenandoahMaxRegionSize, 32 * M,                      \
           "Maximum heap region size. ")                                     \
                                                                             \
+  experimental(intx, ShenandoahHumongousThreshold, 100,                     \
+          "How large should the object be to get allocated in humongous "   \
+          "region, in percents of heap region size. This also caps the "    \
+          "maximum TLAB size.")                                             \
+                                                                            \
   experimental(size_t, ShenandoahTargetNumRegions, 2048,                    \
           "Target number of regions. We try to get around that many "       \
           "regions, based on ShenandoahMinRegionSize and "                  \

@@ -276,8 +276,13 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 
     // Reclaim humongous regions here, and count them as the immediate garbage
     if (region->is_humongous_start()) {
-      assert(region->has_live() == heap->is_marked_complete(oop(region->bottom() + BrooksPointer::word_size())),
-             "Humongous liveness and marks should agree");
+#ifdef ASSERT
+      bool reg_live = region->has_live();
+      bool bm_live = heap->is_marked_complete(oop(region->bottom() + BrooksPointer::word_size()));
+      assert(reg_live == bm_live,
+             err_msg("Humongous liveness and marks should agree. Region live: %s; Bitmap live: %s; Region Live Words: " SIZE_FORMAT,
+                     BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words()));
+#endif
       if (!region->has_live()) {
         size_t reclaimed = heap->reclaim_humongous_region_at(region);
         immediate_regions += reclaimed;

@@ -57,7 +57,7 @@ public:
   size_t unsafe_peek_free() const;
 
   // Humongous allocation:
-  ShenandoahHeapRegion* allocate_contiguous(size_t num);
+  ShenandoahHeapRegion* allocate_contiguous(size_t words_size);
 
   void print_on(outputStream* out) const;
 };

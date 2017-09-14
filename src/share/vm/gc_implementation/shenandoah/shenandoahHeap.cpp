@@ -195,8 +195,7 @@ jint ShenandoahHeap::initialize() {
   }
 
   assert(_ordered_regions->active_regions() == _num_regions, "Must match");
-  assert((((size_t) base()) &
-          (ShenandoahHeapRegion::region_size_bytes() - 1)) == 0,
+  assert((((size_t) base()) & ShenandoahHeapRegion::region_size_bytes_mask()) == 0,
          err_msg("misaligned heap: "PTR_FORMAT, p2i(base())));
 
   if (ShenandoahLogTrace) {
@@ -345,6 +344,7 @@ public:
       if (top > bottom) {
         heap->next_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
       }
+      assert(heap->is_next_bitmap_clear_range(bottom, region->end()), "must be clear");
       region = _regions->claim_next();
     }
   }
@@ -375,6 +375,7 @@ public:
       if (top > bottom) {
         heap->complete_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
       }
+      assert(heap->is_complete_bitmap_clear_range(bottom, region->end()), "must be clear");
       region = _regions->claim_next();
     }
   }
@@ -388,6 +389,10 @@ void ShenandoahHeap::reset_complete_mark_bitmap(WorkGang* workers) {
 bool ShenandoahHeap::is_next_bitmap_clear() {
   HeapWord* start = _ordered_regions->bottom();
   HeapWord* end = _ordered_regions->end();
+  return _next_mark_bit_map->getNextMarkedWordAddress(start, end) == end;
+}
+
+bool ShenandoahHeap::is_next_bitmap_clear_range(HeapWord* start, HeapWord* end) {
   return _next_mark_bit_map->getNextMarkedWordAddress(start, end) == end;
 }
 
@@ -665,9 +670,20 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
 HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType type, bool& in_new_region) {
   ShenandoahHeapLocker locker(lock());
 
-  if (word_size > ShenandoahHeapRegion::region_size_words()) {
-    in_new_region = true;
-    return allocate_large_memory(word_size);
+  if (word_size > ShenandoahHeapRegion::humongous_threshold_words()) {
+    switch (type) {
+      case _alloc_shared:
+      case _alloc_shared_gc:
+        in_new_region = true;
+        return allocate_large_memory(word_size);
+      case _alloc_gclab:
+      case _alloc_tlab:
+        log_warning(gc)("Trying to allocate TLAB larger than the humongous threshold: " SIZE_FORMAT " > " SIZE_FORMAT,
+                        word_size, ShenandoahHeapRegion::humongous_threshold_words());
+        return NULL;
+      default:
+        ShouldNotReachHere();
+    }
   }
 
   in_new_region = false;
@@ -712,12 +728,7 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType
 HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
   assert_heaplock_owned_by_current_thread();
 
-  size_t required_regions = ShenandoahHeapRegion::required_regions(words * HeapWordSize);
-  if (required_regions > _num_regions) {
-    return NULL;
-  }
-
-  ShenandoahHeapRegion* r = _free_regions->allocate_contiguous(required_regions);
+  ShenandoahHeapRegion* r = _free_regions->allocate_contiguous(words);
   if (r != NULL)  {
     HeapWord* result = r->bottom();
     log_debug(gc, humongous)("allocating humongous object of size: "SIZE_FORMAT" KB at location "PTR_FORMAT" in start region "SIZE_FORMAT,
@@ -916,15 +927,15 @@ void ShenandoahHeap::print_heap_regions_on(outputStream* st) const {
   _ordered_regions->print_on(st);
 }
 
-size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
-  assert(r->is_humongous_start(), "reclaim regions starting with the first one");
+size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* start) {
+  assert(start->is_humongous_start(), "reclaim regions starting with the first one");
 
-  oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
+  oop humongous_obj = oop(start->bottom() + BrooksPointer::word_size());
   size_t size = humongous_obj->size() + BrooksPointer::word_size();
   size_t required_regions = ShenandoahHeapRegion::required_regions(size * HeapWordSize);
-  size_t index = r->region_number() + required_regions - 1;
+  size_t index = start->region_number() + required_regions - 1;
 
-  assert(!r->has_live(), "liveness must be zero");
+  assert(!start->has_live(), "liveness must be zero");
   log_trace(gc, humongous)("Reclaiming "SIZE_FORMAT" humongous regions for object of size: "SIZE_FORMAT" words", required_regions, size);
 
   for(size_t i = 0; i < required_regions; i++) {
@@ -941,8 +952,8 @@ size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* r) {
     assert(region->is_humongous(), "expect correct humongous start or continuation");
     assert(!in_collection_set(region), "Humongous region should not be in collection set");
 
+    decrease_used(region->used());
     immediate_recycle(region);
-    decrease_used(ShenandoahHeapRegion::region_size_bytes());
   }
   return required_regions;
 }
@@ -1163,11 +1174,11 @@ bool ShenandoahHeap::supports_tlab_allocation() const {
 }
 
 size_t  ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
-  return _free_regions->unsafe_peek_free();
+  return MIN2(_free_regions->unsafe_peek_free(), max_tlab_size());
 }
 
 size_t ShenandoahHeap::max_tlab_size() const {
-  return ShenandoahHeapRegion::region_size_bytes();
+  return ShenandoahHeapRegion::humongous_threshold_bytes();
 }
 
 class ShenandoahResizeGCLABClosure : public ThreadClosure {

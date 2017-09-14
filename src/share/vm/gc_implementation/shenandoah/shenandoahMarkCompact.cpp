@@ -651,12 +651,6 @@ public:
     // size-based iteration in marked_object_iterate().
     _heap->set_complete_top_at_mark_start(r->bottom(), r->bottom());
 
-    // Humongous regions stay put.
-    if (r->is_humongous()) {
-      _live += ShenandoahHeapRegion::region_size_bytes();
-      return false;
-    }
-
     size_t live = r->used();
 
     // Turn any lingering non-empty cset regions into regular regions.

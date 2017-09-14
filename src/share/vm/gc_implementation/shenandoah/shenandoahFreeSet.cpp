@@ -48,10 +48,15 @@ void ShenandoahFreeSet::increase_used(size_t num_bytes) {
                                      _used, _capacity, num_bytes));
 }
 
-ShenandoahHeapRegion* ShenandoahFreeSet::allocate_contiguous(size_t num) {
+ShenandoahHeapRegion* ShenandoahFreeSet::allocate_contiguous(size_t words_size) {
   assert_heaplock_owned_by_current_thread();
 
-  assert (num >= 1, "Should request more than 1 region");
+  size_t num = ShenandoahHeapRegion::required_regions(words_size * HeapWordSize);
+
+  // No regions left to satisfy allocation, bye.
+  if (num > count()) {
+    return NULL;
+  }
 
   // Find the continuous interval of $num regions, starting from $beg and ending in $end,
   // inclusive. Current index maintains the dense prefix position: there is no reason to scan
@@ -89,6 +94,16 @@ ShenandoahHeapRegion* ShenandoahFreeSet::allocate_contiguous(size_t num) {
     end++;
   };
 
+#ifdef ASSERT
+  assert ((end - beg + 1) == num, "Found just enough regions");
+  for (size_t i = beg; i <= end; i++) {
+    assert(_regions[i]->is_empty(), "Should be empty");
+    assert(i == beg || _regions[i-1]->region_number() + 1 == _regions[i]->region_number(), "Should be contiguous");
+  }
+#endif
+
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
+
   // Initialize regions:
   for (size_t i = beg; i <= end; i++) {
     ShenandoahHeapRegion* r = _regions[i];
@@ -98,12 +113,24 @@ ShenandoahHeapRegion* ShenandoahFreeSet::allocate_contiguous(size_t num) {
       r->make_humongous_cont();
     }
 
-    r->set_top(r->end());
-    r->increase_live_data_words(ShenandoahHeapRegion::region_size_words_jint());
+    // Trailing region may be non-full, record the remainder there
+    size_t remainder = words_size & ShenandoahHeapRegion::region_size_words_mask();
+    size_t used_words;
+    if ((i == end) && (remainder != 0)) {
+      used_words = remainder;
+    } else {
+      used_words = ShenandoahHeapRegion::region_size_words();
+    }
+
+    r->increase_live_data_words(used_words);
+    r->set_top(r->bottom() + used_words);
     r->reset_alloc_stats_to_shared();
+    sh->increase_used(used_words * HeapWordSize);
   }
+
+  // While individual regions report their true use, all humongous regions are
+  // marked used in the free set.
   increase_used(ShenandoahHeapRegion::region_size_bytes() * num);
-  ShenandoahHeap::heap()->increase_used(ShenandoahHeapRegion::region_size_bytes() * num);
 
   // Allocated at dense prefix? Move the pointer appropriately.
   // This may require fast-forwarding over existing humongous regions.

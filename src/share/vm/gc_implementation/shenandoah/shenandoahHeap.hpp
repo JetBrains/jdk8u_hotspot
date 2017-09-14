@@ -361,6 +361,7 @@ public:
   inline bool mark_next(oop obj) const;
   inline bool is_marked_next(oop obj) const;
   bool is_next_bitmap_clear();
+  bool is_next_bitmap_clear_range(HeapWord* start, HeapWord* end);
   bool is_complete_bitmap_clear_range(HeapWord* start, HeapWord* end);
 
   template <class T>
