@@ -132,7 +132,7 @@ private:
 
 public:
   // Allowed transitions from the outside code:
-  bool make_regular_allocation();
+  void make_regular_allocation();
   void make_regular_bypass();
   void make_humongous_start();
   void make_humongous_cont();

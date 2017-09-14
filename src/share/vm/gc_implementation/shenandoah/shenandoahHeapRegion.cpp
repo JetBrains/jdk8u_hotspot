@@ -65,22 +65,21 @@ size_t ShenandoahHeapRegion::region_number() const {
   return _region_number;
 }
 
-bool ShenandoahHeapRegion::make_regular_allocation() {
+void ShenandoahHeapRegion::make_regular_allocation() {
   _heap->assert_heaplock_owned_by_current_thread();
   switch (_state) {
     case _empty_uncommitted:
       do_commit();
     case _empty_committed:
       _state = _regular;
-      return true;
     case _regular:
     case _pinned:
-      return false;
+      return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_regular)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_regular)));
-  return false;
 }
 
 void ShenandoahHeapRegion::make_regular_bypass() {
@@ -96,10 +95,11 @@ void ShenandoahHeapRegion::make_regular_bypass() {
     case _regular:
     case _pinned:
       return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_regular)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_regular)));
 }
 
 void ShenandoahHeapRegion::make_humongous_start() {
@@ -110,10 +110,11 @@ void ShenandoahHeapRegion::make_humongous_start() {
     case _empty_committed:
       _state = _humongous_start;
       return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_humongous_start)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_humongous_start)));
 }
 
 void ShenandoahHeapRegion::make_humongous_cont() {
@@ -124,10 +125,11 @@ void ShenandoahHeapRegion::make_humongous_cont() {
     case _empty_committed:
       _state = _humongous_cont;
       return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_humongous_cont)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_humongous_cont)));
 }
 
 
@@ -145,10 +147,11 @@ void ShenandoahHeapRegion::make_pinned() {
       // Humongous objects do not move, and thus pinning is no-op.
       assert (_critical_pins == 0, "sanity");
       return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_pinned)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_pinned)));
 }
 
 void ShenandoahHeapRegion::make_unpinned() {
@@ -169,10 +172,11 @@ void ShenandoahHeapRegion::make_unpinned() {
       // Humongous objects do not move, and thus pinning is no-op.
       assert (_critical_pins == 0, "sanity");
       return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_regular)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_regular)));
 }
 
 void ShenandoahHeapRegion::make_cset() {
@@ -182,10 +186,11 @@ void ShenandoahHeapRegion::make_cset() {
       _state = _cset;
     case _cset:
       return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_cset)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_cset)));
 }
 
 void ShenandoahHeapRegion::make_trash() {
@@ -201,10 +206,11 @@ void ShenandoahHeapRegion::make_trash() {
       _state = _trash;
     case _trash:
       return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_trash)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_trash)));
 }
 
 void ShenandoahHeapRegion::make_empty_committed() {
@@ -215,10 +221,11 @@ void ShenandoahHeapRegion::make_empty_committed() {
       _empty_time = os::elapsedTime();
     case _empty_committed:
       return;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_empty_committed)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_empty_committed)));
 }
 
 bool ShenandoahHeapRegion::make_empty_uncommitted() {
@@ -230,10 +237,11 @@ bool ShenandoahHeapRegion::make_empty_uncommitted() {
       return true;
     case _empty_uncommitted:
       return false;
+    default:
+      fatal(err_msg("Disallowed transition from %s to %s",
+                    region_state_to_string(_state),
+                    region_state_to_string(_empty_uncommitted)));
   }
-  fatal(err_msg("Disallowed transition from %s to %s",
-        region_state_to_string(_state),
-        region_state_to_string(_empty_uncommitted)));
   return false;
 }
 
