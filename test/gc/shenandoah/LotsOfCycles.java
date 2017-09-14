@@ -24,24 +24,28 @@
 /*
  * @test LotsOfCycles
  *
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m                                         LotsOfCycles
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=passive      LotsOfCycles
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=adaptive     LotsOfCycles
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=dynamic      LotsOfCycles
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=continuous   LotsOfCycles
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=aggressive   LotsOfCycles
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m                                         -Dtarget=10000 LotsOfCycles
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=passive      -Dtarget=10000 LotsOfCycles
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=adaptive     -Dtarget=10000 LotsOfCycles
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=dynamic      -Dtarget=10000 LotsOfCycles
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=continuous   -Dtarget=1000  LotsOfCycles
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx16m -XX:ShenandoahGCHeuristics=aggressive   -Dtarget=1000  LotsOfCycles
  */
 
 public class LotsOfCycles {
 
   static final long TARGET_MB = Long.getLong("target", 10_000); // 10 Gb allocation, around 1K cycles to handle
+  static final long STRIDE = 100_000;
 
-  static Object sink;
+  static volatile Object sink;
 
   public static void main(String[] args) throws Exception {
     long count = TARGET_MB * 1024 * 1024 / 16;
-    for (long c = 0; c < count; c++) {
-      sink = new Object();
+    for (long c = 0; c < count; c += STRIDE) {
+      for (long s = 0; s < STRIDE; s++) {
+        sink = new Object();
+      }
+      Thread.sleep(1);
     }
   }
 
