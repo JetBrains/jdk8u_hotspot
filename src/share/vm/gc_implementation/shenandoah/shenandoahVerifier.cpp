@@ -650,13 +650,13 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
 
   const VerifyOptions& options = ShenandoahVerifier::VerifyOptions(forwarded, marked, matrix, cset, liveness);
 
-  ShenandoahRootProcessor rp(_heap, _heap->max_workers(),
-                             ShenandoahCollectorPolicy::_num_phases); // no need for stats
-
   // Steps 1-2. Scan root set to get initial reachable set. Finish walking the reachable heap.
   // This verifies what application can see, since it only cares about reachable objects.
   size_t count_reachable = 0;
-  {
+  if (ShenandoahVerifyLevel >= 2) {
+    ShenandoahRootProcessor rp(_heap, _heap->max_workers(),
+                               ShenandoahCollectorPolicy::_num_phases); // no need for stats
+
     ShenandoahVerifierReachableTask task(_verification_bit_map, ld, &rp, label, options);
     _heap->workers()->run_task(&task);
     count_reachable = task.processed();
