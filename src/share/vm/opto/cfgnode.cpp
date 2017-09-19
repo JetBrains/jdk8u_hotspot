@@ -2123,12 +2123,12 @@ uint JumpProjNode::cmp( const Node &n ) const {
 }
 
 PhiNode* PhiNode::has_only_data_users() const {
-  if (bottom_type() != Type::MEMORY || adr_type() == TypePtr::BOTTOM || outcnt() == 0) {
+  if (!UseShenandoahGC || bottom_type() != Type::MEMORY || adr_type() == TypePtr::BOTTOM || outcnt() == 0) {
     return NULL;
   }
   for (DUIterator_Fast imax, i = fast_outs(imax); i < imax; i++) {
     Node* u = fast_out(i);
-    if (!u->is_Load() && u->Opcode() != Op_ShenandoahReadBarrier) {
+    if (u->Opcode() != Op_ShenandoahReadBarrier) {
       return NULL;
     }
   }
