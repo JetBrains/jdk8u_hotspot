@@ -344,10 +344,6 @@ void LateInlineCallGenerator::do_late_inline() {
     Node* mem = MergeMemNode::make(C, map->in(TypeFunc::Memory));
     C->initial_gvn()->set_type_bottom(mem);
     map->set_req(TypeFunc::Memory, mem);
-  } else if (map->in(TypeFunc::Memory)->outcnt() > 1) {
-    Node* mem = map->in(TypeFunc::Memory)->clone();
-    C->initial_gvn()->set_type_bottom(mem);
-    map->set_req(TypeFunc::Memory, mem);
   }
 
   uint nargs = method()->arg_size();

@@ -331,6 +331,10 @@ class LibraryCallKit : public GraphKit {
   bool inline_montgomerySquare();
 
   bool inline_profileBoolean();
+
+  Node* shenandoah_cast_not_null(Node* n) {
+    return UseShenandoahGC ? cast_not_null(n, false) : n;
+  }
 };
 
 
@@ -5853,8 +5857,8 @@ bool LibraryCallKit::inline_encodeISOArray() {
   Node *dst_offset  = argument(3);
   Node *length      = argument(4);
 
-  src = cast_not_null(src, false);
-  dst = cast_not_null(dst, false);
+  src = shenandoah_cast_not_null(src);
+  dst = shenandoah_cast_not_null(dst);
 
   src = shenandoah_read_barrier(src);
   dst = shenandoah_write_barrier(dst);
@@ -5908,9 +5912,9 @@ bool LibraryCallKit::inline_multiplyToLen() {
   Node* ylen = argument(3);
   Node* z    = argument(4);
 
-  x = cast_not_null(x, false);
+  x = shenandoah_cast_not_null(x);
   x = shenandoah_read_barrier(x);
-  y = cast_not_null(y, false);
+  y = shenandoah_cast_not_null(y);
   y = shenandoah_read_barrier(y);
   z = shenandoah_write_barrier(z);
 
@@ -6019,9 +6023,9 @@ bool LibraryCallKit::inline_squareToLen() {
   Node* z    = argument(2);
   Node* zlen = argument(3);
 
-  x = cast_not_null(x, false);
+  x = shenandoah_cast_not_null(x);
   x = shenandoah_read_barrier(x);
-  z = cast_not_null(z, false);
+  z = shenandoah_cast_not_null(z);
   z = shenandoah_write_barrier(z);
 
   const Type* x_type = x->Value(&_gvn);
@@ -6072,7 +6076,7 @@ bool LibraryCallKit::inline_mulAdd() {
   Node* k        = argument(4);
 
   in = shenandoah_read_barrier(in);
-  out = cast_not_null(out, false);
+  out = shenandoah_cast_not_null(out);
   out = shenandoah_write_barrier(out);
 
   const Type* out_type = out->Value(&_gvn);
@@ -6292,7 +6296,7 @@ bool LibraryCallKit::inline_updateBytesCRC32() {
   }
 
   // 'src_start' points to src array + scaled offset
-  src = cast_not_null(src, false);
+  src = shenandoah_cast_not_null(src);
   src = shenandoah_read_barrier(src);
   src = shenandoah_read_barrier(src);
   Node* src_start = array_element_address(src, offset, src_elem);
@@ -6531,8 +6535,8 @@ bool LibraryCallKit::inline_cipherBlockChaining_AESCrypt(vmIntrinsics::ID id) {
 
   // inline_cipherBlockChaining_AESCrypt_predicate() has its own
   // barrier. This one should optimize away.
-  src = cast_not_null(src, false);
-  dest = cast_not_null(dest, false);
+  src = shenandoah_cast_not_null(src);
+  dest = shenandoah_cast_not_null(dest);
   src = shenandoah_read_barrier(src);
   dest = shenandoah_write_barrier(dest);
 
@@ -6676,8 +6680,8 @@ Node* LibraryCallKit::inline_cipherBlockChaining_AESCrypt_predicate(bool decrypt
   // Resolve src and dest arrays for ShenandoahGC.  Here because new
   // memory state is not handled by predicate logic in
   // inline_cipherBlockChaining_AESCrypt itself
-  src = cast_not_null(src, false);
-  dest = cast_not_null(dest, false);
+  src = shenandoah_cast_not_null(src);
+  dest = shenandoah_cast_not_null(dest);
   src = shenandoah_write_barrier(src);
   dest = shenandoah_write_barrier(dest);
 
@@ -6806,7 +6810,7 @@ bool LibraryCallKit::inline_digestBase_implCompressMB(int predicate) {
     return false;
   }
   // 'src_start' points to src array + offset
-  src = cast_not_null(src, false);
+  src = shenandoah_cast_not_null(src);
   src = shenandoah_read_barrier(src);
   Node* src_start = array_element_address(src, ofs, src_elem);
 

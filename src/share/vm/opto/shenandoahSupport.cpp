@@ -34,6 +34,9 @@
 #include "opto/subnode.hpp"
 
 Node* ShenandoahBarrierNode::skip_through_barrier(Node* n) {
+  if (!UseShenandoahGC) {
+    return n;
+  }
   if (n == NULL) {
     return NULL;
   } else if (n->is_ShenandoahBarrier()) {

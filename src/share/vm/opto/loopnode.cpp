@@ -2341,7 +2341,7 @@ void PhaseIdealLoop::build_and_optimize(bool do_split_ifs, bool skip_loop_opts) 
       C->set_major_progress();
     }
 
-    if (!C->major_progress()) {
+    if (UseShenandoahGC && !C->major_progress()) {
       shenandoah_pin_and_expand_barriers();
     }
 
@@ -3591,7 +3591,8 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
   // which can inhibit range check elimination.
   if (least != early) {
     Node* ctrl_out = least->unique_ctrl_out();
-    if (ctrl_out && ctrl_out->is_Loop() &&
+    if (UseShenandoahGC &&
+        ctrl_out && ctrl_out->is_Loop() &&
         least == ctrl_out->in(LoopNode::EntryControl)) {
       Node* new_ctrl = least;
       if (find_predicate_insertion_point(new_ctrl, Deoptimization::Reason_loop_limit_check) != NULL) {
@@ -3603,13 +3604,19 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
         assert(is_dominator(early, c), "least != early so we can move up the dominator tree");
         new_ctrl = c;
       }
-      if (new_ctrl != ctrl_out) {
+      if (new_ctrl != least) {
         least = new_ctrl;
       } else if (ctrl_out->is_CountedLoop()) {
         Node* least_dom = idom(least);
         if (get_loop(least_dom)->is_member(get_loop(least))) {
           least = least_dom;
         }
+      }
+    } else if (ctrl_out && ctrl_out->is_CountedLoop() &&
+               least == ctrl_out->in(LoopNode::EntryControl)) {
+      Node* least_dom = idom(least);
+      if (get_loop(least_dom)->is_member(get_loop(least))) {
+        least = least_dom;
       }
     }
   }

@@ -624,7 +624,7 @@ bool PhaseMacroExpand::can_eliminate_allocation(AllocateNode *alloc, GrowableArr
                                    k < kmax && can_eliminate; k++) {
           Node* n = use->fast_out(k);
           if (!n->is_Store() && n->Opcode() != Op_CastP2X &&
-              !n->is_g1_wb_pre_call()) {
+              (!UseShenandoahGC || !n->is_g1_wb_pre_call())) {
             DEBUG_ONLY(disq_node = n;)
             if (n->is_Load() || n->is_LoadStore()) {
               NOT_PRODUCT(fail_eliminate = "Field load";)
@@ -895,7 +895,7 @@ void PhaseMacroExpand::process_users_of_allocation(CallNode *alloc) {
             }
 #endif
             _igvn.replace_node(n, n->in(MemNode::Memory));
-          } else if (n->is_g1_wb_pre_call()) {
+          } else if (UseShenandoahGC && n->is_g1_wb_pre_call()) {
             eliminate_g1_wb_pre(n);
           } else {
             eliminate_card_mark(n);

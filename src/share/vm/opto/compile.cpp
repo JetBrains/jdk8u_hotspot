@@ -2324,7 +2324,7 @@ void Compile::Optimize() {
     }
   }
 
-  if (ShenandoahWriteBarrierToIR) {
+  if (UseShenandoahGC && ShenandoahWriteBarrierToIR) {
     if (shenandoah_barriers_count() > 0) {
       C->clear_major_progress();
       PhaseIdealLoop ideal_loop(igvn, false, true);

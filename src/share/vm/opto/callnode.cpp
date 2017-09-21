@@ -1020,7 +1020,7 @@ void CallLeafNode::dump_spec(outputStream *st) const {
 #endif
 
 Node *CallLeafNode::Ideal(PhaseGVN *phase, bool can_reshape) {
-  if (is_g1_wb_pre_call()) {
+  if (UseShenandoahGC && is_g1_wb_pre_call()) {
     uint cnt = OptoRuntime::g1_wb_pre_Type()->domain()->cnt();
     if (req() > cnt) {
       Node* addp = in(cnt);
@@ -1038,6 +1038,9 @@ Node *CallLeafNode::Ideal(PhaseGVN *phase, bool can_reshape) {
 }
 
 bool CallLeafNode::has_only_g1_wb_pre_uses(Node* n) {
+  if (UseShenandoahGC) {
+    return false;
+  }
   for (DUIterator_Fast imax, i = n->fast_outs(imax); i < imax; i++) {
     Node* u = n->fast_out(i);
     if (!u->is_g1_wb_pre_call()) {
