@@ -64,6 +64,10 @@ public:
     assert(_owner == Thread::current(), "must be owned by current thread");
   }
 
+  void assert_not_owned_by_current_thread() {
+    assert(_owner != Thread::current(), "must be not owned by current thread");
+  }
+
   void assert_owned_by_current_thread_or_safepoint() {
     Thread* thr = Thread::current();
     assert((_state == locked && _owner == thr) ||

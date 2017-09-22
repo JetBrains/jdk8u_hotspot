@@ -267,8 +267,6 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   size_t cand_idx = 0;
   _bytes_in_cset = 0;
 
-  heap->start_deferred_recycling();
-
   size_t immediate_garbage = 0;
   size_t immediate_regions = 0;
   for (size_t i = 0; i < active; i++) {
@@ -284,7 +282,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
                      BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words()));
 #endif
       if (!region->has_live()) {
-        size_t reclaimed = heap->reclaim_humongous_region_at(region);
+        size_t reclaimed = heap->trash_humongous_region_at(region);
         immediate_regions += reclaimed;
         immediate_garbage += reclaimed * ShenandoahHeapRegion::region_size_bytes();
       }
@@ -295,8 +293,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
         // We can recycle it right away and put it in the free set.
         immediate_regions++;
         immediate_garbage += region->garbage();
-        heap->decrease_used(region->used());
-        heap->defer_recycle(region);
+        region->make_trash();
         log_develop_trace(gc)("Choose region " SIZE_FORMAT " for immediate reclaim with garbage = " SIZE_FORMAT
                               " and live = " SIZE_FORMAT "\n",
                               region->region_number(), region->garbage(), region->get_live_data_bytes());
@@ -312,7 +309,6 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
                             region->region_number(), region->garbage(), region->get_live_data_bytes());
     }
   }
-  heap->finish_deferred_recycle();
 
   // Step 2. Process the remanining candidates, if any.
 
@@ -988,7 +984,9 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _phase_names[conc_mark]                       = "Concurrent Marking";
   _phase_names[conc_preclean]                   = "Concurrent Precleaning";
   _phase_names[conc_evac]                       = "Concurrent Evacuation";
-  _phase_names[conc_reset_bitmaps]              = "Concurrent Reset Bitmaps";
+  _phase_names[conc_cleanup]                    = "Concurrent Cleanup";
+  _phase_names[conc_cleanup_recycle]            = "  Recycle";
+  _phase_names[conc_cleanup_reset_bitmaps]      = "  Reset Bitmaps";
   _phase_names[conc_other]                      = "Concurrent Other";
 
   _phase_names[init_update_refs_gross]          = "Pause Init  Update Refs (G)";

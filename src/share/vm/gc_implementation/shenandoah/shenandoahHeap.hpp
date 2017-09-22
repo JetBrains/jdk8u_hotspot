@@ -270,7 +270,7 @@ public:
   template <class T>
   inline oop maybe_update_oop_ref(T* p);
 
-  void recycle_cset_regions();
+  void trash_cset_regions();
 
   void start_concurrent_marking();
   void stop_concurrent_marking();
@@ -375,7 +375,7 @@ public:
   size_t bytes_allocated_since_cm();
   void set_bytes_allocated_since_cm(size_t bytes);
 
-  size_t reclaim_humongous_region_at(ShenandoahHeapRegion* r);
+  size_t trash_humongous_region_at(ShenandoahHeapRegion *r);
 
   ShenandoahMonitoringSupport* monitoring_support();
   ShenandoahConcurrentMark* concurrentMark() { return _scm;}
@@ -430,6 +430,7 @@ public:
 
   ShenandoahHeapLock* lock() { return &_lock; }
   void assert_heaplock_owned_by_current_thread() PRODUCT_RETURN;
+  void assert_heaplock_not_owned_by_current_thread() PRODUCT_RETURN;
   void assert_heaplock_or_safepoint() PRODUCT_RETURN;
 
 public:
@@ -487,13 +488,10 @@ private:
 
 private:
   size_t* _recycled_regions;
-  size_t _recycled_region_count;
 
 public:
-  void start_deferred_recycling();
-  void immediate_recycle(ShenandoahHeapRegion* r);
-  void defer_recycle(ShenandoahHeapRegion* r);
-  void finish_deferred_recycle();
+  void recycle_trash_assist(size_t limit);
+  void recycle_trash();
 
 };
 

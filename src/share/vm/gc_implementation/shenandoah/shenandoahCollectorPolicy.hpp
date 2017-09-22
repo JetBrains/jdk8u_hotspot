@@ -183,7 +183,9 @@ public:
     conc_preclean,
     conc_evac,
     conc_update_refs,
-    conc_reset_bitmaps,
+    conc_cleanup,
+    conc_cleanup_recycle,
+    conc_cleanup_reset_bitmaps,
 
     // Unclassified
     pause_other,

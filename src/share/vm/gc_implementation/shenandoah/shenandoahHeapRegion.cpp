@@ -204,7 +204,6 @@ void ShenandoahHeapRegion::make_trash() {
     case _regular:
       // Immediate region reclaim
       _state = _trash;
-    case _trash:
       return;
     default:
       fatal(err_msg("Disallowed transition from %s to %s",
@@ -251,8 +250,7 @@ bool ShenandoahHeapRegion::rollback_allocation(uint size) {
 }
 
 void ShenandoahHeapRegion::clear_live_data() {
-  assert(Thread::current()->is_VM_thread(), "by VM thread");
-  _live_data = 0;
+  OrderAccess::release_store_fence(&_live_data, 0);
 }
 
 void ShenandoahHeapRegion::reset_alloc_stats() {

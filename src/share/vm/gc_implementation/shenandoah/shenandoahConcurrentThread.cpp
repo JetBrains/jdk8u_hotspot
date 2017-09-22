@@ -218,10 +218,19 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     reset_full_gc();
   }
 
+  // Final mark had reclaimed some immediate garbage, kick cleanup to reclaim the space.
+  {
+    GCTraceTime time("Concurrent cleanup", PrintGC, gc_timer, gc_tracer->gc_id(), true);
+    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::conc_cleanup);
+    ShenandoahGCPhase phase_recycle(ShenandoahCollectorPolicy::conc_cleanup_recycle);
+    heap->recycle_trash();
+  }
+
   // Perform concurrent evacuation, if required.
   // This phase can be skipped if there is nothing to evacuate. If so, evac_in_progress would be unset
   // by collection set preparation code.
   if (heap->is_evacuation_in_progress()) {
+
     // Setup workers for concurrent evacuation phase
     FlexibleWorkGang* workers = heap->workers();
     uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_evacuation(workers->active_workers(),
@@ -302,11 +311,20 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   }
 
   {
-    GCTraceTime time("Concurrent reset bitmaps", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::conc_reset_bitmaps);
-    FlexibleWorkGang* workers = heap->workers();
-    ShenandoahPushWorkerScope scope(workers, heap->max_workers());
-    heap->reset_next_mark_bitmap(workers);
+    GCTraceTime time("Concurrent cleanup", PrintGC, gc_timer, gc_tracer->gc_id(), true);
+    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::conc_cleanup);
+
+    {
+      ShenandoahGCPhase phase_recycle(ShenandoahCollectorPolicy::conc_cleanup_recycle);
+      heap->recycle_trash();
+    }
+
+    {
+      ShenandoahGCPhase phase_reset(ShenandoahCollectorPolicy::conc_cleanup_reset_bitmaps);
+      FlexibleWorkGang* workers = heap->workers();
+      ShenandoahPushWorkerScope scope(workers, heap->max_workers());
+      heap->reset_next_mark_bitmap(workers);
+    }
   }
 
   // Allocations happen during bitmap cleanup, record peak after the phase:

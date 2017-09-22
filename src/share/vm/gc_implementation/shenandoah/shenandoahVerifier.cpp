@@ -554,7 +554,7 @@ public:
       size_t v = (size_t) (Atomic::add(1, &_claimed) - 1);
       if (v < _heap->num_regions()) {
         ShenandoahHeapRegion* r = _regions->get(v);
-        if (!r->is_humongous()) {
+        if (!r->is_humongous() && !r->is_trash()) {
           work_regular(r, stack, cl);
         } else if (r->is_humongous_start()) {
           work_humongous(r, stack, cl);
@@ -783,7 +783,7 @@ void ShenandoahVerifier::verify_after_concmark() {
           _verify_matrix_disable,      // matrix might be foobared
           _verify_cset_none,           // no references to cset anymore
           _verify_liveness_complete,   // liveness data must be complete here
-          _verify_regions_notrash      // no trash regions
+          _verify_regions_disable      // trash regions not yet recycled
   );
 }
 
@@ -797,7 +797,7 @@ void ShenandoahVerifier::verify_before_evacuation() {
           _verify_matrix_disable,    // skip, verified after mark
           _verify_cset_disable,      // skip, verified after mark
           _verify_liveness_disable,  // skip, verified after mark
-          _verify_regions_notrash    // no trash regions here
+          _verify_regions_disable    // trash regions not yet recycled
   );
 }
 
@@ -809,7 +809,7 @@ void ShenandoahVerifier::verify_after_evacuation() {
           _verify_matrix_disable,      // matrix is inconsistent here
           _verify_cset_forwarded,      // all cset refs are fully forwarded
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash      // no trash regions
+          _verify_regions_notrash      // trash regions have been recycled already
   );
 }
 
@@ -821,7 +821,7 @@ void ShenandoahVerifier::verify_before_updaterefs() {
           _verify_matrix_disable,      // matrix is inconsistent here
           _verify_cset_forwarded,      // all cset refs are fully forwarded
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash      // no trash regions
+          _verify_regions_notrash      // trash regions have been recycled already
   );
 }
 
@@ -833,7 +833,7 @@ void ShenandoahVerifier::verify_after_updaterefs() {
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references, all updated
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash_nocset // no trash and no cset regions
+          _verify_regions_nocset       // no cset regions, trash regions have appeared
   );
 }
 
@@ -857,7 +857,7 @@ void ShenandoahVerifier::verify_after_partial() {
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references left after partial
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash_nocset // no trash and no cset regions
+          _verify_regions_nocset       // no cset regions, trash regions allowed
   );
 }
 

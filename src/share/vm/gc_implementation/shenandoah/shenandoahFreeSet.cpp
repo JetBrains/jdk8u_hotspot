@@ -147,14 +147,14 @@ ShenandoahHeapRegion* ShenandoahFreeSet::allocate_contiguous(size_t words_size) 
 void ShenandoahFreeSet::add_region(ShenandoahHeapRegion* r) {
   assert_heaplock_owned_by_current_thread();
   assert(!r->in_collection_set(), "Shouldn't be adding those to the free set");
-  assert(!r->is_humongous(), "Don't add to humongous regions");
-  assert(_active_end < _reserved_end, "within bounds");
+  assert(r->is_alloc_allowed(), "Should only add regions that can be allocated at");
 
 #ifdef ASSERT
   for (size_t i = 0; i < _active_end; i++) {
     assert (r != _regions[i], "We are about to add it, it shouldn't be there already");
   }
 #endif
+  assert(_active_end < _reserved_end, "within bounds");
 
   _regions[_active_end] = r;
   _active_end++;

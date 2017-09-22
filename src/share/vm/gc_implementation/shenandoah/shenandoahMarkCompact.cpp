@@ -90,7 +90,7 @@ public:
   ShenandoahEnsureHeapActiveClosure() : _heap(ShenandoahHeap::heap()) {}
   bool heap_region_do(ShenandoahHeapRegion* r) {
     if (r->is_trash()) {
-      _heap->immediate_recycle(r);
+      r->recycle();
     }
     if (r->is_empty()) {
       r->make_regular_bypass();
@@ -160,23 +160,24 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       rp->abandon_partial_discovery();
       rp->verify_no_references_recorded();
 
-      {
-        ShenandoahHeapLocker lock(_heap->lock());
-
-        // e. Make sure all regions are active. This is needed because we are potentially
-        // sliding the data through them
-        ShenandoahEnsureHeapActiveClosure ecl;
-        _heap->heap_region_iterate(&ecl, false, false);
-
-        // f. Clear region statuses, including collection set status
-        ShenandoahClearRegionStatusClosure cl;
-        _heap->heap_region_iterate(&cl, false, false);
-      }
-
+      // e. Verify heap before changing the regions
       if (ShenandoahVerify) {
         // Full GC should only be called between regular concurrent cycles, therefore
         // those verifications should be valid.
         _heap->verifier()->verify_before_fullgc();
+      }
+
+      {
+        ShenandoahHeapLocker lock(_heap->lock());
+
+        // f. Make sure all regions are active. This is needed because we are potentially
+        // sliding the data through them
+        ShenandoahEnsureHeapActiveClosure ecl;
+        _heap->heap_region_iterate(&ecl, false, false);
+
+        // g. Clear region statuses, including collection set status
+        ShenandoahClearRegionStatusClosure cl;
+        _heap->heap_region_iterate(&cl, false, false);
       }
     }
 
@@ -328,7 +329,7 @@ public:
     if (r->is_humongous_start()) {
       oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
       if (! _heap->is_marked_complete(humongous_obj)) {
-        _heap->reclaim_humongous_region_at(r);
+        _heap->trash_humongous_region_at(r);
       }
     }
     return false;
@@ -662,7 +663,8 @@ public:
 
     // Recycle all trash regions
     if (r->is_trash()) {
-      _heap->immediate_recycle(r);
+      live = 0;
+      r->recycle();
     }
 
     // Finally, add all suitable regions into the free set

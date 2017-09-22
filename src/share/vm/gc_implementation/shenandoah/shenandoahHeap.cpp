@@ -208,7 +208,6 @@ jint ShenandoahHeap::initialize() {
   }
 
   _recycled_regions = NEW_C_HEAP_ARRAY(size_t, _num_regions, mtGC);
-  _recycled_region_count = 0;
 
   // The call below uses stuff (the SATB* things) that are in G1, but probably
   // belong into a shared location.
@@ -696,8 +695,14 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType
   ShenandoahHeapRegion* current = _free_regions->current_no_humongous();
 
   if (current == NULL) {
-    // No more room to make a new region. OOM.
-    return NULL;
+    // No free regions? Chances are, we have acquired the lock before the recycler.
+    // Ask allocator to recycle some trash and try to allocate again.
+    recycle_trash_assist(1);
+    current = _free_regions->current_no_humongous();
+    if (current == NULL) {
+      // No more regions even after recycling, OOM.
+      return NULL;
+    }
   }
 
   HeapWord* result = current->allocate(word_size, type);
@@ -728,17 +733,36 @@ HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType
 HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
   assert_heaplock_owned_by_current_thread();
 
+  // Try to allocate right away:
   ShenandoahHeapRegion* r = _free_regions->allocate_contiguous(words);
-  if (r != NULL)  {
-    HeapWord* result = r->bottom();
-    log_debug(gc, humongous)("allocating humongous object of size: "SIZE_FORMAT" KB at location "PTR_FORMAT" in start region "SIZE_FORMAT,
-                             (words * HeapWordSize) / K, p2i(result), r->region_number());
-    return result;
-  } else {
-    log_debug(gc, humongous)("allocating humongous object of size: "SIZE_FORMAT" KB failed",
-                             (words * HeapWordSize) / K);
-    return NULL;
+  if (r != NULL) {
+    log_debug(gc, humongous)("Allocated humongous of size: " SIZE_FORMAT " KB in start region " SIZE_FORMAT,
+                             (words * HeapWordSize) / K, r->region_number());
+    return r->bottom();
   }
+
+  // Try to recycle up enough regions for this allocation.
+  recycle_trash_assist(ShenandoahHeapRegion::required_regions(words*HeapWordSize));
+  r = _free_regions->allocate_contiguous(words);
+  if (r != NULL) {
+    log_debug(gc, humongous)("Allocated humongous of size: " SIZE_FORMAT " KB in start region " SIZE_FORMAT " (after recycling)",
+                             (words * HeapWordSize) / K, r->region_number());
+    return r->bottom();
+  }
+
+  // Try to recycle all regions!
+  recycle_trash_assist(SIZE_MAX);
+  r = _free_regions->allocate_contiguous(words);
+
+  if (r != NULL) {
+    log_debug(gc, humongous)("Allocated humongous of size: " SIZE_FORMAT " KB in start region " SIZE_FORMAT " (after full recycling)",
+                             (words * HeapWordSize) / K, r->region_number());
+    return r->bottom();
+  }
+
+  log_debug(gc, humongous)("Allocating humongous object of size: "SIZE_FORMAT" KB failed",
+                           (words * HeapWordSize) / K);
+  return NULL;
 }
 
 HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
@@ -895,26 +919,15 @@ public:
   }
 };
 
-void ShenandoahHeap::recycle_cset_regions() {
+void ShenandoahHeap::trash_cset_regions() {
   ShenandoahHeapLocker locker(lock());
 
-  size_t bytes_reclaimed = 0;
-
   ShenandoahCollectionSet* set = collection_set();
-
-  start_deferred_recycling();
-
   ShenandoahHeapRegion* r;
   set->clear_current_index();
   while ((r = set->next()) != NULL) {
-    decrease_used(r->used());
-    bytes_reclaimed += r->used();
-    defer_recycle(r);
+    r->make_trash();
   }
-
-  finish_deferred_recycle();
-
-  _shenandoah_policy->record_bytes_reclaimed(bytes_reclaimed);
   collection_set()->clear();
 }
 
@@ -927,7 +940,7 @@ void ShenandoahHeap::print_heap_regions_on(outputStream* st) const {
   _ordered_regions->print_on(st);
 }
 
-size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* start) {
+size_t ShenandoahHeap::trash_humongous_region_at(ShenandoahHeapRegion* start) {
   assert(start->is_humongous_start(), "reclaim regions starting with the first one");
 
   oop humongous_obj = oop(start->bottom() + BrooksPointer::word_size());
@@ -952,8 +965,7 @@ size_t ShenandoahHeap::reclaim_humongous_region_at(ShenandoahHeapRegion* start) 
     assert(region->is_humongous(), "expect correct humongous start or continuation");
     assert(!in_collection_set(region), "Humongous region should not be in collection set");
 
-    decrease_used(region->used());
-    immediate_recycle(region);
+    region->make_trash();
   }
   return required_regions;
 }
@@ -982,7 +994,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
       verifier()->verify_after_concmark();
     }
 
-    recycle_cset_regions();
+    trash_cset_regions();
 
     // NOTE: This needs to be done during a stop the world pause, because
     // putting regions into the collection set concurrently with Java threads
@@ -2037,7 +2049,7 @@ void ShenandoahHeap::finish_update_refs() {
 
   ShenandoahGCPhase final_update_refs(ShenandoahCollectorPolicy::final_update_refs_recycle);
 
-  recycle_cset_regions();
+  trash_cset_regions();
   set_need_update_refs(false);
 
   if (ShenandoahVerify) {
@@ -2051,7 +2063,7 @@ void ShenandoahHeap::finish_update_refs() {
     size_t end = _ordered_regions->active_regions();
     for (size_t i = 0; i < end; i++) {
       ShenandoahHeapRegion* r = _ordered_regions->get(i);
-      if (!r->is_humongous()) {
+      if (r->is_alloc_allowed()) {
         assert (!in_collection_set(r), "collection set should be clear");
         _free_regions->add_region(r);
       }
@@ -2061,6 +2073,10 @@ void ShenandoahHeap::finish_update_refs() {
 }
 
 #ifdef ASSERT
+void ShenandoahHeap::assert_heaplock_not_owned_by_current_thread() {
+  _lock.assert_not_owned_by_current_thread();
+}
+
 void ShenandoahHeap::assert_heaplock_owned_by_current_thread() {
   _lock.assert_owned_by_current_thread();
 }
@@ -2070,30 +2086,43 @@ void ShenandoahHeap::assert_heaplock_or_safepoint() {
 }
 #endif
 
-void ShenandoahHeap::start_deferred_recycling() {
+void ShenandoahHeap::recycle_trash_assist(size_t limit) {
   assert_heaplock_owned_by_current_thread();
-  _recycled_region_count = 0;
-}
 
-void ShenandoahHeap::immediate_recycle(ShenandoahHeapRegion* r) {
-  assert_heaplock_owned_by_current_thread();
-  r->make_trash();
-  r->recycle();
-}
-
-void ShenandoahHeap::defer_recycle(ShenandoahHeapRegion* r) {
-  assert_heaplock_owned_by_current_thread();
-  r->make_trash();
-  _recycled_regions[_recycled_region_count++] = r->region_number();
-}
-
-void ShenandoahHeap::finish_deferred_recycle() {
-  assert_heaplock_owned_by_current_thread();
-  for (size_t i = 0; i < _recycled_region_count; i++) {
-    regions()->get(_recycled_regions[i])->recycle();
+  size_t count = 0;
+  for (size_t i = 0; (i < num_regions()) && (count < limit); i++) {
+    ShenandoahHeapRegion *r = _ordered_regions->get(i);
+    if (r->is_trash()) {
+      decrease_used(r->used());
+      r->recycle();
+      _free_regions->add_region(r);
+      count++;
+    }
   }
 }
 
+void ShenandoahHeap::recycle_trash() {
+  // lock is not reentrable, check we don't have it
+  assert_heaplock_not_owned_by_current_thread();
+
+  size_t bytes_reclaimed = 0;
+
+  for (size_t i = 0; i < num_regions(); i++) {
+    ShenandoahHeapRegion* r = _ordered_regions->get(i);
+    if (r->is_trash()) {
+      ShenandoahHeapLocker locker(lock());
+      if (r->is_trash()) {
+        bytes_reclaimed += r->used();
+        decrease_used(r->used());
+        r->recycle();
+        _free_regions->add_region(r);
+      }
+    }
+    SpinPause(); // allow allocators to barge the lock
+  }
+
+  _shenandoah_policy->record_bytes_reclaimed(bytes_reclaimed);
+}
 
 void ShenandoahHeap::print_extended_on(outputStream *st) const {
   print_on(st);
