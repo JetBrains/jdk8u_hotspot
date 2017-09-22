@@ -106,27 +106,36 @@ private:
     _trash,             // region contains only trash
   };
 
-  const char* region_state_to_string(RegionState s) {
+  const char* region_state_to_string(RegionState s) const {
     switch (s) {
-      case _empty_uncommitted:
-        return "Empty Uncommitted";
-      case _empty_committed:
-        return "Empty Committed";
-      case _regular:
-        return "Regular";
-      case _humongous_start:
-        return "Humongous Start";
-      case _humongous_cont:
-        return "Humongous Continuation";
-      case _cset:
-        return "Collection Set";
-      case _pinned:
-        return "Pinned";
-      case _trash:
-        return "Trash";
+      case _empty_uncommitted: return "Empty Uncommitted";
+      case _empty_committed:   return "Empty Committed";
+      case _regular:           return "Regular";
+      case _humongous_start:   return "Humongous Start";
+      case _humongous_cont:    return "Humongous Continuation";
+      case _cset:              return "Collection Set";
+      case _pinned:            return "Pinned";
+      case _trash:             return "Trash";
       default:
         ShouldNotReachHere();
         return "";
+    }
+  }
+
+  // This method protects from accidental changes in enum order:
+  int region_state_to_ordinal(RegionState s) const {
+    switch (s) {
+      case _empty_uncommitted: return 0;
+      case _empty_committed:   return 1;
+      case _regular:           return 2;
+      case _humongous_start:   return 3;
+      case _humongous_cont:    return 4;
+      case _cset:              return 5;
+      case _pinned:            return 6;
+      case _trash:             return 7;
+      default:
+        ShouldNotReachHere();
+        return -1;
     }
   }
 
@@ -161,6 +170,9 @@ public:
   bool is_humongous()              const { return is_humongous_start() || is_humongous_continuation(); }
   bool is_committed()              const { return !is_empty_uncommitted(); }
   bool is_alloc_allowed()          const { return is_empty() || is_regular() || is_pinned(); }
+
+  RegionState state()              const { return _state; }
+  int  state_ordinal()             const { return region_state_to_ordinal(_state); }
 
 private:
   void do_commit() {

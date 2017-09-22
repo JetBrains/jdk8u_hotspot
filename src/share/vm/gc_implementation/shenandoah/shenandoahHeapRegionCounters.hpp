@@ -53,16 +53,12 @@
  * - bits 35-41  <reserved>
  * - bits 42-50  <reserved>
  * - bits 51-57  <reserved>
- * - bits 58-63  status
- *      - bit 58 set when region is not used yet
- *      - bit 59 set when region in collection set
- *      - bit 60 set when region is humongous
- *      - bit 61 set when region is pinned
+ *      - bits describe the state as recorded in ShenandoahHeapRegion
  */
 class ShenandoahHeapRegionCounters : public CHeapObj<mtGC>  {
 private:
   static const jlong PERCENT_MASK = 0x7f;
-  static const jlong FLAGS_MASK   = 0x3f;
+  static const jlong STATUS_MASK  = 0x3f;
 
   static const jlong USED_SHIFT   = 0;
   static const jlong LIVE_SHIFT   = 7;
@@ -70,7 +66,7 @@ private:
   static const jlong GCLAB_SHIFT  = 21;
   static const jlong SHARED_SHIFT = 28;
 
-  static const jlong FLAGS_SHIFT  = 58;
+  static const jlong STATUS_SHIFT = 58;
 
   char* _name_space;
   PerfLongVariable** _regions_data;
