@@ -43,35 +43,35 @@ protected:
   bool _update_refs_adaptive;
 
   typedef struct {
-    size_t region_number;
-    size_t garbage;
-  } RegionGarbage;
+    ShenandoahHeapRegion* _region;
+    size_t _garbage;
+  } RegionData;
 
-  static int compare_by_garbage(RegionGarbage a, RegionGarbage b) {
-    if (a.garbage > b.garbage)
+  static int compare_by_garbage(RegionData a, RegionData b) {
+    if (a._garbage > b._garbage)
       return -1;
-    else if (a.garbage < b.garbage)
+    else if (a._garbage < b._garbage)
       return 1;
     else return 0;
   }
 
-  RegionGarbage* get_region_garbage_cache(size_t num) {
-    RegionGarbage* res = _region_garbage;
+  RegionData* get_region_data_cache(size_t num) {
+    RegionData* res = _region_data;
     if (res == NULL) {
-      res = NEW_C_HEAP_ARRAY(RegionGarbage, num, mtGC);
-      _region_garbage = res;
-      _region_garbage_size = num;
-    } else if (_region_garbage_size < num) {
-      res = REALLOC_C_HEAP_ARRAY(RegionGarbage, _region_garbage, num, mtGC);
-      _region_garbage = res;
-      _region_garbage_size = num;
+      res = NEW_C_HEAP_ARRAY(RegionData, num, mtGC);
+      _region_data = res;
+      _region_data_size = num;
+    } else if (_region_data_size < num) {
+      res = REALLOC_C_HEAP_ARRAY(RegionData, _region_data, num, mtGC);
+      _region_data = res;
+      _region_data_size = num;
     }
     return res;
   }
 
-  RegionGarbage* _region_garbage;
-  size_t _region_garbage_size;
-
+  RegionData* _region_data;
+  size_t _region_data_size;
+  
   size_t _bytes_allocated_start_CM;
   size_t _bytes_allocated_during_CM;
 
@@ -179,7 +179,6 @@ public:
   }
   virtual void end_choose_collection_set() {
   }
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) = 0;
 
   virtual void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections=NULL);
   virtual void choose_free_set(ShenandoahFreeSet* free_set);
@@ -201,14 +200,14 @@ public:
     return (cycle + 1) % ShenandoahUnloadClassesFrequency == 0;
   }
 
-  virtual bool needs_regions_sorted_by_garbage() {
-    // Most of them do not.
-    return false;
-  }
-
   virtual const char* name() = 0;
   virtual bool is_diagnostic() = 0;
   virtual bool is_experimental() = 0;
+
+protected:
+  virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* set,
+                                                     RegionData* data, size_t data_size,
+                                                     size_t trash, size_t free) = 0;
 };
 
 ShenandoahHeuristics::ShenandoahHeuristics() :
@@ -222,8 +221,8 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   _successful_cm_cycles_in_a_row(0),
   _cancelled_uprefs_cycles_in_a_row(0),
   _successful_uprefs_cycles_in_a_row(0),
-  _region_garbage(NULL),
-  _region_garbage_size(0),
+  _region_data(NULL),
+  _region_data_size(0),
   _update_refs_early(false),
   _update_refs_adaptive(false),
   _last_cycle_end(0)
@@ -243,8 +242,8 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
 }
 
 ShenandoahHeuristics::~ShenandoahHeuristics() {
-  if (_region_garbage != NULL) {
-    FREE_C_HEAP_ARRAY(RegionGarbage, _region_garbage, mtGC);
+  if (_region_data != NULL) {
+    FREE_C_HEAP_ARRAY(RegionGarbage, _region_data, mtGC);
   }
 }
 
@@ -262,24 +261,42 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   ShenandoahHeapRegionSet* regions = heap->regions();
   size_t active = regions->active_regions();
 
-  RegionGarbage* candidates = get_region_garbage_cache(active);
+  RegionData* candidates = get_region_data_cache(active);
 
   size_t cand_idx = 0;
-  _bytes_in_cset = 0;
 
   size_t immediate_garbage = 0;
   size_t immediate_regions = 0;
+
+  size_t free = 0;
+  size_t free_regions = 0;
+
   for (size_t i = 0; i < active; i++) {
     ShenandoahHeapRegion* region = regions->get(i);
 
-    // Reclaim humongous regions here, and count them as the immediate garbage
-    if (region->is_humongous_start()) {
+    if (region->is_empty()) {
+      free_regions++;
+      free += ShenandoahHeapRegion::region_size_bytes();
+    } else if (region->is_regular()) {
+      if (!region->has_live()) {
+        // We can recycle it right away and put it in the free set.
+        immediate_regions++;
+        immediate_garbage += region->garbage();
+        region->make_trash();
+      } else {
+        // This is our candidate for later consideration.
+        candidates[cand_idx]._region = region;
+        candidates[cand_idx]._garbage = region->garbage();
+        cand_idx++;
+      }
+    } else if (region->is_humongous_start()) {
+      // Reclaim humongous regions here, and count them as the immediate garbage
 #ifdef ASSERT
       bool reg_live = region->has_live();
-      bool bm_live = heap->is_marked_complete(oop(region->bottom() + BrooksPointer::word_size()));
-      assert(reg_live == bm_live,
-             err_msg("Humongous liveness and marks should agree. Region live: %s; Bitmap live: %s; Region Live Words: " SIZE_FORMAT,
-                     BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words()));
+        bool bm_live = heap->is_marked_complete(oop(region->bottom() + BrooksPointer::word_size()));
+        assert(reg_live == bm_live,
+               err_msg("Humongous liveness and marks should agree. Region live: %s; Bitmap live: %s; Region Live Words: " SIZE_FORMAT,
+                       BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words()));
 #endif
       if (!region->has_live()) {
         size_t reclaimed = heap->trash_humongous_region_at(region);
@@ -287,46 +304,12 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
         immediate_garbage += reclaimed * ShenandoahHeapRegion::region_size_bytes();
       }
     }
-
-    if (region->is_regular()) {
-      if (!region->has_live()) {
-        // We can recycle it right away and put it in the free set.
-        immediate_regions++;
-        immediate_garbage += region->garbage();
-        region->make_trash();
-        log_develop_trace(gc)("Choose region " SIZE_FORMAT " for immediate reclaim with garbage = " SIZE_FORMAT
-                              " and live = " SIZE_FORMAT "\n",
-                              region->region_number(), region->garbage(), region->get_live_data_bytes());
-      } else {
-        // This is our candidate for later consideration.
-        candidates[cand_idx].region_number = region->region_number();
-        candidates[cand_idx].garbage = region->garbage();
-        cand_idx++;
-      }
-    } else {
-      log_develop_trace(gc)("Rejected region " SIZE_FORMAT " with garbage = " SIZE_FORMAT
-                            " and live = " SIZE_FORMAT "\n",
-                            region->region_number(), region->garbage(), region->get_live_data_bytes());
-    }
   }
 
-  // Step 2. Process the remanining candidates, if any.
+  // Step 2. Process the remaining candidates, if any.
 
   if (cand_idx > 0) {
-    if (needs_regions_sorted_by_garbage()) {
-      QuickSort::sort<RegionGarbage>(candidates, (int)cand_idx, compare_by_garbage, false);
-    }
-
-    for (size_t i = 0; i < cand_idx; i++) {
-      ShenandoahHeapRegion *region = regions->get(candidates[i].region_number);
-      if (region_in_collection_set(region, immediate_garbage)) {
-        log_develop_trace(gc)("Choose region " SIZE_FORMAT " with garbage = " SIZE_FORMAT
-                                      " and live = " SIZE_FORMAT "\n",
-                              region->region_number(), region->garbage(), region->get_live_data_bytes());
-        collection_set->add_region(region);
-        _bytes_in_cset += region->used();
-      }
-    }
+    choose_collection_set_from_regiondata(collection_set, candidates, cand_idx, immediate_garbage, free);
   }
 
   end_choose_collection_set();
@@ -352,6 +335,8 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
                        collection_set->live_data() / M);
     log_info(gc, ergo)("Live/garbage ratio in collected regions: "SIZE_FORMAT"%%",
                        collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
+    log_info(gc, ergo)("Free: "SIZE_FORMAT"M, "SIZE_FORMAT" regions ("SIZE_FORMAT"%% of total)",
+                       free / M, free_regions, free_regions * 100 / active);
   }
 
   collection_set->update_region_status();
@@ -459,8 +444,15 @@ public:
     FLAG_SET_DEFAULT(ExplicitGCInvokesConcurrent, false);
   }
 
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    return r->garbage() > 0;
+  virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
+                                                     RegionData* data, size_t size,
+                                                     size_t trash, size_t free) {
+    for (size_t idx = 0; idx < size; idx++) {
+      ShenandoahHeapRegion* r = data[idx]._region;
+      if (r->garbage() > 0) {
+        cset->add_region(r);
+      }
+    }
   }
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
@@ -502,8 +494,15 @@ public:
     }
   }
 
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    return r->garbage() > 0;
+  virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
+                                                     RegionData* data, size_t size,
+                                                     size_t trash, size_t free) {
+    for (size_t idx = 0; idx < size; idx++) {
+      ShenandoahHeapRegion* r = data[idx]._region;
+      if (r->garbage() > 0) {
+        cset->add_region(r);
+      }
+    }
   }
 
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
@@ -583,9 +582,19 @@ public:
     return shouldStartConcurrentMark;
   }
 
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
+  virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
+                                                     RegionData* data, size_t size,
+                                                     size_t trash, size_t free) {
     size_t threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
-    return r->garbage() > threshold;
+
+    _bytes_in_cset = 0;
+    for (size_t idx = 0; idx < size; idx++) {
+      ShenandoahHeapRegion* r = data[idx]._region;
+      if (r->garbage() > threshold) {
+        cset->add_region(r);
+        _bytes_in_cset += r->used();
+      }
+    }
   }
 
   virtual const char* name() {
@@ -608,9 +617,16 @@ public:
     return ShenandoahHeap::heap()->bytes_allocated_since_cm() > 0;
   }
 
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
+  virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
+                                                     RegionData* data, size_t size,
+                                                     size_t trash, size_t free) {
     size_t threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
-    return r->garbage() > threshold;
+    for (size_t idx = 0; idx < size; idx++) {
+      ShenandoahHeapRegion* r = data[idx]._region;
+      if (r->garbage() > threshold) {
+        cset->add_region(r);
+      }
+    }
   }
 
   virtual const char* name() {
@@ -656,9 +672,62 @@ public:
     delete _cset_history;
   }
 
-  virtual bool region_in_collection_set(ShenandoahHeapRegion* r, size_t immediate_garbage) {
-    size_t threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
-    return r->garbage() > threshold;
+  virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
+                                                     RegionData* data, size_t size,
+                                                     size_t trash, size_t free) {
+    size_t garbage_threshold = ShenandoahHeapRegion::region_size_bytes() * ShenandoahGarbageThreshold / 100;
+
+    // The logic for cset selection in adaptive is as follows:
+    //
+    //   1. We cannot get cset larger than available free space. Otherwise we guarantee OOME
+    //      during evacuation, and thus guarantee full GC. In practice, we also want to let
+    //      application to allocate something. This is why we limit CSet to some fraction of
+    //      available space. In non-overloaded heap, max_cset would contain all plausible candidates
+    //      over garbage threshold.
+    //
+    //   2. We should not get cset too low so that free threshold would not be met right
+    //      after the cycle. Otherwise we get back-to-back cycles for no reason if heap is
+    //      too fragmented. In non-overloaded non-fragmented heap min_cset would be around zero.
+    //
+    // Therefore, we start by sorting the regions by garbage. Then we unconditionally add the best candidates
+    // before we meet min_cset. Then we add all candidates that fit with a garbage threshold before
+    // we hit max_cset. When max_cset is hit, we terminate the cset selection. Note that in this scheme,
+    // ShenandoahGarbageThreshold is the soft threshold which would be ignored until min_cset is hit.
+
+    size_t free_target = MIN2<size_t>(_free_threshold + MaxNormalStep, 100) * ShenandoahHeap::heap()->capacity() / 100;
+    size_t actual_free = free + trash + _bytes_in_cset;
+    size_t min_cset = free_target > actual_free ? (free_target - actual_free) : 0;
+    size_t max_cset = actual_free * 3 / 4;
+    min_cset = MIN2(min_cset, max_cset);
+
+    log_info(gc, ergo)("Adaptive CSet selection: free target = " SIZE_FORMAT "M, actual free = "
+                               SIZE_FORMAT "M; min cset = " SIZE_FORMAT "M, max cset = " SIZE_FORMAT "M",
+                       free_target / M, actual_free / M, min_cset / M, max_cset / M);
+
+    // Better select garbage-first regions
+    QuickSort::sort<RegionData>(data, (int)size, compare_by_garbage, false);
+
+    size_t live_cset = 0;
+    _bytes_in_cset = 0;
+    for (size_t idx = 0; idx < size; idx++) {
+      ShenandoahHeapRegion* r = data[idx]._region;
+
+      size_t new_cset = live_cset + r->get_live_data_bytes();
+
+      if (new_cset < min_cset) {
+        cset->add_region(r);
+        _bytes_in_cset += r->used();
+        live_cset = new_cset;
+      } else if (new_cset <= max_cset) {
+        if (r->garbage() > garbage_threshold) {
+          cset->add_region(r);
+          _bytes_in_cset += r->used();
+          live_cset = new_cset;
+        }
+      } else {
+        break;
+      }
+    }
   }
 
   static const intx MaxNormalStep = 5;      // max step towards goal under normal conditions
