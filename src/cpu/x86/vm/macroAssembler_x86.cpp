@@ -5483,11 +5483,12 @@ void MacroAssembler::_shenandoah_store_check(Register dst, Register value, const
   // Test that target oop is not in to-space.
   shenandoah_cset_check(raddr, tmp1, tmp2, done);
 
-  // Do value-check only when concurrent mark is in progress.
-  movptr(tmp1, (intptr_t) ShenandoahHeap::concurrent_mark_in_progress_addr());
+  // During evacuation and evacuation only, we can have the stores of cset-values
+  // to non-cset destinations. Everything else is covered by storeval barriers.
+  movptr(tmp1, (intptr_t) ShenandoahHeap::evacuation_in_progress_addr());
   movbool(tmp1, Address(tmp1, 0));
   testbool(tmp1);
-  jcc(Assembler::zero, done);
+  jcc(Assembler::notZero, done);
 
   // Null-check value.
   testptr(rval, rval);

@@ -362,6 +362,10 @@ inline bool ShenandoahHeap::is_evacuation_in_progress() const {
   return _evacuation_in_progress != 0;
 }
 
+inline address ShenandoahHeap::evacuation_in_progress_addr() {
+  return (address) &(ShenandoahHeap::heap()->_evacuation_in_progress);
+}
+
 inline bool ShenandoahHeap::allocated_after_next_mark_start(HeapWord* addr) const {
   uintx index = ((uintx) addr) >> ShenandoahHeapRegion::region_size_bytes_shift();
   HeapWord* top_at_mark_start = _next_top_at_mark_starts[index];

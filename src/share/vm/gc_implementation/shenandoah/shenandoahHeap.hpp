@@ -294,6 +294,7 @@ public:
   inline bool is_evacuation_in_progress() const;
   void set_evacuation_in_progress_concurrently(bool in_progress);
   void set_evacuation_in_progress_at_safepoint(bool in_progress);
+  static address evacuation_in_progress_addr();
 
   void set_full_gc_in_progress(bool in_progress);
   bool is_full_gc_in_progress() const;
