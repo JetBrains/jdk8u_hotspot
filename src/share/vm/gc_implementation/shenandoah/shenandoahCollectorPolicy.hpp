@@ -302,43 +302,7 @@ public:
 
   size_t cycle_counter() const;
 
-
-  // Calculate the number of workers for initial marking
-  static uint calc_workers_for_init_marking(uint active_workers,
-                                            uint application_workers);
-
-  // Calculate the number of workers for concurrent marking
-  static uint calc_workers_for_conc_marking(uint active_workers,
-                                            uint application_workers);
-
-  // Calculate the number of workers for final marking
-  static uint calc_workers_for_final_marking(uint active_workers,
-                                             uint application_workers);
-
-  // Calculate workers for concurrent evacuation (concurrent GC)
-  static uint calc_workers_for_conc_evacuation(uint active_workers,
-                                               uint application_workers);
-
-  // Calculate workers for parallel evaculation (full GC)
-  static uint calc_workers_for_parallel_evacuation(uint active_workers,
-                                                   uint application_workers);
-
 private:
-  static uint calc_workers_for_java_threads(uint application_workers);
-  static uint calc_workers_for_live_set(size_t live_data);
-
-  static uint calc_default_active_workers(uint total_workers,
-                                    uint min_workers,
-                                    uint active_workers,
-                                    uint application_workers,
-                                    uint workers_by_java_threads,
-                                    uint workers_by_liveset);
-
-  static uint calc_workers_for_evacuation(bool full_gc,
-                                    uint total_workers,
-                                    uint active_workers,
-                                    uint application_workers);
-
   void print_summary_sd(outputStream* out, const char* str, const HdrSeq* seq);
 };
 

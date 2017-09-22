@@ -37,6 +37,7 @@
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkerPolicy.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/biasedLocking.hpp"
@@ -116,7 +117,8 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
   // Default, use number of parallel GC threads
   ShenandoahWorkGang* workers = heap->workers();
-  ShenandoahWorkerScope full_gc_worker_scope(workers, ParallelGCThreads);
+  uint nworkers = ShenandoahWorkerPolicy::calc_workers_for_fullgc();
+  ShenandoahWorkerScope full_gc_worker_scope(workers, nworkers);
 
   {
     ShenandoahGCSession session(/* is_full_gc */true);
@@ -208,10 +210,6 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       {
         ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_mark);
 
-        uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
-                workers->active_workers(), (uint) Threads::number_of_non_daemon_threads());
-        ShenandoahPushWorkerScope scope(workers, nworkers);
-
         OrderAccess::fence();
 
         phase1_mark_heap();
@@ -219,10 +217,6 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
       // Setup workers for the rest
       {
-        uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_parallel_evacuation(
-                workers->active_workers(), (uint) Threads::number_of_non_daemon_threads());
-        ShenandoahPushWorkerScope scope(workers, nworkers);
-
         OrderAccess::fence();
 
         ShenandoahHeapRegionSet **copy_queues = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, heap->max_workers(), mtGC);

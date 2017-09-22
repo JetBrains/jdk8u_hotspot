@@ -30,6 +30,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkerPolicy.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "memory/iterator.hpp"
 #include "memory/universe.hpp"
@@ -166,8 +167,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   {
     // Setup workers for concurrent marking phase
     ShenandoahWorkGang* workers = heap->workers();
-    uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_marking(workers->active_workers(),
-                                                                              (uint) Threads::number_of_non_daemon_threads());
+    uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_conc_marking();
     ShenandoahWorkerScope scope(workers, n_workers);
 
     GCTraceTime time("Concurrent marking", PrintGC, gc_timer, gc_tracer->gc_id(), true);
@@ -239,8 +239,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
     // Setup workers for concurrent evacuation phase
     ShenandoahWorkGang* workers = heap->workers();
-    uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_evacuation(workers->active_workers(),
-                                                                                 (uint) Threads::number_of_non_daemon_threads());
+    uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_conc_evac();
     ShenandoahWorkerScope scope(workers, n_workers);
 
     GCTraceTime time("Concurrent evacuation", PrintGC, gc_timer, gc_tracer->gc_id(), true);
@@ -273,6 +272,9 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
       {
         GCTraceTime time("Concurrent update references ", PrintGC, gc_timer, gc_tracer->gc_id(), true);
+        ShenandoahWorkGang* workers = heap->workers();
+        uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_conc_update_ref();
+        ShenandoahWorkerScope scope(workers, n_workers);
         heap->concurrent_update_heap_references();
       }
     }

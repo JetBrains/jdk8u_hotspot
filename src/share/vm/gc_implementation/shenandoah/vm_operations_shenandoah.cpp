@@ -31,6 +31,7 @@
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkerPolicy.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 void VM_ShenandoahInitMark::doit() {
@@ -42,8 +43,7 @@ void VM_ShenandoahInitMark::doit() {
   ShenandoahWorkGang*       workers = sh->workers();
 
   // Calculate workers for initial marking
-  uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
-    workers->active_workers(), (uint)Threads::number_of_non_daemon_threads());
+  uint nworkers = ShenandoahWorkerPolicy::calc_workers_for_init_marking();
 
   ShenandoahWorkerScope scope(workers, nworkers);
 
@@ -86,8 +86,7 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
   // get unmarked objects in the roots.
   // Setup workers for final marking
   ShenandoahWorkGang* workers = sh->workers();
-  uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_final_marking(workers->active_workers(),
-                                                                             (uint)Threads::number_of_non_daemon_threads());
+  uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_final_marking();
   ShenandoahWorkerScope scope(workers, n_workers);
 
   if (! sh->cancelled_concgc()) {
@@ -131,6 +130,10 @@ void VM_ShenandoahFinalUpdateRefs::doit() {
 
   ShenandoahHeap *sh = ShenandoahHeap::heap();
   GCTraceTime time("Pause Final Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id(), true);
+
+  ShenandoahWorkGang* workers = sh->workers();
+  uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_final_update_ref();
+  ShenandoahWorkerScope scope(workers, n_workers);
 
   sh->finish_update_refs();
 }
