@@ -648,9 +648,8 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
     }
   }
 
-  if (type == _alloc_tlab || (type == _alloc_shared && in_new_region)) {
-    // Update monitoring counters when either (large) TLAB allocation happened,
-    // or we did the shared allocation that took a new region. This amortizes the
+  if (in_new_region && (type == _alloc_tlab || type == _alloc_shared)) {
+    // Update monitoring counters when we took a new region. This amortizes the
     // update costs on slow path.
     //
     // Do not update monitoring counters when calling from a write-barrier.
@@ -1095,7 +1094,7 @@ size_t  ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
 }
 
 size_t ShenandoahHeap::max_tlab_size() const {
-  return ShenandoahHeapRegion::humongous_threshold_bytes();
+  return ShenandoahHeapRegion::max_tlab_size_bytes();
 }
 
 class ShenandoahResizeGCLABClosure : public ThreadClosure {

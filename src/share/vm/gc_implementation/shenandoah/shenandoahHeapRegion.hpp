@@ -197,6 +197,7 @@ private:
   static size_t RegionSizeWordsMask;
   static size_t HumongousThresholdBytes;
   static size_t HumongousThresholdWords;
+  static size_t MaxTLABSizeBytes;
 
 private:
   ShenandoahHeap* _heap;
@@ -282,6 +283,10 @@ public:
 
   inline static size_t humongous_threshold_words() {
     return ShenandoahHeapRegion::HumongousThresholdWords;
+  }
+
+  inline static size_t max_tlab_size_bytes() {
+    return ShenandoahHeapRegion::MaxTLABSizeBytes;
   }
 
   size_t region_number() const;

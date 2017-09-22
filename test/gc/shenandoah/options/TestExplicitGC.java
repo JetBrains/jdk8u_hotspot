@@ -53,8 +53,6 @@ public class TestExplicitGC {
         String[] concurrent = new String[] {
             "Pause Init Mark",
             "Pause Final Mark",
-            "Pause Init Update Refs",
-            "Pause Final Update Refs",
         };
 
         {
