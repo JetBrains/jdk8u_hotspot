@@ -128,21 +128,37 @@ public:
     _verify_liveness_complete,
   } VerifyLiveness;
 
+  typedef enum {
+    // Disable region verification
+    _verify_regions_disable,
+
+    // No trash regions allowed
+    _verify_regions_notrash,
+
+    // No collection set regions allowed
+    _verify_regions_nocset,
+
+    // No trash and no cset regions allowed
+    _verify_regions_notrash_nocset,
+  } VerifyRegions;
+
   struct VerifyOptions {
     VerifyForwarded     _verify_forwarded;
     VerifyMarked        _verify_marked;
     VerifyMatrix        _verify_matrix;
     VerifyCollectionSet _verify_cset;
     VerifyLiveness      _verify_liveness;
+    VerifyRegions       _verify_regions;
 
     VerifyOptions(VerifyForwarded verify_forwarded,
                   VerifyMarked verify_marked,
                   VerifyMatrix verify_matrix,
                   VerifyCollectionSet verify_collection_set,
-                  VerifyLiveness verify_liveness) :
+                  VerifyLiveness verify_liveness,
+                  VerifyRegions verify_regions) :
             _verify_forwarded(verify_forwarded), _verify_marked(verify_marked),
             _verify_matrix(verify_matrix), _verify_cset(verify_collection_set),
-            _verify_liveness(verify_liveness) {}
+            _verify_liveness(verify_liveness), _verify_regions(verify_regions) {}
   };
 
 private:
@@ -151,7 +167,8 @@ private:
                            VerifyMarked marked,
                            VerifyMatrix matrix,
                            VerifyCollectionSet cset,
-                           VerifyLiveness liveness);
+                           VerifyLiveness liveness,
+                           VerifyRegions regions);
 
 public:
   ShenandoahVerifier(ShenandoahHeap* heap, MarkBitMap* verification_bitmap) :

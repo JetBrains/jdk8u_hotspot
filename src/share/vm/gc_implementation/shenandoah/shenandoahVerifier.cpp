@@ -377,13 +377,16 @@ public:
 class ShenandoahVerifyHeapRegionClosure : public ShenandoahHeapRegionClosure {
 private:
   ShenandoahHeap* _heap;
+  const char* _phase;
+  ShenandoahVerifier::VerifyRegions _regions;
 public:
-  ShenandoahVerifyHeapRegionClosure() : _heap(ShenandoahHeap::heap()) {};
+  ShenandoahVerifyHeapRegionClosure(const char* phase, ShenandoahVerifier::VerifyRegions regions) :
+          _heap(ShenandoahHeap::heap()), _regions(regions), _phase(phase) {};
 
   void print_failure(ShenandoahHeapRegion* r, const char* label) {
     ResourceMark rm;
 
-    ShenandoahMessageBuffer msg("Shenandoah verification failed; %s\n\n", label);
+    ShenandoahMessageBuffer msg("Shenandoah verification failed; %s: %s\n\n", _phase, label);
 
     stringStream ss;
     r->print_on(&ss);
@@ -399,6 +402,27 @@ public:
   }
 
   bool heap_region_do(ShenandoahHeapRegion* r) {
+    switch (_regions) {
+      case ShenandoahVerifier::_verify_regions_disable:
+        break;
+      case ShenandoahVerifier::_verify_regions_notrash:
+        verify(r, !r->is_trash(),
+               "Should not have trash regions");
+        break;
+      case ShenandoahVerifier::_verify_regions_nocset:
+        verify(r, !r->is_cset(),
+               "Should not have cset regions");
+        break;
+      case ShenandoahVerifier::_verify_regions_notrash_nocset:
+        verify(r, !r->is_trash(),
+               "Should not have trash regions");
+        verify(r, !r->is_cset(),
+               "Should not have cset regions");
+        break;
+      default:
+        ShouldNotReachHere();
+    }
+
     verify(r, r->capacity() == ShenandoahHeapRegion::region_size_bytes(),
            "Capacity should match region size");
 
@@ -606,7 +630,7 @@ public:
 void ShenandoahVerifier::verify_at_safepoint(const char *label,
                                              VerifyForwarded forwarded, VerifyMarked marked,
                                              VerifyMatrix matrix, VerifyCollectionSet cset,
-                                             VerifyLiveness liveness) {
+                                             VerifyLiveness liveness, VerifyRegions regions) {
   guarantee(SafepointSynchronize::is_at_safepoint(), "only when nothing else happens");
   guarantee(ShenandoahVerify, "only when enabled, and bitmap is initialized in ShenandoahHeap::initialize");
 
@@ -620,18 +644,18 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
     _heap->heap_region_iterate(&cl);
     size_t heap_used = _heap->used();
     guarantee(cl.used() == heap_used,
-              err_msg("heap used size must be consistent: heap-used = " SIZE_FORMAT "K, regions-used = " SIZE_FORMAT "K",
-                      heap_used/K, cl.used()/K));
+              err_msg("%s: heap used size must be consistent: heap-used = " SIZE_FORMAT "K, regions-used = " SIZE_FORMAT "K",
+                      label, heap_used/K, cl.used()/K));
 
     size_t heap_committed = _heap->committed();
     guarantee(cl.committed() == heap_committed,
-              err_msg("heap committed size must be consistent: heap-committed = " SIZE_FORMAT "K, regions-committed = " SIZE_FORMAT "K",
-                      heap_committed/K, cl.committed()/K));
+              err_msg("%s: heap committed size must be consistent: heap-committed = " SIZE_FORMAT "K, regions-committed = " SIZE_FORMAT "K",
+                      label, heap_committed/K, cl.committed()/K));
   }
 
   // Internal heap region checks
   if (ShenandoahVerifyLevel >= 1) {
-    ShenandoahVerifyHeapRegionClosure cl;
+    ShenandoahVerifyHeapRegionClosure cl(label, regions);
     _heap->heap_region_iterate(&cl,
             /* skip_cset = */ false,
             /* skip_humongous_cont = */ false);
@@ -648,7 +672,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   ShenandoahLivenessData* ld = NEW_C_HEAP_ARRAY(ShenandoahLivenessData, _heap->num_regions(), mtGC);
   Copy::fill_to_bytes((void*)ld, _heap->num_regions()*sizeof(ShenandoahLivenessData), 0);
 
-  const VerifyOptions& options = ShenandoahVerifier::VerifyOptions(forwarded, marked, matrix, cset, liveness);
+  const VerifyOptions& options = ShenandoahVerifier::VerifyOptions(forwarded, marked, matrix, cset, liveness, regions);
 
   // Steps 1-2. Scan root set to get initial reachable set. Finish walking the reachable heap.
   // This verifies what application can see, since it only cares about reachable objects.
@@ -722,7 +746,8 @@ void ShenandoahVerifier::verify_generic(VerifyOption vo) {
           _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
           _verify_matrix_disable,      // matrix can be inconsistent here
           _verify_cset_disable,        // cset may be inconsistent
-          _verify_liveness_disable     // no reliable liveness data
+          _verify_liveness_disable,    // no reliable liveness data
+          _verify_regions_disable      // no reliable region data
   );
 }
 
@@ -734,7 +759,8 @@ void ShenandoahVerifier::verify_before_concmark() {
             _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
             _verify_matrix_disable,      // matrix is foobared
             _verify_cset_forwarded,      // allow forwarded references to cset
-            _verify_liveness_disable     // no reliable liveness data
+            _verify_liveness_disable,    // no reliable liveness data
+            _verify_regions_notrash      // no trash regions
     );
   } else {
     verify_at_safepoint(
@@ -743,7 +769,8 @@ void ShenandoahVerifier::verify_before_concmark() {
             _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
             _verify_matrix_conservative, // UR should have fixed matrix
             _verify_cset_none,           // UR should have fixed this
-            _verify_liveness_disable     // no reliable liveness data
+            _verify_liveness_disable,    // no reliable liveness data
+            _verify_regions_notrash      // no trash regions
     );
   }
 }
@@ -755,7 +782,8 @@ void ShenandoahVerifier::verify_after_concmark() {
           _verify_marked_complete,     // bitmaps as precise as we can get
           _verify_matrix_disable,      // matrix might be foobared
           _verify_cset_none,           // no references to cset anymore
-          _verify_liveness_complete    // liveness data must be complete here
+          _verify_liveness_complete,   // liveness data must be complete here
+          _verify_regions_notrash      // no trash regions
   );
 }
 
@@ -768,7 +796,8 @@ void ShenandoahVerifier::verify_before_evacuation() {
           _verify_marked_complete,   // walk over marked objects too
           _verify_matrix_disable,    // skip, verified after mark
           _verify_cset_disable,      // skip, verified after mark
-          _verify_liveness_disable   // skip, verified after mark
+          _verify_liveness_disable,  // skip, verified after mark
+          _verify_regions_notrash    // no trash regions here
   );
 }
 
@@ -779,7 +808,8 @@ void ShenandoahVerifier::verify_after_evacuation() {
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_disable,      // matrix is inconsistent here
           _verify_cset_forwarded,      // all cset refs are fully forwarded
-          _verify_liveness_disable     // no reliable liveness data anymore
+          _verify_liveness_disable,    // no reliable liveness data anymore
+          _verify_regions_notrash      // no trash regions
   );
 }
 
@@ -790,7 +820,8 @@ void ShenandoahVerifier::verify_before_updaterefs() {
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_disable,      // matrix is inconsistent here
           _verify_cset_forwarded,      // all cset refs are fully forwarded
-          _verify_liveness_disable     // no reliable liveness data anymore
+          _verify_liveness_disable,    // no reliable liveness data anymore
+          _verify_regions_notrash      // no trash regions
   );
 }
 
@@ -801,7 +832,8 @@ void ShenandoahVerifier::verify_after_updaterefs() {
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references, all updated
-          _verify_liveness_disable     // no reliable liveness data anymore
+          _verify_liveness_disable,    // no reliable liveness data anymore
+          _verify_regions_notrash_nocset // no trash and no cset regions
   );
 }
 
@@ -812,7 +844,8 @@ void ShenandoahVerifier::verify_before_partial() {
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references before partial
-          _verify_liveness_disable     // no reliable liveness data anymore
+          _verify_liveness_disable,    // no reliable liveness data anymore
+          _verify_regions_notrash_nocset // no trash and no cset regions
   );
 }
 
@@ -823,7 +856,8 @@ void ShenandoahVerifier::verify_after_partial() {
           _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references left after partial
-          _verify_liveness_disable     // no reliable liveness data anymore
+          _verify_liveness_disable,    // no reliable liveness data anymore
+          _verify_regions_notrash_nocset // no trash and no cset regions
   );
 }
 
@@ -834,7 +868,8 @@ void ShenandoahVerifier::verify_before_fullgc() {
           _verify_marked_disable,      // do not verify marked: lots ot time wasted checking dead allocations
           _verify_matrix_disable,      // matrix might be foobared
           _verify_cset_disable,        // cset might be foobared
-          _verify_liveness_disable     // no reliable liveness data anymore
+          _verify_liveness_disable,    // no reliable liveness data anymore
+          _verify_regions_disable      // no reliable region data here
   );
 }
 
@@ -845,7 +880,8 @@ void ShenandoahVerifier::verify_after_fullgc() {
           _verify_marked_complete,     // all objects are marked in complete bitmap
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references
-          _verify_liveness_disable     // no reliable liveness data anymore
+          _verify_liveness_disable,    // no reliable liveness data anymore
+          _verify_regions_notrash_nocset // no trash, no cset
   );
 }
 
