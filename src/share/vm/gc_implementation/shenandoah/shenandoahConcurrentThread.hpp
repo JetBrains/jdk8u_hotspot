@@ -27,9 +27,21 @@
 #include "gc_implementation/shared/concurrentGCThread.hpp"
 #include "gc_interface/gcCause.hpp"
 #include "memory/resourceArea.hpp"
+#include "runtime/task.hpp"
 
-// For now we just want to have a concurrent marking thread.
-// Once we have that working we will build a concurrent evacuation thread.
+class ShenandoahConcurrentThread;
+
+// Periodic task is useful for doing asynchronous things that do not require (heap) locks,
+// or synchronization with other parts of collector. These could run even when ShenandoahConcurrentThread
+// is busy driving the GC cycle.
+class ShenandoahPeriodicTask : public PeriodicTask {
+private:
+  ShenandoahConcurrentThread* _thread;
+public:
+  ShenandoahPeriodicTask(ShenandoahConcurrentThread* thread) :
+          PeriodicTask(100), _thread(thread) {}
+  virtual void task();
+};
 
 class ShenandoahConcurrentThread: public ConcurrentGCThread {
   friend class VMStructs;
@@ -39,6 +51,7 @@ private:
   // full GC waiters when concurrent cycle finishes.
   Monitor _full_gc_lock;
   Monitor _conc_gc_lock;
+  ShenandoahPeriodicTask _periodic_task;
 
  private:
   static SurrogateLockerThread* _slt;
@@ -51,6 +64,7 @@ private:
   volatile jbyte _do_concurrent_gc;
   volatile jbyte _do_full_gc;
   volatile jbyte _graceful_shutdown;
+  volatile jbyte _do_counters_update;
   GCCause::Cause _full_gc_cause;
 
   bool check_cancellation();
@@ -78,6 +92,9 @@ public:
 
   bool is_conc_gc_requested();
   void reset_conc_gc_requested();
+
+  void do_counters_update();
+  void trigger_counters_update();
 
   char* name() const { return (char*)"ShenandoahConcurrentThread";}
   void start();

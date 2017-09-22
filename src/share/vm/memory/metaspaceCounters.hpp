@@ -38,7 +38,6 @@ class MetaspaceCounters: public AllStatic {
  public:
   static void initialize_performance_counters();
   static void update_performance_counters();
-  static void try_update_performance_counters();
 };
 
 class CompressedClassSpaceCounters: public AllStatic {
@@ -50,7 +49,6 @@ class CompressedClassSpaceCounters: public AllStatic {
  public:
   static void initialize_performance_counters();
   static void update_performance_counters();
-  static void try_update_performance_counters();
 };
 
 #endif // SHARE_VM_MEMORY_METASPACECOUNTERS_HPP

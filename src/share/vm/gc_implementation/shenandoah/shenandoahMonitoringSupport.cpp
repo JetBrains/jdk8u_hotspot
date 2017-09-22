@@ -91,8 +91,7 @@ void ShenandoahMonitoringSupport::update_counters() {
     _space_counters->update_all(capacity, used);
     _heap_region_counters->update();
 
-    // TODO: We may fall back to non-"try" versions once update_counters() is not called via Universe::genesis() path
-    MetaspaceCounters::try_update_performance_counters();
-    CompressedClassSpaceCounters::try_update_performance_counters();
+    MetaspaceCounters::update_performance_counters();
+    CompressedClassSpaceCounters::update_performance_counters();
   }
 }

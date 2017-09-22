@@ -648,15 +648,10 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
     }
   }
 
-  if (in_new_region && (type == _alloc_tlab || type == _alloc_shared)) {
+  if (in_new_region) {
     // Update monitoring counters when we took a new region. This amortizes the
     // update costs on slow path.
-    //
-    // Do not update monitoring counters when calling from a write-barrier.
-    // Otherwise we might attempt to grab the Service_lock, which we must
-    // not do when coming from a write-barrier (because the thread might
-    // already hold the Compile_lock).
-    monitoring_support()->update_counters();
+    concurrent_thread()->trigger_counters_update();
   }
 
   log_develop_trace(gc, alloc)("allocate memory chunk of size "SIZE_FORMAT" at addr "PTR_FORMAT " by thread %d ",

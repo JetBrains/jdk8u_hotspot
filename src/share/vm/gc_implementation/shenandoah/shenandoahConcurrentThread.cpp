@@ -41,16 +41,23 @@ ShenandoahConcurrentThread::ShenandoahConcurrentThread() :
   ConcurrentGCThread(),
   _full_gc_lock(Mutex::leaf, "ShenandoahFullGC_lock", true),
   _conc_gc_lock(Mutex::leaf, "ShenandoahConcGC_lock", true),
+  _periodic_task(this),
   _do_full_gc(0),
   _do_concurrent_gc(0),
+  _do_counters_update(0),
   _full_gc_cause(GCCause::_no_cause_specified),
   _graceful_shutdown(0)
 {
   create_and_start();
+  _periodic_task.enroll();
 }
 
 ShenandoahConcurrentThread::~ShenandoahConcurrentThread() {
   // This is here so that super is called.
+}
+
+void ShenandoahPeriodicTask::task() {
+  _thread->do_counters_update();
 }
 
 void ShenandoahConcurrentThread::run() {
@@ -88,9 +95,8 @@ void ShenandoahConcurrentThread::run() {
     }
 
     if (gc_requested) {
-      // Counters are already updated on allocation path. Makes sense to update them
-      // them here only when GC happened.
-      heap->monitoring_support()->update_counters();
+      // Update counters when GC was requested
+      do_counters_update();
 
       // Coming out of (cancelled) concurrent GC, reset these for sanity
       if (heap->is_evacuation_in_progress()) {
@@ -449,6 +455,19 @@ void ShenandoahConcurrentThread::reset_conc_gc_requested() {
   OrderAccess::release_store_fence(&_do_concurrent_gc, 0);
   MonitorLockerEx ml(&_conc_gc_lock);
   ml.notify_all();
+}
+
+void ShenandoahConcurrentThread::do_counters_update() {
+  if (OrderAccess::load_acquire(&_do_counters_update) == 1) {
+    OrderAccess::release_store(&_do_counters_update, 0);
+    ShenandoahHeap::heap()->monitoring_support()->update_counters();
+  }
+}
+
+void ShenandoahConcurrentThread::trigger_counters_update() {
+  if (OrderAccess::load_acquire(&_do_counters_update) == 0) {
+    OrderAccess::release_store(&_do_counters_update, 1);
+  }
 }
 
 void ShenandoahConcurrentThread::print() const {
