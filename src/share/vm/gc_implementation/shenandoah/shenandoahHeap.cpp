@@ -161,7 +161,7 @@ jint ShenandoahHeap::initialize() {
   size_t reg_size_words = ShenandoahHeapRegion::region_size_words();
 
   _ordered_regions = new ShenandoahHeapRegionSet(_num_regions);
-  _free_regions = new ShenandoahFreeSet(_num_regions);
+  _free_regions = new ShenandoahFreeSet(_ordered_regions, _num_regions);
 
   _collection_set = new ShenandoahCollectionSet(this, (HeapWord*)pgc_rs.base());
 
@@ -668,101 +668,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
 
 HeapWord* ShenandoahHeap::allocate_memory_under_lock(size_t word_size, AllocType type, bool& in_new_region) {
   ShenandoahHeapLocker locker(lock());
-
-  if (word_size > ShenandoahHeapRegion::humongous_threshold_words()) {
-    switch (type) {
-      case _alloc_shared:
-      case _alloc_shared_gc:
-        in_new_region = true;
-        return allocate_large_memory(word_size);
-      case _alloc_gclab:
-      case _alloc_tlab:
-        log_warning(gc)("Trying to allocate TLAB larger than the humongous threshold: " SIZE_FORMAT " > " SIZE_FORMAT,
-                        word_size, ShenandoahHeapRegion::humongous_threshold_words());
-        return NULL;
-      default:
-        ShouldNotReachHere();
-    }
-  }
-
-  in_new_region = false;
-
-  // Not enough memory in free region set. Coming out of full GC, it is possible that
-  // there are no free regions available, so current_index may be invalid. Have to
-  // poll capacity as the precaution here.
-  if (word_size * HeapWordSize > _free_regions->capacity()) return NULL;
-
-  ShenandoahHeapRegion* current = _free_regions->current_no_humongous();
-
-  if (current == NULL) {
-    // No free regions? Chances are, we have acquired the lock before the recycler.
-    // Ask allocator to recycle some trash and try to allocate again.
-    recycle_trash_assist(1);
-    current = _free_regions->current_no_humongous();
-    if (current == NULL) {
-      // No more regions even after recycling, OOM.
-      return NULL;
-    }
-  }
-
-  HeapWord* result = current->allocate(word_size, type);
-
-  while (result == NULL) {
-    in_new_region = true;
-
-    // Retire the current region:
-    _free_regions->increase_used(current->free());
-
-    // Try next region:
-    current = _free_regions->next_no_humongous();
-    if (current == NULL) {
-      // No more room to make a new region. OOM.
-      return NULL;
-    }
-    result = current->allocate(word_size, type);
-  }
-
-  // Allocation successful, bump up used/live data:
-  current->increase_live_data_words(word_size);
-  increase_used(word_size * HeapWordSize);
-  _free_regions->increase_used(word_size * HeapWordSize);
-
-  return result;
-}
-
-HeapWord* ShenandoahHeap::allocate_large_memory(size_t words) {
-  assert_heaplock_owned_by_current_thread();
-
-  // Try to allocate right away:
-  ShenandoahHeapRegion* r = _free_regions->allocate_contiguous(words);
-  if (r != NULL) {
-    log_debug(gc, humongous)("Allocated humongous of size: " SIZE_FORMAT " KB in start region " SIZE_FORMAT,
-                             (words * HeapWordSize) / K, r->region_number());
-    return r->bottom();
-  }
-
-  // Try to recycle up enough regions for this allocation.
-  recycle_trash_assist(ShenandoahHeapRegion::required_regions(words*HeapWordSize));
-  r = _free_regions->allocate_contiguous(words);
-  if (r != NULL) {
-    log_debug(gc, humongous)("Allocated humongous of size: " SIZE_FORMAT " KB in start region " SIZE_FORMAT " (after recycling)",
-                             (words * HeapWordSize) / K, r->region_number());
-    return r->bottom();
-  }
-
-  // Try to recycle all regions!
-  recycle_trash_assist(SIZE_MAX);
-  r = _free_regions->allocate_contiguous(words);
-
-  if (r != NULL) {
-    log_debug(gc, humongous)("Allocated humongous of size: " SIZE_FORMAT " KB in start region " SIZE_FORMAT " (after full recycling)",
-                             (words * HeapWordSize) / K, r->region_number());
-    return r->bottom();
-  }
-
-  log_debug(gc, humongous)("Allocating humongous object of size: "SIZE_FORMAT" KB failed",
-                           (words * HeapWordSize) / K);
-  return NULL;
+  return _free_regions->allocate(word_size, type, in_new_region);
 }
 
 HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
@@ -1144,7 +1050,7 @@ void ShenandoahHeap::do_evacuation() {
     out->print_cr("Collection set ("SIZE_FORMAT" regions):", _collection_set->count());
     _collection_set->print_on(out);
 
-    out->print_cr("Free set ("SIZE_FORMAT" regions):", _free_regions->count());
+    out->print_cr("Free set:");
     _free_regions->print_on(out);
   }
 
@@ -1158,8 +1064,7 @@ void ShenandoahHeap::do_evacuation() {
                   _collection_set->count());
     _collection_set->print_on(out);
 
-    out->print_cr("After evacuation free set ("SIZE_FORMAT" regions):",
-                  _free_regions->count());
+    out->print_cr("After evacuation free set:");
     _free_regions->print_on(out);
   }
 

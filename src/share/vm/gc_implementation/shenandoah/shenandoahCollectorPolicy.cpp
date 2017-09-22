@@ -554,10 +554,7 @@ public:
     bool shouldStartConcurrentMark = false;
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    size_t free_capacity = heap->free_regions()->capacity();
-    size_t free_used = heap->free_regions()->used();
-    assert(free_used <= free_capacity, "must use less than capacity");
-    size_t available =  free_capacity - free_used;
+    size_t available = heap->free_regions()->available();
 
     if (! update_refs()) {
       // Count in the memory available after cset reclamation.
@@ -778,10 +775,7 @@ public:
     bool shouldStartConcurrentMark = false;
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    size_t free_capacity = heap->free_regions()->capacity();
-    size_t free_used = heap->free_regions()->used();
-    assert(free_used <= free_capacity, "must use less than capacity");
-    size_t available =  free_capacity - free_used;
+    size_t available = heap->free_regions()->available();
     uintx factor = _free_threshold;
     size_t cset_threshold = 0;
     if (! update_refs()) {
