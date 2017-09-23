@@ -695,7 +695,7 @@ public:
     // ShenandoahGarbageThreshold is the soft threshold which would be ignored until min_cset is hit.
 
     size_t free_target = MIN2<size_t>(_free_threshold + MaxNormalStep, 100) * ShenandoahHeap::heap()->capacity() / 100;
-    size_t actual_free = free + trash + _bytes_in_cset;
+    size_t actual_free = free + trash;
     size_t min_cset = free_target > actual_free ? (free_target - actual_free) : 0;
     size_t max_cset = actual_free * 3 / 4;
     min_cset = MIN2(min_cset, max_cset);
