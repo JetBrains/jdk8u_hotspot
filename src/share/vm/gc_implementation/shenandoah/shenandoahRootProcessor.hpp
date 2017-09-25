@@ -30,6 +30,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahCodeRoots.hpp"
+#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "memory/allocation.hpp"
 #include "runtime/mutex.hpp"
 
@@ -67,7 +68,7 @@ enum Shenandoah_process_roots_tasks {
 class ShenandoahRootProcessor : public StackObj {
   SubTasksDone* _process_strong_tasks;
   SharedHeap::StrongRootsScope _srs;
-  ShenandoahCollectorPolicy::TimingPhase _phase;
+  ShenandoahPhaseTimings::Phase _phase;
   ParallelCLDRootIterator   _cld_iterator;
   ShenandoahAllCodeRootsIterator _coderoots_all_iterator;
   ParallelObjectSynchronizerIterator _om_iterator;
@@ -86,7 +87,7 @@ class ShenandoahRootProcessor : public StackObj {
 
 public:
   ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_workers,
-                          ShenandoahCollectorPolicy::TimingPhase phase);
+                          ShenandoahPhaseTimings::Phase phase);
   ~ShenandoahRootProcessor();
 
   // Apply oops, clds and blobs to all strongly reachable roots in the system
@@ -111,12 +112,12 @@ public:
 class ShenandoahRootEvacuator : public StackObj {
   SubTasksDone* _process_strong_tasks;
   SharedHeap::StrongRootsScope _srs;
-  ShenandoahCollectorPolicy::TimingPhase _phase;
+  ShenandoahPhaseTimings::Phase _phase;
   ShenandoahCsetCodeRootsIterator _coderoots_cset_iterator;
 
 public:
   ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers,
-                          ShenandoahCollectorPolicy::TimingPhase phase);
+                          ShenandoahPhaseTimings::Phase phase);
   ~ShenandoahRootEvacuator();
 
   void process_evacuate_roots(OopClosure* oops,

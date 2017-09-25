@@ -29,6 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
@@ -135,12 +136,12 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     assert(Thread::current()->is_VM_thread(), "Do full GC only while world is stopped");
 
     {
-      ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_heapdumps);
+      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
       heap->pre_full_gc_dump(_gc_timer);
     }
 
     {
-      ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_prepare);
+      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_prepare);
       // Full GC is supposed to recover from any GC state:
 
       // a. Cancel concurrent mark, if in progress
@@ -208,7 +209,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
       // Setup workers for phase 1
       {
-        ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_mark);
+        ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_mark);
 
         OrderAccess::fence();
 
@@ -222,19 +223,19 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
         ShenandoahHeapRegionSet **copy_queues = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, heap->max_workers(), mtGC);
 
         {
-          ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
+          ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_calculate_addresses);
           phase2_calculate_target_addresses(copy_queues);
         }
 
         OrderAccess::fence();
 
         {
-          ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_adjust_pointers);
+          ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_adjust_pointers);
           phase3_update_references();
         }
 
         {
-          ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_copy_objects);
+          ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_copy_objects);
           phase4_compact_objects(copy_queues);
         }
 
@@ -261,12 +262,12 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());
 
     {
-      ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_heapdumps);
+      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
       heap->post_full_gc_dump(_gc_timer);
     }
 
     if (UseTLAB) {
-      ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_resize_tlabs);
+      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_resize_tlabs);
       heap->resize_all_tlabs();
     }
 
@@ -291,8 +292,8 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
   rp->setup_policy(true); // snapshot the soft ref policy to be used in this cycle
   rp->set_active_mt_degree(_heap->workers()->active_workers());
 
-  cm->update_roots(ShenandoahCollectorPolicy::full_gc_roots);
-  cm->mark_roots(ShenandoahCollectorPolicy::full_gc_roots);
+  cm->update_roots(ShenandoahPhaseTimings::full_gc_roots);
+  cm->mark_roots(ShenandoahPhaseTimings::full_gc_roots);
   cm->shared_finish_mark_from_roots(/* full_gc = */ true);
 
   _heap->swap_mark_bitmaps();
@@ -573,7 +574,7 @@ void ShenandoahMarkCompact::phase3_update_references() {
   uint nworkers = workers->active_workers();
   {
     COMPILER2_PRESENT(DerivedPointerTable::clear());
-    ShenandoahRootProcessor rp(heap, nworkers, ShenandoahCollectorPolicy::full_gc_roots);
+    ShenandoahRootProcessor rp(heap, nworkers, ShenandoahPhaseTimings::full_gc_roots);
     ShenandoahAdjustRootPointersTask task(&rp);
     workers->run_task(&task);
     COMPILER2_PRESENT(DerivedPointerTable::update_pointers());

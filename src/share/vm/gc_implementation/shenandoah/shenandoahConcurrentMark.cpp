@@ -252,7 +252,7 @@ public:
   }
 };
 
-void ShenandoahConcurrentMark::mark_roots(ShenandoahCollectorPolicy::TimingPhase root_phase) {
+void ShenandoahConcurrentMark::mark_roots(ShenandoahPhaseTimings::Phase root_phase) {
   assert(Thread::current()->is_VM_thread(), "can only do this in VMThread");
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
@@ -295,20 +295,20 @@ void ShenandoahConcurrentMark::init_mark_roots() {
   set_process_references(policy->process_references());
   set_unload_classes(policy->unload_classes());
 
-  mark_roots(ShenandoahCollectorPolicy::scan_roots);
+  mark_roots(ShenandoahPhaseTimings::scan_roots);
 }
 
-void ShenandoahConcurrentMark::update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase) {
+void ShenandoahConcurrentMark::update_roots(ShenandoahPhaseTimings::Phase root_phase) {
   assert(SafepointSynchronize::is_at_safepoint(), "Must be at a safepoint");
 
   bool update_code_cache = true; // initialize to safer value
   switch (root_phase) {
-    case ShenandoahCollectorPolicy::update_roots:
-    case ShenandoahCollectorPolicy::final_update_refs_roots:
+    case ShenandoahPhaseTimings::update_roots:
+    case ShenandoahPhaseTimings::final_update_refs_roots:
       // If code cache was evacuated concurrently, we need to update code cache roots.
       update_code_cache = ShenandoahConcurrentEvacCodeRoots;
       break;
-    case ShenandoahCollectorPolicy::full_gc_roots:
+    case ShenandoahPhaseTimings::full_gc_roots:
       update_code_cache = true;
       break;
     default:
@@ -362,7 +362,7 @@ void ShenandoahConcurrentMark::mark_from_roots() {
 
   bool update_refs = sh->need_update_refs();
 
-  ShenandoahGCPhase conc_mark_phase(ShenandoahCollectorPolicy::conc_mark);
+  ShenandoahGCPhase conc_mark_phase(ShenandoahPhaseTimings::conc_mark);
 
   if (process_references()) {
     ReferenceProcessor* rp = sh->ref_processor();
@@ -403,7 +403,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
   shared_finish_mark_from_roots(/* full_gc = */ false);
 
   if (sh->need_update_refs()) {
-    update_roots(ShenandoahCollectorPolicy::update_roots);
+    update_roots(ShenandoahPhaseTimings::update_roots);
   }
 
   TASKQUEUE_STATS_ONLY(print_taskqueue_stats());
@@ -425,8 +425,8 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   // The implementation is the same, so it's shared here.
   {
     ShenandoahGCPhase phase(full_gc ?
-                               ShenandoahCollectorPolicy::full_gc_mark_finish_queues :
-                               ShenandoahCollectorPolicy::finish_queues);
+                               ShenandoahPhaseTimings::full_gc_mark_finish_queues :
+                               ShenandoahPhaseTimings::finish_queues);
     bool count_live = !(ShenandoahNoLivenessFullGC && full_gc); // we do not need liveness data for full GC
     task_queues()->reserve(nworkers);
 
@@ -699,10 +699,10 @@ void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
 
   ShenandoahHeap* sh = ShenandoahHeap::heap();
 
-  ShenandoahCollectorPolicy::TimingPhase phase_root =
+  ShenandoahPhaseTimings::Phase phase_root =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_weakrefs :
-          ShenandoahCollectorPolicy::weakrefs;
+          ShenandoahPhaseTimings::full_gc_weakrefs :
+          ShenandoahPhaseTimings::weakrefs;
 
   ShenandoahGCPhase phase(phase_root);
 
@@ -719,15 +719,15 @@ void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
 
   ReferenceProcessor* rp = sh->ref_processor();
 
-  ShenandoahCollectorPolicy::TimingPhase phase_process =
+  ShenandoahPhaseTimings::Phase phase_process =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_weakrefs_process :
-          ShenandoahCollectorPolicy::weakrefs_process;
+          ShenandoahPhaseTimings::full_gc_weakrefs_process :
+          ShenandoahPhaseTimings::weakrefs_process;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_enqueue =
+  ShenandoahPhaseTimings::Phase phase_enqueue =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_weakrefs_enqueue :
-          ShenandoahCollectorPolicy::weakrefs_enqueue;
+          ShenandoahPhaseTimings::full_gc_weakrefs_enqueue :
+          ShenandoahPhaseTimings::weakrefs_enqueue;
 
   ReferenceProcessorIsAliveMutator fix_alive(rp, sh->is_alive_closure());
 

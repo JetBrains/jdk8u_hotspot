@@ -27,7 +27,7 @@
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
-#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
+#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 
 class ShenandoahConcurrentMark;
 
@@ -134,8 +134,8 @@ public:
   // Prepares unmarked root objects by marking them and putting
   // them into the marking task queue.
   void init_mark_roots();
-  void mark_roots(ShenandoahCollectorPolicy::TimingPhase root_phase);
-  void update_roots(ShenandoahCollectorPolicy::TimingPhase root_phase);
+  void mark_roots(ShenandoahPhaseTimings::Phase root_phase);
+  void update_roots(ShenandoahPhaseTimings::Phase root_phase);
 
   void shared_finish_mark_from_roots(bool full_gc);
   void finish_mark_from_roots();

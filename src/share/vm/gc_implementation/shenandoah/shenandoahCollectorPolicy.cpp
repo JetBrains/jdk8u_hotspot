@@ -113,11 +113,7 @@ public:
     _last_cycle_end = os::elapsedTime();
   }
 
-  virtual void record_phase_start(ShenandoahCollectorPolicy::TimingPhase phase) {
-    // Do nothing
-  }
-
-  virtual void record_phase_end(ShenandoahCollectorPolicy::TimingPhase phase) {
+  virtual void record_phase_time(ShenandoahPhaseTimings::Phase phase, double secs) {
     // Do nothing
   }
 
@@ -350,60 +346,6 @@ void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
       free_set->add_region(region);
     }
   }
-}
-
-void ShenandoahCollectorPolicy::record_workers_start(TimingPhase phase) {
-  for (uint i = 0; i < ShenandoahPhaseTimes::GCParPhasesSentinel; i++) {
-    _phase_times->reset(i);
-  }
-}
-
-void ShenandoahCollectorPolicy::record_workers_end(TimingPhase phase) {
-  if (is_at_shutdown()) {
-    // Do not record the past-shutdown events
-    return;
-  }
-
-  guarantee(phase == init_evac ||
-            phase == scan_roots ||
-            phase == update_roots ||
-            phase == final_update_refs_roots ||
-            phase == full_gc_roots ||
-            phase == _num_phases,
-            "only in these phases we can add per-thread phase times");
-  if (phase != _num_phases) {
-    // Merge _phase_time to counters below the given phase.
-    for (uint i = 0; i < ShenandoahPhaseTimes::GCParPhasesSentinel; i++) {
-      double t = _phase_times->average(i);
-      _timing_data[phase + i + 1]._secs.add(t);
-    }
-  }
-}
-
-void ShenandoahCollectorPolicy::record_phase_start(TimingPhase phase) {
-  _timing_data[phase]._start = os::elapsedTime();
-  _heuristics->record_phase_start(phase);
-}
-
-void ShenandoahCollectorPolicy::record_phase_end(TimingPhase phase) {
-  if (!is_at_shutdown()) {
-    double end = os::elapsedTime();
-    double elapsed = end - _timing_data[phase]._start;
-    _timing_data[phase]._secs.add(elapsed);
-  }
-  _heuristics->record_phase_end(phase);
-}
-
-void ShenandoahCollectorPolicy::record_phase_time(TimingPhase phase, jint time_us) {
-  if (!is_at_shutdown()) {
-    _timing_data[phase]._secs.add((double)time_us / 1000 / 1000);
-  }
-}
-
-void ShenandoahCollectorPolicy::record_alloc_latency(size_t words_size,
-                                                     ShenandoahHeap::AllocType _alloc_type, double latency_us) {
-  _alloc_size[_alloc_type].add(words_size);
-  _alloc_latency[_alloc_type].add((size_t)latency_us);
 }
 
 void ShenandoahCollectorPolicy::record_gc_start() {
@@ -648,18 +590,14 @@ private:
   TruncatedSeq* _cset_history;
   size_t _peak_occupancy;
   TruncatedSeq* _cycle_gap_history;
-  double _conc_mark_start;
   TruncatedSeq* _conc_mark_duration_history;
-  double _conc_uprefs_start;
   TruncatedSeq* _conc_uprefs_duration_history;
 public:
   ShenandoahAdaptiveHeuristics() :
     ShenandoahHeuristics(),
     _free_threshold(ShenandoahInitFreeThreshold),
     _peak_occupancy(0),
-    _conc_mark_start(0),
     _conc_mark_duration_history(new TruncatedSeq(5)),
-    _conc_uprefs_start(0),
     _conc_uprefs_duration_history(new TruncatedSeq(5)),
     _cycle_gap_history(new TruncatedSeq(5)),
     _cset_history(new TruncatedSeq((uint)ShenandoahHappyCyclesThreshold)) {
@@ -779,20 +717,11 @@ public:
     _cycle_gap_history->add(last_cycle_gap);
   }
 
-  void record_phase_start(ShenandoahCollectorPolicy::TimingPhase phase) {
-    if (phase == ShenandoahCollectorPolicy::conc_mark) {
-      _conc_mark_start = os::elapsedTime();
-    } else if (phase == ShenandoahCollectorPolicy::conc_update_refs) {
-      _conc_uprefs_start = os::elapsedTime();
-    } // Else ignore
-
-  }
-
-  virtual void record_phase_end(ShenandoahCollectorPolicy::TimingPhase phase) {
-    if (phase == ShenandoahCollectorPolicy::conc_mark) {
-      _conc_mark_duration_history->add(os::elapsedTime() - _conc_mark_start);
-    } else if (phase == ShenandoahCollectorPolicy::conc_update_refs) {
-      _conc_uprefs_duration_history->add(os::elapsedTime() - _conc_uprefs_start);
+  virtual void record_phase_time(ShenandoahPhaseTimings::Phase phase, double secs) {
+    if (phase == ShenandoahPhaseTimings::conc_mark) {
+      _conc_mark_duration_history->add(secs);
+    } else if (phase == ShenandoahPhaseTimings::conc_update_refs) {
+      _conc_uprefs_duration_history->add(secs);
     } // Else ignore
   }
 
@@ -938,143 +867,6 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _user_requested_gcs = 0;
   _allocation_failure_gcs = 0;
 
-  _phase_names[total_pause]                     = "Total Pauses (N)";
-  _phase_names[total_pause_gross]               = "Total Pauses (G)";
-  _phase_names[init_mark]                       = "Pause Init Mark (N)";
-  _phase_names[init_mark_gross]                 = "Pause Init Mark (G)";
-  _phase_names[final_mark]                      = "Pause Final Mark (N)";
-  _phase_names[final_mark_gross]                = "Pause Final Mark (G)";
-  _phase_names[accumulate_stats]                = "  Accumulate Stats";
-  _phase_names[make_parsable]                   = "  Make Parsable";
-  _phase_names[clear_liveness]                  = "  Clear Liveness";
-  _phase_names[resize_tlabs]                    = "  Resize TLABs";
-  _phase_names[finish_queues]                   = "  Finish Queues";
-  _phase_names[weakrefs]                        = "  Weak References";
-  _phase_names[weakrefs_process]                = "    Process";
-  _phase_names[weakrefs_enqueue]                = "    Enqueue";
-  _phase_names[purge]                           = "  System Purge";
-  _phase_names[purge_class_unload]              = "    Unload Classes";
-  _phase_names[purge_par]                       = "    Parallel Cleanup";
-  _phase_names[purge_par_codecache]             = "      Code Cache";
-  _phase_names[purge_par_symbstring]            = "      String/Symbol Tables";
-  _phase_names[purge_par_rmt]                   = "      Resolved Methods";
-  _phase_names[purge_par_classes]               = "      Clean Classes";
-  _phase_names[purge_par_sync]                  = "      Synchronization";
-  _phase_names[purge_cldg]                      = "    CLDG";
-  _phase_names[prepare_evac]                    = "  Prepare Evacuation";
-
-  _phase_names[scan_roots]                      = "  Scan Roots";
-  _phase_names[scan_thread_roots]               = "    S: Thread Roots";
-  _phase_names[scan_code_roots]                 = "    S: Code Cache Roots";
-  _phase_names[scan_string_table_roots]         = "    S: String Table Roots";
-  _phase_names[scan_universe_roots]             = "    S: Universe Roots";
-  _phase_names[scan_jni_roots]                  = "    S: JNI Roots";
-  _phase_names[scan_jni_weak_roots]             = "    S: JNI Weak Roots";
-  _phase_names[scan_synchronizer_roots]         = "    S: Synchronizer Roots";
-  _phase_names[scan_flat_profiler_roots]        = "    S: Flat Profiler Roots";
-  _phase_names[scan_management_roots]           = "    S: Management Roots";
-  _phase_names[scan_system_dictionary_roots]    = "    S: System Dict Roots";
-  _phase_names[scan_cldg_roots]                 = "    S: CLDG Roots";
-  _phase_names[scan_jvmti_roots]                = "    S: JVMTI Roots";
-
-  _phase_names[update_roots]                    = "  Update Roots";
-  _phase_names[update_thread_roots]             = "    U: Thread Roots";
-  _phase_names[update_code_roots]               = "    U: Code Cache Roots";
-  _phase_names[update_string_table_roots]       = "    U: String Table Roots";
-  _phase_names[update_universe_roots]           = "    U: Universe Roots";
-  _phase_names[update_jni_roots]                = "    U: JNI Roots";
-  _phase_names[update_jni_weak_roots]           = "    U: JNI Weak Roots";
-  _phase_names[update_synchronizer_roots]       = "    U: Synchronizer Roots";
-  _phase_names[update_flat_profiler_roots]      = "    U: Flat Profiler Roots";
-  _phase_names[update_management_roots]         = "    U: Management Roots";
-  _phase_names[update_system_dictionary_roots]  = "    U: System Dict Roots";
-  _phase_names[update_cldg_roots]               = "    U: CLDG Roots";
-  _phase_names[update_jvmti_roots]              = "    U: JVMTI Roots";
-
-  _phase_names[init_evac]                       = "  Initial Evacuation";
-  _phase_names[evac_thread_roots]               = "    E: Thread Roots";
-  _phase_names[evac_code_roots]                 = "    E: Code Cache Roots";
-  _phase_names[evac_string_table_roots]         = "    E: String Table Roots";
-  _phase_names[evac_universe_roots]             = "    E: Universe Roots";
-  _phase_names[evac_jni_roots]                  = "    E: JNI Roots";
-  _phase_names[evac_jni_weak_roots]             = "    E: JNI Weak Roots";
-  _phase_names[evac_synchronizer_roots]         = "    E: Synchronizer Roots";
-  _phase_names[evac_flat_profiler_roots]        = "    E: Flat Profiler Roots";
-  _phase_names[evac_management_roots]           = "    E: Management Roots";
-  _phase_names[evac_system_dictionary_roots]    = "    E: System Dict Roots";
-  _phase_names[evac_cldg_roots]                 = "    E: CLDG Roots";
-  _phase_names[evac_jvmti_roots]                = "    E: JVMTI Roots";
-
-  _phase_names[recycle_regions]                 = "  Recycle regions";
-
-  _phase_names[full_gc]                         = "Pause Full GC";
-  _phase_names[full_gc_heapdumps]               = "  Heap Dumps";
-  _phase_names[full_gc_prepare]                 = "  Prepare";
-  _phase_names[full_gc_roots]                   = "  Roots";
-  _phase_names[full_gc_thread_roots]            = "    F: Thread Roots";
-  _phase_names[full_gc_code_roots]              = "    F: Code Cache Roots";
-  _phase_names[full_gc_string_table_roots]      = "    F: String Table Roots";
-  _phase_names[full_gc_universe_roots]          = "    F: Universe Roots";
-  _phase_names[full_gc_jni_roots]               = "    F: JNI Roots";
-  _phase_names[full_gc_jni_weak_roots]          = "    F: JNI Weak Roots";
-  _phase_names[full_gc_synchronizer_roots]      = "    F: Synchronizer Roots";
-  _phase_names[full_gc_flat_profiler_roots]     = "    F: Flat Profiler Roots";
-  _phase_names[full_gc_management_roots]        = "    F: Management Roots";
-  _phase_names[full_gc_system_dictionary_roots] = "    F: System Dict Roots";
-  _phase_names[full_gc_cldg_roots]              = "    F: CLDG Roots";
-  _phase_names[full_gc_jvmti_roots]             = "    F: JVMTI Roots";
-  _phase_names[full_gc_mark]                    = "  Mark";
-  _phase_names[full_gc_mark_finish_queues]      = "    Finish Queues";
-  _phase_names[full_gc_weakrefs]                = "    Weak References";
-  _phase_names[full_gc_weakrefs_process]        = "      Process";
-  _phase_names[full_gc_weakrefs_enqueue]        = "      Enqueue";
-  _phase_names[full_gc_purge]                   = "    System Purge";
-  _phase_names[full_gc_purge_class_unload]      = "      Unload Classes";
-  _phase_names[full_gc_purge_par]               = "    Parallel Cleanup";
-  _phase_names[full_gc_purge_par_codecache]     = "      Code Cache";
-  _phase_names[full_gc_purge_par_symbstring]    = "      String/Symbol Tables";
-  _phase_names[full_gc_purge_par_rmt]           = "      Resolved Methods";
-  _phase_names[full_gc_purge_par_classes]       = "      Clean Classes";
-  _phase_names[full_gc_purge_par_sync]          = "      Synchronization";
-  _phase_names[full_gc_purge_cldg]              = "      CLDG";
-  _phase_names[full_gc_calculate_addresses]     = "  Calculate Addresses";
-  _phase_names[full_gc_adjust_pointers]         = "  Adjust Pointers";
-  _phase_names[full_gc_copy_objects]            = "  Copy Objects";
-  _phase_names[full_gc_resize_tlabs]            = "  Resize TLABs";
-
-  _phase_names[pause_other]                     = "Pause Other";
-
-  _phase_names[conc_mark]                       = "Concurrent Marking";
-  _phase_names[conc_preclean]                   = "Concurrent Precleaning";
-  _phase_names[conc_evac]                       = "Concurrent Evacuation";
-  _phase_names[conc_cleanup]                    = "Concurrent Cleanup";
-  _phase_names[conc_cleanup_recycle]            = "  Recycle";
-  _phase_names[conc_cleanup_reset_bitmaps]      = "  Reset Bitmaps";
-  _phase_names[conc_other]                      = "Concurrent Other";
-
-  _phase_names[init_update_refs_gross]          = "Pause Init  Update Refs (G)";
-  _phase_names[init_update_refs]                = "Pause Init  Update Refs (N)";
-  _phase_names[conc_update_refs]                = "Concurrent Update Refs";
-  _phase_names[final_update_refs_gross]         = "Pause Final Update Refs (G)";
-  _phase_names[final_update_refs]               = "Pause Final Update Refs (N)";
-
-  _phase_names[final_update_refs_finish_work]          = "  Finish Work";
-  _phase_names[final_update_refs_roots]                = "  Update Roots";
-  _phase_names[final_update_refs_thread_roots]         = "    UR: Thread Roots";
-  _phase_names[final_update_refs_code_roots]           = "    UR: Code Cache Roots";
-  _phase_names[final_update_refs_string_table_roots]   = "    UR: String Table Roots";
-  _phase_names[final_update_refs_universe_roots]       = "    UR: Universe Roots";
-  _phase_names[final_update_refs_jni_roots]            = "    UR: JNI Roots";
-  _phase_names[final_update_refs_jni_weak_roots]       = "    UR: JNI Weak Roots";
-  _phase_names[final_update_refs_synchronizer_roots]   = "    UR: Synchronizer Roots";
-  _phase_names[final_update_refs_flat_profiler_roots]  = "    UR: Flat Profiler Roots";
-  _phase_names[final_update_refs_management_roots]     = "    UR: Management Roots";
-  _phase_names[final_update_refs_system_dict_roots]    = "    UR: System Dict Roots";
-  _phase_names[final_update_refs_cldg_roots]           = "    UR: CLDG Roots";
-  _phase_names[final_update_refs_jvmti_roots]          = "    UR: JVMTI Roots";
-  _phase_names[final_update_refs_recycle]              = "  Recycle";
-
-
   if (ShenandoahGCHeuristics != NULL) {
     if (strcmp(ShenandoahGCHeuristics, "aggressive") == 0) {
       _heuristics = new ShenandoahAggressiveHeuristics();
@@ -1106,7 +898,6 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   } else {
       ShouldNotReachHere();
   }
-  _phase_times = new ShenandoahPhaseTimes((uint)MAX2(ConcGCThreads, ParallelGCThreads));
 }
 
 ShenandoahCollectorPolicy* ShenandoahCollectorPolicy::as_pgc_policy() {
@@ -1234,104 +1025,12 @@ bool ShenandoahCollectorPolicy::unload_classes() {
   return _heuristics->unload_classes();
 }
 
-void ShenandoahCollectorPolicy::print_tracing_info(outputStream* out) {
-  out->cr();
-  out->print_cr("GC STATISTICS:");
-  out->print_cr("  \"(G)\" (gross) pauses include VM time: time to notify and block threads, do the pre-");
-  out->print_cr("        and post-safepoint housekeeping. Use -XX:+PrintSafepointStatistics to dissect.");
-  out->print_cr("  \"(N)\" (net) pauses are the times spent in the actual GC code.");
-  out->print_cr("  \"a\" is average time for each phase, look at levels to see if average makes sense.");
-  out->print_cr("  \"lvls\" are quantiles: 0%% (minimum), 25%%, 50%% (median), 75%%, 100%% (maximum).");
-  out->cr();
-
-  for (uint i = 0; i < _num_phases; i++) {
-    if (_timing_data[i]._secs.maximum() != 0) {
-      print_summary_sd(out, _phase_names[i], &(_timing_data[i]._secs));
-    }
-  }
-
-  out->cr();
-  out->print_cr("" SIZE_FORMAT " allocation failure and " SIZE_FORMAT " user requested GCs", _allocation_failure_gcs, _user_requested_gcs);
-  out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated concurrent markings", _successful_cm, _degenerated_cm);
-  out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated update references  ", _successful_uprefs, _degenerated_uprefs);
-  out->cr();
-
-  out->print_cr("ALLOCATION TRACING");
-  out->print_cr("  These are the slow-path allocations, including TLAB/GCLAB refills, and out-of-TLAB allocations.");
-  out->print_cr("  In-TLAB/GCLAB allocations happen orders of magnitude more frequently, and without delays.");
-  out->cr();
-
-  if (ShenandoahAllocationTrace) {
-    out->print("%18s", "");
-    for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
-      out->print("%12s", ShenandoahHeap::alloc_type_to_string(ShenandoahHeap::AllocType(t)));
-    }
-    out->cr();
-
-    out->print_cr("Counts:");
-    out->print("%18s", "#");
-    for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
-      out->print(SIZE_FORMAT_W(12), _alloc_size[t].num());
-    }
-    out->cr();
-    out->cr();
-
-    // Figure out max and min levels
-    int lat_min_level = +1000;
-    int lat_max_level = -1000;
-    int size_min_level = +1000;
-    int size_max_level = -1000;
-    for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
-      lat_min_level = MIN2(lat_min_level, _alloc_latency[t].min_level());
-      lat_max_level = MAX2(lat_max_level, _alloc_latency[t].max_level());
-      size_min_level = MIN2(size_min_level, _alloc_size[t].min_level());
-      size_max_level = MAX2(size_max_level, _alloc_size[t].max_level());
-    }
-
-    out->print_cr("Latencies (in microseconds):");
-    for (int c = lat_min_level; c <= lat_max_level; c++) {
-      out->print("%7d - %7d:", (c == 0) ? 0 : 1 << (c - 1), 1 << c);
-      for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
-        out->print(SIZE_FORMAT_W(12), _alloc_latency[t].level(c));
-      }
-      out->cr();
-    }
-    out->cr();
-
-    out->print_cr("Sizes (in bytes):");
-    for (int c = size_min_level; c <= size_max_level; c++) {
-      out->print("%7d - %7d:", (c == 0) ? 0 : 1 << (c - 1), 1 << c);
-      for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
-        out->print(SIZE_FORMAT_W(12), _alloc_size[t].level(c));
-      }
-      out->cr();
-    }
-    out->cr();
-  } else {
-    out->print_cr("  Allocation tracing is disabled, use -XX:+ShenandoahAllocationTrace to enable.");
-  }
-}
-
-void ShenandoahCollectorPolicy::print_summary_sd(outputStream* out, const char* str, const HdrSeq* seq)  {
-  out->print_cr("%-27s = %8.2lf s (a = %8.0lf us) (n = "INT32_FORMAT_W(5)") (lvls, us = %8.0lf, %8.0lf, %8.0lf, %8.0lf, %8.0lf)",
-          str,
-          seq->sum(),
-          seq->avg() * 1000000.0,
-          seq->num(),
-          seq->percentile(0)  * 1000000.0,
-          seq->percentile(25) * 1000000.0,
-          seq->percentile(50) * 1000000.0,
-          seq->percentile(75) * 1000000.0,
-          seq->maximum() * 1000000.0
-  );
-}
-
 size_t ShenandoahCollectorPolicy::cycle_counter() const {
   return _cycle_counter;
 }
 
-ShenandoahPhaseTimes* ShenandoahCollectorPolicy::phase_times() {
-  return _phase_times;
+void ShenandoahCollectorPolicy::record_phase_time(ShenandoahPhaseTimings::Phase phase, double secs) {
+  _heuristics->record_phase_time(phase, secs);
 }
 
 void ShenandoahCollectorPolicy::record_cycle_start() {
@@ -1349,4 +1048,10 @@ void ShenandoahCollectorPolicy::record_shutdown() {
 
 bool ShenandoahCollectorPolicy::is_at_shutdown() {
   return OrderAccess::load_acquire(&_in_shutdown) == 1;
+}
+
+void ShenandoahCollectorPolicy::print_gc_stats(outputStream* out) const {
+  out->print_cr("" SIZE_FORMAT " allocation failure and " SIZE_FORMAT " user requested GCs", _allocation_failure_gcs, _user_requested_gcs);
+  out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated concurrent markings", _successful_cm, _degenerated_cm);
+  out->print_cr("" SIZE_FORMAT " successful and " SIZE_FORMAT " degenerated update references  ", _successful_uprefs, _degenerated_uprefs);
 }

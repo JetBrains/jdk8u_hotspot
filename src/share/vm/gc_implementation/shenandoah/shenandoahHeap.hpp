@@ -30,6 +30,7 @@
 
 class ConcurrentGCTimer;
 
+class ShenandoahAllocTracker;
 class ShenandoahCollectionSet;
 class ShenandoahCollectorPolicy;
 class ShenandoahConcurrentMark;
@@ -39,6 +40,7 @@ class ShenandoahHeapRegion;
 class ShenandoahHeapRegionClosure;
 class ShenandoahHeapRegionSet;
 class ShenandoahMonitoringSupport;
+class ShenandoahPhaseTimings;
 class ShenandoahVerifier;
 class ShenandoahWorkGang;
 
@@ -127,6 +129,9 @@ private:
   ShenandoahConcurrentThread* _concurrent_gc_thread;
 
   ShenandoahMonitoringSupport* _monitoring_support;
+
+  ShenandoahPhaseTimings*      _phase_timings;
+  ShenandoahAllocTracker*      _alloc_tracker;
 
   size_t _num_regions;
   size_t _initial_size;
@@ -263,7 +268,9 @@ public:
   static address in_cset_fast_test_addr();
   static address cancelled_concgc_addr();
 
-  ShenandoahCollectorPolicy *shenandoahPolicy() { return _shenandoah_policy;}
+  ShenandoahCollectorPolicy *shenandoahPolicy() const { return _shenandoah_policy; }
+  ShenandoahPhaseTimings*   phase_timings()     const { return _phase_timings; }
+  ShenandoahAllocTracker*   alloc_tracker()     const { return _alloc_tracker; }
 
   inline ShenandoahHeapRegion* heap_region_containing(const void* addr) const;
   inline size_t heap_region_index_containing(const void* addr) const;

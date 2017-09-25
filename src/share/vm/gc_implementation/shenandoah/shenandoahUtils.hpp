@@ -27,7 +27,7 @@
 #include "gc_implementation/shared/isGCActiveMark.hpp"
 #include "gc_implementation/shared/vmGCOperations.hpp"
 #include "memory/allocation.hpp"
-#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
+#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 
 class GCTimer;
 
@@ -42,9 +42,9 @@ public:
 
 class ShenandoahGCPhase : public StackObj {
 private:
-  const ShenandoahCollectorPolicy::TimingPhase   _phase;
+  const ShenandoahPhaseTimings::Phase   _phase;
 public:
-  ShenandoahGCPhase(ShenandoahCollectorPolicy::TimingPhase phase);
+  ShenandoahGCPhase(ShenandoahPhaseTimings::Phase phase);
   ~ShenandoahGCPhase();
 };
 
@@ -56,7 +56,7 @@ private:
   const SvcGCMarker       _svc_gc_mark;
   const IsGCActiveMark    _is_gc_active_mark;
 public:
-  ShenandoahGCPauseMark(ShenandoahCollectorPolicy::TimingPhase phase, SvcGCMarker::reason_type type);
+  ShenandoahGCPauseMark(ShenandoahPhaseTimings::Phase phase, SvcGCMarker::reason_type type);
   ~ShenandoahGCPauseMark();
 };
 

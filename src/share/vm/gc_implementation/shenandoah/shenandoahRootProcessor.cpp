@@ -32,6 +32,7 @@
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
+#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimes.hpp"
 #include "memory/allocation.inline.hpp"
 #include "runtime/fprofiler.hpp"
@@ -39,21 +40,21 @@
 #include "services/management.hpp"
 
 ShenandoahRootProcessor::ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_workers,
-                                                 ShenandoahCollectorPolicy::TimingPhase phase) :
+                                                 ShenandoahPhaseTimings::Phase phase) :
   _process_strong_tasks(new SubTasksDone(SHENANDOAH_RP_PS_NumElements)),
   _srs(heap, true),
   _phase(phase),
   _coderoots_all_iterator(ShenandoahCodeRoots::iterator()),
   _om_iterator(ObjectSynchronizer::parallel_iterator())
 {
-  heap->shenandoahPolicy()->record_workers_start(_phase);
+  heap->phase_timings()->record_workers_start(_phase);
   _process_strong_tasks->set_n_threads(n_workers);
   heap->set_par_threads(n_workers);
 }
 
 ShenandoahRootProcessor::~ShenandoahRootProcessor() {
   delete _process_strong_tasks;
-  ShenandoahHeap::heap()->shenandoahPolicy()->record_workers_end(_phase);
+  ShenandoahHeap::heap()->phase_timings()->record_workers_end(_phase);
 }
 
 void ShenandoahRootProcessor::process_all_roots_slow(OopClosure* oops) {
@@ -94,7 +95,7 @@ void ShenandoahRootProcessor::process_all_roots(OopClosure* oops,
                                                 CodeBlobClosure* blobs,
                                                 uint worker_id) {
 
-  ShenandoahPhaseTimes* phase_times = ShenandoahHeap::heap()->shenandoahPolicy()->phase_times();
+  ShenandoahPhaseTimes* phase_times = ShenandoahHeap::heap()->phase_timings()->phase_times();
   process_java_roots(oops, NULL, clds, clds, NULL, worker_id);
   process_vm_roots(oops, oops, weak_oops, worker_id);
 
@@ -113,7 +114,7 @@ void ShenandoahRootProcessor::process_java_roots(OopClosure* strong_roots,
                                                  CodeBlobClosure* strong_code,
                                                  uint worker_id)
 {
-  ShenandoahPhaseTimes* phase_times = ShenandoahHeap::heap()->shenandoahPolicy()->phase_times();
+  ShenandoahPhaseTimes* phase_times = ShenandoahHeap::heap()->phase_timings()->phase_times();
   // Iterating over the CLDG and the Threads are done early to allow us to
   // first process the strong CLDs and nmethods and then, after a barrier,
   // let the thread process the weak CLDs and nmethods.
@@ -134,7 +135,7 @@ void ShenandoahRootProcessor::process_vm_roots(OopClosure* strong_roots,
                                                OopClosure* jni_weak_roots,
                                                uint worker_id)
 {
-  ShenandoahPhaseTimes* phase_times = ShenandoahHeap::heap()->shenandoahPolicy()->phase_times();
+  ShenandoahPhaseTimes* phase_times = ShenandoahHeap::heap()->phase_timings()->phase_times();
   if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_Universe_oops_do)) {
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::UniverseRoots, worker_id);
     Universe::oops_do(strong_roots);
@@ -185,7 +186,7 @@ void ShenandoahRootProcessor::process_vm_roots(OopClosure* strong_roots,
   }
 }
 
-ShenandoahRootEvacuator::ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers, ShenandoahCollectorPolicy::TimingPhase phase) :
+ShenandoahRootEvacuator::ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers, ShenandoahPhaseTimings::Phase phase) :
   _process_strong_tasks(new SubTasksDone(SHENANDOAH_RP_PS_NumElements)),
   _srs(heap, true),
   _phase(phase),
@@ -193,12 +194,12 @@ ShenandoahRootEvacuator::ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_wo
 {
   _process_strong_tasks->set_n_threads(n_workers);
   heap->set_par_threads(n_workers);
-  heap->shenandoahPolicy()->record_workers_start(_phase);
+  heap->phase_timings()->record_workers_start(_phase);
 }
 
 ShenandoahRootEvacuator::~ShenandoahRootEvacuator() {
   delete _process_strong_tasks;
-  ShenandoahHeap::heap()->shenandoahPolicy()->record_workers_end(_phase);
+  ShenandoahHeap::heap()->phase_timings()->record_workers_end(_phase);
 }
 
 void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
@@ -224,7 +225,7 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
     oopDesc::bs()->write_barrier(pll);
   }
 
-  ShenandoahPhaseTimes* phase_times = heap->shenandoahPolicy()->phase_times();
+  ShenandoahPhaseTimes* phase_times = heap->phase_timings()->phase_times();
   {
     ResourceMark rm;
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::ThreadRoots, worker_id);

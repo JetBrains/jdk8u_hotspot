@@ -29,6 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
+#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkerPolicy.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
@@ -155,8 +156,8 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   {
     // Workers are setup by VM_ShenandoahInitMark
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-    ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
-    ShenandoahGCPhase init_mark_phase(ShenandoahCollectorPolicy::init_mark_gross);
+    ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause_gross);
+    ShenandoahGCPhase init_mark_phase(ShenandoahPhaseTimings::init_mark_gross);
     VM_ShenandoahInitMark initMark;
     VMThread::execute(&initMark);
   }
@@ -197,7 +198,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     if (ShenandoahPreclean) {
       if (heap->concurrentMark()->process_references()) {
         GCTraceTime time("Concurrent precleaning", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-        ShenandoahGCPhase conc_preclean(ShenandoahCollectorPolicy::conc_preclean);
+        ShenandoahGCPhase conc_preclean(ShenandoahPhaseTimings::conc_preclean);
 
         heap->concurrentMark()->preclean_weak_refs();
 
@@ -211,8 +212,8 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   {
     // Workers are setup by VM_ShenandoahFinalMarkStartEvac
     TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-    ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
-    ShenandoahGCPhase final_mark_phase(ShenandoahCollectorPolicy::final_mark_gross);
+    ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause_gross);
+    ShenandoahGCPhase final_mark_phase(ShenandoahPhaseTimings::final_mark_gross);
     VM_ShenandoahFinalMarkStartEvac finishMark;
     VMThread::execute(&finishMark);
   }
@@ -227,8 +228,8 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   // Final mark had reclaimed some immediate garbage, kick cleanup to reclaim the space.
   {
     GCTraceTime time("Concurrent cleanup", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::conc_cleanup);
-    ShenandoahGCPhase phase_recycle(ShenandoahCollectorPolicy::conc_cleanup_recycle);
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_cleanup);
+    ShenandoahGCPhase phase_recycle(ShenandoahPhaseTimings::conc_cleanup_recycle);
     heap->recycle_trash();
   }
 
@@ -264,8 +265,8 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     if (do_it) {
       {
         TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-        ShenandoahGCPhase total_phase(ShenandoahCollectorPolicy::total_pause_gross);
-        ShenandoahGCPhase init_update_refs_phase(ShenandoahCollectorPolicy::init_update_refs_gross);
+        ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause_gross);
+        ShenandoahGCPhase init_update_refs_phase(ShenandoahPhaseTimings::init_update_refs_gross);
         VM_ShenandoahInitUpdateRefs init_update_refs;
         VMThread::execute(&init_update_refs);
       }
@@ -298,8 +299,8 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
     if (do_it) {
       TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-      ShenandoahGCPhase total(ShenandoahCollectorPolicy::total_pause_gross);
-      ShenandoahGCPhase final_update_refs_phase(ShenandoahCollectorPolicy::final_update_refs_gross);
+      ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
+      ShenandoahGCPhase final_update_refs_phase(ShenandoahPhaseTimings::final_update_refs_gross);
       VM_ShenandoahFinalUpdateRefs final_update_refs;
       VMThread::execute(&final_update_refs);
     }
@@ -320,15 +321,15 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
   {
     GCTraceTime time("Concurrent cleanup", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::conc_cleanup);
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_cleanup);
 
     {
-      ShenandoahGCPhase phase_recycle(ShenandoahCollectorPolicy::conc_cleanup_recycle);
+      ShenandoahGCPhase phase_recycle(ShenandoahPhaseTimings::conc_cleanup_recycle);
       heap->recycle_trash();
     }
 
     {
-      ShenandoahGCPhase phase_reset(ShenandoahCollectorPolicy::conc_cleanup_reset_bitmaps);
+      ShenandoahGCPhase phase_reset(ShenandoahPhaseTimings::conc_cleanup_reset_bitmaps);
       ShenandoahWorkGang* workers = heap->workers();
       ShenandoahPushWorkerScope scope(workers, ConcGCThreads);
       heap->reset_next_mark_bitmap(workers);

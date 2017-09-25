@@ -682,7 +682,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   size_t count_reachable = 0;
   if (ShenandoahVerifyLevel >= 2) {
     ShenandoahRootProcessor rp(_heap, _heap->workers()->active_workers(),
-                               ShenandoahCollectorPolicy::_num_phases); // no need for stats
+                               ShenandoahPhaseTimings::_num_phases); // no need for stats
 
     ShenandoahVerifierReachableTask task(_verification_bit_map, ld, &rp, label, options);
     _heap->workers()->run_task(&task);

@@ -29,6 +29,7 @@
 #include "gc_implementation/shared/parallelCleaning.hpp"
 
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
+#include "gc_implementation/shenandoah/shenandoahAllocTracker.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
@@ -36,6 +37,7 @@
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
@@ -264,6 +266,12 @@ jint ShenandoahHeap::initialize() {
 
   _monitoring_support = new ShenandoahMonitoringSupport(this);
 
+  _phase_timings = new ShenandoahPhaseTimings();
+
+  if (ShenandoahAllocationTrace) {
+    _alloc_tracker = new ShenandoahAllocTracker();
+  }
+
   _concurrent_gc_thread = new ShenandoahConcurrentThread();
 
   ShenandoahMarkCompact::initialize();
@@ -303,8 +311,9 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _heap_lock_owner(NULL),
   _heap_expansion_count(0),
 #endif
-  _gc_timer(new (ResourceObj::C_HEAP, mtGC) ConcurrentGCTimer())
-
+  _gc_timer(new (ResourceObj::C_HEAP, mtGC) ConcurrentGCTimer()),
+  _phase_timings(NULL),
+  _alloc_tracker(NULL)
 {
   log_info(gc, init)("Parallel GC threads: "UINTX_FORMAT, ParallelGCThreads);
   log_info(gc, init)("Concurrent GC threads: "UINTX_FORMAT, ConcGCThreads);
@@ -1009,7 +1018,7 @@ void ShenandoahHeap::evacuate_and_update_roots() {
   assert(SafepointSynchronize::is_at_safepoint(), "Only iterate roots while world is stopped");
 
   {
-    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::init_evac);
+    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahPhaseTimings::init_evac);
     ShenandoahEvacuateUpdateRootsTask roots_task(&rp);
     workers()->run_task(&roots_task);
   }
@@ -1025,7 +1034,7 @@ void ShenandoahHeap::evacuate_and_update_roots() {
     // clear() and update_pointers() must always be called in pairs,
     // cannot nest with above clear()/update_pointers().
     COMPILER2_PRESENT(DerivedPointerTable::clear());
-    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahCollectorPolicy::init_evac);
+    ShenandoahRootEvacuator rp(this, workers()->active_workers(), ShenandoahPhaseTimings::init_evac);
     ShenandoahFixRootsTask update_roots_task(&rp);
     workers()->run_task(&update_roots_task);
     COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
@@ -1034,7 +1043,7 @@ void ShenandoahHeap::evacuate_and_update_roots() {
 
 
 void ShenandoahHeap::do_evacuation() {
-  ShenandoahGCPhase conc_evac_phase(ShenandoahCollectorPolicy::conc_evac);
+  ShenandoahGCPhase conc_evac_phase(ShenandoahPhaseTimings::conc_evac);
 
   if (ShenandoahLogTrace) {
     ResourceMark rm;
@@ -1081,7 +1090,7 @@ void ShenandoahHeap::roots_iterate(OopClosure* cl) {
   CodeBlobToOopClosure blobsCl(cl, false);
   CLDToOopClosure cldCl(cl);
 
-  ShenandoahRootProcessor rp(this, 1, ShenandoahCollectorPolicy::_num_phases);
+  ShenandoahRootProcessor rp(this, 1, ShenandoahPhaseTimings::_num_phases);
   rp.process_all_roots(cl, NULL, &cldCl, &blobsCl, 0);
 }
 
@@ -1221,7 +1230,22 @@ void ShenandoahHeap::print_tracing_info() const {
   if (PrintGC || TraceGen0Time || TraceGen1Time) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
-    _shenandoah_policy->print_tracing_info(out);
+    phase_timings()->print_on(out);
+
+    out->cr();
+    out->cr();
+
+    shenandoahPolicy()->print_gc_stats(out);
+
+    out->cr();
+    out->cr();
+
+    if (ShenandoahAllocationTrace) {
+      assert(alloc_tracker() != NULL, "Must be");
+      alloc_tracker()->print_on(out);
+    } else {
+      out->print_cr("  Allocation tracing is disabled, use -XX:+ShenandoahAllocationTrace to enable.");
+    }
   }
 }
 
@@ -1399,14 +1423,14 @@ void ShenandoahHeap::start_concurrent_marking() {
   }
 
   {
-    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::accumulate_stats);
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::accumulate_stats);
     accumulate_statistics_all_tlabs();
   }
 
   set_concurrent_mark_in_progress(true);
   // We need to reset all TLABs because we'd lose marks on all objects allocated in them.
   if (UseTLAB) {
-    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::make_parsable);
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::make_parsable);
     ensure_parsability(true);
   }
 
@@ -1414,7 +1438,7 @@ void ShenandoahHeap::start_concurrent_marking() {
   _used_start_gc = used();
 
   {
-    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::clear_liveness);
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::clear_liveness);
     ShenandoahClearLivenessClosure clc(this);
     heap_region_iterate(&clc);
   }
@@ -1425,7 +1449,7 @@ void ShenandoahHeap::start_concurrent_marking() {
   concurrentMark()->init_mark_roots();
 
   if (UseTLAB) {
-    ShenandoahGCPhase phase(ShenandoahCollectorPolicy::resize_tlabs);
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::resize_tlabs);
     resize_all_tlabs();
   }
 }
@@ -1643,45 +1667,45 @@ void ShenandoahHeap::stop() {
 }
 
 void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
-  ShenandoahCollectorPolicy::TimingPhase phase_root =
+  ShenandoahPhaseTimings::Phase phase_root =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge :
-          ShenandoahCollectorPolicy::purge;
+          ShenandoahPhaseTimings::full_gc_purge :
+          ShenandoahPhaseTimings::purge;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_unload =
+  ShenandoahPhaseTimings::Phase phase_unload =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_class_unload :
-          ShenandoahCollectorPolicy::purge_class_unload;
+          ShenandoahPhaseTimings::full_gc_purge_class_unload :
+          ShenandoahPhaseTimings::purge_class_unload;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_cldg =
+  ShenandoahPhaseTimings::Phase phase_cldg =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_cldg :
-          ShenandoahCollectorPolicy::purge_cldg;
+          ShenandoahPhaseTimings::full_gc_purge_cldg :
+          ShenandoahPhaseTimings::purge_cldg;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_par =
+  ShenandoahPhaseTimings::Phase phase_par =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_par :
-          ShenandoahCollectorPolicy::purge_par;
+          ShenandoahPhaseTimings::full_gc_purge_par :
+          ShenandoahPhaseTimings::purge_par;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_par_classes =
+  ShenandoahPhaseTimings::Phase phase_par_classes =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_par_classes :
-          ShenandoahCollectorPolicy::purge_par_classes;
+          ShenandoahPhaseTimings::full_gc_purge_par_classes :
+          ShenandoahPhaseTimings::purge_par_classes;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_par_codecache =
+  ShenandoahPhaseTimings::Phase phase_par_codecache =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_par_codecache :
-          ShenandoahCollectorPolicy::purge_par_codecache;
+          ShenandoahPhaseTimings::full_gc_purge_par_codecache :
+          ShenandoahPhaseTimings::purge_par_codecache;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_par_symbstring =
+  ShenandoahPhaseTimings::Phase phase_par_symbstring =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_par_symbstring :
-          ShenandoahCollectorPolicy::purge_par_symbstring;
+          ShenandoahPhaseTimings::full_gc_purge_par_symbstring :
+          ShenandoahPhaseTimings::purge_par_symbstring;
 
-  ShenandoahCollectorPolicy::TimingPhase phase_par_sync =
+  ShenandoahPhaseTimings::Phase phase_par_sync =
           full_gc ?
-          ShenandoahCollectorPolicy::full_gc_purge_par_sync :
-          ShenandoahCollectorPolicy::purge_par_sync;
+          ShenandoahPhaseTimings::full_gc_purge_par_sync :
+          ShenandoahPhaseTimings::purge_par_sync;
 
   ShenandoahGCPhase root_phase(phase_root);
 
@@ -1701,7 +1725,7 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
     ParallelCleaningTask unlink_task(is_alive, true, true, active, purged_class);
     _workers->run_task(&unlink_task);
 
-    ShenandoahCollectorPolicy* p = ShenandoahHeap::heap()->shenandoahPolicy();
+    ShenandoahPhaseTimings* p = ShenandoahHeap::heap()->phase_timings();
     ParallelCleaningTimes times = unlink_task.times();
 
     // "times" report total time, phase_tables_cc reports wall time. Divide total times
@@ -1935,7 +1959,7 @@ void ShenandoahHeap::update_heap_references(ShenandoahHeapRegionSet* update_regi
 }
 
 void ShenandoahHeap::concurrent_update_heap_references() {
-  ShenandoahGCPhase phase(ShenandoahCollectorPolicy::conc_update_refs);
+  ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_update_refs);
   ShenandoahHeapRegionSet* update_regions = regions();
   update_regions->clear_current_index();
   update_heap_references(update_regions);
@@ -1961,7 +1985,7 @@ void ShenandoahHeap::finish_update_refs() {
   assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
 
   if (cancelled_concgc()) {
-    ShenandoahGCPhase final_work(ShenandoahCollectorPolicy::final_update_refs_finish_work);
+    ShenandoahGCPhase final_work(ShenandoahPhaseTimings::final_update_refs_finish_work);
 
     // Finish updating references where we left off.
     clear_cancelled_concgc();
@@ -1970,12 +1994,12 @@ void ShenandoahHeap::finish_update_refs() {
   }
 
   assert(! cancelled_concgc(), "Should have been done right before");
-  concurrentMark()->update_roots(ShenandoahCollectorPolicy::final_update_refs_roots);
+  concurrentMark()->update_roots(ShenandoahPhaseTimings::final_update_refs_roots);
 
   // Allocations might have happened before we STWed here, record peak:
   shenandoahPolicy()->record_peak_occupancy();
 
-  ShenandoahGCPhase final_update_refs(ShenandoahCollectorPolicy::final_update_refs_recycle);
+  ShenandoahGCPhase final_update_refs(ShenandoahPhaseTimings::final_update_refs_recycle);
 
   trash_cset_regions();
   set_need_update_refs(false);
