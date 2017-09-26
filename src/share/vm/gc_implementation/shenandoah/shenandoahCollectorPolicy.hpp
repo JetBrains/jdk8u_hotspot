@@ -34,7 +34,6 @@ class ShenandoahCollectionSet;
 class ShenandoahFreeSet;
 class ShenandoahHeap;
 class ShenandoahHeuristics;
-class ShenandoahPhaseTimes;
 
 class STWGCTimer;
 class ConcurrentGCTimer;
@@ -60,8 +59,6 @@ private:
 
 public:
   ShenandoahCollectorPolicy();
-
-  ShenandoahPhaseTimes* phase_times();
 
   virtual ShenandoahCollectorPolicy* as_pgc_policy();
 

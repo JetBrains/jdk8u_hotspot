@@ -28,7 +28,6 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
-#include "gc_implementation/shenandoah/shenandoahPhaseTimes.hpp"
 
 class ShenandoahHeuristics : public CHeapObj<mtGC> {
 

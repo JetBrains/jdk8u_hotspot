@@ -25,12 +25,13 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHPHASETIMEINGS_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHPHASETIMEINGS_HPP
 
-#include "gc_implementation/shenandoah/shenandoahPhaseTimes.hpp"
 #include "memory/allocation.hpp"
 #include "utilities/numberSeq.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkerDataArray.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkerDataArray.inline.hpp"
 
 class ShenandoahCollectorPolicy;
-class ShenandoahPhaseTimes;
+class ShenandoahWorkerTimings;
 class outputStream;
 
 class ShenandoahPhaseTimings : public CHeapObj<mtGC> {
@@ -243,15 +244,14 @@ private:
   TimingData _timing_data[_num_phases];
   const char* _phase_names[_num_phases];
 
-  ShenandoahPhaseTimes* _phase_times;
-
+  ShenandoahWorkerTimings* _worker_times;
   ShenandoahCollectorPolicy* _policy;
 
 public:
   ShenandoahPhaseTimings();
   ~ShenandoahPhaseTimings();
 
-  ShenandoahPhaseTimes* phase_times() const { return _phase_times; }
+  ShenandoahWorkerTimings* worker_times() const { return _worker_times; }
 
   // record phase start
   void record_phase_start(Phase phase);
@@ -270,5 +270,30 @@ private:
   void print_summary_sd(outputStream* out, const char* str, const HdrSeq* seq) const;
 };
 
+class ShenandoahWorkerTimings : public CHeapObj<mtGC> {
+private:
+  uint _max_gc_threads;
+  ShenandoahWorkerDataArray<double>* _gc_par_phases[ShenandoahPhaseTimings::GCParPhasesSentinel];
+
+public:
+  ShenandoahWorkerTimings(uint max_gc_threads);
+
+  // record the time a phase took in seconds
+  void record_time_secs(ShenandoahPhaseTimings::GCParPhases phase, uint worker_i, double secs);
+
+  double average(uint i);
+  void reset(uint i);
+  void print();
+};
+
+class ShenandoahWorkerTimingsTracker : public StackObj {
+  double _start_time;
+  ShenandoahPhaseTimings::GCParPhases _phase;
+  ShenandoahWorkerTimings* _worker_times;
+  uint _worker_id;
+public:
+  ShenandoahWorkerTimingsTracker(ShenandoahWorkerTimings* worker_times, ShenandoahPhaseTimings::GCParPhases phase, uint worker_id);
+  ~ShenandoahWorkerTimingsTracker();
+};
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHGCPHASETIMEINGS_HPP
