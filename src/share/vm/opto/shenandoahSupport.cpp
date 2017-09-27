@@ -798,7 +798,7 @@ bool ShenandoahBarrierNode::verify_helper(Node* in, Node_Stack& phis, VectorSet&
           continue;
         }
         if (trace) {tty->print("Already seen phi:"); in->dump();}
-      } else if (in->Opcode() == Op_CMoveP) {
+      } else if (in->Opcode() == Op_CMoveP || in->Opcode() == Op_CMoveN) {
         if (!visited.test_set(in->_idx)) {
           if (trace) {tty->print("Pushed cmovep:"); in->dump();}
           phis.push(in, CMoveNode::IfTrue);
@@ -2295,31 +2295,6 @@ Node* PhaseIdealLoop::try_common_shenandoah_barriers(Node* n, Node *n_ctrl) {
   return NULL;
 }
 
-static Node* shenandoah_find_mem_phi(Node* n_loop_head, int alias, Compile* C) {
-  Node* phi_in = NULL;
-  Node* phi_bottom = NULL;
-
-  for (DUIterator_Fast imax, i = n_loop_head->fast_outs(imax); i < imax; i++) {
-    Node* u = n_loop_head->fast_out(i);
-    if (u->is_Phi() &&
-        u->bottom_type() == Type::MEMORY) {
-      if (C->get_alias_index(u->adr_type()) == alias) {
-        if (phi_in != NULL && phi_in != u) {
-          return NULL;
-        }
-        phi_in = u;
-      } else if (u->adr_type() == TypePtr::BOTTOM) {
-        assert(phi_bottom == NULL, "only one phi");
-        phi_bottom = u;
-      }
-    }
-  }
-  if (phi_in != NULL) {
-    return phi_in;
-  }
-  return phi_bottom;
-}
-
 static void shenandoah_disconnect_barrier_mem(Node* wb, PhaseIterGVN& igvn) {
   Node* mem_in = wb->in(ShenandoahBarrierNode::Memory);
   Node* proj = wb->find_out_with(Op_ShenandoahWBMemProj);
@@ -2417,12 +2392,6 @@ Node* PhaseIdealLoop::try_move_shenandoah_barrier_before_loop(Node* n, Node *n_c
         Node* n_loop_head = n_loop->_head;
 
         if (n_loop_head->is_Loop()) {
-          int alias = C->get_alias_index(n->adr_type());
-          Node* mem = shenandoah_find_mem_phi(n_loop_head, alias, C);
-          if (mem == NULL) {
-            mem = n->in(ShenandoahBarrierNode::Memory);
-          }
-
           Node* loop = n_loop_head;
           if (n_loop_head->is_CountedLoop() && n_loop_head->as_CountedLoop()->is_main_loop()) {
             Node* res = try_move_shenandoah_barrier_before_pre_loop(n_loop_head->in(LoopNode::EntryControl), val_ctrl);

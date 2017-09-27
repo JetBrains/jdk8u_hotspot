@@ -1406,8 +1406,6 @@ static void kill_dead_code( Node *dead, PhaseIterGVN *igvn ) {
             igvn->add_users_to_worklist( n );
           } else if (n->Opcode() == Op_AddP && CallLeafNode::has_only_g1_wb_pre_uses(n)) {
             igvn->add_users_to_worklist(n);
-          } else if (n->is_Phi() && n->as_Phi()->has_only_data_users()) {
-            igvn->_worklist.push(n);
           }
         }
       }
