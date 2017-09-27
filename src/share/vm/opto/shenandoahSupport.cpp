@@ -472,9 +472,11 @@ Node* ShenandoahReadBarrierNode::Ideal(PhaseGVN *phase, bool can_reshape) {
   Node* input = in(Memory);
   if (input->Opcode() == Op_ShenandoahWBMemProj) {
     Node* wb = input->in(0);
-    if (wb->is_top()) return NULL; // Dead path.
-    assert(wb->Opcode() == Op_ShenandoahWriteBarrier, "expect write barrier");
     const Type* in_type = phase->type(wb);
+    // is_top() test not sufficient here: we can come here after CCP
+    // in a dead branch of the graph that has not yet been removed.
+    if (in_type == Type::TOP) return NULL; // Dead path.
+    assert(wb->Opcode() == Op_ShenandoahWriteBarrier, "expect write barrier");
     if (is_independent(in_type, _type)) {
       if (phase->is_IterGVN()) {
         phase->is_IterGVN()->rehash_node_delayed(wb);
