@@ -5114,8 +5114,8 @@ void MacroAssembler::_shenandoah_store_check(Register addr, Register value, cons
   // because it will also capture the errors in thread-local flags that may break the
   // write barrier.
   mov(tmp1, ShenandoahHeap::evacuation_in_progress_addr());
-  ldrw(tmp1, Address(tmp1));
-  cbnzw(tmp1, done);
+  ldrb(tmp1, Address(tmp1));
+  cbnz(tmp1, done);
 
   // Null-check value.
   cbz(rval, done);
