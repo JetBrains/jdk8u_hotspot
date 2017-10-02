@@ -5110,6 +5110,9 @@ void MacroAssembler::_shenandoah_store_check(Register addr, Register value, cons
 
   // During evacuation and evacuation only, we can have the stores of cset-values
   // to non-cset destinations. Everything else is covered by storeval barriers.
+  // Poll the heap directly: that would be the least performant, yet more reliable way,
+  // because it will also capture the errors in thread-local flags that may break the
+  // write barrier.
   mov(tmp1, ShenandoahHeap::evacuation_in_progress_addr());
   ldrw(tmp1, Address(tmp1));
   cbnzw(tmp1, done);
