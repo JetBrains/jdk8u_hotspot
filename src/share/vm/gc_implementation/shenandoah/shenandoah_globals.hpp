@@ -142,10 +142,6 @@
                "separate update-refs mode. Number is percentage relative "  \
                "to duration(marking)+duration(update-refs).")               \
                                                                             \
-  experimental(double, ShenandoahGCWorkerPerJavaThread, 0.5,                \
-          "Set GC worker to Java thread ratio when "                        \
-          "UseDynamicNumberOfGCThreads is enabled")                         \
-                                                                            \
   experimental(uintx, ShenandoahInitFreeThreshold, 30,                      \
                "Initial remaining free threshold for adaptive heuristics")  \
                                                                             \
