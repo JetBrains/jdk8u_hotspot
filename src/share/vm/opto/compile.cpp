@@ -2327,11 +2327,7 @@ void Compile::Optimize() {
       PhaseIdealLoop ideal_loop(igvn, false, true);
       if (failing()) return;
       PhaseIdealLoop::verify(igvn);
-#ifdef ASSERT
-      if (UseShenandoahGC) {
-        ShenandoahBarrierNode::verify_raw_mem(C->root());
-      }
-#endif
+      DEBUG_ONLY(ShenandoahBarrierNode::verify_raw_mem(C->root());)
     }
   }
 
