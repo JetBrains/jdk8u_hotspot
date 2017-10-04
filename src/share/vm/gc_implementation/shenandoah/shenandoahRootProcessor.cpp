@@ -28,6 +28,8 @@
 #include "code/codeCache.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimes.hpp"
@@ -202,8 +204,27 @@ ShenandoahRootEvacuator::~ShenandoahRootEvacuator() {
 void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
                                                      CodeBlobClosure* blobs,
                                                      uint worker_id) {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  ShenandoahPhaseTimes* phase_times = ShenandoahHeap::heap()->shenandoahPolicy()->phase_times();
+  {
+    // Evacuate the PLL here so that the SurrogateLockerThread doesn't
+    // have to. SurrogateLockerThread can execute write barrier in VMOperation
+    // prolog. If the SLT runs into OOM during that evacuation, the VMOperation
+    // may deadlock. Doing this evacuation the first thing makes that critical
+    // OOM less likely to happen.  It is a bit excessive to perform WB by all
+    // threads, but this guarantees the very first evacuation would be the PLL.
+    //
+    // This pre-evac can still silently fail with OOME here, and PLL would not
+    // get evacuated. This would mean next VMOperation would try to evac PLL in
+    // SLT thread. We make additional effort to recover from that OOME in SLT,
+    // see ShenandoahHeap::oom_during_evacuation(). It seems to be the lesser evil
+    // to do there, because we cannot trigger Full GC right here, when we are
+    // in another VMOperation.
+    oop pll = java_lang_ref_Reference::pending_list_lock();
+    oopDesc::bs()->write_barrier(pll);
+  }
+
+  ShenandoahPhaseTimes* phase_times = heap->shenandoahPolicy()->phase_times();
   {
     ResourceMark rm;
     ShenandoahParPhaseTimesTracker timer(phase_times, ShenandoahPhaseTimes::ThreadRoots, worker_id);
@@ -215,14 +236,6 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
     _coderoots_cset_iterator.possibly_parallel_blobs_do(blobs);
   }
 
-  if (!_process_strong_tasks->is_task_claimed(SHENANDOAH_RP_PS_ReferenceProcessor_oops_do)) {
-    // Evacuate the PLL here so that the SurrogateLockerThread doesn't
-    // have to. If the SLT runs into OOM during evacuation, the
-    // ShenandoahConcurrentThread cannot get back from VMThread::execute()
-    // and therefore never turn off _evacuation_in_progress -> deadlock.
-    oop pll = java_lang_ref_Reference::pending_list_lock();
-    oopDesc::bs()->write_barrier(pll);
-  }
   _process_strong_tasks->all_tasks_completed();
 }
 

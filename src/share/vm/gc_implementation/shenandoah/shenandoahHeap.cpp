@@ -1574,23 +1574,32 @@ void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
 }
 
 void ShenandoahHeap::oom_during_evacuation() {
+  Thread* t = Thread::current();
+
   log_develop_trace(gc)("Out of memory during evacuation, cancel evacuation, schedule full GC by thread %d",
-                        Thread::current()->osthread()->thread_id());
+                        t->osthread()->thread_id());
 
   // We ran out of memory during evacuation. Cancel evacuation, and schedule a full-GC.
   collector_policy()->set_should_clear_all_soft_refs(true);
   concurrent_thread()->try_set_full_gc();
   cancel_concgc(_oom_evacuation);
 
-  if ((! Thread::current()->is_GC_task_thread()) && (! Thread::current()->is_ConcurrentGC_thread())) {
+  if (!t->is_GC_task_thread() && !t->is_ConcurrentGC_thread() && t != concurrent_thread()->slt()) {
     assert(! Threads_lock->owned_by_self()
            || SafepointSynchronize::is_at_safepoint(), "must not hold Threads_lock here");
     log_warning(gc)("OOM during evacuation. Let Java thread wait until evacuation finishes.");
     while (_evacuation_in_progress) { // wait.
-      Thread::current()->_ParkEvent->park(1);
+      t->_ParkEvent->park(1);
     }
   }
 
+  // Special case for SurrogateLockerThread that may evacuate in VMOperation prolog:
+  // if OOM happened during evacuation in SLT, we ignore it, and let the whole thing
+  // slide into Full GC. Dropping evac_in_progress flag helps to avoid another OOME
+  // when Full GC VMOperation is executed.
+  if (t == concurrent_thread()->slt()) {
+    set_evacuation_in_progress_concurrently(false);
+  }
 }
 
 HeapWord* ShenandoahHeap::tlab_post_allocation_setup(HeapWord* obj) {
