@@ -5963,12 +5963,16 @@ bool LibraryCallKit::inline_multiplyToLen() {
      } __ else_(); {
        // Update graphKit memory and control from IdealKit.
        sync_kit(ideal);
-       Node *cast = new (C) CastPPNode(z, TypePtr::NOTNULL);
-       cast->init_req(0, control());
-       _gvn.set_type(cast, cast->bottom_type());
-       C->record_for_igvn(cast);
-
-       Node* zlen_arg = load_array_length(cast);
+       Node* zlen_arg = NULL;
+       if (UseShenandoahGC) {
+         Node *cast = new (C) CastPPNode(z, TypePtr::NOTNULL);
+         cast->init_req(0, control());
+         _gvn.set_type(cast, cast->bottom_type());
+         C->record_for_igvn(cast);
+         zlen_arg = load_array_length(cast);
+       } else {
+         zlen_arg = load_array_length(z);
+       }
        // Update IdealKit memory and control from graphKit.
        __ sync_kit(this);
        __ if_then(zlen_arg, BoolTest::lt, zlen); {
