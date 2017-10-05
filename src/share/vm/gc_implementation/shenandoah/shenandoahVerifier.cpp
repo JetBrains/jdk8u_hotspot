@@ -504,7 +504,7 @@ private:
   ShenandoahHeapRegionSet* _regions;
   ShenandoahLivenessData* _ld;
   MarkBitMap* _bitmap;
-  volatile jlong _claimed;
+  volatile jint  _claimed;
   volatile jlong _processed;
 
 public:
@@ -525,7 +525,7 @@ public:
     ShenandoahVerifyOopClosure cl(&stack, _bitmap, _ld,
                                   ShenandoahMessageBuffer("%s, Marked", _label),
                                   _options);
-
+    assert((size_t)max_jint >= _heap->num_regions(), "Too many regions");
     while (true) {
       size_t v = (size_t) (Atomic::add(1, &_claimed) - 1);
       if (v < _heap->num_regions()) {
