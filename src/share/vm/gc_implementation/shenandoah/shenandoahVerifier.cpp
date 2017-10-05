@@ -730,8 +730,8 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
         ResourceMark rm;
         stringStream ss;
         r->print_on(&ss);
-        fatal(err_msg("Live data should match: region-live = " SIZE_FORMAT ", verifier-live = " INT32_FORMAT "\n%s",
-                      reg_live, verf_live, ss.as_string()));
+        fatal(err_msg("%s: Live data should match: region-live = " SIZE_FORMAT ", verifier-live = " INT32_FORMAT "\n%s",
+                      label, reg_live, verf_live, ss.as_string()));
       }
     }
   }
