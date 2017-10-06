@@ -175,20 +175,6 @@ public:
   int  state_ordinal()             const { return region_state_to_ordinal(_state); }
 
 private:
-  void do_commit() {
-    if (!os::commit_memory((char *) _reserved.start(), _reserved.byte_size(), false)) {
-      report_java_out_of_memory("Unable to commit region");
-    }
-    _heap->increase_committed(ShenandoahHeapRegion::region_size_bytes());
-  }
-
-  void do_uncommit() {
-    if (!os::uncommit_memory((char *) _reserved.start(), _reserved.byte_size())) {
-      report_java_out_of_memory("Unable to uncommit region");
-    }
-    _heap->decrease_committed(ShenandoahHeapRegion::region_size_bytes());
-  }
-
   static size_t RegionSizeBytes;
   static size_t RegionSizeWords;
   static size_t RegionSizeBytesShift;
@@ -343,6 +329,9 @@ public:
   void set_new_top(HeapWord* new_top) { _new_top = new_top; }
   HeapWord* new_top() const { return _new_top; }
 
+private:
+  void do_commit();
+  void do_uncommit();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP

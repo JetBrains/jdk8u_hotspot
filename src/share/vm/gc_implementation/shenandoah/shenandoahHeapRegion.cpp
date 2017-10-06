@@ -602,3 +602,23 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   log_info(gc, init)("Max TLAB size in bytes: "SIZE_FORMAT, MaxTLABSizeBytes);
   log_info(gc, init)("Number of regions: "SIZE_FORMAT, max_heap_size / RegionSizeBytes);
 }
+
+void ShenandoahHeapRegion::do_commit() {
+  if (!os::commit_memory((char *) _reserved.start(), _reserved.byte_size(), false)) {
+    report_java_out_of_memory("Unable to commit region");
+  }
+  if (!_heap->commit_bitmap_slice(this)) {
+    report_java_out_of_memory("Unable to commit bitmaps for region");
+  }
+  _heap->increase_committed(ShenandoahHeapRegion::region_size_bytes());
+}
+
+void ShenandoahHeapRegion::do_uncommit() {
+  if (!os::uncommit_memory((char *) _reserved.start(), _reserved.byte_size())) {
+    report_java_out_of_memory("Unable to uncommit region");
+  }
+  if (!_heap->uncommit_bitmap_slice(this)) {
+    report_java_out_of_memory("Unable to uncommit bitmaps for region");
+  }
+  _heap->decrease_committed(ShenandoahHeapRegion::region_size_bytes());
+}

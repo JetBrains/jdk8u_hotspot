@@ -401,7 +401,7 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
   size_t skip_objsize_delta = BrooksPointer::word_size() /* + actual obj.size() below */;
   HeapWord* start = region->bottom() + BrooksPointer::word_size();
 
-  HeapWord* end = MIN2(top_at_mark_start + BrooksPointer::word_size(), _ordered_regions->end());
+  HeapWord* end = MIN2(top_at_mark_start + BrooksPointer::word_size(), region->end());
   HeapWord* addr = mark_bit_map->getNextMarkedWordAddress(start, end);
 
   intx dist = ShenandoahMarkScanPrefetch;

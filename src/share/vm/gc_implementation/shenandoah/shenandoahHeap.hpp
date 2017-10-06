@@ -115,7 +115,11 @@ private:
   ShenandoahHeapLock _lock;
   ShenandoahCollectorPolicy* _shenandoah_policy;
   size_t _bitmap_size;
+  size_t _bitmap_regions_per_slice;
+  size_t _bitmap_bytes_per_slice;
   MemRegion _heap_region;
+  MemRegion _bitmap0_region;
+  MemRegion _bitmap1_region;
 
   // Sortable array of regions
   ShenandoahHeapRegionSet* _ordered_regions;
@@ -372,6 +376,10 @@ public:
   bool is_next_bitmap_clear();
   bool is_next_bitmap_clear_range(HeapWord* start, HeapWord* end);
   bool is_complete_bitmap_clear_range(HeapWord* start, HeapWord* end);
+
+  bool commit_bitmap_slice(ShenandoahHeapRegion *r);
+  bool uncommit_bitmap_slice(ShenandoahHeapRegion *r);
+  bool is_bitmap_slice_committed(ShenandoahHeapRegion* r, bool skip_self = false);
 
   template <class T>
   inline oop update_oop_ref_not_null(T* p, oop obj);

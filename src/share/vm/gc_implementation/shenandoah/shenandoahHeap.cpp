@@ -162,6 +162,7 @@ jint ShenandoahHeap::initialize() {
   }
 
   size_t reg_size_words = ShenandoahHeapRegion::region_size_words();
+  size_t reg_size_bytes = ShenandoahHeapRegion::region_size_bytes();
 
   _ordered_regions = new ShenandoahHeapRegionSet(_num_regions);
   _free_regions = new ShenandoahFreeSet(_ordered_regions, _num_regions);
@@ -223,17 +224,48 @@ jint ShenandoahHeap::initialize() {
   _bitmap_size = MarkBitMap::compute_size(heap_rs.size());
   _heap_region = MemRegion((HeapWord*) heap_rs.base(), heap_rs.size() / HeapWordSize);
 
-  size_t page_size = UseLargePages ? (size_t)os::large_page_size() : (size_t)os::vm_page_size();
+  size_t bitmap_bytes_per_region = reg_size_bytes / MarkBitMap::heap_map_factor();
 
-  ReservedSpace bitmap0(_bitmap_size, page_size);
-  os::commit_memory_or_exit(bitmap0.base(), bitmap0.size(), false, "couldn't allocate mark bitmap");
+  guarantee(bitmap_bytes_per_region != 0,
+            err_msg("Bitmap bytes per region should not be zero"));
+  guarantee(is_power_of_2(bitmap_bytes_per_region),
+            err_msg("Bitmap bytes per region should be power of two: " SIZE_FORMAT, bitmap_bytes_per_region));
+
+  size_t bitmap_page_size = UseLargePages ? (size_t)os::large_page_size() : (size_t)os::vm_page_size();
+
+  if (bitmap_page_size > bitmap_bytes_per_region) {
+    _bitmap_regions_per_slice = bitmap_page_size / bitmap_bytes_per_region;
+    _bitmap_bytes_per_slice = bitmap_page_size;
+  } else {
+    _bitmap_regions_per_slice = 1;
+    _bitmap_bytes_per_slice = bitmap_bytes_per_region;
+  }
+
+  guarantee(_bitmap_regions_per_slice >= 1,
+            err_msg("Should have at least one region per slice: " SIZE_FORMAT,
+                    _bitmap_regions_per_slice));
+
+  guarantee(((_bitmap_bytes_per_slice) % bitmap_page_size) == 0,
+            err_msg("Bitmap slices should be page-granular: bps = " SIZE_FORMAT ", page size = " SIZE_FORMAT,
+                    _bitmap_bytes_per_slice, bitmap_page_size));
+
+  ReservedSpace bitmap0(_bitmap_size, bitmap_page_size);
   MemTracker::record_virtual_memory_type(bitmap0.base(), mtGC);
-  MemRegion bitmap_region0 = MemRegion((HeapWord*) bitmap0.base(), bitmap0.size() / HeapWordSize);
+  _bitmap0_region = MemRegion((HeapWord*) bitmap0.base(), bitmap0.size() / HeapWordSize);
 
-  ReservedSpace bitmap1(_bitmap_size, page_size);
-  os::commit_memory_or_exit(bitmap1.base(), bitmap1.size(), false, "couldn't allocate mark bitmap");
+  ReservedSpace bitmap1(_bitmap_size, bitmap_page_size);
   MemTracker::record_virtual_memory_type(bitmap1.base(), mtGC);
-  MemRegion bitmap_region1 = MemRegion((HeapWord*) bitmap1.base(), bitmap1.size() / HeapWordSize);
+  _bitmap1_region = MemRegion((HeapWord*) bitmap1.base(), bitmap1.size() / HeapWordSize);
+
+  size_t bitmap_init_commit = _bitmap_bytes_per_slice *
+                              align_size_up(num_committed_regions, _bitmap_regions_per_slice) / _bitmap_regions_per_slice;
+  bitmap_init_commit = MIN2(_bitmap_size, bitmap_init_commit);
+  os::commit_memory_or_exit((char *) (_bitmap0_region.start()), bitmap_init_commit, false,
+                            "couldn't allocate initial bitmap");
+  os::commit_memory_or_exit((char *) (_bitmap1_region.start()), bitmap_init_commit, false,
+                            "couldn't allocate initial bitmap");
+
+  size_t page_size = UseLargePages ? (size_t)os::large_page_size() : (size_t)os::vm_page_size();
 
   if (ShenandoahVerify) {
     ReservedSpace verify_bitmap(_bitmap_size, page_size);
@@ -258,10 +290,10 @@ jint ShenandoahHeap::initialize() {
     _workers->run_task(&cl);
   }
 
-  _mark_bit_map0.initialize(_heap_region, bitmap_region0);
+  _mark_bit_map0.initialize(_heap_region, _bitmap0_region);
   _complete_mark_bit_map = &_mark_bit_map0;
 
-  _mark_bit_map1.initialize(_heap_region, bitmap_region1);
+  _mark_bit_map1.initialize(_heap_region, _bitmap1_region);
   _next_mark_bit_map = &_mark_bit_map1;
 
   _monitoring_support = new ShenandoahMonitoringSupport(this);
@@ -348,12 +380,14 @@ public:
     ShenandoahHeapRegion* region = _regions->claim_next();
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     while (region != NULL) {
-      HeapWord* bottom = region->bottom();
-      HeapWord* top = heap->next_top_at_mark_start(region->bottom());
-      if (top > bottom) {
-        heap->next_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
+      if (heap->is_bitmap_slice_committed(region)) {
+        HeapWord* bottom = region->bottom();
+        HeapWord* top = heap->next_top_at_mark_start(region->bottom());
+        if (top > bottom) {
+          heap->next_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
+        }
+        assert(heap->is_next_bitmap_clear_range(bottom, region->end()), "must be clear");
       }
-      assert(heap->is_next_bitmap_clear_range(bottom, region->end()), "must be clear");
       region = _regions->claim_next();
     }
   }
@@ -381,12 +415,14 @@ public:
     ShenandoahHeapRegion* region = _regions->claim_next();
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     while (region != NULL) {
-      HeapWord* bottom = region->bottom();
-      HeapWord* top = heap->complete_top_at_mark_start(region->bottom());
-      if (top > bottom) {
-        heap->complete_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
+      if (heap->is_bitmap_slice_committed(region)) {
+        HeapWord* bottom = region->bottom();
+        HeapWord* top = heap->complete_top_at_mark_start(region->bottom());
+        if (top > bottom) {
+          heap->complete_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
+        }
+        assert(heap->is_complete_bitmap_clear_range(bottom, region->end()), "must be clear");
       }
-      assert(heap->is_complete_bitmap_clear_range(bottom, region->end()), "must be clear");
       region = _regions->claim_next();
     }
   }
@@ -400,9 +436,13 @@ void ShenandoahHeap::reset_complete_mark_bitmap(WorkGang* workers) {
 }
 
 bool ShenandoahHeap::is_next_bitmap_clear() {
-  HeapWord* start = _ordered_regions->bottom();
-  HeapWord* end = _ordered_regions->end();
-  return _next_mark_bit_map->getNextMarkedWordAddress(start, end) == end;
+  for (size_t idx = 0; idx < _num_regions; idx++) {
+    ShenandoahHeapRegion* r = _ordered_regions->get(idx);
+    if (is_bitmap_slice_committed(r) && !is_next_bitmap_clear_range(r->bottom(), r->end())) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool ShenandoahHeap::is_next_bitmap_clear_range(HeapWord* start, HeapWord* end) {
@@ -2079,4 +2119,63 @@ void ShenandoahHeap::recycle_trash() {
 void ShenandoahHeap::print_extended_on(outputStream *st) const {
   print_on(st);
   print_heap_regions_on(st);
+}
+
+bool ShenandoahHeap::is_bitmap_slice_committed(ShenandoahHeapRegion* r, bool skip_self) {
+  size_t slice = r->region_number() / _bitmap_regions_per_slice;
+
+  size_t regions_from = _bitmap_regions_per_slice * slice;
+  size_t regions_to   = MIN2(num_regions(), _bitmap_regions_per_slice * (slice + 1));
+  for (size_t g = regions_from; g < regions_to; g++) {
+    assert (g / _bitmap_regions_per_slice == slice, "same slice");
+    if (skip_self && g == r->region_number()) continue;
+    if (_ordered_regions->get(g)->is_committed()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ShenandoahHeap::commit_bitmap_slice(ShenandoahHeapRegion* r) {
+  assert_heaplock_owned_by_current_thread();
+
+  if (is_bitmap_slice_committed(r, true)) {
+    // Some other region from the group is already committed, meaning the bitmap
+    // slice is already committed, we exit right away.
+    return true;
+  }
+
+  // Commit the bitmap slice:
+  size_t slice = r->region_number() / _bitmap_regions_per_slice;
+  size_t off = _bitmap_bytes_per_slice * slice;
+  size_t len = _bitmap_bytes_per_slice;
+  if (!os::commit_memory((char*)_bitmap0_region.start() + off, len, false)) {
+    return false;
+  }
+  if (!os::commit_memory((char*)_bitmap1_region.start() + off, len, false)) {
+    return false;
+  }
+  return true;
+}
+
+bool ShenandoahHeap::uncommit_bitmap_slice(ShenandoahHeapRegion *r) {
+  assert_heaplock_owned_by_current_thread();
+
+  if (is_bitmap_slice_committed(r, true)) {
+    // Some other region from the group is still committed, meaning the bitmap
+    // slice is should stay committed, exit right away.
+    return true;
+  }
+
+  // Uncommit the bitmap slice:
+  size_t slice = r->region_number() / _bitmap_regions_per_slice;
+  size_t off = _bitmap_bytes_per_slice * slice;
+  size_t len = _bitmap_bytes_per_slice;
+  if (!os::uncommit_memory((char*)_bitmap0_region.start() + off, len)) {
+    return false;
+  }
+  if (!os::uncommit_memory((char*)_bitmap1_region.start() + off, len)) {
+    return false;
+  }
+  return true;
 }
