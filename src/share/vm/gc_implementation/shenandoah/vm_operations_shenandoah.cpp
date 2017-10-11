@@ -39,7 +39,7 @@ void VM_ShenandoahInitMark::doit() {
 
   GCTraceTime time("Pause Init Mark", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
 
-  FlexibleWorkGang*       workers = sh->workers();
+  ShenandoahWorkGang*       workers = sh->workers();
 
   // Calculate workers for initial marking
   uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
@@ -85,7 +85,7 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
   // evacuate roots right after finishing marking, so that we don't
   // get unmarked objects in the roots.
   // Setup workers for final marking
-  FlexibleWorkGang* workers = sh->workers();
+  ShenandoahWorkGang* workers = sh->workers();
   uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_final_marking(workers->active_workers(),
                                                                              (uint)Threads::number_of_non_daemon_threads());
   ShenandoahWorkerScope scope(workers, n_workers);

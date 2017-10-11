@@ -112,25 +112,29 @@ void ShenandoahMarkCompact::initialize() {
 }
 
 void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  ShenandoahHeap* _heap = ShenandoahHeap::heap();
+  // Default, use number of parallel GC threads
+  ShenandoahWorkGang* workers = heap->workers();
+  ShenandoahWorkerScope full_gc_worker_scope(workers, ParallelGCThreads);
+
   {
     ShenandoahGCSession session(/* is_full_gc */true);
 
-    GCTracer *_gc_tracer = _heap->tracer();
+    GCTracer *_gc_tracer = heap->tracer();
     if (_gc_tracer->has_reported_gc_start()) {
       _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());
     }
     _gc_tracer->report_gc_start(gc_cause, _gc_timer->gc_start());
 
-    _heap->set_full_gc_in_progress(true);
+    heap->set_full_gc_in_progress(true);
 
     assert(SafepointSynchronize::is_at_safepoint(), "must be at a safepoint");
     assert(Thread::current()->is_VM_thread(), "Do full GC only while world is stopped");
 
     {
       ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_heapdumps);
-      _heap->pre_full_gc_dump(_gc_timer);
+      heap->pre_full_gc_dump(_gc_timer);
     }
 
     {
@@ -138,24 +142,24 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       // Full GC is supposed to recover from any GC state:
 
       // a. Cancel concurrent mark, if in progress
-      if (_heap->concurrent_mark_in_progress()) {
-        _heap->concurrentMark()->cancel();
-        _heap->stop_concurrent_marking();
+      if (heap->concurrent_mark_in_progress()) {
+        heap->concurrentMark()->cancel();
+        heap->stop_concurrent_marking();
       }
-      assert(!_heap->concurrent_mark_in_progress(), "sanity");
+      assert(!heap->concurrent_mark_in_progress(), "sanity");
 
       // b. Cancel evacuation, if in progress
-      if (_heap->is_evacuation_in_progress()) {
-        _heap->set_evacuation_in_progress_at_safepoint(false);
+      if (heap->is_evacuation_in_progress()) {
+        heap->set_evacuation_in_progress_at_safepoint(false);
       }
-      assert(!_heap->is_evacuation_in_progress(), "sanity");
+      assert(!heap->is_evacuation_in_progress(), "sanity");
 
       // c. Reset the bitmaps for new marking
-      _heap->reset_next_mark_bitmap(_heap->workers());
-      assert(_heap->is_next_bitmap_clear(), "sanity");
+      heap->reset_next_mark_bitmap(heap->workers());
+      assert(heap->is_next_bitmap_clear(), "sanity");
 
       // d. Abandon reference discovery and clear all discovered references.
-      ReferenceProcessor *rp = _heap->ref_processor();
+      ReferenceProcessor *rp = heap->ref_processor();
       rp->disable_discovery();
       rp->abandon_partial_discovery();
       rp->verify_no_references_recorded();
@@ -164,32 +168,32 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       if (ShenandoahVerify) {
         // Full GC should only be called between regular concurrent cycles, therefore
         // those verifications should be valid.
-        _heap->verifier()->verify_before_fullgc();
+        heap->verifier()->verify_before_fullgc();
       }
 
       {
-        ShenandoahHeapLocker lock(_heap->lock());
+        ShenandoahHeapLocker lock(heap->lock());
 
         // f. Make sure all regions are active. This is needed because we are potentially
         // sliding the data through them
         ShenandoahEnsureHeapActiveClosure ecl;
-        _heap->heap_region_iterate(&ecl, false, false);
+        heap->heap_region_iterate(&ecl, false, false);
 
         // g. Clear region statuses, including collection set status
         ShenandoahClearRegionStatusClosure cl;
-        _heap->heap_region_iterate(&cl, false, false);
+        heap->heap_region_iterate(&cl, false, false);
       }
     }
 
     BarrierSet *old_bs = oopDesc::bs();
-    ShenandoahMarkCompactBarrierSet bs(_heap);
+    ShenandoahMarkCompactBarrierSet bs(heap);
     oopDesc::set_bs(&bs);
 
     {
       GCTraceTime time("Pause Full", PrintGC, _gc_timer, _gc_tracer->gc_id(), true);
 
       if (UseTLAB) {
-        _heap->ensure_parsability(true);
+        heap->ensure_parsability(true);
       }
 
       CodeCache::gc_prologue();
@@ -198,8 +202,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       // The marking doesn't preserve the marks of biased objects.
       //BiasedLocking::preserve_marks();
 
-      _heap->set_need_update_refs(true);
-      FlexibleWorkGang* workers = _heap->workers();
+      heap->set_need_update_refs(true);
 
       // Setup workers for phase 1
       {
@@ -207,8 +210,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
 
         uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_init_marking(
                 workers->active_workers(), (uint) Threads::number_of_non_daemon_threads());
-        workers->set_active_workers(nworkers);
-        ShenandoahWorkerScope scope(workers, nworkers);
+        ShenandoahPushWorkerScope scope(workers, nworkers);
 
         OrderAccess::fence();
 
@@ -219,11 +221,11 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       {
         uint nworkers = ShenandoahCollectorPolicy::calc_workers_for_parallel_evacuation(
                 workers->active_workers(), (uint) Threads::number_of_non_daemon_threads());
-        ShenandoahWorkerScope scope(workers, nworkers);
+        ShenandoahPushWorkerScope scope(workers, nworkers);
 
         OrderAccess::fence();
 
-        ShenandoahHeapRegionSet **copy_queues = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, _heap->max_workers(), mtGC);
+        ShenandoahHeapRegionSet **copy_queues = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, heap->max_workers(), mtGC);
 
         {
           ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_calculate_addresses);
@@ -252,26 +254,26 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       // rp.enqueue_discovered_references();
 
       if (ShenandoahVerify) {
-        _heap->verifier()->verify_after_fullgc();
+        heap->verifier()->verify_after_fullgc();
       }
 
-      _heap->set_bytes_allocated_since_cm(0);
+      heap->set_bytes_allocated_since_cm(0);
 
-      _heap->set_need_update_refs(false);
+      heap->set_need_update_refs(false);
 
-      _heap->set_full_gc_in_progress(false);
+      heap->set_full_gc_in_progress(false);
     }
 
     _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());
 
     {
       ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_heapdumps);
-      _heap->post_full_gc_dump(_gc_timer);
+      heap->post_full_gc_dump(_gc_timer);
     }
 
     if (UseTLAB) {
       ShenandoahGCPhase phase(ShenandoahCollectorPolicy::full_gc_resize_tlabs);
-      _heap->resize_all_tlabs();
+      heap->resize_all_tlabs();
     }
 
     oopDesc::set_bs(old_bs);

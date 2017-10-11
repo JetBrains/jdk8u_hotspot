@@ -30,16 +30,17 @@
 
 class ConcurrentGCTimer;
 
+class ShenandoahCollectionSet;
 class ShenandoahCollectorPolicy;
+class ShenandoahConcurrentMark;
+class ShenandoahConcurrentThread;
+class ShenandoahFreeSet;
 class ShenandoahHeapRegion;
 class ShenandoahHeapRegionClosure;
 class ShenandoahHeapRegionSet;
-class ShenandoahCollectionSet;
-class ShenandoahFreeSet;
-class ShenandoahConcurrentMark;
-class ShenandoahVerifier;
-class ShenandoahConcurrentThread;
 class ShenandoahMonitoringSupport;
+class ShenandoahVerifier;
+class ShenandoahWorkGang;
 
 class ShenandoahUpdateRefsClosure: public OopClosure {
 private:
@@ -131,7 +132,7 @@ private:
   size_t _initial_size;
   uint _max_workers;
 
-  FlexibleWorkGang* _workers;
+  ShenandoahWorkGang* _workers;
 
   volatile size_t _used;
   volatile size_t _committed;
@@ -384,9 +385,11 @@ public:
 
   ReferenceProcessor* ref_processor() { return _ref_processor;}
 
-  FlexibleWorkGang* workers() const { return _workers;}
+  ShenandoahWorkGang* workers() const { return _workers;}
 
   uint max_workers();
+
+  void assert_gc_workers(uint nworker) PRODUCT_RETURN;
 
   void do_evacuation();
   ShenandoahHeapRegion* next_compaction_region(const ShenandoahHeapRegion* r);

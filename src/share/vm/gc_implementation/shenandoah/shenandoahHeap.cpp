@@ -46,6 +46,7 @@
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
 #include "gc_implementation/shenandoah/shenandoahCodeRoots.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 #include "runtime/vmThread.hpp"
@@ -313,7 +314,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _used = 0;
 
   _max_workers = MAX2(_max_workers, 1U);
-  _workers = new FlexibleWorkGang("Shenandoah GC Threads", _max_workers,
+  _workers = new ShenandoahWorkGang("Shenandoah GC Threads", _max_workers,
                             /* are_GC_task_threads */true,
                             /* are_ConcurrentGC_threads */false);
   if (_workers == NULL) {
@@ -350,6 +351,8 @@ public:
 };
 
 void ShenandoahHeap::reset_next_mark_bitmap(WorkGang* workers) {
+  assert_gc_workers(workers->active_workers());
+
   ShenandoahResetNextBitmapTask task = ShenandoahResetNextBitmapTask(_ordered_regions);
   workers->run_task(&task);
 }
@@ -381,6 +384,8 @@ public:
 };
 
 void ShenandoahHeap::reset_complete_mark_bitmap(WorkGang* workers) {
+  assert_gc_workers(workers->active_workers());
+
   ShenandoahResetCompleteBitmapTask task = ShenandoahResetCompleteBitmapTask(_ordered_regions);
   workers->run_task(&task);
 }
@@ -1830,6 +1835,30 @@ void ShenandoahHeap::unpin_object(oop o) {
 GCTimer* ShenandoahHeap::gc_timer() const {
   return _gc_timer;
 }
+
+#ifdef ASSERT
+void ShenandoahHeap::assert_gc_workers(uint nworkers) {
+  assert(nworkers > 0 && nworkers <= max_workers(), "Sanity");
+
+  if (SafepointSynchronize::is_at_safepoint()) {
+    if (UseDynamicNumberOfGCThreads ||
+        (FLAG_IS_DEFAULT(ParallelGCThreads) && ForceDynamicNumberOfGCThreads)) {
+      assert(nworkers <= ParallelGCThreads, "Cannot use more than it has");
+    } else {
+      // Use ParallelGCThreads inside safepoints
+      assert(nworkers == ParallelGCThreads, "Use ParalleGCThreads within safepoints");
+    }
+  } else {
+    if (UseDynamicNumberOfGCThreads ||
+        (FLAG_IS_DEFAULT(ConcGCThreads) && ForceDynamicNumberOfGCThreads)) {
+      assert(nworkers <= ConcGCThreads, "Cannot use more than it has");
+    } else {
+      // Use ConcGCThreads outside safepoints
+      assert(nworkers == ConcGCThreads, "Use ConcGCThreads outside safepoints");
+    }
+  }
+}
+#endif
 
 class ShenandoahCountGarbageClosure : public ShenandoahHeapRegionClosure {
 private:

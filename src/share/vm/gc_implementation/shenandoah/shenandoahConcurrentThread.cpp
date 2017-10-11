@@ -165,7 +165,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   // Continue concurrent mark:
   {
     // Setup workers for concurrent marking phase
-    FlexibleWorkGang* workers = heap->workers();
+    ShenandoahWorkGang* workers = heap->workers();
     uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_marking(workers->active_workers(),
                                                                               (uint) Threads::number_of_non_daemon_threads());
     ShenandoahWorkerScope scope(workers, n_workers);
@@ -238,7 +238,7 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   if (heap->is_evacuation_in_progress()) {
 
     // Setup workers for concurrent evacuation phase
-    FlexibleWorkGang* workers = heap->workers();
+    ShenandoahWorkGang* workers = heap->workers();
     uint n_workers = ShenandoahCollectorPolicy::calc_workers_for_conc_evacuation(workers->active_workers(),
                                                                                  (uint) Threads::number_of_non_daemon_threads());
     ShenandoahWorkerScope scope(workers, n_workers);
@@ -327,8 +327,8 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
     {
       ShenandoahGCPhase phase_reset(ShenandoahCollectorPolicy::conc_cleanup_reset_bitmaps);
-      FlexibleWorkGang* workers = heap->workers();
-      ShenandoahPushWorkerScope scope(workers, heap->max_workers());
+      ShenandoahWorkGang* workers = heap->workers();
+      ShenandoahPushWorkerScope scope(workers, ConcGCThreads);
       heap->reset_next_mark_bitmap(workers);
     }
   }

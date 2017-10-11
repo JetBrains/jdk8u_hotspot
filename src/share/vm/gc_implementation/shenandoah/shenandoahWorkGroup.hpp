@@ -27,13 +27,14 @@
 #include "utilities/workgroup.hpp"
 #include "memory/allocation.hpp"
 
+class ShenandoahWorkGang;
 
 class ShenandoahWorkerScope : public StackObj {
 private:
   uint      _n_workers;
-  FlexibleWorkGang* _workers;
+  ShenandoahWorkGang* _workers;
 public:
-  ShenandoahWorkerScope(FlexibleWorkGang* workers, uint nworkers);
+  ShenandoahWorkerScope(ShenandoahWorkGang* workers, uint nworkers);
   ~ShenandoahWorkerScope();
 };
 
@@ -42,11 +43,31 @@ class ShenandoahPushWorkerScope : StackObj {
 private:
   uint      _n_workers;
   uint      _old_workers;
-  FlexibleWorkGang* _workers;
+  ShenandoahWorkGang* _workers;
 
 public:
-  ShenandoahPushWorkerScope(FlexibleWorkGang* workers, uint nworkers);
+  ShenandoahPushWorkerScope(ShenandoahWorkGang* workers, uint nworkers, bool do_check = true);
   ~ShenandoahPushWorkerScope();
+};
+
+
+class ShenandoahWorkGang : public FlexibleWorkGang {
+public:
+  ShenandoahWorkGang(const char* name, uint workers,
+                   bool are_GC_task_threads,
+                   bool are_ConcurrentGC_threads) :
+    FlexibleWorkGang(name, workers, are_GC_task_threads, are_ConcurrentGC_threads) {
+  }
+
+  // Hide FlexibleWorkGang's implementation, avoid _active_workers == _total_workers
+  // check
+  void set_active_workers(uint v) {
+    assert(v <= _total_workers,
+           "Trying to set more workers active than there are");
+    _active_workers = MIN2(v, _total_workers);
+    assert(v != 0, "Trying to set active workers to 0");
+    _active_workers = MAX2(1U, _active_workers);
+  }
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHWORKGROUP_HPP

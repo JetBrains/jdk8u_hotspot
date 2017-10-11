@@ -634,6 +634,9 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   guarantee(SafepointSynchronize::is_at_safepoint(), "only when nothing else happens");
   guarantee(ShenandoahVerify, "only when enabled, and bitmap is initialized in ShenandoahHeap::initialize");
 
+  // Avoid side-effect of changing workers' active thread count, but bypass concurrent/parallel protocol check
+  ShenandoahPushWorkerScope verify_worker_scope(_heap->workers(), _heap->max_workers(), false /*bypass check*/);
+
   log_info(gc,start)("Verify %s, Level " INTX_FORMAT, label, ShenandoahVerifyLevel);
 
   // Heap size checks
@@ -678,7 +681,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   // This verifies what application can see, since it only cares about reachable objects.
   size_t count_reachable = 0;
   if (ShenandoahVerifyLevel >= 2) {
-    ShenandoahRootProcessor rp(_heap, _heap->max_workers(),
+    ShenandoahRootProcessor rp(_heap, _heap->workers()->active_workers(),
                                ShenandoahCollectorPolicy::_num_phases); // no need for stats
 
     ShenandoahVerifierReachableTask task(_verification_bit_map, ld, &rp, label, options);

@@ -22,10 +22,12 @@
  */
 
 #include "precompiled.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
  
-ShenandoahWorkerScope::ShenandoahWorkerScope(FlexibleWorkGang* workers, uint nworkers) :
+ShenandoahWorkerScope::ShenandoahWorkerScope(ShenandoahWorkGang* workers, uint nworkers) :
   _workers(workers), _n_workers(nworkers) {
+  ShenandoahHeap::heap()->assert_gc_workers(nworkers);
   _workers->set_active_workers(nworkers);
 }
 
@@ -34,9 +36,14 @@ ShenandoahWorkerScope::~ShenandoahWorkerScope() {
     "Active workers can not be changed within this scope");
 }
 
-ShenandoahPushWorkerScope::ShenandoahPushWorkerScope(FlexibleWorkGang* workers, uint nworkers) :
+ShenandoahPushWorkerScope::ShenandoahPushWorkerScope(ShenandoahWorkGang* workers, uint nworkers, bool check) :
   _workers(workers), _old_workers(workers->active_workers()), _n_workers(nworkers) {
   _workers->set_active_workers(nworkers);
+
+  // bypass concurrent/parallel protocol check for non-regular paths, e.g. verifier, etc.
+  if (!check) {
+    ShenandoahHeap::heap()->assert_gc_workers(nworkers);
+  }
 }
 
 ShenandoahPushWorkerScope::~ShenandoahPushWorkerScope() {
