@@ -312,8 +312,6 @@ public:
 
   void oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects);
 
-  void object_iterate_interruptible(ObjectClosure* blk, bool allow_cancel);
-
   HeapWord* object_iterate_careful(ObjectClosureCareful* cl);
 
   HeapWord* block_start_const(const void* p) const;

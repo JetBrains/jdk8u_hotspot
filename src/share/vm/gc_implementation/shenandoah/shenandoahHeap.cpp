@@ -296,6 +296,12 @@ jint ShenandoahHeap::initialize() {
   _mark_bit_map1.initialize(_heap_region, _bitmap1_region);
   _next_mark_bit_map = &_mark_bit_map1;
 
+  // Reserve aux bitmap for use in object_iterate(). We don't commit it here.
+  ReservedSpace aux_bitmap(_bitmap_size, bitmap_page_size);
+  MemTracker::record_virtual_memory_type(aux_bitmap.base(), mtGC);
+  _aux_bitmap_region = MemRegion((HeapWord*) aux_bitmap.base(), aux_bitmap.size() / HeapWordSize);
+  _aux_bit_map.initialize(_heap_region, _aux_bitmap_region);
+
   _monitoring_support = new ShenandoahMonitoringSupport(this);
 
   _phase_timings = new ShenandoahPhaseTimings();
@@ -334,6 +340,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _complete_top_at_mark_starts_base(NULL),
   _mark_bit_map0(),
   _mark_bit_map1(),
+  _aux_bit_map(),
   _cancelled_concgc(0),
   _need_update_refs(false),
   _need_reset_bitmaps(false),
@@ -942,7 +949,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
     // Allocations might have happened before we STWed here, record peak:
     shenandoahPolicy()->record_peak_occupancy();
 
-    ensure_parsability(true);
+    make_tlabs_parsable(true);
 
     if (ShenandoahVerify) {
       verifier()->verify_after_concmark();
@@ -1001,7 +1008,7 @@ public:
   }
 };
 
-void ShenandoahHeap::ensure_parsability(bool retire_tlabs) {
+void ShenandoahHeap::make_tlabs_parsable(bool retire_tlabs) {
   if (UseTLAB) {
     CollectedHeap::ensure_parsability(retire_tlabs);
     ShenandoahRetireTLABClosure cl(retire_tlabs);
@@ -1254,7 +1261,7 @@ jlong ShenandoahHeap::millis_since_last_gc() {
 
 void ShenandoahHeap::prepare_for_verify() {
   if (SafepointSynchronize::is_at_safepoint() || ! UseTLAB) {
-    ensure_parsability(false);
+    make_tlabs_parsable(false);
   }
 }
 
@@ -1313,89 +1320,95 @@ public:
   }
 };
 
-void ShenandoahHeap::object_iterate(ObjectClosure* cl) {
-  ShenandoahIterateObjectClosureRegionClosure blk(cl);
-  heap_region_iterate(&blk, false, true);
-}
-
-class ShenandoahSafeObjectIterateAdjustPtrsClosure : public MetadataAwareOopClosure {
+class ObjectIterateScanRootClosure : public ExtendedOopClosure {
 private:
-  ShenandoahHeap* _heap;
+  MarkBitMap* _bitmap;
+  Stack<oop,mtGC>* _oop_stack;
 
-public:
-  ShenandoahSafeObjectIterateAdjustPtrsClosure() : _heap(ShenandoahHeap::heap()) {}
-
-private:
   template <class T>
-  inline void do_oop_work(T* p) {
+  void do_oop_work(T* p) {
     T o = oopDesc::load_heap_oop(p);
     if (!oopDesc::is_null(o)) {
       oop obj = oopDesc::decode_heap_oop_not_null(o);
-      oopDesc::encode_store_heap_oop(p, BrooksPointer::forwardee(obj));
+      obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
+      assert(obj->is_oop(), "must be a valid oop");
+      if (!_bitmap->isMarked((HeapWord*) obj)) {
+        _bitmap->mark((HeapWord*) obj);
+        _oop_stack->push(obj);
+      }
     }
   }
 public:
-  void do_oop(oop* p) {
-    do_oop_work(p);
-  }
-  void do_oop(narrowOop* p) {
-    do_oop_work(p);
-  }
+  ObjectIterateScanRootClosure(MarkBitMap* bitmap, Stack<oop,mtGC>* oop_stack) :
+    _bitmap(bitmap), _oop_stack(oop_stack) {}
+  void do_oop(oop* p)       { do_oop_work(p); }
+  void do_oop(narrowOop* p) { do_oop_work(p); }
 };
 
-class ShenandoahSafeObjectIterateAndUpdate : public ObjectClosure {
-private:
-  ObjectClosure* _cl;
-public:
-  ShenandoahSafeObjectIterateAndUpdate(ObjectClosure *cl) : _cl(cl) {}
+/*
+ * This is public API, used in preparation of object_iterate().
+ * Since we don't do linear scan of heap in object_iterate() (see comment below), we don't
+ * need to make the heap parsable. For Shenandoah-internal linear heap scans that we can
+ * control, we call SH::make_tlabs_parsable().
+ */
+void ShenandoahHeap::ensure_parsability(bool retire_tlabs) {
+  // No-op.
+}
 
-  virtual void do_object(oop obj) {
-    assert (oopDesc::unsafe_equals(obj, BrooksPointer::forwardee(obj)),
-            "avoid double-counting: only non-forwarded objects here");
-
-    // Fix up the ptrs.
-    ShenandoahSafeObjectIterateAdjustPtrsClosure adjust_ptrs;
-    obj->oop_iterate(&adjust_ptrs);
-
-    // Can reply the object now:
-    _cl->do_object(obj);
+/*
+ * Iterates objects in the heap. This is public API, used for, e.g., heap dumping.
+ *
+ * We cannot safely iterate objects by doing a linear scan at random points in time. Linear
+ * scanning needs to deal with dead objects, which may have dead Klass* pointers (e.g.
+ * calling oopDesc::size() would crash) or dangling reference fields (crashes) etc. Linear
+ * scanning therefore depends on having a valid marking bitmap to support it. However, we only
+ * have a valid marking bitmap after successful marking. In particular, we *don't* have a valid
+ * marking bitmap during marking, after aborted marking or during/after cleanup (when we just
+ * wiped the bitmap in preparation for next marking).
+ *
+ * For all those reasons, we implement object iteration as a single marking traversal, reporting
+ * objects as we mark+traverse through the heap, starting from GC roots. JVMTI IterateThroughHeap
+ * is allowed to report dead objects, but is not required to do so.
+ */
+void ShenandoahHeap::object_iterate(ObjectClosure* cl) {
+  assert(SafepointSynchronize::is_at_safepoint(), "safe iteration is only available during safepoints");
+  if (!os::commit_memory((char*)_aux_bitmap_region.start(), _aux_bitmap_region.byte_size(), false)) {
+    log_warning(gc)("Could not commit native memory for auxiliary marking bitmap for heap iteration");
+    return;
   }
-};
+
+  Stack<oop,mtGC> oop_stack;
+
+  // First, we process all GC roots. This populates the work stack with initial objects.
+  ShenandoahRootProcessor rp(this, 1, ShenandoahPhaseTimings::_num_phases);
+  ObjectIterateScanRootClosure oops(&_aux_bit_map, &oop_stack);
+  CLDToOopClosure clds(&oops, false);
+  CodeBlobToOopClosure blobs(&oops, false);
+  rp.process_all_roots(&oops, &oops, &clds, &blobs, 0);
+
+  // Work through the oop stack to traverse heap.
+  while (! oop_stack.is_empty()) {
+    oop obj = oop_stack.pop();
+    assert(obj->is_oop(), "must be a valid oop");
+    cl->do_object(obj);
+    obj->oop_iterate(&oops);
+  }
+
+  assert(oop_stack.is_empty(), "should be empty");
+
+  if (!os::uncommit_memory((char*)_aux_bitmap_region.start(), _aux_bitmap_region.byte_size())) {
+    log_warning(gc)("Could not uncommit native memory for auxiliary marking bitmap for heap iteration");
+  }
+}
 
 void ShenandoahHeap::safe_object_iterate(ObjectClosure* cl) {
   assert(SafepointSynchronize::is_at_safepoint(), "safe iteration is only available during safepoints");
-
-  // Safe iteration does objects only with correct references.
-  // This is why we skip collection set regions that have stale copies of objects,
-  // and fix up the pointers in the returned objects.
-
-  ShenandoahSafeObjectIterateAndUpdate safe_cl(cl);
-  ShenandoahIterateObjectClosureRegionClosure blk(&safe_cl);
-  heap_region_iterate(&blk,
-                      /* skip_cset_regions = */ true,
-                      /* skip_humongous_continuations = */ true);
-
-  _need_update_refs = false; // already updated the references
+  object_iterate(cl);
 }
 
-class ShenandoahIterateOopClosureRegionClosure : public ShenandoahHeapRegionClosure {
-  MemRegion _mr;
-  ExtendedOopClosure* _cl;
-  bool _skip_unreachable_objects;
-public:
-  ShenandoahIterateOopClosureRegionClosure(ExtendedOopClosure* cl, bool skip_unreachable_objects) :
-    _cl(cl), _skip_unreachable_objects(skip_unreachable_objects) {}
-  ShenandoahIterateOopClosureRegionClosure(MemRegion mr, ExtendedOopClosure* cl)
-    :_mr(mr), _cl(cl) {}
-  bool heap_region_do(ShenandoahHeapRegion* r) {
-    r->oop_iterate_skip_unreachable(_cl, _skip_unreachable_objects);
-    return false;
-  }
-};
-
-void ShenandoahHeap::oop_iterate(ExtendedOopClosure* cl, bool skip_cset_regions, bool skip_unreachable_objects) {
-  ShenandoahIterateOopClosureRegionClosure blk(cl, skip_unreachable_objects);
-  heap_region_iterate(&blk, skip_cset_regions, true);
+void ShenandoahHeap::oop_iterate(ExtendedOopClosure* cl) {
+  ObjectToOopClosure cl2(cl);
+  object_iterate(&cl2);
 }
 
 class ShenandoahSpaceClosureRegionClosure: public ShenandoahHeapRegionClosure {
@@ -1471,7 +1484,7 @@ void ShenandoahHeap::start_concurrent_marking() {
   // We need to reset all TLABs because we'd lose marks on all objects allocated in them.
   if (UseTLAB) {
     ShenandoahGCPhase phase(ShenandoahPhaseTimings::make_parsable);
-    ensure_parsability(true);
+    make_tlabs_parsable(true);
   }
 
   _shenandoah_policy->record_bytes_allocated(_bytes_allocated_since_cm);
@@ -2014,7 +2027,7 @@ void ShenandoahHeap::prepare_update_refs() {
 
   set_evacuation_in_progress_at_safepoint(false);
   set_update_refs_in_progress(true);
-  ensure_parsability(true);
+  make_tlabs_parsable(true);
   for (uint i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* r = _ordered_regions->get(i);
     r->set_concurrent_iteration_safe_limit(r->top());

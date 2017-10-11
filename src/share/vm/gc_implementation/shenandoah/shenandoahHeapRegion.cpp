@@ -386,32 +386,6 @@ public:
   }
 };
 
-void ShenandoahHeapRegion::object_iterate_interruptible(ObjectClosure* blk, bool allow_cancel) {
-  HeapWord* p = bottom() + BrooksPointer::word_size();
-  while (p < top() && !(allow_cancel && _heap->cancelled_concgc())) {
-    blk->do_object(oop(p));
-    p += oop(p)->size() + BrooksPointer::word_size();
-  }
-}
-
-HeapWord* ShenandoahHeapRegion::object_iterate_careful(ObjectClosureCareful* blk) {
-  HeapWord * limit = concurrent_iteration_safe_limit();
-  assert(limit <= top(), "sanity check");
-  for (HeapWord* p = bottom() + BrooksPointer::word_size(); p < limit;) {
-    size_t size = blk->do_object_careful(oop(p));
-    if (size == 0) {
-      return p;  // failed at p
-    }
-    p += size + BrooksPointer::word_size();
-  }
-  return NULL; // all done
-}
-
-void ShenandoahHeapRegion::oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects) {
-  ShenandoahSkipUnreachableObjectToOopClosure cl2(cl, skip_unreachable_objects);
-  object_iterate_interruptible(&cl2, false);
-}
-
 void ShenandoahHeapRegion::fill_region() {
   ShenandoahHeap* sh = ShenandoahHeap::heap();
 

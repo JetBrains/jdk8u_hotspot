@@ -196,7 +196,7 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       GCTraceTime time("Pause Full", PrintGC, _gc_timer, _gc_tracer->gc_id(), true);
 
       if (UseTLAB) {
-        heap->ensure_parsability(true);
+        heap->make_tlabs_parsable(true);
       }
 
       CodeCache::gc_prologue();

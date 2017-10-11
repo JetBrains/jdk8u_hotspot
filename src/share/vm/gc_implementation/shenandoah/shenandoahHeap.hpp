@@ -120,6 +120,7 @@ private:
   MemRegion _heap_region;
   MemRegion _bitmap0_region;
   MemRegion _bitmap1_region;
+  MemRegion _aux_bitmap_region;
 
   // Sortable array of regions
   ShenandoahHeapRegionSet* _ordered_regions;
@@ -151,6 +152,7 @@ private:
   MarkBitMap _mark_bit_map1;
   MarkBitMap* _complete_mark_bit_map;
   MarkBitMap* _next_mark_bit_map;
+  MarkBitMap _aux_bit_map;
 
   HeapWord** _complete_top_at_mark_starts;
   HeapWord** _complete_top_at_mark_starts_base;
@@ -246,11 +248,7 @@ public:
   bool supports_heap_inspection() const /* override */;
 
   void space_iterate(SpaceClosure* scl) /* override */;
-  void oop_iterate(ExtendedOopClosure* cl, bool skip_cset_regions,
-                   bool skip_unreachable_objects);
-  void oop_iterate(ExtendedOopClosure* cl) {
-    oop_iterate(cl, false, false);
-  }
+  void oop_iterate(ExtendedOopClosure* cl) /* override */;
 
   Space* space_containing(const void* oop) const;
   void gc_prologue(bool b);
@@ -509,6 +507,8 @@ private:
   size_t* _recycled_regions;
 
 public:
+  void make_tlabs_parsable(bool retire_tlabs) /* override */;
+
   void recycle_trash_assist(size_t limit);
   void recycle_trash();
 
