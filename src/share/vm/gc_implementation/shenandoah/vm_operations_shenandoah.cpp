@@ -90,7 +90,7 @@ void VM_ShenandoahFinalMarkStartEvac::doit() {
   ShenandoahWorkerScope scope(workers, n_workers);
 
   if (! sh->cancelled_concgc()) {
-    GCTraceTime time("Pause Final Mark", PrintGC, sh->gc_timer(), sh->tracer()->gc_id(), true);
+    GCTraceTime time("Pause Final Mark", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
     sh->concurrentMark()->finish_mark_from_roots();
     sh->stop_concurrent_marking();
 
@@ -129,7 +129,7 @@ void VM_ShenandoahFinalUpdateRefs::doit() {
   ShenandoahGCPauseMark mark(ShenandoahPhaseTimings::final_update_refs, SvcGCMarker::OTHER);
 
   ShenandoahHeap *sh = ShenandoahHeap::heap();
-  GCTraceTime time("Pause Final Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id(), true);
+  GCTraceTime time("Pause Final Update Refs", PrintGC, sh->gc_timer(), sh->tracer()->gc_id());
 
   ShenandoahWorkGang* workers = sh->workers();
   uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_final_update_ref();
