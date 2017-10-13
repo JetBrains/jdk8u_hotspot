@@ -24,11 +24,11 @@
 /*
  * @test HumongousThreshold
  *
- * @run main/othervm -XX:+UseShenandoahGC -Xmx2g                                                                       HumongousThreshold
- * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=50  HumongousThreshold
- * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=90  HumongousThreshold
- * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=99  HumongousThreshold
- * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=100 HumongousThreshold
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g                                                                       -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify HumongousThreshold
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=50  -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify HumongousThreshold
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=90  -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify HumongousThreshold
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=99  -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify HumongousThreshold
+ * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=100 -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify HumongousThreshold
  *
  * @run main/othervm -XX:+UseShenandoahGC -Xmx2g -XX:+UnlockExperimentalVMOptions -XX:ShenandoahHumongousThreshold=90
  *                   -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive HumongousThreshold

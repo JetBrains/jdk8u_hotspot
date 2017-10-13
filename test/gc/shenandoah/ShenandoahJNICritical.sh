@@ -63,6 +63,18 @@ $gcc_cmd -O1 -DLINUX -fPIC -shared \
     ${TESTSRC}${FS}libShenandoahJNICritical.c
 
 # run the java test in the background
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify -XX:ShenandoahGCHeuristics=aggressive \
+    -Djava.library.path=${THIS_DIR}${FS} ShenandoahJNICritical"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
 cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive \
     -Djava.library.path=${THIS_DIR}${FS} ShenandoahJNICritical"
 
