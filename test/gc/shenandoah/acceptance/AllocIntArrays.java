@@ -25,19 +25,19 @@
  * @test AllocIntArrays
  * @summary Acceptance tests: collector can withstand allocation
  *
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g                                       AllocIntArrays
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=passive    AllocIntArrays
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=adaptive   AllocIntArrays
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    AllocIntArrays
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=continuous AllocIntArrays
- * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=aggressive AllocIntArrays
- *
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g                                       -XX:+ShenandoahVerify AllocIntArrays
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=passive    -XX:+ShenandoahVerify AllocIntArrays
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=adaptive   -XX:+ShenandoahVerify AllocIntArrays
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    -XX:+ShenandoahVerify AllocIntArrays
  *
  * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:-UseTLAB                          -XX:+ShenandoahVerify AllocIntArrays
+ *
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g                                       AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=passive    AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=adaptive   AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=dynamic    AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=continuous AllocIntArrays
+ * @run main/othervm -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx2g -Xms2g -XX:ShenandoahGCHeuristics=aggressive AllocIntArrays
  */
 
 import java.util.Random;
