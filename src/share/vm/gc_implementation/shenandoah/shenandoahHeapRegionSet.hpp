@@ -63,14 +63,6 @@ public:
 
   virtual void add_region(ShenandoahHeapRegion* r);
 
-  inline ShenandoahHeapRegion* get_or_null(size_t i) const {
-    if (i < _active_end) {
-      return _regions[i];
-    } else {
-      return NULL;
-    }
-  }
-
   inline ShenandoahHeapRegion* get(size_t i) const {
     assert (i < _active_end, "sanity");
     return _regions[i];

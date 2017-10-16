@@ -211,8 +211,6 @@ jint ShenandoahHeap::initialize() {
     _free_regions->print_on(out);
   }
 
-  _recycled_regions = NEW_C_HEAP_ARRAY(size_t, _num_regions, mtGC);
-
   // The call below uses stuff (the SATB* things) that are in G1, but probably
   // belong into a shared location.
   JavaThread::satb_mark_queue_set().initialize(SATB_Q_CBL_mon,
@@ -1309,16 +1307,6 @@ void ShenandoahHeap::verify(bool silent, VerifyOption vo) {
 size_t ShenandoahHeap::tlab_capacity(Thread *thr) const {
   return _free_regions->capacity();
 }
-
-class ShenandoahIterateObjectClosureRegionClosure: public ShenandoahHeapRegionClosure {
-  ObjectClosure* _cl;
-public:
-  ShenandoahIterateObjectClosureRegionClosure(ObjectClosure* cl) : _cl(cl) {}
-  bool heap_region_do(ShenandoahHeapRegion* r) {
-    ShenandoahHeap::heap()->marked_object_iterate(r, _cl);
-    return false;
-  }
-};
 
 class ObjectIterateScanRootClosure : public ExtendedOopClosure {
 private:

@@ -499,12 +499,7 @@ private:
 
   void oom_during_evacuation();
 
-  HeapWord* allocate_large_memory(size_t word_size);
-
   const char* cancel_cause_to_string(ShenandoahCancelCause cause);
-
-private:
-  size_t* _recycled_regions;
 
 public:
   void make_tlabs_parsable(bool retire_tlabs) /* override */;

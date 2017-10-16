@@ -51,8 +51,6 @@ public:
 
   inline oop obj()  const { return _obj; }
 
-  DEBUG_ONLY(bool is_valid() const); // Tasks to be pushed/popped must be valid.
-
 private:
   oop _obj;
 };

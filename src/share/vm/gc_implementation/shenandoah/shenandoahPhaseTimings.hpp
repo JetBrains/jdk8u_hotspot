@@ -249,7 +249,6 @@ private:
 
 public:
   ShenandoahPhaseTimings();
-  ~ShenandoahPhaseTimings();
 
   ShenandoahWorkerTimings* worker_times() const { return _worker_times; }
 

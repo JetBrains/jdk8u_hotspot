@@ -116,8 +116,6 @@ public:
     // Do nothing
   }
 
-  size_t bytes_in_cset() const { return _bytes_in_cset; }
-
   virtual void print_thresholds() {
   }
 
