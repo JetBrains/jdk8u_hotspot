@@ -107,7 +107,7 @@ bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Shenandoah
     return ShenandoahBarriersForConst;
   }
 
-  if (ShenandoahOptimizeFinals) {
+  if (ShenandoahOptimizeStableFinals) {
     const TypeAryPtr* ary = type->isa_aryptr();
     if (ary && ary->is_stable() && allow_fromspace) {
       return false;
@@ -768,7 +768,7 @@ bool ShenandoahBarrierNode::verify_helper(Node* in, Node_Stack& phis, VectorSet&
   while (true) {
     if (!in->bottom_type()->make_ptr()->isa_oopptr()) {
       if (trace) {tty->print_cr("Non oop");}
-    } else if (t == ShenandoahLoad && ShenandoahOptimizeFinals &&
+    } else if (t == ShenandoahLoad && ShenandoahOptimizeStableFinals &&
                in->bottom_type()->make_ptr()->isa_aryptr() &&
                in->bottom_type()->make_ptr()->is_aryptr()->is_stable()) {
       if (trace) {tty->print_cr("Stable array load");}
@@ -866,13 +866,14 @@ void ShenandoahBarrierNode::verify(RootNode* root) {
           if (trace) {tty->print_cr("Reference.get()");}
         } else {
           bool verify = true;
-          if (adr_type->isa_instptr() && ShenandoahOptimizeFinals) {
+          if (adr_type->isa_instptr()) {
             ciKlass* k = adr_type->is_instptr()->klass();
             assert(k->is_instance_klass(), "");
             ciInstanceKlass* ik = (ciInstanceKlass*)k;
             int offset = adr_type->offset();
 
-            if (ik->debug_final_or_stable_field_at(offset)) {
+            if ((ik->debug_final_field_at(offset) && ShenandoahOptimizeInstanceFinals) ||
+                (ik->debug_stable_field_at(offset) && ShenandoahOptimizeStableFinals)) {
               if (trace) {tty->print_cr("Final/stable");}
               verify = false;
             }

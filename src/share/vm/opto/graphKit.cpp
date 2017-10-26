@@ -4134,7 +4134,7 @@ Node* GraphKit::load_String_length(Node* ctrl, Node* str) {
     const TypePtr* count_field_type = string_type->add_offset(count_offset);
     int count_field_idx = C->get_alias_index(count_field_type);
 
-    if (! ShenandoahOptimizeFinals) {
+    if (! ShenandoahOptimizeInstanceFinals) {
       str = shenandoah_read_barrier(str);
     }
 
@@ -4156,7 +4156,7 @@ Node* GraphKit::load_String_value(Node* ctrl, Node* str) {
                                                    ciTypeArrayKlass::make(T_CHAR), true, 0);
   int value_field_idx = C->get_alias_index(value_field_type);
 
-  if (! ShenandoahOptimizeFinals) {
+  if (!ShenandoahOptimizeInstanceFinals) {
     str = shenandoah_read_barrier(str);
   }
 
