@@ -6465,7 +6465,9 @@ bool LibraryCallKit::inline_aescrypt_Block(vmIntrinsics::ID id) {
   Node* dest_offset     = argument(4);
 
   // Resolve src and dest arrays for ShenandoahGC.
+  src = shenandoah_cast_not_null(src);
   src = shenandoah_read_barrier(src);
+  dest = shenandoah_cast_not_null(dest);
   dest = shenandoah_write_barrier(dest);
 
   // (1) src and dest are arrays.
