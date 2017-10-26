@@ -59,7 +59,7 @@ public class TestPeriodicGC {
 
         String[] enabled = new String[] {
            "adaptive",
-           "dynamic"
+           "static"
         };
 
         String[] disabled = new String[] {
