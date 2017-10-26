@@ -1910,7 +1910,6 @@ bool PhaseIdealLoop::shenandoah_fix_mem_phis_helper(Node* c, Node* mem, Node* me
 
 
 bool PhaseIdealLoop::shenandoah_fix_mem_phis(Node* mem, Node* mem_ctrl, Node* rep_ctrl, int alias) {
-  //ResourceMark rm; // register_new_node makes an internal grow
   GrowableArray<Node*> regions;
   VectorSet controls(Thread::current()->resource_area());
   const bool trace = false;
@@ -2583,26 +2582,20 @@ void PhaseIdealLoop::shenandoah_pin_and_expand_barriers_move_barrier(ShenandoahB
     }
 
     Node* proj = wb->find_out_with(Op_ShenandoahWBMemProj);
-    if (proj != NULL && mem != old_mem && !shenandoah_fix_mem_phis(mem, mem_ctrl, unc_ctrl, alias)) {
+    if (mem != old_mem && !shenandoah_fix_mem_phis(mem, mem_ctrl, unc_ctrl, alias)) {
       return;
     }
 
-    assert(proj == NULL || mem == old_mem || shenandoah_memory_dominates_all_paths(mem, unc_ctrl, alias), "can't fix the memory graph");
+    assert(mem == old_mem || shenandoah_memory_dominates_all_paths(mem, unc_ctrl, alias), "can't fix the memory graph");
     set_ctrl_and_loop(wb, unc_ctrl);
     if (wb->in(ShenandoahBarrierNode::Control) != NULL) {
       _igvn.replace_input_of(wb, ShenandoahBarrierNode::Control, unc_ctrl);
     }
-    if (old_mem != mem) {
-      if (proj != NULL) {
-        shenandoah_disconnect_barrier_mem(wb, _igvn);
-        ShenandoahWriteBarrierNode::fix_memory_uses(mem, wb, proj, unc_ctrl, C->get_alias_index(wb->adr_type()), this);
-        assert(proj->outcnt() > 0, "disconnected write barrier");
-      }
-      _igvn.replace_input_of(wb, ShenandoahBarrierNode::Memory, mem);
-    }
-    if (proj != NULL) {
-      set_ctrl_and_loop(proj, unc_ctrl);
-    }
+    shenandoah_disconnect_barrier_mem(wb, _igvn);
+    ShenandoahWriteBarrierNode::fix_memory_uses(mem, wb, proj, unc_ctrl, C->get_alias_index(wb->adr_type()), this);
+    assert(proj->outcnt() > 0, "disconnected write barrier");
+    _igvn.replace_input_of(wb, ShenandoahBarrierNode::Memory, mem);
+    set_ctrl_and_loop(proj, unc_ctrl);
   }
 }
 
