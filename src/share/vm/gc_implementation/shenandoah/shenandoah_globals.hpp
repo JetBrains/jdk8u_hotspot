@@ -291,6 +291,9 @@
   experimental(bool, ShenandoahPreclean, true,                              \
               "Do preclean phase before final mark")                        \
                                                                             \
+  diagnostic(bool, ShenandoahOOMDuringEvacALot, false,                      \
+          "Simulate OOM during evacuation frequently.")                     \
+                                                                            \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \
