@@ -1167,6 +1167,8 @@ Node* LibraryCallKit::make_string_method_node(int opcode, Node* str1, Node* str2
 
   // Get start addr of string
   Node* str1_value   = load_String_value(no_ctrl, str1);
+  str1_value = shenandoah_cast_not_null(str1_value);
+  str1_value = shenandoah_read_barrier(str1_value);
   Node* str1_offset  = load_String_offset(no_ctrl, str1);
   Node* str1_start   = array_element_address(str1_value, str1_offset, T_CHAR);
 
@@ -1174,6 +1176,8 @@ Node* LibraryCallKit::make_string_method_node(int opcode, Node* str1, Node* str2
   Node* str1_len  = load_String_length(no_ctrl, str1);
 
   Node* str2_value   = load_String_value(no_ctrl, str2);
+  str2_value = shenandoah_cast_not_null(str2_value);
+  str2_value = shenandoah_read_barrier(str2_value);
   Node* str2_offset  = load_String_offset(no_ctrl, str2);
   Node* str2_start   = array_element_address(str2_value, str2_offset, T_CHAR);
 
@@ -1309,6 +1313,8 @@ bool LibraryCallKit::inline_string_equals() {
 
     // Get start addr of receiver
     Node* receiver_val    = load_String_value(no_ctrl, receiver);
+    receiver_val = shenandoah_cast_not_null(receiver_val);
+    receiver_val = shenandoah_read_barrier(receiver_val);
     Node* receiver_offset = load_String_offset(no_ctrl, receiver);
     Node* receiver_start = array_element_address(receiver_val, receiver_offset, T_CHAR);
 
@@ -1317,6 +1323,8 @@ bool LibraryCallKit::inline_string_equals() {
 
     // Get start addr of argument
     Node* argument_val    = load_String_value(no_ctrl, argument);
+    argument_val = shenandoah_cast_not_null(argument_val);
+    argument_val = shenandoah_read_barrier(argument_val);
     Node* argument_offset = load_String_offset(no_ctrl, argument);
     Node* argument_start = array_element_address(argument_val, argument_offset, T_CHAR);
 
@@ -1432,6 +1440,8 @@ Node* LibraryCallKit::string_indexOf(Node* string_object, ciTypeArray* target_ar
   const int nargs = 0; // no arguments to push back for uncommon trap in predicate
 
   Node* source        = load_String_value(no_ctrl, string_object);
+  source = shenandoah_cast_not_null(source);
+  source = shenandoah_read_barrier(source);
   Node* sourceOffset  = load_String_offset(no_ctrl, string_object);
   Node* sourceCount   = load_String_length(no_ctrl, string_object);
 
@@ -1444,6 +1454,8 @@ Node* LibraryCallKit::string_indexOf(Node* string_object, ciTypeArray* target_ar
   if (UseImplicitStableValues) {
     target = cast_array_to_stable(target, target_type);
   }
+
+  target = shenandoah_read_barrier(target);
 
   IdealKit kit(this, false, true);
 #define __ kit.
@@ -1532,6 +1544,8 @@ bool LibraryCallKit::inline_string_indexOf() {
 
     // Get start addr of source string
     Node* source = load_String_value(no_ctrl, receiver);
+    source = shenandoah_cast_not_null(source);
+    source = shenandoah_read_barrier(source);
     Node* source_offset = load_String_offset(no_ctrl, receiver);
     Node* source_start = array_element_address(source, source_offset, T_CHAR);
 
@@ -1540,6 +1554,8 @@ bool LibraryCallKit::inline_string_indexOf() {
 
     // Get start addr of substring
     Node* substr = load_String_value(no_ctrl, arg);
+    substr = shenandoah_cast_not_null(substr);
+    substr = shenandoah_read_barrier(substr);
     Node* substr_offset = load_String_offset(no_ctrl, arg);
     Node* substr_start = array_element_address(substr, substr_offset, T_CHAR);
 
