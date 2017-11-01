@@ -233,6 +233,12 @@
   product_rw(bool, ShenandoahRegionSampling, false,                         \
           "Turns on heap region sampling via JVMStat")                      \
                                                                             \
+  experimental(uintx, ShenandoahControlLoopInterval, 10,                    \
+              "The sleep interval for control loop that drives the cycles. "\
+              "Lower values would increase GC responsiveness to changing "  \
+              "heap conditions, at the expense of higher perf overhead. "   \
+              "Time is in milliseconds.")                                   \
+                                                                            \
   diagnostic(bool, ShenandoahWriteBarrier, true,                            \
           "Turn on/off write barriers in Shenandoah")                       \
                                                                             \

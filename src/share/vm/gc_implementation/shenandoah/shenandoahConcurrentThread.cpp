@@ -110,8 +110,6 @@ void ShenandoahConcurrentThread::run() {
       }
 
       reset_conc_gc_requested();
-    } else {
-      Thread::current()->_ParkEvent->park(10);
     }
 
     // Try to uncommit stale regions
@@ -120,6 +118,9 @@ void ShenandoahConcurrentThread::run() {
       heap->handle_heap_shrinkage();
       last_shrink_time = current;
     }
+
+    // Wait before performing the next action
+    Thread::current()->_ParkEvent->park(ShenandoahControlLoopInterval);
 
     // Make sure the _do_full_gc flag changes are seen.
     OrderAccess::storeload();
