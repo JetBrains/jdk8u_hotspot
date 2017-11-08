@@ -257,7 +257,7 @@ ifeq ($(USE_CLANG), true)
 # Not yet supported by clang in Xcode 4.6.2
 #  WARNINGS_ARE_ERRORS += -Wno-tautological-constant-out-of-range-compare
   WARNINGS_ARE_ERRORS += -Wno-delete-non-virtual-dtor -Wno-deprecated -Wno-format -Wno-dynamic-class-memaccess
-  WARNINGS_ARE_ERRORS += -Wno-empty-body
+  WARNINGS_ARE_ERRORS += -Wno-empty-body -Wno-shorten-64-to-32 -Wno-sign-conversion
 endif
 
 WARNING_FLAGS = -Wpointer-arith -Wsign-compare -Wundef
@@ -267,7 +267,7 @@ ifeq "$(shell expr \( $(CC_VER_MAJOR) \> 4 \) \| \( \( $(CC_VER_MAJOR) = 4 \) \&
   # conversions which might affect the values. Only enable it in earlier versions.
   WARNING_FLAGS = -Wunused-function
   ifeq ($(USE_CLANG),)
-    WARNING_FLAGS += -Wconversion
+    WARNING_FLAGS += -Wno-conversion -Wno-logical-op-parentheses -Wno-tautological-undefined-compare -Wno-shift-negative-value -Wno-switch -Wno-format
   endif
 endif
 
