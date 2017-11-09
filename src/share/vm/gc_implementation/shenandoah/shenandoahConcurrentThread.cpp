@@ -47,6 +47,7 @@ ShenandoahConcurrentThread::ShenandoahConcurrentThread() :
   _do_full_gc(0),
   _do_concurrent_gc(0),
   _do_counters_update(0),
+  _force_counters_update(0),
   _full_gc_cause(GCCause::_no_cause_specified),
   _graceful_shutdown(0)
 {
@@ -59,7 +60,8 @@ ShenandoahConcurrentThread::~ShenandoahConcurrentThread() {
 }
 
 void ShenandoahPeriodicTask::task() {
-  _thread->do_counters_update();
+  _thread->handle_force_counters_update();
+  _thread->handle_counters_update();
 }
 
 void ShenandoahConcurrentThread::run() {
@@ -90,6 +92,12 @@ void ShenandoahConcurrentThread::run() {
     bool full_gc_requested = is_full_gc();
     bool gc_requested = conc_gc_requested || full_gc_requested;
 
+    if (gc_requested) {
+      // If GC was requested, we are sampling the counters even without actual triggers
+      // from allocation machinery. This captures GC phases more accurately.
+      set_forced_counters_update(true);
+    }
+
     if (full_gc_requested) {
       service_fullgc_cycle();
     } else if (conc_gc_requested) {
@@ -97,9 +105,6 @@ void ShenandoahConcurrentThread::run() {
     }
 
     if (gc_requested) {
-      // Update counters when GC was requested
-      do_counters_update();
-
       // Coming out of (cancelled) concurrent GC, reset these for sanity
       if (heap->is_evacuation_in_progress()) {
         heap->set_evacuation_in_progress_concurrently(false);
@@ -110,6 +115,11 @@ void ShenandoahConcurrentThread::run() {
       }
 
       reset_conc_gc_requested();
+
+      // Disable forced counters update, and update counters one more time
+      // to capture the state at the end of GC session.
+      handle_force_counters_update();
+      set_forced_counters_update(false);
     }
 
     // Try to uncommit stale regions
@@ -461,9 +471,16 @@ void ShenandoahConcurrentThread::reset_conc_gc_requested() {
   ml.notify_all();
 }
 
-void ShenandoahConcurrentThread::do_counters_update() {
+void ShenandoahConcurrentThread::handle_counters_update() {
   if (OrderAccess::load_acquire(&_do_counters_update) == 1) {
     OrderAccess::release_store(&_do_counters_update, 0);
+    ShenandoahHeap::heap()->monitoring_support()->update_counters();
+  }
+}
+
+void ShenandoahConcurrentThread::handle_force_counters_update() {
+  if (OrderAccess::load_acquire(&_force_counters_update) == 1) {
+    OrderAccess::release_store(&_do_counters_update, 0); // reset these too, we do update now!
     ShenandoahHeap::heap()->monitoring_support()->update_counters();
   }
 }
@@ -472,6 +489,10 @@ void ShenandoahConcurrentThread::trigger_counters_update() {
   if (OrderAccess::load_acquire(&_do_counters_update) == 0) {
     OrderAccess::release_store(&_do_counters_update, 1);
   }
+}
+
+void ShenandoahConcurrentThread::set_forced_counters_update(bool value) {
+  OrderAccess::release_store(&_force_counters_update, value ? 1 : 0);
 }
 
 void ShenandoahConcurrentThread::print() const {
