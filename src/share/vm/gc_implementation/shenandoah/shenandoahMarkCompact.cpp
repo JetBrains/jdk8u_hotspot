@@ -130,6 +130,10 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
     }
     _gc_tracer->report_gc_start(gc_cause, _gc_timer->gc_start());
 
+    if (ShenandoahVerify) {
+      heap->verifier()->verify_before_fullgc();
+    }
+
     heap->set_full_gc_in_progress(true);
 
     assert(SafepointSynchronize::is_at_safepoint(), "must be at a safepoint");
@@ -166,13 +170,6 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       rp->disable_discovery();
       rp->abandon_partial_discovery();
       rp->verify_no_references_recorded();
-
-      // e. Verify heap before changing the regions
-      if (ShenandoahVerify) {
-        // Full GC should only be called between regular concurrent cycles, therefore
-        // those verifications should be valid.
-        heap->verifier()->verify_before_fullgc();
-      }
 
       {
         ShenandoahHeapLocker lock(heap->lock());
@@ -216,6 +213,8 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
         phase1_mark_heap();
       }
 
+      heap->set_full_gc_move_in_progress(true);
+
       // Setup workers for the rest
       {
         OrderAccess::fence();
@@ -248,15 +247,16 @@ void ShenandoahMarkCompact::do_mark_compact(GCCause::Cause gc_cause) {
       // refs processing: clean slate
       // rp.enqueue_discovered_references();
 
-      if (ShenandoahVerify) {
-        heap->verifier()->verify_after_fullgc();
-      }
-
       heap->set_bytes_allocated_since_cm(0);
 
       heap->set_need_update_refs(false);
 
+      heap->set_full_gc_move_in_progress(false);
       heap->set_full_gc_in_progress(false);
+
+      if (ShenandoahVerify) {
+        heap->verifier()->verify_after_fullgc();
+      }
     }
 
     _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());

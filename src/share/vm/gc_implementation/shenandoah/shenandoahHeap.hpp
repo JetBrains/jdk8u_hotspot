@@ -170,6 +170,7 @@ private:
   unsigned int _concurrent_mark_in_progress;
 
   bool _full_gc_in_progress;
+  bool _full_gc_move_in_progress;
   bool _update_refs_in_progress;
 
   unsigned int _evacuation_in_progress;
@@ -308,6 +309,9 @@ public:
 
   void set_full_gc_in_progress(bool in_progress);
   bool is_full_gc_in_progress() const;
+
+  void set_full_gc_move_in_progress(bool in_progress);
+  bool is_full_gc_move_in_progress() const;
 
   void set_update_refs_in_progress(bool in_progress);
   bool is_update_refs_in_progress() const;
