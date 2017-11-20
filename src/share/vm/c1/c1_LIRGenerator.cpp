@@ -1835,7 +1835,7 @@ void LIRGenerator::do_LoadField(LoadField* x) {
 }
 
 LIR_Opr LIRGenerator::shenandoah_read_barrier(LIR_Opr obj, CodeEmitInfo* info, bool need_null_check) {
-  if (UseShenandoahGC) {
+  if (UseShenandoahGC && ShenandoahReadBarrier) {
 
     LabelObj* done = new LabelObj();
     LIR_Opr result = new_register(T_OBJECT);
@@ -1855,7 +1855,7 @@ LIR_Opr LIRGenerator::shenandoah_read_barrier(LIR_Opr obj, CodeEmitInfo* info, b
 }
 
 LIR_Opr LIRGenerator::shenandoah_write_barrier(LIR_Opr obj, CodeEmitInfo* info, bool need_null_check) {
-  if (UseShenandoahGC) {
+  if (UseShenandoahGC && ShenandoahWriteBarrier) {
 
     LIR_Opr result = new_register(T_OBJECT);
     __ shenandoah_wb(obj, result, info ? new CodeEmitInfo(info) : NULL, need_null_check);

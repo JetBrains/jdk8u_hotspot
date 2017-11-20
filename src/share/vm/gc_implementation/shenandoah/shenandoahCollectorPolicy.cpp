@@ -376,11 +376,23 @@ void ShenandoahHeuristics::record_bytes_end_CM(size_t bytes) {
                                                                    : bytes;
 }
 
+#define SHENANDOAH_PASSIVE_OVERRIDE_FLAG(name)                              \
+  do {                                                                      \
+    if (FLAG_IS_DEFAULT(name) && (name)) {                                  \
+      log_info(gc)("Passive heuristics implies -XX:-" #name " by default"); \
+      FLAG_SET_DEFAULT(name, false);                                        \
+    }                                                                       \
+  } while (0)
+
 class ShenandoahPassiveHeuristics : public ShenandoahHeuristics {
 public:
   ShenandoahPassiveHeuristics() : ShenandoahHeuristics() {
     // Do not allow concurrent cycles.
     FLAG_SET_DEFAULT(ExplicitGCInvokesConcurrent, false);
+
+    // Disable known barriers by default.
+    SHENANDOAH_PASSIVE_OVERRIDE_FLAG(ShenandoahWriteBarrier);
+    SHENANDOAH_PASSIVE_OVERRIDE_FLAG(ShenandoahReadBarrier);
   }
 
   virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
