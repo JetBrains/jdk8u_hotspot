@@ -46,7 +46,6 @@ void ShenandoahBarrierSet::interpreter_read_barrier_not_null(MacroAssembler* mas
 }
 
 void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Register dst) {
-
   if (! ShenandoahWriteBarrier) {
     return interpreter_read_barrier(masm, dst);
   }
@@ -98,15 +97,18 @@ void ShenandoahHeap::compile_prepare_oop(MacroAssembler* masm, Register obj) {
 
 void ShenandoahBarrierSet::asm_acmp_barrier(MacroAssembler* masm,
                                             Register op1, Register op2) {
-  Label done;
-  __ br(Assembler::EQ, done);
-  // The object may have been evacuated, but we won't see it without a
-  // membar here.
-  __ membar(Assembler::LoadStore|Assembler::LoadLoad);
-  interpreter_read_barrier(masm, op1);
-  interpreter_read_barrier(masm, op2);
-  __ cmp(op1, op2);
-  __ bind(done);
+  assert(UseShenandoahGC, "Should be enabled");
+  if (ShenandoahAcmpBarrier) {
+    Label done;
+    __ br(Assembler::EQ, done);
+    // The object may have been evacuated, but we won't see it without a
+    // membar here.
+    __ membar(Assembler::LoadStore|Assembler::LoadLoad);
+    interpreter_read_barrier(masm, op1);
+    interpreter_read_barrier(masm, op2);
+    __ cmp(op1, op2);
+    __ bind(done);
+  }
 }
 
 #endif

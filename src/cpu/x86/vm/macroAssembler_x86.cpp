@@ -3882,7 +3882,7 @@ void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register
 void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register oldval, Register newval,
                               bool exchange,
                               Register tmp1, Register tmp2) {
-  assert (UseShenandoahGC, "Should only be used with Shenandoah");
+  assert (UseShenandoahGC && ShenandoahCASBarrier, "Should only be used with Shenandoah");
   assert(oldval == rax, "must be in rax for implicit use in cmpxchg");
 
   Label retry, done;
@@ -4449,7 +4449,7 @@ void MacroAssembler::shenandoah_write_barrier(Register dst) {
 }
 #else
 void MacroAssembler::shenandoah_write_barrier(Register dst) {
-  assert(UseShenandoahGC, "must only be called with Shenandoah GC active");
+  assert(UseShenandoahGC && ShenandoahWriteBarrier, "Should be enabled");
 
   Label done;
 
@@ -8896,7 +8896,7 @@ void MacroAssembler::cmpoops(Register src1, Register src2) {
 
 void MacroAssembler::cmpoops(Register src1, Address src2) {
   cmpptr(src1, src2);
-  if (UseShenandoahGC) {
+  if (UseShenandoahGC && ShenandoahAcmpBarrier) {
     Label done;
     jccb(Assembler::equal, done);
     movptr(rscratch2, src2);

@@ -36,7 +36,9 @@ private:
     _heap->maybe_update_oop_ref(p);
   }
 public:
-  ShenandoahUpdateRefsForOopClosure() : _heap(ShenandoahHeap::heap()) {}
+  ShenandoahUpdateRefsForOopClosure() : _heap(ShenandoahHeap::heap()) {
+    assert(UseShenandoahGC && ShenandoahCloneBarrier, "should be enabled");
+  }
   void do_oop(oop* p)       { do_oop_work(p); }
   void do_oop(narrowOop* p) { do_oop_work(p); }
 };
@@ -165,6 +167,7 @@ void ShenandoahBarrierSet::write_ref_array_work(MemRegion r) {
 
 template <class T>
 void ShenandoahBarrierSet::write_ref_array_loop(HeapWord* start, size_t count) {
+  assert(UseShenandoahGC && ShenandoahCloneBarrier, "Should be enabled");
   ShenandoahUpdateRefsForOopClosure cl;
   T* dst = (T*) start;
   for (size_t i = 0; i < count; i++) {
@@ -173,7 +176,10 @@ void ShenandoahBarrierSet::write_ref_array_loop(HeapWord* start, size_t count) {
 }
 
 void ShenandoahBarrierSet::write_ref_array(HeapWord* start, size_t count) {
-  if (! need_update_refs_barrier()) return;
+  assert(UseShenandoahGC, "should be enabled");
+  if (!ShenandoahCloneBarrier) return;
+  if (!need_update_refs_barrier()) return;
+
   if (UseCompressedOops) {
     write_ref_array_loop<narrowOop>(start, count);
   } else {
@@ -183,6 +189,7 @@ void ShenandoahBarrierSet::write_ref_array(HeapWord* start, size_t count) {
 
 template <class T>
 void ShenandoahBarrierSet::write_ref_array_pre_work(T* dst, int count) {
+  assert (UseShenandoahGC && ShenandoahSATBBarrier, "Should be enabled");
 
 #ifdef ASSERT
     if (_heap->is_in(dst) &&
@@ -205,13 +212,13 @@ void ShenandoahBarrierSet::write_ref_array_pre_work(T* dst, int count) {
 }
 
 void ShenandoahBarrierSet::write_ref_array_pre(oop* dst, int count, bool dest_uninitialized) {
-  if (! dest_uninitialized) {
+  if (! dest_uninitialized && ShenandoahSATBBarrier) {
     write_ref_array_pre_work(dst, count);
   }
 }
 
 void ShenandoahBarrierSet::write_ref_array_pre(narrowOop* dst, int count, bool dest_uninitialized) {
-  if (! dest_uninitialized) {
+  if (! dest_uninitialized && ShenandoahSATBBarrier) {
     write_ref_array_pre_work(dst, count);
   }
 }
@@ -274,7 +281,8 @@ void ShenandoahBarrierSet::write_ref_field_work(void* v, oop o, bool release) {
 }
 
 void ShenandoahBarrierSet::write_region_work(MemRegion mr) {
-
+  assert(UseShenandoahGC, "should be enabled");
+  if (!ShenandoahCloneBarrier) return;
   if (! need_update_refs_barrier()) return;
 
   // This is called for cloning an object (see jvm.cpp) after the clone
@@ -294,7 +302,7 @@ oop ShenandoahBarrierSet::read_barrier(oop src) {
 
 bool ShenandoahBarrierSet::obj_equals(oop obj1, oop obj2) {
   bool eq = oopDesc::unsafe_equals(obj1, obj2);
-  if (! eq) {
+  if (! eq && ShenandoahAcmpBarrier) {
     OrderAccess::loadload();
     obj1 = resolve_oop_static(obj1);
     obj2 = resolve_oop_static(obj2);

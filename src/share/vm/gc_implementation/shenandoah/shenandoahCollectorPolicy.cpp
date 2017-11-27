@@ -391,8 +391,12 @@ public:
     FLAG_SET_DEFAULT(ExplicitGCInvokesConcurrent, false);
 
     // Disable known barriers by default.
+    SHENANDOAH_PASSIVE_OVERRIDE_FLAG(ShenandoahSATBBarrier);
     SHENANDOAH_PASSIVE_OVERRIDE_FLAG(ShenandoahWriteBarrier);
     SHENANDOAH_PASSIVE_OVERRIDE_FLAG(ShenandoahReadBarrier);
+    SHENANDOAH_PASSIVE_OVERRIDE_FLAG(ShenandoahCASBarrier);
+    SHENANDOAH_PASSIVE_OVERRIDE_FLAG(ShenandoahAcmpBarrier);
+    SHENANDOAH_PASSIVE_OVERRIDE_FLAG(ShenandoahCloneBarrier);
   }
 
   virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,

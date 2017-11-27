@@ -2293,7 +2293,7 @@ void Parse::do_one_bytecode() {
     maybe_add_safepoint(iter().get_dest());
     a = pop();
     b = pop();
-    if (UseShenandoahGC && ShenandoahVerifyOptoBarriers) {
+    if (UseShenandoahGC && ShenandoahAcmpBarrier && ShenandoahVerifyOptoBarriers) {
       a = shenandoah_write_barrier(a);
       b = shenandoah_write_barrier(b);
     }

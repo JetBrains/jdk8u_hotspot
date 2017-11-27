@@ -7356,7 +7356,7 @@ instruct compareAndSwapP(rRegI res,
                          rax_RegP oldval, rRegP newval,
                          rFlagsReg cr)
 %{
-  predicate(VM_Version::supports_cx8() && (!UseShenandoahGC || n->in(3)->in(1)->bottom_type() == TypePtr::NULL_PTR));
+  predicate(VM_Version::supports_cx8() && (!UseShenandoahGC || !ShenandoahCASBarrier || n->in(3)->in(1)->bottom_type() == TypePtr::NULL_PTR));
   match(Set res (CompareAndSwapP mem_ptr (Binary oldval newval)));
   effect(KILL cr, KILL oldval);
 
@@ -7381,7 +7381,7 @@ instruct compareAndSwapP_shenandoah(rRegI res,
                                     rax_RegP oldval, rRegP newval,
                                     rFlagsReg cr)
 %{
-  predicate(VM_Version::supports_cx8() && UseShenandoahGC);
+  predicate(VM_Version::supports_cx8() && UseShenandoahGC && ShenandoahCASBarrier);
   match(Set res (CompareAndSwapP mem_ptr (Binary oldval newval)));
   effect(TEMP tmp1, TEMP tmp2, KILL cr, KILL oldval);
 
@@ -7448,7 +7448,7 @@ instruct compareAndSwapN(rRegI res,
                           memory mem_ptr,
                           rax_RegN oldval, rRegN newval,
                           rFlagsReg cr) %{
-  predicate(!UseShenandoahGC);
+  predicate(!UseShenandoahGC || !ShenandoahCASBarrier);
   match(Set res (CompareAndSwapN mem_ptr (Binary oldval newval)));
   effect(KILL cr, KILL oldval);
 
@@ -7472,7 +7472,7 @@ instruct compareAndSwapN_shenandoah(rRegI res,
                                     rRegP tmp1, rRegP tmp2,
                                     rax_RegN oldval, rRegN newval,
                                     rFlagsReg cr) %{
-  predicate(UseShenandoahGC);
+  predicate(UseShenandoahGC && ShenandoahCASBarrier);
   match(Set res (CompareAndSwapN mem_ptr (Binary oldval newval)));
   effect(TEMP tmp1, TEMP tmp2, KILL cr, KILL oldval);
 

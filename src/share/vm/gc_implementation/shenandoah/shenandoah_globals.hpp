@@ -239,11 +239,23 @@
               "heap conditions, at the expense of higher perf overhead. "   \
               "Time is in milliseconds.")                                   \
                                                                             \
+  diagnostic(bool, ShenandoahSATBBarrier, true,                             \
+          "Turn on/off SATB barriers in Shenandoah")                        \
+                                                                            \
   diagnostic(bool, ShenandoahWriteBarrier, true,                            \
           "Turn on/off write barriers in Shenandoah")                       \
                                                                             \
   diagnostic(bool, ShenandoahReadBarrier, true,                             \
           "Turn on/off read barriers in Shenandoah")                        \
+                                                                            \
+  diagnostic(bool, ShenandoahCASBarrier, true,                              \
+          "Turn on/off CAS barriers in Shenandoah")                         \
+                                                                            \
+  diagnostic(bool, ShenandoahAcmpBarrier, true,                             \
+          "Turn on/off acmp barriers in Shenandoah")                        \
+                                                                            \
+  diagnostic(bool, ShenandoahCloneBarrier, true,                            \
+          "Turn on/off clone barriers in Shenandoah")                       \
                                                                             \
   diagnostic(bool, ShenandoahStoreCheck, false,                             \
           "Emit additional code that checks objects are written to only"    \

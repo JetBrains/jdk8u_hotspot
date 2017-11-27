@@ -2022,7 +2022,7 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
     if ( op->code() == lir_cas_obj) {
 #ifdef _LP64
       if (UseCompressedOops) {
-        if (UseShenandoahGC) {
+        if (UseShenandoahGC && ShenandoahCASBarrier) {
           Register tmp1 = op->tmp1()->as_register();
           Register tmp2 = op->tmp2()->as_register();
 
@@ -2043,7 +2043,7 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
       } else
 #endif
       {
-        if (UseShenandoahGC) {
+        if (UseShenandoahGC && ShenandoahCASBarrier) {
           Register tmp1 = op->tmp1()->as_register();
           Register tmp2 = op->tmp2()->as_register();
           __ cmpxchg_oop_shenandoah(NULL, Address(addr, 0), cmpval, newval, true, tmp1, tmp2);

@@ -184,7 +184,7 @@ bool ShenandoahBarrierNode::needs_barrier_impl(PhaseTransform* phase, Shenandoah
  */
 void ShenandoahBarrierNode::do_cmpp_if(GraphKit& kit, Node*& taken_branch, Node*& untaken_branch, Node*& taken_memory, Node*& untaken_memory) {
   assert(taken_memory == NULL && untaken_memory == NULL, "unexpected memory inputs");
-  if (!UseShenandoahGC || ShenandoahVerifyOptoBarriers) {
+  if (!UseShenandoahGC || !ShenandoahAcmpBarrier || ShenandoahVerifyOptoBarriers) {
     return;
   }
   if (taken_branch->is_top() || untaken_branch->is_top()) {

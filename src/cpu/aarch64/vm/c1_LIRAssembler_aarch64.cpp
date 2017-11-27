@@ -1695,7 +1695,7 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
     assert(op->tmp1()->is_valid(), "must be");
     Register t1 = op->tmp1()->as_register();
     if (UseCompressedOops) {
-      if (UseShenandoahGC) {
+      if (UseShenandoahGC && ShenandoahCASBarrier) {
         __ encode_heap_oop(t1, cmpval);
         cmpval = t1;
         assert(op->tmp2()->is_valid(), "must be");
@@ -1713,7 +1713,7 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
         __ eorw (res, r8, 1);
       }
     } else {
-      if (UseShenandoahGC) {
+      if (UseShenandoahGC && ShenandoahCASBarrier) {
         __ cmpxchg_oop_shenandoah(addr, cmpval, newval, Assembler::xword, /*acquire*/ false, /*release*/ true, /*weak*/ false);
         __ csetw(res, Assembler::EQ);
       } else {

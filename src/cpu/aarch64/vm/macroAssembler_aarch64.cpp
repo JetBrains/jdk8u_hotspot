@@ -3791,7 +3791,7 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
 }
 
 void MacroAssembler::shenandoah_write_barrier(Register dst) {
-  assert(UseShenandoahGC, "must only be called with Shenandoah GC active");
+  assert(UseShenandoahGC && ShenandoahWriteBarrier, "Should be enabled");
   assert(dst != rscratch1, "need rscratch1");
   assert(dst != rscratch2, "need rscratch2");
 

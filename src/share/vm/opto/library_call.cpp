@@ -4589,7 +4589,7 @@ void LibraryCallKit::copy_to_clone(Node* obj, Node* alloc_obj, Node* obj_size, b
                                src, NULL, dest, NULL, countx,
                                /*dest_uninitialized*/true);
 
-  if (UseShenandoahGC) {
+  if (UseShenandoahGC && ShenandoahCloneBarrier) {
     // Make sure that references in the cloned object are updated for Shenandoah.
     make_runtime_call(RC_LEAF|RC_NO_FP,
                       OptoRuntime::shenandoah_clone_barrier_Type(),
