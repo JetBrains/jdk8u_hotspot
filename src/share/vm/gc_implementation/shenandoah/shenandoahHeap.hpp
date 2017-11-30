@@ -39,6 +39,7 @@ class ShenandoahFreeSet;
 class ShenandoahHeapRegion;
 class ShenandoahHeapRegionClosure;
 class ShenandoahHeapRegionSet;
+class ShenandoahMarkCompact;
 class ShenandoahMonitoringSupport;
 class ShenandoahPhaseTimings;
 class ShenandoahVerifier;
@@ -127,6 +128,7 @@ private:
   ShenandoahFreeSet* _free_regions;
   ShenandoahCollectionSet* _collection_set;
   ShenandoahConcurrentMark* _scm;
+  ShenandoahMarkCompact* _full_gc;
   ShenandoahVerifier*  _verifier;
 
 
@@ -397,7 +399,8 @@ public:
   size_t trash_humongous_region_at(ShenandoahHeapRegion *r);
 
   ShenandoahMonitoringSupport* monitoring_support();
-  ShenandoahConcurrentMark* concurrentMark() { return _scm;}
+  ShenandoahConcurrentMark* concurrentMark() { return _scm; }
+  ShenandoahMarkCompact* full_gc() { return _full_gc; }
   ShenandoahVerifier* verifier();
 
   ReferenceProcessor* ref_processor() { return _ref_processor;}

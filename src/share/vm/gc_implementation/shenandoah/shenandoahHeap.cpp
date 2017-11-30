@@ -310,8 +310,6 @@ jint ShenandoahHeap::initialize() {
 
   _concurrent_gc_thread = new ShenandoahConcurrentThread();
 
-  ShenandoahMarkCompact::initialize();
-
   ShenandoahCodeRoots::initialize();
 
   return JNI_OK;
@@ -358,6 +356,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   log_info(gc, init)("Parallel reference processing enabled: %s", BOOL_TO_STR(ParallelRefProcEnabled));
 
   _scm = new ShenandoahConcurrentMark();
+  _full_gc = new ShenandoahMarkCompact();
   _used = 0;
 
   _max_workers = MAX2(_max_workers, 1U);
@@ -507,6 +506,7 @@ void ShenandoahHeap::post_initialize() {
   }
 
   _scm->initialize(_max_workers);
+  _full_gc->initialize();
 
   ref_processing_init();
 }
