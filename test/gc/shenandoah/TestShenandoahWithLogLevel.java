@@ -24,10 +24,10 @@
  /*
  * @test TestShenandoahWithLogLevel.java
  * @summary Test Shenandoah with different log levels
- * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx4G -XX:+ShenandoahLogWarning TestShenandoahWithLogLevel
- * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx4G -XX:+ShenandoahLogInfo    TestShenandoahWithLogLevel
- * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx4G -XX:+ShenandoahLogDebug   TestShenandoahWithLogLevel
- * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx4G -XX:+ShenandoahLogTrace   TestShenandoahWithLogLevel
+ * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogWarning TestShenandoahWithLogLevel
+ * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogInfo    TestShenandoahWithLogLevel
+ * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogDebug   TestShenandoahWithLogLevel
+ * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogTrace   TestShenandoahWithLogLevel
  */
 
 
@@ -36,7 +36,7 @@ import java.util.*;
 public class TestShenandoahWithLogLevel {
   public static void main(String[] args) {
     ArrayList<Object> list = new ArrayList<>();
-    long count = 5000 * 1024 * 1024 / 16; // 500MB allocation
+    long count = 300 * 1024 * 1024 / 16; // 300MB allocation
     for (long index = 0; index < count; index ++) {
       Object sink = new Object();
       list.add(sink);
