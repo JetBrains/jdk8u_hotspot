@@ -1296,7 +1296,7 @@ void ShenandoahHeap::print_tracing_info() const {
 }
 
 void ShenandoahHeap::verify(bool silent, VerifyOption vo) {
-  if (SafepointSynchronize::is_at_safepoint() || ! UseTLAB) {
+  if (ShenandoahSafepoint::is_at_shenandoah_safepoint() || ! UseTLAB) {
     if (ShenandoahVerify) {
       verifier()->verify_generic(vo);
     } else {
