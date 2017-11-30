@@ -66,6 +66,14 @@ size_t ShenandoahHeapRegion::region_number() const {
   return _region_number;
 }
 
+void ShenandoahHeapRegion::report_illegal_transition(const char *method) {
+  ResourceMark rm;
+  stringStream ss;
+  ss.print("Illegal region state transition from \"%s\", at %s\n  ", region_state_to_string(_state), method);
+  print_on(&ss);
+  fatal(ss.as_string());
+}
+
 void ShenandoahHeapRegion::make_regular_allocation() {
   _heap->assert_heaplock_owned_by_current_thread();
   switch (_state) {
@@ -77,9 +85,7 @@ void ShenandoahHeapRegion::make_regular_allocation() {
     case _pinned:
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_regular)));
+      report_illegal_transition("regular allocation");
   }
 }
 
@@ -101,9 +107,7 @@ void ShenandoahHeapRegion::make_regular_bypass() {
     case _pinned:
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_regular)));
+      report_illegal_transition("regular bypass");
   }
 }
 
@@ -116,9 +120,7 @@ void ShenandoahHeapRegion::make_humongous_start() {
       _state = _humongous_start;
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_humongous_start)));
+      report_illegal_transition("humongous start allocation");
   }
 }
 
@@ -131,12 +133,9 @@ void ShenandoahHeapRegion::make_humongous_cont() {
       _state = _humongous_cont;
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_humongous_cont)));
+      report_illegal_transition("humongous continuation allocation");
   }
 }
-
 
 void ShenandoahHeapRegion::make_pinned() {
   _heap->assert_heaplock_owned_by_current_thread();
@@ -160,9 +159,7 @@ void ShenandoahHeapRegion::make_pinned() {
       _critical_pins++;
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_pinned)));
+      report_illegal_transition("pinning");
   }
 }
 
@@ -193,9 +190,7 @@ void ShenandoahHeapRegion::make_unpinned() {
       assert (_critical_pins == 0, "sanity");
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_regular)));
+      report_illegal_transition("unpinning");
   }
 }
 
@@ -207,9 +202,7 @@ void ShenandoahHeapRegion::make_cset() {
     case _cset:
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_cset)));
+      report_illegal_transition("cset");
   }
 }
 
@@ -226,42 +219,32 @@ void ShenandoahHeapRegion::make_trash() {
       _state = _trash;
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_trash)));
+      report_illegal_transition("trashing");
   }
 }
 
-void ShenandoahHeapRegion::make_empty_committed() {
+void ShenandoahHeapRegion::make_empty() {
   _heap->assert_heaplock_owned_by_current_thread();
   switch (_state) {
     case _trash:
       _state = _empty_committed;
       _empty_time = os::elapsedTime();
-    case _empty_committed:
       return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_empty_committed)));
+      report_illegal_transition("emptying");
   }
 }
 
-bool ShenandoahHeapRegion::make_empty_uncommitted() {
+void ShenandoahHeapRegion::make_uncommitted() {
   _heap->assert_heaplock_owned_by_current_thread();
   switch (_state) {
     case _empty_committed:
       do_uncommit();
       _state = _empty_uncommitted;
-      return true;
-    case _empty_uncommitted:
-      return false;
+      return;
     default:
-      fatal(err_msg("Disallowed transition from %s to %s",
-                    region_state_to_string(_state),
-                    region_state_to_string(_empty_uncommitted)));
+      report_illegal_transition("uncommiting");
   }
-  return false;
 }
 
 bool ShenandoahHeapRegion::rollback_allocation(uint size) {
@@ -446,7 +429,7 @@ void ShenandoahHeapRegion::recycle() {
   // We can only safely reset the C-TAMS pointer if the bitmap is clear for that region.
   assert(_heap->is_complete_bitmap_clear_range(bottom(), end()), "must be clear");
 
-  make_empty_committed();
+  make_empty();
 }
 
 HeapWord* ShenandoahHeapRegion::block_start_const(const void* p) const {
