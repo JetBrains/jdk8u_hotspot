@@ -309,6 +309,12 @@
   experimental(bool, ShenandoahPreclean, true,                              \
               "Do preclean phase before final mark")                        \
                                                                             \
+  experimental(bool, ShenandoahHumongousMoves, false,                       \
+          "Allow moving humongous regions. This makes GC more resistant "   \
+          "to external fragmentation that may otherwise fail other "        \
+          "humongous allocations, at the expense of higher GC copying "     \
+          "costs.")                                                         \
+                                                                            \
   diagnostic(bool, ShenandoahOOMDuringEvacALot, false,                      \
           "Simulate OOM during evacuation frequently.")                     \
                                                                             \
