@@ -69,7 +69,7 @@
           "region, in percents of heap region size. This also caps the "    \
           "maximum TLAB size.")                                             \
                                                                             \
-  experimental(size_t, ShenandoahTargetNumRegions, 2048,                    \
+  experimental(uintx, ShenandoahTargetNumRegions, 2048,                     \
           "Target number of regions. We try to get around that many "       \
           "regions, based on ShenandoahMinRegionSize and "                  \
           "ShenandoahMaxRegionSizeSize. ")                                  \
@@ -309,7 +309,7 @@
   experimental(bool, ShenandoahPreclean, true,                              \
               "Do preclean phase before final mark")                        \
                                                                             \
-  experimental(bool, ShenandoahHumongousMoves, false,                       \
+  experimental(bool, ShenandoahHumongousMoves, true,                        \
           "Allow moving humongous regions. This makes GC more resistant "   \
           "to external fragmentation that may otherwise fail other "        \
           "humongous allocations, at the expense of higher GC copying "     \

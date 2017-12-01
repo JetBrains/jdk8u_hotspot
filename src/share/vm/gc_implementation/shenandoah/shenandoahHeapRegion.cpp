@@ -98,6 +98,8 @@ void ShenandoahHeapRegion::make_regular_bypass() {
       do_commit();
     case _empty_committed:
     case _cset:
+    case _humongous_start:
+    case _humongous_cont:
       _state = _regular;
       return;
     case _pinned_cset:
@@ -124,6 +126,19 @@ void ShenandoahHeapRegion::make_humongous_start() {
   }
 }
 
+void ShenandoahHeapRegion::make_humongous_start_bypass() {
+  _heap->assert_heaplock_owned_by_current_thread();
+  switch (_state) {
+    case _regular:
+    case _humongous_start:
+    case _humongous_cont:
+      _state = _humongous_start;
+      return;
+    default:
+      report_illegal_transition("humongous start bypass");
+  }
+}
+
 void ShenandoahHeapRegion::make_humongous_cont() {
   _heap->assert_heaplock_owned_by_current_thread();
   switch (_state) {
@@ -134,6 +149,19 @@ void ShenandoahHeapRegion::make_humongous_cont() {
       return;
     default:
       report_illegal_transition("humongous continuation allocation");
+  }
+}
+
+void ShenandoahHeapRegion::make_humongous_cont_bypass() {
+  _heap->assert_heaplock_owned_by_current_thread();
+  switch (_state) {
+    case _regular:
+    case _humongous_start:
+    case _humongous_cont:
+      _state = _humongous_cont;
+      return;
+    default:
+      report_illegal_transition("humongous continuation bypass");
   }
 }
 
