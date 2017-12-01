@@ -157,7 +157,7 @@ bool ShenandoahBarrierSet::need_update_refs_barrier() {
   if (_heap->shenandoahPolicy()->update_refs()) {
     return _heap->is_update_refs_in_progress();
   } else {
-    return _heap->concurrent_mark_in_progress() && _heap->need_update_refs();
+    return _heap->is_concurrent_mark_in_progress() && _heap->need_update_refs();
   }
 }
 
@@ -236,7 +236,7 @@ void ShenandoahBarrierSet::write_ref_field_pre_static(T* field, oop newVal) {
       tty->print_cr("in_cset: %s", BOOL_TO_STR(heap->in_collection_set(field)));
       heap->heap_region_containing((HeapWord*)field)->print();
       tty->print_cr("marking: %s, evacuating: %s",
-                    BOOL_TO_STR(heap->concurrent_mark_in_progress()),
+                    BOOL_TO_STR(heap->is_concurrent_mark_in_progress()),
                     BOOL_TO_STR(heap->is_evacuation_in_progress()));
       assert(false, "We should have fixed this earlier");
     }
@@ -376,7 +376,7 @@ void ShenandoahBarrierSet::verify_safe_oop(oop p) {
     heap->heap_region_containing((HeapWord*) p)->print();
     tty->print_cr("top-at-mark-start: %p", heap->next_top_at_mark_start((HeapWord*) p));
     tty->print_cr("top-at-prev-mark-start: %p", heap->complete_top_at_mark_start((HeapWord*) p));
-    tty->print_cr("marking: %s, evacuating: %s", BOOL_TO_STR(heap->concurrent_mark_in_progress()), BOOL_TO_STR(heap->is_evacuation_in_progress()));
+    tty->print_cr("marking: %s, evacuating: %s", BOOL_TO_STR(heap->is_concurrent_mark_in_progress()), BOOL_TO_STR(heap->is_evacuation_in_progress()));
     assert(false, "We should have fixed this earlier");
   }
 }

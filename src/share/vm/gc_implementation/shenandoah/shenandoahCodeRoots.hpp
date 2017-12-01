@@ -28,6 +28,7 @@
 #include "code/codeCache.hpp"
 #include "memory/allocation.hpp"
 #include "memory/iterator.hpp"
+#include "gc_implementation/shenandoah/shenandoahSharedVariables.hpp"
 
 class ShenandoahHeap;
 class ShenandoahHeapRegion;
@@ -38,7 +39,7 @@ class ShenandoahCodeRootsIterator VALUE_OBJ_CLASS_SPEC {
 protected:
   ShenandoahHeap* _heap;
   ParallelCodeCacheIterator _par_iterator;
-  volatile jbyte _seq_claimed;
+  ShenandoahSharedFlag _seq_claimed;
   volatile jlong _claimed;
 protected:
   ShenandoahCodeRootsIterator();

@@ -89,7 +89,7 @@ inline bool ShenandoahHeap::is_marked_complete(oop obj) const {
 }
 
 inline bool ShenandoahHeap::need_update_refs() const {
-  return _need_update_refs;
+  return _need_update_refs.is_set();
 }
 
 inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) const {
@@ -212,15 +212,15 @@ inline oop ShenandoahHeap::maybe_update_oop_ref_not_null(T* p, oop heap_oop) {
 }
 
 inline bool ShenandoahHeap::cancelled_concgc() const {
-  return OrderAccess::load_acquire((jbyte*) &_cancelled_concgc) == 1;
+  return _cancelled_concgc.is_set();
 }
 
 inline bool ShenandoahHeap::try_cancel_concgc() {
-  return Atomic::cmpxchg(1, &_cancelled_concgc, 0) == 0;
+  return _cancelled_concgc.try_set();
 }
 
 inline void ShenandoahHeap::clear_cancelled_concgc() {
-  OrderAccess::release_store_fence(&_cancelled_concgc, 0);
+  _cancelled_concgc.unset();
 }
 
 inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size) {
@@ -356,24 +356,24 @@ inline bool ShenandoahHeap::in_collection_set(T p) const {
   return collection_set()->is_in(obj);
 }
 
-inline bool ShenandoahHeap::concurrent_mark_in_progress() const {
-  return _concurrent_mark_in_progress != 0;
-}
-
-inline address ShenandoahHeap::concurrent_mark_in_progress_addr() {
-  return (address) &(ShenandoahHeap::heap()->_concurrent_mark_in_progress);
-}
-
-inline address ShenandoahHeap::update_refs_in_progress_addr() {
-  return (address) &(ShenandoahHeap::heap()->_update_refs_in_progress);
+inline bool ShenandoahHeap::is_concurrent_mark_in_progress() const {
+  return _concurrent_mark_in_progress.is_set();
 }
 
 inline bool ShenandoahHeap::is_evacuation_in_progress() const {
-  return _evacuation_in_progress != 0;
+  return _evacuation_in_progress.is_set();
 }
 
-inline address ShenandoahHeap::evacuation_in_progress_addr() {
-  return (address) &(ShenandoahHeap::heap()->_evacuation_in_progress);
+inline bool ShenandoahHeap::is_full_gc_in_progress() const {
+  return _full_gc_in_progress.is_set();
+}
+
+inline bool ShenandoahHeap::is_full_gc_move_in_progress() const {
+  return _full_gc_move_in_progress.is_set();
+}
+
+inline bool ShenandoahHeap::is_update_refs_in_progress() const {
+  return _update_refs_in_progress.is_set();
 }
 
 inline bool ShenandoahHeap::allocated_after_next_mark_start(HeapWord* addr) const {

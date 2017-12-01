@@ -25,6 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTTHREAD_HPP
 
 #include "gc_implementation/shared/concurrentGCThread.hpp"
+#include "gc_implementation/shenandoah/shenandoahSharedVariables.hpp"
 #include "gc_interface/gcCause.hpp"
 #include "memory/resourceArea.hpp"
 #include "runtime/task.hpp"
@@ -61,11 +62,11 @@ public:
   void stop();
 
 private:
-  volatile jbyte _do_concurrent_gc;
-  volatile jbyte _do_full_gc;
-  volatile jbyte _graceful_shutdown;
-  volatile jbyte _do_counters_update;
-  volatile jbyte _force_counters_update;
+  ShenandoahSharedFlag _do_concurrent_gc;
+  ShenandoahSharedFlag _do_full_gc;
+  ShenandoahSharedFlag _graceful_shutdown;
+  ShenandoahSharedFlag _do_counters_update;
+  ShenandoahSharedFlag _force_counters_update;
   GCCause::Cause _full_gc_cause;
 
   bool check_cancellation();

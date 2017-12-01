@@ -318,11 +318,6 @@ jint ShenandoahHeap::initialize() {
 ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   SharedHeap(policy),
   _shenandoah_policy(policy),
-  _concurrent_mark_in_progress(0),
-  _evacuation_in_progress(0),
-  _full_gc_in_progress(false),
-  _full_gc_move_in_progress(false),
-  _update_refs_in_progress(false),
   _free_regions(NULL),
   _collection_set(NULL),
   _bytes_allocated_since_cm(0),
@@ -338,13 +333,8 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _mark_bit_map0(),
   _mark_bit_map1(),
   _aux_bit_map(),
-  _cancelled_concgc(0),
-  _need_update_refs(false),
-  _need_reset_bitmaps(false),
   _verifier(NULL),
-  _heap_lock(0),
 #ifdef ASSERT
-  _heap_lock_owner(NULL),
   _heap_expansion_count(0),
 #endif
   _gc_timer(new (ResourceObj::C_HEAP, mtGC) ConcurrentGCTimer()),
@@ -466,7 +456,7 @@ void ShenandoahHeap::print_on(outputStream* st) const {
                num_regions(), ShenandoahHeapRegion::region_size_bytes() / K);
 
   st->print("Status: ");
-  if (concurrent_mark_in_progress())       st->print("marking, ");
+  if (is_concurrent_mark_in_progress())    st->print("marking, ");
   if (is_evacuation_in_progress())         st->print("evacuating, ");
   if (is_update_refs_in_progress())        st->print("updating refs, ");
   if (is_full_gc_in_progress())            st->print("full gc, ");
@@ -834,27 +824,21 @@ class ShenandoahParallelEvacuationTask : public AbstractGangTask {
 private:
   ShenandoahHeap* const _sh;
   ShenandoahCollectionSet* const _cs;
-  volatile jbyte _claimed_codecache;
+  ShenandoahSharedFlag _claimed_codecache;
 
-  bool claim_codecache() {
-    jbyte old = Atomic::cmpxchg(1, &_claimed_codecache, 0);
-    return old == 0;
-  }
 public:
   ShenandoahParallelEvacuationTask(ShenandoahHeap* sh,
                          ShenandoahCollectionSet* cs) :
     AbstractGangTask("Parallel Evacuation Task"),
     _cs(cs),
-    _sh(sh),
-    _claimed_codecache(0)
-  {}
+    _sh(sh) {}
 
   void work(uint worker_id) {
 
     // If concurrent code cache evac is enabled, evacuate it here.
     // Note we cannot update the roots here, because we risk non-atomic stores to the alive
     // nmethods. The update would be handled elsewhere.
-    if (ShenandoahConcurrentEvacCodeRoots && claim_codecache()) {
+    if (ShenandoahConcurrentEvacCodeRoots && _claimed_codecache.try_set()) {
       ShenandoahEvacuateRootsClosure cl;
       MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
       CodeBlobToOopClosure blobs(&cl, !CodeBlobToOopClosure::FixRelocations);
@@ -1513,7 +1497,7 @@ void ShenandoahHeap::swap_mark_bitmaps() {
 }
 
 void ShenandoahHeap::stop_concurrent_marking() {
-  assert(concurrent_mark_in_progress(), "How else could we get here?");
+  assert(is_concurrent_mark_in_progress(), "How else could we get here?");
   if (! cancelled_concgc()) {
     // If we needed to update refs, and concurrent marking has been cancelled,
     // we need to finish updating references.
@@ -1531,7 +1515,7 @@ void ShenandoahHeap::stop_concurrent_marking() {
 }
 
 void ShenandoahHeap::set_concurrent_mark_in_progress(bool in_progress) {
-  _concurrent_mark_in_progress = in_progress ? 1 : 0;
+  _concurrent_mark_in_progress.set_cond(in_progress);
   JavaThread::satb_mark_queue_set().set_active_all_threads(in_progress, !in_progress);
 }
 
@@ -1551,8 +1535,7 @@ void ShenandoahHeap::set_evacuation_in_progress_at_safepoint(bool in_progress) {
 }
 
 void ShenandoahHeap::set_evacuation_in_progress(bool in_progress) {
-  _evacuation_in_progress = in_progress ? 1 : 0;
-  OrderAccess::fence();
+  _evacuation_in_progress.set_cond(in_progress);
 }
 
 void ShenandoahHeap::oom_during_evacuation() {
@@ -1570,7 +1553,7 @@ void ShenandoahHeap::oom_during_evacuation() {
     assert(! Threads_lock->owned_by_self()
            || SafepointSynchronize::is_at_safepoint(), "must not hold Threads_lock here");
     log_warning(gc)("OOM during evacuation. Let Java thread wait until evacuation finishes.");
-    while (_evacuation_in_progress) { // wait.
+    while (is_evacuation_in_progress()) { // wait.
       t->_ParkEvent->park(1);
     }
   }
@@ -1603,7 +1586,7 @@ bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
   assert(_heap != NULL, "sanity");
   obj = ShenandoahBarrierSet::resolve_oop_static_not_null(obj);
 #ifdef ASSERT
-  if (_heap->concurrent_mark_in_progress()) {
+  if (_heap->is_concurrent_mark_in_progress()) {
     assert(oopDesc::unsafe_equals(obj, ShenandoahBarrierSet::resolve_oop_static_not_null(obj)), "only query to-space");
   }
 #endif
@@ -1785,7 +1768,7 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
 }
 
 void ShenandoahHeap::set_need_update_refs(bool need_update_refs) {
-  _need_update_refs = need_update_refs;
+  _need_update_refs.set_cond(need_update_refs);
 }
 
 //fixme this should be in heapregionset
@@ -1828,9 +1811,20 @@ address ShenandoahHeap::in_cset_fast_test_addr() {
 }
 
 address ShenandoahHeap::cancelled_concgc_addr() {
-  return (address) &(ShenandoahHeap::heap()->_cancelled_concgc);
+  return (address) ShenandoahHeap::heap()->_cancelled_concgc.addr_of();
 }
 
+address ShenandoahHeap::concurrent_mark_in_progress_addr() {
+  return (address) ShenandoahHeap::heap()->_concurrent_mark_in_progress.addr_of();
+}
+
+address ShenandoahHeap::update_refs_in_progress_addr() {
+  return (address) ShenandoahHeap::heap()->_update_refs_in_progress.addr_of();
+}
+
+address ShenandoahHeap::evacuation_in_progress_addr() {
+  return (address) ShenandoahHeap::heap()->_evacuation_in_progress.addr_of();
+}
 
 size_t ShenandoahHeap::conservative_max_heap_alignment() {
   return ShenandoahMaxRegionSize;
@@ -1865,28 +1859,16 @@ HeapWord* ShenandoahHeap::complete_top_at_mark_start(HeapWord* region_base) {
 }
 
 void ShenandoahHeap::set_full_gc_in_progress(bool in_progress) {
-  _full_gc_in_progress = in_progress;
-}
-
-bool ShenandoahHeap::is_full_gc_in_progress() const {
-  return _full_gc_in_progress;
+  _full_gc_in_progress.set_cond(in_progress);
 }
 
 void ShenandoahHeap::set_full_gc_move_in_progress(bool in_progress) {
   assert (is_full_gc_in_progress(), "should be");
-  _full_gc_move_in_progress = in_progress;
-}
-
-bool ShenandoahHeap::is_full_gc_move_in_progress() const {
-  return _full_gc_move_in_progress;
+  _full_gc_move_in_progress.set_cond(in_progress);
 }
 
 void ShenandoahHeap::set_update_refs_in_progress(bool in_progress) {
-  _update_refs_in_progress = in_progress;
-}
-
-bool ShenandoahHeap::is_update_refs_in_progress() const {
-  return _update_refs_in_progress;
+  _update_refs_in_progress.set_cond(in_progress);
 }
 
 void ShenandoahHeap::register_nmethod(nmethod* nm) {
