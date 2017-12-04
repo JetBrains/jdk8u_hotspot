@@ -1776,7 +1776,24 @@ void Arguments::set_shenandoah_gc_flags() {
   if (FLAG_IS_DEFAULT(UseCountedLoopSafepoints)) {
     FLAG_SET_DEFAULT(UseCountedLoopSafepoints, true);
   }
-#endif
+
+#ifdef ASSERT
+  // C2 barrier verification is only reliable when all default barriers are enabled
+  if (ShenandoahVerifyOptoBarriers &&
+          (!FLAG_IS_DEFAULT(ShenandoahSATBBarrier)    ||
+           !FLAG_IS_DEFAULT(ShenandoahReadBarrier)    ||
+           !FLAG_IS_DEFAULT(ShenandoahWriteBarrier)   ||
+           !FLAG_IS_DEFAULT(ShenandoahCASBarrier)     ||
+           !FLAG_IS_DEFAULT(ShenandoahAcmpBarrier)    ||
+           !FLAG_IS_DEFAULT(ShenandoahCloneBarrier)
+          )) {
+    warning("Unusual barrier configuration, disabling C2 barrier verification");
+    FLAG_SET_DEFAULT(ShenandoahVerifyOptoBarriers, false);
+  }
+#else
+  guarantee(!ShenandoahVerifyOptoBarriers, "Should be disabled");
+#endif // ASSERT
+#endif // COMPILER2
 
   if (AlwaysPreTouch) {
     // Shenandoah handles pre-touch on its own. It does not let the

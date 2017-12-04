@@ -2308,9 +2308,11 @@ void Compile::Optimize() {
     igvn.optimize();
   }
 
+#ifdef ASSERT
   if (UseShenandoahGC && ShenandoahVerifyOptoBarriers) {
     ShenandoahBarrierNode::verify(C->root());
   }
+#endif
 
   {
     NOT_PRODUCT( TracePhase t2("macroExpand", &_t_macroExpand, TimeCompiler); )
