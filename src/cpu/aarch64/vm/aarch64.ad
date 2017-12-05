@@ -5768,8 +5768,8 @@ operand immPollPage()
 operand immByteMapBase()
 %{
   // Get base of card map
-  predicate((jbyte*)n->get_ptr() ==
-	((CardTableModRefBS*)(Universe::heap()->barrier_set()))->byte_map_base);
+  predicate(!UseShenandoahGC && // TODO: Should really check for BS::is_a, see JDK-8193193
+    (jbyte*)n->get_ptr() == ((CardTableModRefBS*)(Universe::heap()->barrier_set()))->byte_map_base);
   match(ConP);
 
   op_cost(0);
