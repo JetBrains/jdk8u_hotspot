@@ -24,6 +24,7 @@
 #ifndef SHARE_VM_GC_SHENANDOAHUTILS_HPP
 #define SHARE_VM_GC_SHENANDOAHUTILS_HPP
 
+#include "runtime/vmThread.hpp"
 #include "gc_implementation/shared/isGCActiveMark.hpp"
 #include "gc_implementation/shared/vmGCOperations.hpp"
 #include "memory/allocation.hpp"
@@ -68,6 +69,25 @@ private:
 public:
   ShenandoahAllocTrace(size_t words_size, ShenandoahHeap::AllocType alloc_type);
   ~ShenandoahAllocTrace();
+};
+
+class ShenandoahSafepoint : public AllStatic {
+public:
+  // check if Shenandoah GC safepoint is in progress
+  static inline bool is_at_shenandoah_safepoint() {
+    if (!SafepointSynchronize::is_at_safepoint()) return false;
+
+    VM_Operation* vm_op = VMThread::vm_operation();
+    if (vm_op == NULL) return false;
+
+    VM_Operation::VMOp_Type type = vm_op->type();
+    return type == VM_Operation::VMOp_ShenandoahInitMark ||
+           type == VM_Operation::VMOp_ShenandoahFinalMarkStartEvac ||
+           type == VM_Operation::VMOp_ShenandoahVerifyHeapAfterEvacuation ||
+           type == VM_Operation::VMOp_ShenandoahInitUpdateRefs ||
+           type == VM_Operation::VMOp_ShenandoahFinalUpdateRefs ||
+           type == VM_Operation::VMOp_ShenandoahFullGC;
+  }
 };
 
 #endif // SHARE_VM_GC_SHENANDOAHUTILS_HPP
