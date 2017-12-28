@@ -30,8 +30,7 @@
 #include "runtime/simpleThresholdPolicy.inline.hpp"
 #include "code/scopeDesc.hpp"
 
-
-void SimpleThresholdPolicy::print_counters(const char* prefix, methodHandle mh) {
+void SimpleThresholdPolicy::print_counters(const char* prefix, methodHandle mh, outputStream* my_tty) {
   int invocation_count = mh->invocation_count();
   int backedge_count = mh->backedge_count();
   MethodData* mdh = mh->method_data();
@@ -43,12 +42,18 @@ void SimpleThresholdPolicy::print_counters(const char* prefix, methodHandle mh) 
     mdo_invocations_start = mdh->invocation_count_start();
     mdo_backedges_start = mdh->backedge_count_start();
   }
-  tty->print(" %stotal=%d,%d %smdo=%d(%d),%d(%d)", prefix,
+  my_tty->print(" %stotal=%d,%d %smdo=%d(%d),%d(%d)", prefix,
       invocation_count, backedge_count, prefix,
       mdo_invocations, mdo_invocations_start,
       mdo_backedges, mdo_backedges_start);
-  tty->print(" %smax levels=%d,%d", prefix,
-      mh->highest_comp_level(), mh->highest_osr_comp_level());
+
+  if (!Arguments::perfguard_enabled()) {
+      my_tty->print(" %smax levels=%d,%d", prefix,
+          mh->highest_comp_level(), mh->highest_osr_comp_level());
+  }
+  else {
+      my_tty->print("\n");
+  }
 }
 
 // Print an event.
@@ -56,81 +61,97 @@ void SimpleThresholdPolicy::print_event(EventType type, methodHandle mh, methodH
                                         int bci, CompLevel level) {
   bool inlinee_event = mh() != imh();
 
-  ttyLocker tty_lock;
-  tty->print("%lf: [", os::elapsedTime());
+    ttyLocker tty_lock;
 
-  switch(type) {
-  case CALL:
-    tty->print("call");
-    break;
-  case LOOP:
-    tty->print("loop");
-    break;
-  case COMPILE:
-    tty->print("compile");
-    break;
-  case REMOVE_FROM_QUEUE:
-    tty->print("remove-from-queue");
-    break;
-  case UPDATE_IN_QUEUE:
-    tty->print("update-in-queue");
-    break;
-  case REPROFILE:
-    tty->print("reprofile");
-    break;
-  case MAKE_NOT_ENTRANT:
-    tty->print("make-not-entrant");
-    break;
-  default:
-    tty->print("unknown");
-  }
+    fileStream& fs = Arguments::perfguard_log_stream(".rate");
+    outputStream* my_tty = fs.is_open() ? &fs : tty;
 
-  tty->print(" level=%d ", level);
+    if (!Arguments::perfguard_enabled()) {
+      my_tty->print("%lf: [", os::elapsedTime());
 
-  ResourceMark rm;
-  char *method_name = mh->name_and_sig_as_C_string();
-  tty->print("[%s", method_name);
-  if (inlinee_event) {
-    char *inlinee_name = imh->name_and_sig_as_C_string();
-    tty->print(" [%s]] ", inlinee_name);
-  }
-  else tty->print("] ");
-  tty->print("@%d queues=%d,%d", bci, CompileBroker::queue_size(CompLevel_full_profile),
-                                      CompileBroker::queue_size(CompLevel_full_optimization));
+      switch(type) {
+      case CALL:
+        my_tty->print("call");
+        break;
+      case LOOP:
+        my_tty->print("loop");
+        break;
+      case COMPILE:
+        my_tty->print("compile");
+        break;
+      case REMOVE_FROM_QUEUE:
+        my_tty->print("remove-from-queue");
+        break;
+      case UPDATE_IN_QUEUE:
+        my_tty->print("update-in-queue");
+        break;
+      case REPROFILE:
+        my_tty->print("reprofile");
+        break;
+      case MAKE_NOT_ENTRANT:
+        my_tty->print("make-not-entrant");
+        break;
+      default:
+        my_tty->print("unknown");
+      }
 
-  print_specific(type, mh, imh, bci, level);
+      my_tty->print(" level=%d ", level);
 
-  if (type != COMPILE) {
-    print_counters("", mh);
-    if (inlinee_event) {
-      print_counters("inlinee ", imh);
+      if (inlinee_event) {
+        char *inlinee_name = imh->name_and_sig_as_C_string();
+        my_tty->print(" [%s]] ", inlinee_name);
+      }
+      else my_tty->print("] ");
+      my_tty->print("@%d queues=%d,%d", bci, CompileBroker::queue_size(CompLevel_full_profile),
+                                          CompileBroker::queue_size(CompLevel_full_optimization));
+
+      print_specific(type, mh, imh, bci, level);
     }
-    tty->print(" compilable=");
-    bool need_comma = false;
-    if (!mh->is_not_compilable(CompLevel_full_profile)) {
-      tty->print("c1");
-      need_comma = true;
+
+    if (Arguments::perfguard_enabled() && mh->rate() >= Arguments::perfguard_min_rate()) {
+        ResourceMark rm;
+        char *method_name = mh->name_and_sig_as_C_string();
+        my_tty->print("%s ", method_name);
+
+        my_tty->print(" rate=");
+        my_tty->print("%f\n", mh->rate());
     }
-    if (!mh->is_not_osr_compilable(CompLevel_full_profile)) {
-      if (need_comma) tty->print(",");
-      tty->print("c1-osr");
-      need_comma = true;
+
+    if (type != COMPILE) {
+        if (!Arguments::perfguard_enabled() || mh->rate() >= Arguments::perfguard_min_rate()) {
+            print_counters("", mh, my_tty);
+            if (inlinee_event) {
+              print_counters("inlinee ", imh, my_tty);
+            }
+        }
+        if (!Arguments::perfguard_enabled()) {
+            my_tty->print(" compilable=");
+            bool need_comma = false;
+            if (!mh->is_not_compilable(CompLevel_full_profile)) {
+              my_tty->print("c1");
+              need_comma = true;
+            }
+            if (!mh->is_not_osr_compilable(CompLevel_full_profile)) {
+              if (need_comma) tty->print(",");
+              my_tty->print("c1-osr");
+              need_comma = true;
+            }
+            if (!mh->is_not_compilable(CompLevel_full_optimization)) {
+              if (need_comma) tty->print(",");
+              my_tty->print("c2");
+              need_comma = true;
+            }
+            if (!mh->is_not_osr_compilable(CompLevel_full_optimization)) {
+              if (need_comma) tty->print(",");
+              my_tty->print("c2-osr");
+            }
+            tty->print(" status=");
+            if (mh->queued_for_compilation()) {
+              my_tty->print("in-queue");
+            } else my_tty->print("idle");
+            my_tty->print_cr("]");
+        }
     }
-    if (!mh->is_not_compilable(CompLevel_full_optimization)) {
-      if (need_comma) tty->print(",");
-      tty->print("c2");
-      need_comma = true;
-    }
-    if (!mh->is_not_osr_compilable(CompLevel_full_optimization)) {
-      if (need_comma) tty->print(",");
-      tty->print("c2-osr");
-    }
-    tty->print(" status=");
-    if (mh->queued_for_compilation()) {
-      tty->print("in-queue");
-    } else tty->print("idle");
-  }
-  tty->print_cr("]");
 }
 
 void SimpleThresholdPolicy::initialize() {

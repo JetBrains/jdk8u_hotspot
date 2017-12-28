@@ -281,6 +281,10 @@ class Arguments : AllStatic {
   // Option flags
   static bool   _has_profile;
   static const char*  _gc_log_filename;
+  static const char*  _perfguard_log_filename;
+  static bool _perfguard_enabled;
+  static uintx _perfguard_min_inst;
+  static uintx _perfguard_min_rate;
   // Value of the conservative maximum heap alignment needed
   static size_t  _conservative_max_heap_alignment;
 
@@ -515,6 +519,16 @@ class Arguments : AllStatic {
 
   // -Xloggc:<file>, if not specified will be NULL
   static const char* gc_log_filename()      { return _gc_log_filename; }
+
+  // -Xperfguardlog:<file>, if not specified will be NULL
+  static const char* perfguard_log_filename()      { return _perfguard_log_filename; }
+
+  static fileStream& perfguard_log_stream(const char* postfix);
+
+  static const bool perfguard_enabled()      { return _perfguard_enabled; }
+
+  static const uintx perfguard_min_inst()    { return _perfguard_min_inst; }
+  static const uintx perfguard_min_rate()    { return _perfguard_min_rate; }
 
   // -Xprof
   static bool has_profile()                 { return _has_profile; }

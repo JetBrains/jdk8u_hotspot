@@ -217,8 +217,8 @@ ifeq ($(USE_CLANG),)
   endif
 
   # Since GCC 5, there are some deprecated declarations warnings. They break compilation
-  ifeq "$(shell expr \( $(CC_VER_MAJOR) \>= 5 \) )" "1"
-    WARNING_FLAGS += -Wno-error=deprecated-declarations 
+  ifeq "$(shell expr \( $(CC_VER_MAJOR) \>= 4 \) )" "1"
+    WARNING_FLAGS += -Wno-error=deprecated-declarations -Wno-error=sign-compare
   endif
 
   # GCC 6 compilation fix

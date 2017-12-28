@@ -227,10 +227,12 @@ void KlassInfoHisto::print_elements(outputStream* st) const {
   jlong total = 0;
   julong totalw = 0;
   for(int i=0; i < elements()->length(); i++) {
-    st->print("%4d: ", i+1);
-    elements()->at(i)->print_on(st);
-    total += elements()->at(i)->count();
-    totalw += elements()->at(i)->words();
+    if (!Arguments::perfguard_enabled() || elements()->at(i)->count() >= Arguments::perfguard_min_inst()) {
+        st->print("%4d: ", i+1);
+        elements()->at(i)->print_on(st);
+        total += elements()->at(i)->count();
+        totalw += elements()->at(i)->words();
+    }
   }
   st->print_cr("Total " INT64_FORMAT_W(13) "  " UINT64_FORMAT_W(13),
                total, totalw * HeapWordSize);
@@ -512,6 +514,9 @@ void HeapInspection::heap_inspection(outputStream* st) {
     return;
   }
 
+  fileStream& fs = Arguments::perfguard_log_stream(".histo");
+  outputStream* my_st = fs.is_open() ? &fs : st;
+
   KlassInfoTable cit(_print_class_stats);
   if (!cit.allocation_failed()) {
     size_t missed_count = populate_table(&cit);
@@ -531,11 +536,11 @@ void HeapInspection::heap_inspection(outputStream* st) {
     cit.iterate(&hc);
 
     histo.sort();
-    histo.print_histo_on(st, _print_class_stats, _csv_format, _columns);
+    histo.print_histo_on(my_st, _print_class_stats, _csv_format, _columns);
   } else {
     st->print_cr("WARNING: Ran out of C-heap; histogram not generated");
   }
-  st->flush();
+  my_st->flush();
 }
 
 class FindInstanceClosure : public ObjectClosure {

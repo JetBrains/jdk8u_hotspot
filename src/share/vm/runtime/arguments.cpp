@@ -64,6 +64,8 @@
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.hpp"
 #endif // INCLUDE_ALL_GCS
+#include <map>
+#include <string>
 
 // Note: This is a special bug reporting site for the JVM
 #define DEFAULT_VENDOR_URL_BUG "http://bugreport.java.com/bugreport/crash.jsp"
@@ -98,7 +100,11 @@ int     Arguments::_num_jvm_args                = 0;
 char*  Arguments::_java_command                 = NULL;
 SystemProperty* Arguments::_system_properties   = NULL;
 const char*  Arguments::_gc_log_filename        = NULL;
+const char*  Arguments::_perfguard_log_filename   = NULL;
 bool   Arguments::_has_profile                  = false;
+bool   Arguments::_perfguard_enabled            = false;
+uintx  Arguments::_perfguard_min_inst           = 10000;
+uintx  Arguments::_perfguard_min_rate           = 1;
 size_t Arguments::_conservative_max_heap_alignment = 0;
 uintx  Arguments::_min_heap_size                = 0;
 uintx  Arguments::_min_heap_free_ratio          = 0;
@@ -3099,6 +3105,28 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args,
       FLAG_SET_CMDLINE(bool, PrintGC, true);
       FLAG_SET_CMDLINE(bool, PrintGCTimeStamps, true);
 
+    } else if (match_option(option, "-XperfguardMinInst:", &tail)) {
+        parse_uintx(tail, &_perfguard_min_inst, 0);
+
+    } else if (match_option(option, "-XperfguardMinRate:", &tail)) {
+        parse_uintx(tail, &_perfguard_min_rate, 0);
+
+    } else if (match_option(option, "-Xperfguard:", &tail)) {
+      _perfguard_enabled = true;
+      PrintTieredEvents = true;
+      PrintClassHistogramAfterFullGC = true;
+
+      _perfguard_log_filename = strdup(tail);
+      if (!is_filename_valid(_perfguard_log_filename)) {
+       jio_fprintf(defaultStream::output_stream(),
+                  "Invalid file name for use with -Xperfguard %s\n", _perfguard_log_filename);
+        return JNI_EINVAL;
+      }
+    } else if (match_option(option, "-Xperfguard", &tail)) {
+        _perfguard_enabled = true;
+        PrintTieredEvents = true;
+        PrintClassHistogramAfterFullGC = true;
+
     // JNI hooks
     } else if (match_option(option, "-Xcheck", &tail)) {
       if (!strcmp(tail, ":jni")) {
@@ -3405,6 +3433,25 @@ jint Arguments::parse_each_vm_init_arg(const JavaVMInitArgs* args,
 #endif // LINUX
   fix_appclasspath();
   return JNI_OK;
+}
+
+fileStream& Arguments::perfguard_log_stream(const char* postfix)
+{
+  static std::map<std::string, fileStream> streams;
+  static fileStream empty_fs;
+  std::map<std::string, fileStream>::iterator it = streams.find(postfix);
+  if (it != streams.end()) {
+    return it->second;
+  }
+  fileStream& fs = empty_fs;
+  if (perfguard_enabled() && perfguard_log_filename()) {
+//      char fname[strlen(perfguard_log_filename()) + strlen(postfix) + 1];
+      char fname[256];
+      strcpy(fname, perfguard_log_filename());
+      strcat(fname, postfix);
+      streams.insert(std::make_pair(postfix, fs = fileStream(fopen((const char*)fname, "a+"), false)));
+  }
+  return fs;
 }
 
 // Remove all empty paths from the app classpath (if IgnoreEmptyClassPaths is enabled)
