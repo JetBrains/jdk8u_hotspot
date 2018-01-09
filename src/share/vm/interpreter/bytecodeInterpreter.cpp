@@ -2569,9 +2569,9 @@ run:
 
         // this could definitely be cleaned up QQQ
         Method* callee;
-        Klass* iclass = cache->f1_as_klass();
         Method *interface_method = cache->f2_as_interface_method();
-        // InstanceKlass* interface = (InstanceKlass*) iclass;
+        InstanceKlass* iclass = interface_method->method_holder();
+
         // get receiver
         int parms = cache->parameter_size();
         oop rcvr = STACK_OBJECT(-parms);
@@ -2580,7 +2580,7 @@ run:
 
         // Receiver subtype check against resolved interface klass (REFC).
         {
-          InstanceKlass* refc = interface_method->method_holder();
+          Klass* refc = cache->f1_as_klass();
           itableOffsetEntry* scan;
           for (scan = (itableOffsetEntry*) int2->start_of_itable();
                scan->interface_klass() != NULL;
@@ -2609,8 +2609,8 @@ run:
         if (i == int2->itable_length()) {
           VM_JAVA_ERROR(vmSymbols::java_lang_IncompatibleClassChangeError(), "", note_no_trap);
         }
-
         int mindex = interface_method->itable_index();
+
         itableMethodEntry* im = ki->first_method_entry(rcvr->klass());
         callee = im[mindex].method();
         if (callee == NULL) {
