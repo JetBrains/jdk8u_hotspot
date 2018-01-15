@@ -3333,17 +3333,16 @@ void PhaseIdealLoop::shenandoah_test_evacuation_in_progress(Node* ctrl, int alia
   IdealLoopTree *loop = get_loop(ctrl);
   Node* thread = new (C) ThreadLocalNode();
   register_new_node(thread, ctrl);
-  Node* offset = _igvn.MakeConX(in_bytes(JavaThread::evacuation_in_progress_offset()));
+  Node* offset = _igvn.MakeConX(in_bytes(JavaThread::gc_state_offset()));
   set_ctrl(offset, C->root());
-  Node* evacuation_in_progress_adr = new (C) AddPNode(C->top(), thread, offset);
-  register_new_node(evacuation_in_progress_adr, ctrl);
-  uint evacuation_in_progress_idx = Compile::AliasIdxRaw;
-  const TypePtr* evacuation_in_progress_adr_type = NULL; // debug-mode-only argument
-  debug_only(evacuation_in_progress_adr_type = C->get_adr_type(evacuation_in_progress_idx));
+  Node* gc_state_addr = new (C) AddPNode(C->top(), thread, offset);
+  register_new_node(gc_state_addr, ctrl);
+  uint gc_state_idx = Compile::AliasIdxRaw;
+  const TypePtr* gc_state_adr_type = NULL; // debug-mode-only argument
+  debug_only(gc_state_adr_type = C->get_adr_type(gc_state_idx));
 
-  Node* evacuation_in_progress = new (C) LoadUBNode(ctrl, raw_mem, evacuation_in_progress_adr,
-                                                    evacuation_in_progress_adr_type, TypeInt::BOOL, MemNode::unordered);
-  register_new_node(evacuation_in_progress, ctrl);
+  Node* gc_state = new (C) LoadUBNode(ctrl, raw_mem, gc_state_addr, gc_state_adr_type, TypeInt::BYTE, MemNode::unordered);
+  register_new_node(gc_state, ctrl);
 
   Node* mb = MemBarNode::make(C, Op_MemBarAcquire, Compile::AliasIdxRaw);
   mb->init_req(TypeFunc::Control, ctrl);
@@ -3363,6 +3362,8 @@ void PhaseIdealLoop::shenandoah_test_evacuation_in_progress(Node* ctrl, int alia
   wb_mem = new (C) ProjNode(mb,TypeFunc::Memory);
   register_new_node(wb_mem, mb);
 
+  Node* evacuation_in_progress = new (C) AndINode(gc_state, _igvn.intcon(ShenandoahHeap::EVACUATION));
+  register_new_node(evacuation_in_progress, ctrl_proj);
   Node* evacuation_in_progress_cmp = new (C) CmpINode(evacuation_in_progress, _igvn.zerocon(T_INT));
   register_new_node(evacuation_in_progress_cmp, ctrl_proj);
   Node* evacuation_in_progress_test = new (C) BoolNode(evacuation_in_progress_cmp, BoolTest::ne);

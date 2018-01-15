@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "memory/allocation.inline.hpp"
 #include "opto/addnode.hpp"
 #include "opto/cfgnode.hpp"
@@ -597,6 +598,29 @@ Node* IfNode::up_one_dom(Node *curr, bool linear_only) {
 
   // Give up the search at true merges
   return NULL;                  // Dead loop?  Or hit root?
+}
+
+bool IfNode::is_shenandoah_marking_if(PhaseTransform *phase) const {
+  if (!UseShenandoahGC) {
+    return false;
+  }
+
+  if (Opcode() != Op_If) {
+    return false;
+  }
+
+  Node* bol = in(1);
+  assert(bol->is_Bool(), "");
+  Node* cmpx = bol->in(1);
+  if (bol->as_Bool()->_test._test == BoolTest::ne &&
+      cmpx->is_Cmp() && cmpx->in(2) == phase->intcon(0) &&
+      cmpx->in(1)->in(1)->is_shenandoah_state_load() &&
+      cmpx->in(1)->in(2)->is_Con() &&
+      cmpx->in(1)->in(2) == phase->intcon(ShenandoahHeap::MARKING)) {
+    return true;
+  }
+
+  return false;
 }
 
 

@@ -189,7 +189,7 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
       // The marking doesn't preserve the marks of biased objects.
       //BiasedLocking::preserve_marks();
 
-      heap->set_need_update_refs(true);
+      heap->set_has_forwarded_objects(true);
 
       OrderAccess::fence();
 
@@ -227,7 +227,7 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
 
       heap->set_bytes_allocated_since_cm(0);
 
-      heap->set_need_update_refs(false);
+      heap->set_has_forwarded_objects(false);
       heap->set_full_gc_move_in_progress(false);
       heap->set_full_gc_in_progress(false);
 

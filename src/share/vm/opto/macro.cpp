@@ -896,7 +896,7 @@ void PhaseMacroExpand::process_users_of_allocation(CallNode *alloc) {
 #endif
             _igvn.replace_node(n, n->in(MemNode::Memory));
           } else if (UseShenandoahGC && n->is_g1_wb_pre_call()) {
-            eliminate_g1_wb_pre(n);
+            C->shenandoah_eliminate_g1_wb_pre(n, &_igvn);
           } else {
             eliminate_card_mark(n);
           }

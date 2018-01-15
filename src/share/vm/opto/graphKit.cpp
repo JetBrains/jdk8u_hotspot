@@ -28,6 +28,7 @@
 #include "gc_implementation/g1/heapRegion.hpp"
 #include "gc_interface/collectedHeap.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "memory/barrierSet.hpp"
 #include "memory/cardTableModRefBS.hpp"
 #include "opto/addnode.hpp"
@@ -3919,7 +3920,15 @@ void GraphKit::g1_write_barrier_pre(bool do_load,
   Node* index_adr   = __ AddP(no_base, tls, __ ConX(index_offset));
 
   // Now some of the values
-  Node* marking = __ load(__ ctrl(), marking_adr, TypeInt::INT, active_type, Compile::AliasIdxRaw);
+  Node* marking;
+  if (UseShenandoahGC) {
+    Node* gc_state = __ AddP(no_base, tls, __ ConX(in_bytes(JavaThread::gc_state_offset())));
+    Node* ld = __ load(__ ctrl(), gc_state, TypeInt::BYTE, T_BYTE, Compile::AliasIdxRaw);
+    marking = __ AndI(ld, __ ConI(ShenandoahHeap::MARKING));
+  } else {
+    assert(UseG1GC, "should be");
+    marking = __ load(__ ctrl(), marking_adr, TypeInt::INT, active_type, Compile::AliasIdxRaw);
+  }
 
   // if (!marking)
   __ if_then(marking, BoolTest::ne, zero, unlikely); {

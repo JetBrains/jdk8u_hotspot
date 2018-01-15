@@ -116,7 +116,7 @@ public:
         CodeBlobToOopClosure assert_to_space(&assert_to_space_oops, !CodeBlobToOopClosure::FixRelocations);
         // If conc code cache evac is disabled, code cache should have only to-space ptrs.
         // Otherwise, it should have to-space ptrs only if mark does not update refs.
-        if (!ShenandoahConcurrentEvacCodeRoots && !heap->need_update_refs()) {
+        if (!ShenandoahConcurrentEvacCodeRoots && !heap->has_forwarded_objects()) {
           code_blobs = &assert_to_space;
         }
 #endif
@@ -269,11 +269,11 @@ void ShenandoahConcurrentMark::mark_roots(ShenandoahPhaseTimings::Phase root_pha
   TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
   task_queues()->reserve(nworkers);
 
-  if (heap->need_update_refs()) {
+  if (heap->has_forwarded_objects()) {
     ShenandoahInitMarkRootsTask<RESOLVE> mark_roots(&root_proc, process_references());
     workers->run_task(&mark_roots);
   } else {
-    // No need to update references, which means the heap is clean.
+    // No need to update references, which means the heap is stable.
     // Can save time not walking through forwarding pointers.
     ShenandoahInitMarkRootsTask<NONE> mark_roots(&root_proc, process_references());
     workers->run_task(&mark_roots);
@@ -357,7 +357,7 @@ void ShenandoahConcurrentMark::mark_from_roots() {
   WorkGang* workers = sh->workers();
   uint nworkers = workers->active_workers();
 
-  bool update_refs = sh->need_update_refs();
+  bool update_refs = sh->has_forwarded_objects();
 
   ShenandoahGCPhase conc_mark_phase(ShenandoahPhaseTimings::conc_mark);
 
@@ -399,7 +399,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
 
   shared_finish_mark_from_roots(/* full_gc = */ false);
 
-  if (sh->need_update_refs()) {
+  if (sh->has_forwarded_objects()) {
     update_roots(ShenandoahPhaseTimings::update_roots);
   }
 
@@ -430,11 +430,11 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
     SharedHeap::StrongRootsScope scope(sh, true);
     if (UseShenandoahOWST) {
       ShenandoahTaskTerminator terminator(nworkers, task_queues());
-      ShenandoahFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
+      ShenandoahFinalMarkingTask task(this, &terminator, sh->has_forwarded_objects(), count_live, unload_classes());
       sh->workers()->run_task(&task);
     } else {
       ParallelTaskTerminator terminator(nworkers, task_queues());
-      ShenandoahFinalMarkingTask task(this, &terminator, sh->need_update_refs(), count_live, unload_classes());
+      ShenandoahFinalMarkingTask task(this, &terminator, sh->has_forwarded_objects(), count_live, unload_classes());
       sh->workers()->run_task(&task);
     }
   }
@@ -555,7 +555,7 @@ public:
                    false, // do not drain SATBs
                    true,  // count liveness
                    scm->unload_classes(),
-                   sh->need_update_refs());
+                   sh->has_forwarded_objects());
 
     if (_reset_terminator) {
       _terminator->reset_for_reuse();
@@ -618,7 +618,7 @@ public:
     assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Must be at a safepoint");
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     ShenandoahCMDrainMarkingStackClosure complete_gc(worker_id, _terminator);
-    if (heap->need_update_refs()) {
+    if (heap->has_forwarded_objects()) {
       ShenandoahForwardedIsAliveClosure is_alive;
       ShenandoahCMKeepAliveUpdateClosure keep_alive(heap->concurrentMark()->get_queue(worker_id));
       _proc_task.work(worker_id, is_alive, keep_alive, complete_gc);
@@ -752,7 +752,7 @@ void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
   {
     ShenandoahGCPhase phase(phase_process);
 
-    if (sh->need_update_refs()) {
+    if (sh->has_forwarded_objects()) {
       ShenandoahForwardedIsAliveClosure is_alive;
       ShenandoahCMKeepAliveUpdateClosure keep_alive(get_queue(serial_worker_id));
       rp->process_discovered_references(&is_alive, &keep_alive,
@@ -798,7 +798,7 @@ public:
                    true,  // drain SATBs
                    true,  // count liveness
                    scm->unload_classes(),
-                   sh->need_update_refs());
+                   sh->has_forwarded_objects());
   }
 };
 
@@ -841,7 +841,7 @@ void ShenandoahConcurrentMark::preclean_weak_refs() {
   assert(task_queues()->is_empty(), "Should be empty");
 
   ShenandoahPrecleanCompleteGCClosure complete_gc;
-  if (sh->need_update_refs()) {
+  if (sh->has_forwarded_objects()) {
     ShenandoahForwardedIsAliveClosure is_alive;
     ShenandoahPrecleanKeepAliveUpdateClosure keep_alive(get_queue(0));
     ResourceMark rm;
