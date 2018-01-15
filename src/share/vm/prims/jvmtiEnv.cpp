@@ -308,9 +308,9 @@ JvmtiEnv::GetObjectSize(jobject object, jlong* size_ptr) {
       !java_lang_Class::is_primitive(mirror)) {
     Klass* k = java_lang_Class::as_Klass(mirror);
     assert(k != NULL, "class for non-primitive mirror must exist");
-    *size_ptr = (jlong)k->size() * wordSize;
+    *size_ptr = (jlong)(k->size() + Universe::heap()->oop_extra_words()) * wordSize;
   } else {
-    *size_ptr = (jlong)mirror->size() * wordSize;
+    *size_ptr = (jlong)(mirror->size() + Universe::heap()->oop_extra_words()) * wordSize;
     }
   return JVMTI_ERROR_NONE;
 } /* end GetObjectSize */
