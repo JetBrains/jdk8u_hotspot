@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2015, Red Hat, Inc. and/or its affiliates.
+ * Copyright (c) 2013, 2017, Red Hat, Inc. and/or its affiliates.
  *
  * This code is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License version 2 only, as
@@ -97,6 +97,7 @@ public:
   bool do_object_b(oop obj);
 };
 
+class VMStructs;
 
 // // A "ShenandoahHeap" is an implementation of a java heap for HotSpot.
 // // It uses a new pauseless GC algorithm based on Brooks pointers.
@@ -108,6 +109,7 @@ public:
 // //      ShenandoahHeap
 
 class ShenandoahHeap : public SharedHeap {
+  friend class VMStructs;
 public:
   enum ShenandoahCancelCause {
     _oom_evacuation,

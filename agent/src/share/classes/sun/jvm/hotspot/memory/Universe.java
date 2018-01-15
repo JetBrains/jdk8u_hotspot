@@ -29,6 +29,7 @@ import java.util.*;
 import sun.jvm.hotspot.debugger.*;
 import sun.jvm.hotspot.gc_interface.*;
 import sun.jvm.hotspot.gc_implementation.g1.G1CollectedHeap;
+import sun.jvm.hotspot.gc_implementation.shenandoah.ShenandoahHeap;
 import sun.jvm.hotspot.gc_implementation.parallelScavenge.*;
 import sun.jvm.hotspot.oops.*;
 import sun.jvm.hotspot.types.*;
@@ -79,6 +80,7 @@ public class Universe {
     heapConstructor.addMapping("GenCollectedHeap", GenCollectedHeap.class);
     heapConstructor.addMapping("ParallelScavengeHeap", ParallelScavengeHeap.class);
     heapConstructor.addMapping("G1CollectedHeap", G1CollectedHeap.class);
+    heapConstructor.addMapping("ShenandoahHeap", ShenandoahHeap.class);
 
     mainThreadGroupField   = type.getOopField("_main_thread_group");
     systemThreadGroupField = type.getOopField("_system_thread_group");
