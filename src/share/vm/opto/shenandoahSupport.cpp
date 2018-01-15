@@ -3327,6 +3327,56 @@ void ShenandoahWriteBarrierNode::fix_raw_mem(Node* ctrl, Node* region, Node* raw
 #endif
 }
 
+bool ShenandoahBarrierNode::is_evacuation_in_progress_test(Node* iff) {
+  assert(iff->is_If(), "bad input");
+  if (iff->Opcode() != Op_If) {
+    return false;
+  }
+  Node* bol = iff->in(1);
+  if (!bol->is_Bool() || bol->as_Bool()->_test._test != BoolTest::ne) {
+    return false;
+  }
+  Node* cmp = bol->in(1);
+  if (cmp->Opcode() != Op_CmpI) {
+    return false;
+  }
+  Node* in1 = cmp->in(1);
+  Node* in2 = cmp->in(2);
+  if (in2->find_int_con(-1) != 0) {
+    return false;
+  }
+  if (in1->Opcode() != Op_AndI) {
+    return false;
+  }
+  in2 = in1->in(2);
+  if (in2->find_int_con(-1) != ShenandoahHeap::EVACUATION) {
+    return false;
+  }
+  in1 = in1->in(1);
+
+  return is_gc_state_load(in1);
+}
+
+bool ShenandoahBarrierNode::is_gc_state_load(Node *n) {
+  if (n->Opcode() != Op_LoadUB && n->Opcode() != Op_LoadB) {
+    return false;
+  }
+  Node* addp = n->in(MemNode::Address);
+  if (!addp->is_AddP()) {
+    return false;
+  }
+  Node* base = addp->in(AddPNode::Address);
+  Node* off = addp->in(AddPNode::Offset);
+  if (base->Opcode() != Op_ThreadLocal) {
+    return false;
+  }
+  if (off->find_intptr_t_con(-1) != in_bytes(JavaThread::gc_state_offset())) {
+    return false;
+  }
+  return true;
+}
+
+
 void PhaseIdealLoop::shenandoah_test_evacuation_in_progress(Node* ctrl, int alias, Node*& raw_mem, Node*& wb_mem,
                                                             IfNode*& evacuation_iff, Node*& evac_in_progress,
                                                             Node*& evac_not_in_progress) {
@@ -3370,6 +3420,9 @@ void PhaseIdealLoop::shenandoah_test_evacuation_in_progress(Node* ctrl, int alia
   register_new_node(evacuation_in_progress_test, ctrl_proj);
   evacuation_iff = new (C) IfNode(ctrl_proj, evacuation_in_progress_test, PROB_UNLIKELY(0.999), COUNT_UNKNOWN);
   register_control(evacuation_iff, loop, ctrl_proj);
+
+  assert(ShenandoahBarrierNode::is_evacuation_in_progress_test(evacuation_iff), "Should match the shape");
+  assert(ShenandoahBarrierNode::is_gc_state_load(gc_state), "Should match the shape");
 
   evac_not_in_progress = new (C) IfFalseNode(evacuation_iff);
   register_control(evac_not_in_progress, loop, evacuation_iff);

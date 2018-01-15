@@ -99,6 +99,9 @@ public:
     return true;
   };
 
+  static bool is_evacuation_in_progress_test(Node *n);
+  static bool is_gc_state_load(Node *n);
+
   static bool needs_barrier(PhaseTransform* phase, ShenandoahBarrierNode* orig, Node* n, Node* rb_mem, bool allow_fromspace);
 
 #ifdef ASSERT
