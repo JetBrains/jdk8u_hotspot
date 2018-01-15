@@ -1243,7 +1243,7 @@ jlong ShenandoahHeap::millis_since_last_gc() {
 }
 
 void ShenandoahHeap::prepare_for_verify() {
-  if (SafepointSynchronize::is_at_safepoint() || ! UseTLAB) {
+  if (SafepointSynchronize::is_at_safepoint()) {
     make_tlabs_parsable(false);
   }
 }
