@@ -1614,14 +1614,15 @@ void ShenandoahHeap::stop_concurrent_marking() {
 }
 
 void ShenandoahHeap::set_gc_state_bit(uint bit, bool value) {
+  assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should really be Shenandoah safepoint");
   _gc_state.set_cond(bit, value);
-  if (SafepointSynchronize::is_at_safepoint()) {
-    assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should really be Shenandoah safepoint");
-    JavaThread::set_gc_state_all_threads(_gc_state.raw_value());
-  } else {
-    MutexLocker mu(Threads_lock);
-    JavaThread::set_gc_state_all_threads(_gc_state.raw_value());
-  }
+  JavaThread::set_gc_state_all_threads(_gc_state.raw_value());
+}
+
+void ShenandoahHeap::set_gc_state_bit_concurrently(uint bit, bool value) {
+  _gc_state.set_cond(bit, value);
+  MutexLocker mu(Threads_lock);
+  JavaThread::set_gc_state_all_threads(_gc_state.raw_value());
 }
 
 void ShenandoahHeap::set_concurrent_mark_in_progress(bool in_progress) {
@@ -1633,7 +1634,7 @@ void ShenandoahHeap::set_evacuation_in_progress_concurrently(bool in_progress) {
   // Note: it is important to first release the _evacuation_in_progress flag here,
   // so that Java threads can get out of oom_during_evacuation() and reach a safepoint,
   // in case a VM task is pending.
-  set_gc_state_bit(EVACUATION_BITPOS, in_progress);
+  set_gc_state_bit_concurrently(EVACUATION_BITPOS, in_progress);
 }
 
 void ShenandoahHeap::set_evacuation_in_progress_at_safepoint(bool in_progress) {

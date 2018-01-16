@@ -325,6 +325,7 @@ public:
 
 private:
   void set_gc_state_bit(uint bit, bool value);
+  void set_gc_state_bit_concurrently(uint bit, bool value);
 
 public:
   void set_concurrent_mark_in_progress(bool in_progress);
