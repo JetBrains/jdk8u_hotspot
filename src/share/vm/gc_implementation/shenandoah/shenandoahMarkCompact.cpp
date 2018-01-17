@@ -112,20 +112,7 @@ void ShenandoahMarkCompact::initialize() {
 void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-  // Default, use number of parallel GC threads
-  ShenandoahWorkGang* workers = heap->workers();
-  uint nworkers = ShenandoahWorkerPolicy::calc_workers_for_fullgc();
-  ShenandoahWorkerScope full_gc_worker_scope(workers, nworkers);
-
   {
-    ShenandoahGCSession session(/* is_full_gc */true);
-
-    GCTracer *_gc_tracer = heap->tracer();
-    if (_gc_tracer->has_reported_gc_start()) {
-      _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());
-    }
-    _gc_tracer->report_gc_start(gc_cause, _gc_timer->gc_start());
-
     if (ShenandoahVerify) {
       heap->verifier()->verify_before_fullgc();
     }
@@ -186,8 +173,6 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
     oopDesc::set_bs(&bs);
 
     {
-      GCTraceTime time("Pause Full", PrintGC, _gc_timer, _gc_tracer->gc_id(), true);
-
       if (UseTLAB) {
         heap->make_tlabs_parsable(true);
       }
@@ -244,8 +229,6 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
         heap->verifier()->verify_after_fullgc();
       }
     }
-
-    _gc_tracer->report_gc_end(_gc_timer->gc_end(), _gc_timer->time_partitions());
 
     {
       ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);

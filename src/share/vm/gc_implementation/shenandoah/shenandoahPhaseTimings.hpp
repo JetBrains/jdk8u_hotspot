@@ -159,6 +159,7 @@ public:
     partial_gc_update_str_dedup_table,
     partial_gc_recycle,
 
+    full_gc_gross,
     full_gc,
     full_gc_heapdumps,
     full_gc_prepare,

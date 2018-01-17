@@ -139,14 +139,47 @@ void ShenandoahConcurrentThread::run() {
 }
 
 void ShenandoahConcurrentThread::service_normal_cycle() {
-  if (check_cancellation()) return;
+  // Normal cycle goes via all concurrent phases. If allocation failure (af) happens during
+  // any of the concurrent phases, it optionally degenerates to nearest STW operation, and
+  // then continues the cycle. Otherwise, allocation failure leads to Full GC.
+  //
+  // If second allocation failure happens during STW cycle (for example, when GC tries to evac
+  // something and no memory is available, cycle degrades to Full GC.
+  //
+  // There are also two shortcuts through the normal cycle: a) immediate garbage shortcut, when
+  // heuristics says there are no regions to compact, and all the collection comes from immediately
+  // reclaimable regions; b) coalesced UR shortcut, when heuristics decides to coalesce UR with the
+  // mark from the next cycle.
+  //
+  //                                    (immediate garbage shortcut)
+  //                             /-------------------------------------------\
+  //                             |                       (coalesced UR)      v
+  //                             |                  /------------------------\
+  //                             |                  |                        v
+  // [START] ----> Conc Mark ----o----> Conc Evac --o--> Conc Update-Refs ---o----> [END]
+  //                   |         ^          |                 |              |
+  //                   |         |          |                 |              |
+  //                   | (af)    |          | (af)            | (af)         |
+  //                   |         |          |                 |              |
+  //                   v         |          |                 |              |
+  //               STW Mark -----/          |          STW Update-Refs ----->o
+  //                   |                    |                 |              ^
+  //                   | (af)               |                 | (af)         |
+  //                   |                    v                 |              |
+  //                   \------------------->o<----------------/              |
+  //                                        |                                |
+  //                                        v                                |
+  //                                      Full GC  --------------------------/
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  ShenandoahGCSession session;
+
+  if (check_cancellation()) return;
 
   GCTimer* gc_timer = heap->gc_timer();
   GCTracer* gc_tracer = heap->tracer();
 
-  ShenandoahGCSession session;
   gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
 
   // Cycle started
@@ -158,34 +191,15 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
   TraceMemoryManagerStats tmms(false, GCCause::_no_cause_specified);
 
-  // Start initial mark under STW:
-  {
-    // Workers are setup by VM_ShenandoahInitMark
-    TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-    ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause_gross);
-    ShenandoahGCPhase init_mark_phase(ShenandoahPhaseTimings::init_mark_gross);
-    VM_ShenandoahInitMark initMark;
-    VMThread::execute(&initMark);
-  }
+  // Start initial mark under STW
+  heap->vmop_entry_init_mark();
 
   if (check_cancellation()) return;
 
-  // Continue concurrent mark:
-  {
-    // Setup workers for concurrent marking phase
-    ShenandoahWorkGang* workers = heap->workers();
-    uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_conc_marking();
-    ShenandoahWorkerScope scope(workers, n_workers);
+  // Continue concurrent mark
+  heap->entry_mark();
 
-    GCTraceTime time("Concurrent marking", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-    TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
-    ShenandoahHeap::heap()->concurrentMark()->mark_from_roots();
-  }
-
-  // Allocations happen during concurrent mark, record peak after the phase:
-  heap->shenandoahPolicy()->record_peak_occupancy();
-
-  // Possibly hand over remaining marking work to final-mark phase.
+  // Possibly hand over remaining marking work to degenerated final-mark phase
   bool clear_full_gc = false;
   if (heap->cancelled_concgc()) {
     heap->shenandoahPolicy()->record_cm_cancelled();
@@ -201,62 +215,29 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
     heap->shenandoahPolicy()->record_cm_success();
 
     // If not cancelled, can try to concurrently pre-clean
-    if (ShenandoahPreclean) {
-      if (heap->concurrentMark()->process_references()) {
-        GCTraceTime time("Concurrent precleaning", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-        ShenandoahGCPhase conc_preclean(ShenandoahPhaseTimings::conc_preclean);
-
-        heap->concurrentMark()->preclean_weak_refs();
-
-        // Allocations happen during concurrent preclean, record peak after the phase:
-        heap->shenandoahPolicy()->record_peak_occupancy();
-      }
-    }
+    heap->entry_preclean();
   }
 
-  // Proceed to complete marking under STW, and start evacuation:
-  {
-    // Workers are setup by VM_ShenandoahFinalMarkStartEvac
-    TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-    ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause_gross);
-    ShenandoahGCPhase final_mark_phase(ShenandoahPhaseTimings::final_mark_gross);
-    VM_ShenandoahFinalMarkStartEvac finishMark;
-    VMThread::execute(&finishMark);
-  }
+  // Complete marking under STW, and start evacuation
+  heap->vmop_entry_final_mark();
 
   if (check_cancellation()) return;
 
-  // If we handed off remaining marking work above, we need to kick off waiting Java threads
+  // Final mark had reclaimed some immediate garbage, kick cleanup to reclaim the space
+  heap->entry_cleanup();
+
+  // If we degenerated mark work above, we need to kick off waiting Java threads, now that
+  // more space is available
   if (clear_full_gc) {
     reset_full_gc();
   }
 
-  // Final mark had reclaimed some immediate garbage, kick cleanup to reclaim the space.
-  {
-    GCTraceTime time("Concurrent cleanup", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-    ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_cleanup);
-    ShenandoahGCPhase phase_recycle(ShenandoahPhaseTimings::conc_cleanup_recycle);
-    heap->recycle_trash();
-  }
-
   // Perform concurrent evacuation, if required.
-  // This phase can be skipped if there is nothing to evacuate. If so, evac_in_progress would be unset
-  // by collection set preparation code.
+  // This phase can be skipped if there is nothing to evacuate.
+  // If so, evac_in_progress would be unset by collection set preparation code.
   if (heap->is_evacuation_in_progress()) {
+    heap->entry_evac();
 
-    // Setup workers for concurrent evacuation phase
-    ShenandoahWorkGang* workers = heap->workers();
-    uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_conc_evac();
-    ShenandoahWorkerScope scope(workers, n_workers);
-
-    GCTraceTime time("Concurrent evacuation", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-    TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
-    heap->do_evacuation();
-
-    // Allocations happen during evacuation, record peak after the phase:
-    heap->shenandoahPolicy()->record_peak_occupancy();
-
-    // Do an update-refs phase if required.
     if (check_cancellation()) return;
   }
 
@@ -269,81 +250,43 @@ void ShenandoahConcurrentThread::service_normal_cycle() {
 
     bool do_it = heap->need_update_refs();
     if (do_it) {
-      {
-        TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-        ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause_gross);
-        ShenandoahGCPhase init_update_refs_phase(ShenandoahPhaseTimings::init_update_refs_gross);
-        VM_ShenandoahInitUpdateRefs init_update_refs;
-        VMThread::execute(&init_update_refs);
-      }
+      heap->vmop_entry_init_updaterefs();
+      heap->entry_updaterefs();
 
-      {
-        GCTraceTime time("Concurrent update references ", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-        ShenandoahWorkGang* workers = heap->workers();
-        uint n_workers = ShenandoahWorkerPolicy::calc_workers_for_conc_update_ref();
-        ShenandoahWorkerScope scope(workers, n_workers);
-        heap->concurrent_update_heap_references();
-      }
-    }
-
-    // Allocations happen during update-refs, record peak after the phase:
-    heap->shenandoahPolicy()->record_peak_occupancy();
-
-    clear_full_gc = false;
-    if (heap->cancelled_concgc()) {
-      heap->shenandoahPolicy()->record_uprefs_cancelled();
-      if (_full_gc_cause == GCCause::_allocation_failure &&
-          heap->shenandoahPolicy()->handover_cancelled_uprefs()) {
-        clear_full_gc = true;
-        heap->shenandoahPolicy()->record_uprefs_degenerated();
+      clear_full_gc = false;
+      if (heap->cancelled_concgc()) {
+        heap->shenandoahPolicy()->record_uprefs_cancelled();
+        if (_full_gc_cause == GCCause::_allocation_failure &&
+            heap->shenandoahPolicy()->handover_cancelled_uprefs()) {
+          clear_full_gc = true;
+          heap->shenandoahPolicy()->record_uprefs_degenerated();
+        } else {
+          return;
+        }
       } else {
-        return;
+        heap->shenandoahPolicy()->record_uprefs_success();
       }
+
+      heap->vmop_entry_final_updaterefs();
     } else {
       heap->shenandoahPolicy()->record_uprefs_success();
     }
-
-    if (do_it) {
-      TraceCollectorStats tcs(heap->monitoring_support()->stw_collection_counters());
-      ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
-      ShenandoahGCPhase final_update_refs_phase(ShenandoahPhaseTimings::final_update_refs_gross);
-      VM_ShenandoahFinalUpdateRefs final_update_refs;
-      VMThread::execute(&final_update_refs);
-    }
   } else {
     // If update-refs were skipped, need to do another verification pass after evacuation.
-    if (ShenandoahVerify && !check_cancellation()) {
-      VM_ShenandoahVerifyHeapAfterEvacuation verify_after_evacuation;
-      VMThread::execute(&verify_after_evacuation);
-    }
+    heap->vmop_entry_verify_after_evac();
   }
 
   // Prepare for the next normal cycle:
-  if (check_cancellation()) return;
+  // Reclaim space and prepare for the next normal cycle:
+  heap->entry_cleanup_bitmaps();
 
-  if (clear_full_gc) {
-    reset_full_gc();
-  }
+   if (check_cancellation()) return;
 
-  {
-    GCTraceTime time("Concurrent cleanup", PrintGC, gc_timer, gc_tracer->gc_id(), true);
-    ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_cleanup);
-
-    {
-      ShenandoahGCPhase phase_recycle(ShenandoahPhaseTimings::conc_cleanup_recycle);
-      heap->recycle_trash();
-    }
-
-    {
-      ShenandoahGCPhase phase_reset(ShenandoahPhaseTimings::conc_cleanup_reset_bitmaps);
-      ShenandoahWorkGang* workers = heap->workers();
-      ShenandoahPushWorkerScope scope(workers, ConcGCThreads);
-      heap->reset_next_mark_bitmap();
-    }
-  }
-
-  // Allocations happen during bitmap cleanup, record peak after the phase:
-  heap->shenandoahPolicy()->record_peak_occupancy();
+   // If we degenerated update-refs above, we need to kick off waiting Java threads, now that
+   // more space is available
+   if (clear_full_gc) {
+     reset_full_gc();
+   }
 
   // Cycle is complete
   heap->shenandoahPolicy()->record_cycle_end();
@@ -382,6 +325,7 @@ void ShenandoahConcurrentThread::stop() {
 
 void ShenandoahConcurrentThread::service_fullgc_cycle() {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
+  ShenandoahGCSession session(/* is_full_gc */true);
 
   {
     if (_full_gc_cause == GCCause::_allocation_failure) {
@@ -390,10 +334,16 @@ void ShenandoahConcurrentThread::service_fullgc_cycle() {
       heap->shenandoahPolicy()->record_user_requested_gc();
     }
 
-    TraceCollectorStats tcs(heap->monitoring_support()->full_stw_collection_counters());
-    TraceMemoryManagerStats tmms(true, _full_gc_cause);
-    VM_ShenandoahFullGC full_gc(_full_gc_cause);
-    VMThread::execute(&full_gc);
+    GCTimer* gc_timer = heap->gc_timer();
+    GCTracer* gc_tracer = heap->tracer();
+    if (gc_tracer->has_reported_gc_start()) {
+      gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
+    }
+    gc_tracer->report_gc_start(_full_gc_cause, gc_timer->gc_start());
+
+    heap->vmop_entry_full(_full_gc_cause);
+
+    gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
   }
 
   reset_full_gc();

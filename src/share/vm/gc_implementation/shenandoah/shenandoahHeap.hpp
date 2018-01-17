@@ -284,16 +284,12 @@ public:
 
   void trash_cset_regions();
 
-  void start_concurrent_marking();
   void stop_concurrent_marking();
 
   void prepare_for_concurrent_evacuation();
   void evacuate_and_update_roots();
 
   void update_heap_references(ShenandoahHeapRegionSet* regions);
-  void concurrent_update_heap_references();
-  void prepare_update_refs();
-  void finish_update_refs();
 
   void roots_iterate(OopClosure* cl);
 
@@ -505,6 +501,48 @@ public:
   void recycle_trash_assist(size_t limit);
   void recycle_trash();
 
+public:
+  // Entry points to STW GC operations, these cause a related safepoint, that then
+  // call the entry method below
+  void vmop_entry_init_mark();
+  void vmop_entry_final_mark();
+  void vmop_entry_init_updaterefs();
+  void vmop_entry_final_updaterefs();
+  void vmop_entry_full(GCCause::Cause cause);
+  void vmop_entry_verify_after_evac();
+
+  // Entry methods to normally STW GC operations. These set up logging, monitoring
+  // and workers for net VM operation
+  void entry_init_mark();
+  void entry_final_mark();
+  void entry_init_updaterefs();
+  void entry_final_updaterefs();
+  void entry_full(GCCause::Cause cause);
+  void entry_verify_after_evac();
+
+  // Entry methods to normally concurrent GC operations. These set up logging, monitoring
+  // for concurrent operation.
+  void entry_mark();
+  void entry_preclean();
+  void entry_cleanup();
+  void entry_cleanup_bitmaps();
+  void entry_evac();
+  void entry_updaterefs();
+
+private:
+  // Actual work for the phases
+  void op_init_mark();
+  void op_final_mark();
+  void op_init_updaterefs();
+  void op_final_updaterefs();
+  void op_full(GCCause::Cause cause);
+  void op_verify_after_evac();
+  void op_mark();
+  void op_preclean();
+  void op_cleanup();
+  void op_evac();
+  void op_updaterefs();
+  void op_cleanup_bitmaps();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP

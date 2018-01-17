@@ -43,9 +43,8 @@ ShenandoahGCSession::~ShenandoahGCSession() {
   _timer->register_gc_end();
 }
 
-ShenandoahGCPauseMark::ShenandoahGCPauseMark(ShenandoahPhaseTimings::Phase phase, SvcGCMarker::reason_type type)
-        : _svc_gc_mark(type), _is_gc_active_mark(),
-          _phase_total(ShenandoahPhaseTimings::total_pause), _phase_this(phase) {
+ShenandoahGCPauseMark::ShenandoahGCPauseMark(SvcGCMarker::reason_type type)
+        : _svc_gc_mark(type), _is_gc_active_mark() {
   ShenandoahHeap* sh = ShenandoahHeap::heap();
   sh->shenandoahPolicy()->record_gc_start();
 }
