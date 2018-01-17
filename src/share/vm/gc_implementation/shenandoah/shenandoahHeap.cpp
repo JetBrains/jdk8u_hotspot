@@ -1832,7 +1832,8 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
   // Unload classes and purge SystemDictionary.
   {
     ShenandoahGCPhase phase(phase_unload);
-    purged_class = SystemDictionary::do_unloading(is_alive, true);
+    purged_class = SystemDictionary::do_unloading(is_alive,
+                                                  false /* defer cleaning */);
   }
 
   {
