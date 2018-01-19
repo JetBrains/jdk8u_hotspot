@@ -408,7 +408,10 @@ void ShenandoahConcurrentThread::handle_alloc_failure_evac() {
   if (!t->is_GC_task_thread() && !t->is_ConcurrentGC_thread() && t != slt()) {
     assert(! Threads_lock->owned_by_self()
            || SafepointSynchronize::is_at_safepoint(), "must not hold Threads_lock here");
-    log_warning(gc)("OOM during evacuation. Let Java thread wait until evacuation finishes.");
+    ResourceMark rm;
+    log_info(gc)("%s. Thread \"%s\" waits until evacuation finishes.",
+                 GCCause::to_string(GCCause::_shenandoah_allocation_failure_evac),
+                 Thread::current()->name());
     while (heap->is_evacuation_in_progress()) { // wait.
       t->_ParkEvent->park(1);
     }
