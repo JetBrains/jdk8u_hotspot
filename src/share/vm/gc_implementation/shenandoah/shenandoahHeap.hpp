@@ -177,6 +177,7 @@ private:
   ShenandoahSharedFlag _full_gc_move_in_progress;
   ShenandoahSharedFlag _need_update_refs;
 
+  ShenandoahSharedFlag _inject_alloc_failure;
   ShenandoahSharedFlag _cancelled_concgc;
 
   ReferenceProcessor* _ref_processor;
@@ -543,6 +544,10 @@ private:
   void op_evac();
   void op_updaterefs();
   void op_cleanup_bitmaps();
+
+private:
+  void try_inject_alloc_failure();
+  bool should_inject_alloc_failure();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP

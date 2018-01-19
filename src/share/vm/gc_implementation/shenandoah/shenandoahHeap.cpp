@@ -677,9 +677,13 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
   ShenandoahAllocTrace trace_alloc(word_size, type);
 
   bool in_new_region = false;
-  HeapWord* result = allocate_memory_under_lock(word_size, type, in_new_region);
+  HeapWord* result = NULL;
 
   if (type == _alloc_tlab || type == _alloc_shared) {
+    if (!ShenandoahAllocFailureALot || !should_inject_alloc_failure()) {
+      result = allocate_memory_under_lock(word_size, type, in_new_region);
+    }
+
     // Allocation failed, try full-GC, then retry allocation.
     //
     // It might happen that one of the threads requesting allocation would unblock
@@ -697,6 +701,9 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
       collect(GCCause::_allocation_failure);
       result = allocate_memory_under_lock(word_size, type, in_new_region);
     }
+  } else {
+    assert(type == _alloc_gclab || type == _alloc_shared_gc, "Can only accept these types here");
+    result = allocate_memory_under_lock(word_size, type, in_new_region);
   }
 
   if (in_new_region) {
@@ -2263,6 +2270,7 @@ void ShenandoahHeap::vmop_entry_init_mark() {
   ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::init_mark_gross);
 
+  try_inject_alloc_failure();
   VM_ShenandoahInitMark op;
   VMThread::execute(&op); // jump to entry_init_mark() under safepoint
 }
@@ -2272,6 +2280,7 @@ void ShenandoahHeap::vmop_entry_final_mark() {
   ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::final_mark_gross);
 
+  try_inject_alloc_failure();
   VM_ShenandoahFinalMarkStartEvac op;
   VMThread::execute(&op); // jump to entry_final_mark under safepoint
 }
@@ -2281,6 +2290,7 @@ void ShenandoahHeap::vmop_entry_init_updaterefs() {
   ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::init_update_refs_gross);
 
+  try_inject_alloc_failure();
   VM_ShenandoahInitUpdateRefs op;
   VMThread::execute(&op);
 }
@@ -2290,6 +2300,7 @@ void ShenandoahHeap::vmop_entry_final_updaterefs() {
   ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::final_update_refs_gross);
 
+  try_inject_alloc_failure();
   VM_ShenandoahFinalUpdateRefs op;
   VMThread::execute(&op);
 }
@@ -2298,6 +2309,7 @@ void ShenandoahHeap::vmop_entry_verify_after_evac() {
   if (ShenandoahVerify) {
     ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
 
+    try_inject_alloc_failure();
     VM_ShenandoahVerifyHeapAfterEvacuation op;
     VMThread::execute(&op);
   }
@@ -2307,8 +2319,9 @@ void ShenandoahHeap::vmop_entry_full(GCCause::Cause cause) {
   TraceCollectorStats tcs(monitoring_support()->full_stw_collection_counters());
   ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_gross);
-
   TraceMemoryManagerStats tmms(true, cause);
+
+  try_inject_alloc_failure();
   VM_ShenandoahFullGC op(cause);
   VMThread::execute(&op);
 }
@@ -2377,6 +2390,7 @@ void ShenandoahHeap::entry_mark() {
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_marking());
 
+  try_inject_alloc_failure();
   op_mark();
 }
 
@@ -2387,6 +2401,7 @@ void ShenandoahHeap::entry_evac() {
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_evac());
 
+  try_inject_alloc_failure();
   op_evac();
 }
 
@@ -2396,6 +2411,7 @@ void ShenandoahHeap::entry_updaterefs() {
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_update_ref());
 
+  try_inject_alloc_failure();
   op_updaterefs();
 }
 void ShenandoahHeap::entry_cleanup() {
@@ -2404,6 +2420,7 @@ void ShenandoahHeap::entry_cleanup() {
 
   // This phase does not use workers, no need for setup
 
+  try_inject_alloc_failure();
   op_cleanup();
 }
 
@@ -2413,6 +2430,7 @@ void ShenandoahHeap::entry_cleanup_bitmaps() {
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_cleanup());
 
+  try_inject_alloc_failure();
   op_cleanup_bitmaps();
 }
 
@@ -2422,5 +2440,20 @@ void ShenandoahHeap::entry_preclean() {
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_preclean());
 
+  try_inject_alloc_failure();
   op_preclean();
+}
+
+void ShenandoahHeap::try_inject_alloc_failure() {
+  if (ShenandoahAllocFailureALot && !cancelled_concgc() && ((os::random() % 1000) > 950)) {
+    _inject_alloc_failure.set();
+    Thread::current()->_ParkEvent->park(1);
+    if (cancelled_concgc()) {
+      log_info(gc)("Allocation failure was successfully injected");
+    }
+  }
+}
+
+bool ShenandoahHeap::should_inject_alloc_failure() {
+  return _inject_alloc_failure.is_set() && _inject_alloc_failure.try_unset();
 }

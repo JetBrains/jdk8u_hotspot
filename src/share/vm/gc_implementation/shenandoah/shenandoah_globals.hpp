@@ -321,6 +321,9 @@
   diagnostic(bool, ShenandoahOOMDuringEvacALot, false,                      \
           "Simulate OOM during evacuation frequently.")                     \
                                                                             \
+  diagnostic(bool, ShenandoahAllocFailureALot, false,                       \
+          "Make lots of artificial allocation failures.")                   \
+                                                                            \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \
