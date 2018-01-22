@@ -2287,7 +2287,12 @@ void ShenandoahHeap::entry_init_mark() {
 void ShenandoahHeap::entry_final_mark() {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::final_mark);
-  GCTraceTime time("Pause Final Mark", PrintGC, _gc_timer, tracer()->gc_id());
+
+  FormatBuffer<> msg("Pause Final Mark%s%s%s",
+                     has_forwarded_objects() ?                " (update refs)"    : "",
+                     concurrentMark()->process_references() ? " (process refs)"   : "",
+                     concurrentMark()->unload_classes() ?     " (unload classes)" : "");
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_final_marking());
 
@@ -2334,7 +2339,12 @@ void ShenandoahHeap::entry_verify_after_evac() {
 
 void ShenandoahHeap::entry_mark() {
   TraceCollectorStats tcs(monitoring_support()->concurrent_collection_counters());
-  GCTraceTime time("Concurrent marking", PrintGC, _gc_timer, tracer()->gc_id(), true);
+
+  FormatBuffer<> msg("Concurrent marking%s%s%s",
+                     has_forwarded_objects() ?                " (update refs)"    : "",
+                     concurrentMark()->process_references() ? " (process refs)"   : "",
+                     concurrentMark()->unload_classes() ?     " (unload classes)" : "");
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_marking());
 
