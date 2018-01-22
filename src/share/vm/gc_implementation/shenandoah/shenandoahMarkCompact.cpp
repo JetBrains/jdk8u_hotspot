@@ -138,11 +138,17 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
       }
       assert(!heap->is_concurrent_mark_in_progress(), "sanity");
 
-      // b. Cancel evacuation, if in progress
+      // b1. Cancel evacuation, if in progress
       if (heap->is_evacuation_in_progress()) {
         heap->set_evacuation_in_progress_at_safepoint(false);
       }
       assert(!heap->is_evacuation_in_progress(), "sanity");
+
+      // b2. Cancel update-refs, if in progress
+      if (heap->is_update_refs_in_progress()) {
+        heap->set_update_refs_in_progress(false);
+      }
+      assert(!heap->is_update_refs_in_progress(), "sanity");
 
       // c. Reset the bitmaps for new marking
       heap->reset_next_mark_bitmap();

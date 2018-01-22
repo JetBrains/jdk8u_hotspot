@@ -105,10 +105,6 @@ void ShenandoahConcurrentThread::run() {
         heap->set_evacuation_in_progress_concurrently(false);
       }
 
-      if (heap->is_update_refs_in_progress()) {
-        heap->set_update_refs_in_progress(false);
-      }
-
       reset_conc_gc_requested();
 
       // Disable forced counters update, and update counters one more time
