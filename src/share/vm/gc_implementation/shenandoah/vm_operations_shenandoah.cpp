@@ -82,3 +82,8 @@ void VM_ShenandoahVerifyHeapAfterEvacuation::doit() {
   ShenandoahGCPauseMark mark(SvcGCMarker::OTHER);
   ShenandoahHeap::heap()->entry_verify_after_evac();
 }
+
+void VM_ShenandoahDegeneratedGC::doit() {
+  ShenandoahGCPauseMark mark(SvcGCMarker::OTHER);
+  ShenandoahHeap::heap()->entry_degenerated(_point);
+}

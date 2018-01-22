@@ -144,6 +144,29 @@ public:
     UPDATEREFS    = 1 << UPDATEREFS_BITPOS,
   };
 
+  enum ShenandoahDegenerationPoint {
+    _degenerated_outside_cycle,
+    _degenerated_mark,
+    _degenerated_evac,
+    _degenerated_updaterefs,
+  };
+
+  static const char* degen_point_to_string(ShenandoahDegenerationPoint point) {
+    switch (point) {
+      case _degenerated_outside_cycle:
+        return "Outside of Cycle";
+      case _degenerated_mark:
+        return "Mark";
+      case _degenerated_evac:
+        return "Evacuation";
+      case _degenerated_updaterefs:
+        return "Update Refs";
+      default:
+        ShouldNotReachHere();
+        return "ERROR";
+    }
+  };
+
 private:
   ShenandoahSharedBitmap _gc_state;
   ShenandoahHeapLock _lock;
@@ -200,6 +223,7 @@ private:
   size_t _allocated_last_gc;
   size_t _used_start_gc;
 
+  ShenandoahSharedFlag _degenerated_gc_in_progress;
   ShenandoahSharedFlag _full_gc_in_progress;
   ShenandoahSharedFlag _full_gc_move_in_progress;
 
@@ -334,6 +358,7 @@ public:
   void set_evacuation_in_progress_concurrently(bool in_progress);
   void set_evacuation_in_progress_at_safepoint(bool in_progress);
   void set_update_refs_in_progress(bool in_progress);
+  void set_degenerated_gc_in_progress(bool in_progress);
   void set_full_gc_in_progress(bool in_progress);
   void set_full_gc_move_in_progress(bool in_progress);
   void set_has_forwarded_objects(bool cond);
@@ -341,6 +366,7 @@ public:
   inline bool is_concurrent_mark_in_progress() const;
   inline bool is_update_refs_in_progress() const;
   inline bool is_evacuation_in_progress() const;
+  inline bool is_degenerated_gc_in_progress() const;
   inline bool is_full_gc_in_progress() const;
   inline bool is_full_gc_move_in_progress() const;
   inline bool has_forwarded_objects() const;
@@ -534,6 +560,7 @@ public:
   void vmop_entry_final_updaterefs();
   void vmop_entry_full(GCCause::Cause cause);
   void vmop_entry_verify_after_evac();
+  void vmop_degenerated(ShenandoahDegenerationPoint point);
 
   // Entry methods to normally STW GC operations. These set up logging, monitoring
   // and workers for net VM operation
@@ -543,6 +570,7 @@ public:
   void entry_final_updaterefs();
   void entry_full(GCCause::Cause cause);
   void entry_verify_after_evac();
+  void entry_degenerated(int point);
 
   // Entry methods to normally concurrent GC operations. These set up logging, monitoring
   // for concurrent operation.
@@ -561,6 +589,10 @@ private:
   void op_final_updaterefs();
   void op_full(GCCause::Cause cause);
   void op_verify_after_evac();
+  void op_degenerated(ShenandoahDegenerationPoint point);
+  void op_degenerated_fail();
+  void op_degenerated_futile();
+
   void op_mark();
   void op_preclean();
   void op_cleanup();

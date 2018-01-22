@@ -31,6 +31,7 @@ uint ShenandoahWorkerPolicy::_prev_par_marking     = 0;
 uint ShenandoahWorkerPolicy::_prev_conc_marking    = 0;
 uint ShenandoahWorkerPolicy::_prev_conc_evac       = 0;
 uint ShenandoahWorkerPolicy::_prev_fullgc          = 0;
+uint ShenandoahWorkerPolicy::_prev_degengc         = 0;
 uint ShenandoahWorkerPolicy::_prev_stw_partial     = 0;
 uint ShenandoahWorkerPolicy::_prev_conc_update_ref = 0;
 uint ShenandoahWorkerPolicy::_prev_par_update_ref  = 0;
@@ -108,6 +109,16 @@ uint ShenandoahWorkerPolicy::calc_workers_for_final_update_ref() {
                                             active_workers,
                                             Threads::number_of_non_daemon_threads());
   return _prev_par_update_ref;
+}
+
+// Calculate workers for parallel degenerated gc
+uint ShenandoahWorkerPolicy::calc_workers_for_stw_degenerated() {
+  uint active_workers = (_prev_degengc == 0) ?  ParallelGCThreads : _prev_degengc;
+  _prev_degengc =
+    AdaptiveSizePolicy::calc_active_workers(ParallelGCThreads,
+                                            active_workers,
+                                            Threads::number_of_non_daemon_threads());
+  return _prev_degengc;
 }
 
 uint ShenandoahWorkerPolicy::calc_workers_for_conc_preclean() {

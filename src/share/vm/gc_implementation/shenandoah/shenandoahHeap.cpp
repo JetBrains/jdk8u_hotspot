@@ -455,12 +455,13 @@ void ShenandoahHeap::print_on(outputStream* st) const {
                num_regions(), ShenandoahHeapRegion::region_size_bytes() / K);
 
   st->print("Status: ");
-  if (has_forwarded_objects())                st->print("has forwarded objects, ");
-  if (is_concurrent_mark_in_progress())    st->print("marking, ");
-  if (is_evacuation_in_progress())         st->print("evacuating, ");
-  if (is_update_refs_in_progress())        st->print("updating refs, ");
-  if (is_full_gc_in_progress())            st->print("full gc, ");
-  if (is_full_gc_move_in_progress())       st->print("full gc move, ");
+  if (has_forwarded_objects())               st->print("has forwarded objects, ");
+  if (is_concurrent_mark_in_progress())      st->print("marking, ");
+  if (is_evacuation_in_progress())           st->print("evacuating, ");
+  if (is_update_refs_in_progress())          st->print("updating refs, ");
+  if (is_degenerated_gc_in_progress())       st->print("degenerated gc, ");
+  if (is_full_gc_in_progress())              st->print("full gc, ");
+  if (is_full_gc_move_in_progress())         st->print("full gc move, ");
 
   if (cancelled_concgc()) {
     st->print("conc gc cancelled");
@@ -1476,6 +1477,14 @@ void ShenandoahHeap::op_final_mark() {
   } else {
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
+
+    if (sh->concurrentMark()->process_references()) {
+      // Abandon reference processing right away: pre-cleaning must have failed.
+      ReferenceProcessor *rp = ref_processor();
+      rp->disable_discovery();
+      rp->abandon_partial_discovery();
+      rp->verify_no_references_recorded();
+    }
   }
 }
 
@@ -1560,6 +1569,104 @@ void ShenandoahHeap::op_preclean() {
 
 void ShenandoahHeap::op_full(GCCause::Cause cause) {
   full_gc()->do_it(cause);
+}
+
+void ShenandoahHeap::op_degenerated(ShenandoahDegenerationPoint point) {
+  // Degenerated GC is STW, but it can also fail. Current mechanics communicates
+  // GC failure via cancelled_concgc() flag. So, if we detect the failure after
+  // some phase, we have to upgrade the Degenerate GC to Full GC.
+
+  clear_cancelled_concgc();
+
+  size_t used_before = used();
+
+  switch (point) {
+    case _degenerated_evac:
+      // Not possible to degenerate from here, upgrade to Full GC right away.
+      cancel_concgc(GCCause::_allocation_failure);
+      op_degenerated_fail();
+      return;
+
+    // The cases below form the Duff's-like device: it describes the actual GC cycle,
+    // but enters it at different points, depending on which concurrent phase had
+    // degenerated.
+
+    case _degenerated_outside_cycle:
+      op_init_mark();
+      if (cancelled_concgc()) {
+        op_degenerated_fail();
+        return;
+      }
+
+    case _degenerated_mark:
+      op_final_mark();
+      if (cancelled_concgc()) {
+        op_degenerated_fail();
+        return;
+      }
+
+      op_cleanup();
+
+      // If heuristics thinks we should do the cycle, this flag would be set,
+      // and we can do evacuation. Otherwise, it would be the shortcut cycle.
+      if (is_evacuation_in_progress()) {
+        op_evac();
+        if (cancelled_concgc()) {
+          op_degenerated_fail();
+          return;
+        }
+      }
+
+      // If heuristics thinks we should do the cycle, this flag would be set,
+      // and we need to do update-refs. Otherwise, it would be the shortcut cycle.
+      if (has_forwarded_objects()) {
+        op_init_updaterefs();
+        if (cancelled_concgc()) {
+          op_degenerated_fail();
+          return;
+        }
+      }
+
+    case _degenerated_updaterefs:
+      if (has_forwarded_objects()) {
+        op_final_updaterefs();
+        if (cancelled_concgc()) {
+          op_degenerated_fail();
+          return;
+        }
+      }
+
+      op_cleanup_bitmaps();
+      break;
+
+    default:
+      ShouldNotReachHere();
+  }
+
+  if (ShenandoahVerify) {
+    verifier()->verify_after_degenerated();
+  }
+
+  // Check for futility and fail. There is no reason to do several back-to-back Degenerated cycles,
+  // because that probably means the heap is overloaded and/or fragmented.
+  size_t used_after = used();
+  size_t difference = (used_before > used_after) ? used_before - used_after : 0;
+  if (difference < ShenandoahHeapRegion::region_size_words()) {
+    cancel_concgc(GCCause::_allocation_failure);
+    op_degenerated_futile();
+  }
+}
+
+void ShenandoahHeap::op_degenerated_fail() {
+  log_info(gc)("Cannot finish degeneration, upgrading to Full GC");
+  shenandoahPolicy()->record_degenerated_upgrade_to_full();
+  op_full(GCCause::_allocation_failure);
+}
+
+void ShenandoahHeap::op_degenerated_futile() {
+  log_info(gc)("Degenerated GC had not reclaimed enough, upgrading to Full GC");
+  shenandoahPolicy()->record_degenerated_upgrade_to_full();
+  op_full(GCCause::_allocation_failure);
 }
 
 void ShenandoahHeap::swap_mark_bitmaps() {
@@ -1707,7 +1814,6 @@ void ShenandoahHeap::cancel_concgc(GCCause::Cause cause) {
     FormatBuffer<> msg("Cancelling concurrent GC: %s", GCCause::to_string(cause));
     log_info(gc)("%s", msg.buffer());
     Events::log(Thread::current(), "%s", msg.buffer());
-    _shenandoah_policy->report_concgc_cancelled();
   }
 }
 
@@ -1891,6 +1997,10 @@ void ShenandoahHeap::set_complete_top_at_mark_start(HeapWord* region_base, HeapW
 HeapWord* ShenandoahHeap::complete_top_at_mark_start(HeapWord* region_base) {
   uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_bytes_shift();
   return _complete_top_at_mark_starts[index];
+}
+
+void ShenandoahHeap::set_degenerated_gc_in_progress(bool in_progress) {
+  _degenerated_gc_in_progress.set_cond(in_progress);
 }
 
 void ShenandoahHeap::set_full_gc_in_progress(bool in_progress) {
@@ -2273,6 +2383,15 @@ void ShenandoahHeap::vmop_entry_full(GCCause::Cause cause) {
   VMThread::execute(&op);
 }
 
+void ShenandoahHeap::vmop_degenerated(ShenandoahDegenerationPoint point) {
+  TraceCollectorStats tcs(monitoring_support()->full_stw_collection_counters());
+  ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
+  ShenandoahGCPhase phase(ShenandoahPhaseTimings::degen_gc_gross);
+
+  VM_ShenandoahDegeneratedGC degenerated_gc((int)point);
+  VMThread::execute(&degenerated_gc);
+}
+
 void ShenandoahHeap::entry_init_mark() {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::init_mark);
@@ -2350,6 +2469,22 @@ void ShenandoahHeap::entry_verify_after_evac() {
   EventMark em("%s", msg);
 
   op_verify_after_evac();
+}
+
+void ShenandoahHeap::entry_degenerated(int point) {
+  ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
+  ShenandoahGCPhase phase(ShenandoahPhaseTimings::degen_gc);
+
+  ShenandoahDegenerationPoint dpoint = (ShenandoahDegenerationPoint)point;
+  FormatBuffer<> msg("Pause Degenerated GC (%s)", degen_point_to_string(dpoint));
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
+  EventMark em("%s", msg.buffer());
+
+  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_stw_degenerated());
+
+  set_degenerated_gc_in_progress(true);
+  op_degenerated(dpoint);
+  set_degenerated_gc_in_progress(false);
 }
 
 void ShenandoahHeap::entry_mark() {

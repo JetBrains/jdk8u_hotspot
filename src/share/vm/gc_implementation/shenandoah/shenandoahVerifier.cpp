@@ -801,3 +801,15 @@ void ShenandoahVerifier::verify_after_fullgc() {
           _verify_regions_notrash_nocset // no trash, no cset
   );
 }
+
+void ShenandoahVerifier::verify_after_degenerated() {
+  verify_at_safepoint(
+          "After Degenerated GC",
+          _verify_forwarded_none,      // all objects are non-forwarded
+          _verify_marked_complete,     // all objects are marked in complete bitmap
+          _verify_matrix_conservative, // matrix is conservatively consistent
+          _verify_cset_none,           // no cset references
+          _verify_liveness_disable,    // no reliable liveness data anymore
+          _verify_regions_notrash_nocset // no trash, no cset
+  );
+}
