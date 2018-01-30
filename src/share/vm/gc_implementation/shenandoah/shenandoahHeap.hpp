@@ -317,8 +317,8 @@ public:
   void roots_iterate(OopClosure* cl);
 
 private:
-  void set_gc_state_bit(uint bit, bool value);
-  void set_gc_state_bit_concurrently(uint bit, bool value);
+  void set_gc_state_mask(uint mask, bool value);
+  void set_gc_state_mask_concurrently(uint mask, bool value);
 
 public:
   void set_concurrent_mark_in_progress(bool in_progress);
@@ -335,6 +335,7 @@ public:
   inline bool is_full_gc_in_progress() const;
   inline bool is_full_gc_move_in_progress() const;
   inline bool has_forwarded_objects() const;
+  inline bool is_gc_in_progress_mask(uint mask) const;
 
   inline bool region_in_collection_set(size_t region_index) const;
 
