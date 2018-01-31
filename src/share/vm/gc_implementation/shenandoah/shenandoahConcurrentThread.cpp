@@ -348,7 +348,7 @@ void ShenandoahConcurrentThread::stop() {
 
 void ShenandoahConcurrentThread::service_stw_full_cycle(GCCause::Cause cause) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahGCSession session(/* is_full_gc */true);
+  ShenandoahGCSession session;
 
   GCTimer* gc_timer = heap->gc_timer();
   GCTracer* gc_tracer = heap->tracer();

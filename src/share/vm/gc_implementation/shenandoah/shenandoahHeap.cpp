@@ -498,7 +498,7 @@ void ShenandoahHeap::post_initialize() {
   }
 
   _scm->initialize(_max_workers);
-  _full_gc->initialize();
+  _full_gc->initialize(_gc_timer);
 
   ref_processing_init();
 }
