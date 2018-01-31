@@ -99,7 +99,9 @@ HeapWord* ShenandoahFreeSet::try_allocate_in(size_t word_size, ShenandoahHeap::A
 
   if (result != NULL) {
     // Allocation successful, bump live data stats:
-    r->increase_live_data_words(word_size);
+    if (ShenandoahAllocImplicitLive) {
+      r->increase_live_data_words(word_size);
+    }
     increase_used(word_size * HeapWordSize);
     ShenandoahHeap::heap()->increase_used(word_size * HeapWordSize);
   } else {
@@ -197,7 +199,9 @@ HeapWord* ShenandoahFreeSet::allocate_contiguous(size_t words_size) {
       used_words = ShenandoahHeapRegion::region_size_words();
     }
 
-    r->increase_live_data_words(used_words);
+    if (ShenandoahAllocImplicitLive) {
+      r->increase_live_data_words(used_words);
+    }
     r->set_top(r->bottom() + used_words);
     r->reset_alloc_stats_to_shared();
     sh->increase_used(used_words * HeapWordSize);
