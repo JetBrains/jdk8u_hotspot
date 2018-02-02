@@ -220,9 +220,6 @@ void ShenandoahConcurrentThread::service_concurrent_normal_cycle(GCCause::Cause 
 
   gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
 
-  // Cycle started
-  heap->shenandoahPolicy()->record_cycle_start();
-
   // Capture peak occupancy right after starting the cycle
   heap->shenandoahPolicy()->record_peak_occupancy();
 
@@ -309,8 +306,6 @@ void ShenandoahConcurrentThread::service_concurrent_normal_cycle(GCCause::Cause 
   heap->entry_cleanup_bitmaps();
 
   // Cycle is complete
-  heap->shenandoahPolicy()->record_cycle_end();
-
   heap->shenandoahPolicy()->record_success_gc();
 
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
