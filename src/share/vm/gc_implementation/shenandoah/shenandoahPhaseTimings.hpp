@@ -60,6 +60,7 @@ public:
     scan_system_dictionary_roots,
     scan_cldg_roots,
     scan_jvmti_roots,
+    scan_finish_queues,
 
     resize_tlabs,
 
@@ -80,6 +81,7 @@ public:
     update_system_dictionary_roots,
     update_cldg_roots,
     update_jvmti_roots,
+    update_finish_queues,
 
     finish_queues,
     weakrefs,
@@ -112,6 +114,7 @@ public:
     evac_system_dictionary_roots,
     evac_cldg_roots,
     evac_jvmti_roots,
+    evac_finish_queues,
 
     init_update_refs_gross,
     init_update_refs,
@@ -134,7 +137,7 @@ public:
     final_update_refs_system_dict_roots,
     final_update_refs_cldg_roots,
     final_update_refs_jvmti_roots,
-    final_update_refs_dedup_table,
+    final_update_refs_finish_queues,
 
     final_update_refs_recycle,
 
@@ -178,6 +181,7 @@ public:
     full_gc_system_dictionary_roots,
     full_gc_cldg_roots,
     full_gc_jvmti_roots,
+    full_gc_finish_queues,
 
     full_gc_mark,
     full_gc_mark_finish_queues,
@@ -236,6 +240,7 @@ public:
     SystemDictionaryRoots,
     CLDGRoots,
     JVMTIRoots,
+    FinishQueues,
     GCParPhasesSentinel
   };
 

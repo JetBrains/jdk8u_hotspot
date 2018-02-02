@@ -157,6 +157,7 @@ void ShenandoahPhaseTimings::init_phase_names() {
   _phase_names[scan_system_dictionary_roots]    = "    S: System Dict Roots";
   _phase_names[scan_cldg_roots]                 = "    S: CLDG Roots";
   _phase_names[scan_jvmti_roots]                = "    S: JVMTI Roots";
+  _phase_names[scan_finish_queues]              = "    S: Finish Queues";
 
   _phase_names[update_roots]                    = "  Update Roots";
   _phase_names[update_thread_roots]             = "    U: Thread Roots";
@@ -171,6 +172,7 @@ void ShenandoahPhaseTimings::init_phase_names() {
   _phase_names[update_system_dictionary_roots]  = "    U: System Dict Roots";
   _phase_names[update_cldg_roots]               = "    U: CLDG Roots";
   _phase_names[update_jvmti_roots]              = "    U: JVMTI Roots";
+  _phase_names[update_finish_queues]            = "    U: Finish Queues";
 
   _phase_names[init_evac]                       = "  Initial Evacuation";
   _phase_names[evac_thread_roots]               = "    E: Thread Roots";
@@ -185,6 +187,7 @@ void ShenandoahPhaseTimings::init_phase_names() {
   _phase_names[evac_system_dictionary_roots]    = "    E: System Dict Roots";
   _phase_names[evac_cldg_roots]                 = "    E: CLDG Roots";
   _phase_names[evac_jvmti_roots]                = "    E: JVMTI Roots";
+  _phase_names[evac_finish_queues]              = "    E: Finish Queues";
 
   _phase_names[recycle_regions]                 = "  Recycle regions";
 
@@ -205,6 +208,7 @@ void ShenandoahPhaseTimings::init_phase_names() {
   _phase_names[full_gc_system_dictionary_roots] = "    F: System Dict Roots";
   _phase_names[full_gc_cldg_roots]              = "    F: CLDG Roots";
   _phase_names[full_gc_jvmti_roots]             = "    F: JVMTI Roots";
+  _phase_names[full_gc_finish_queues]           = "    F: Finish Queues";
   _phase_names[full_gc_mark]                    = "  Mark";
   _phase_names[full_gc_mark_finish_queues]      = "    Finish Queues";
   _phase_names[full_gc_weakrefs]                = "    Weak References";
@@ -279,7 +283,7 @@ void ShenandoahPhaseTimings::init_phase_names() {
   _phase_names[final_update_refs_system_dict_roots]    = "    UR: System Dict Roots";
   _phase_names[final_update_refs_cldg_roots]           = "    UR: CLDG Roots";
   _phase_names[final_update_refs_jvmti_roots]          = "    UR: JVMTI Roots";
-  _phase_names[final_update_refs_dedup_table]          = "  UR: String Dedup Table";
+  _phase_names[final_update_refs_finish_queues]        = "    UR: Finish Queues";
   _phase_names[final_update_refs_recycle]              = "  Recycle";
 }
 
@@ -301,6 +305,7 @@ ShenandoahWorkerTimings::ShenandoahWorkerTimings(uint max_gc_threads) :
   _gc_par_phases[ShenandoahPhaseTimings::SystemDictionaryRoots]   = new ShenandoahWorkerDataArray<double>(max_gc_threads, "SystemDictionary Roots (ms):");
   _gc_par_phases[ShenandoahPhaseTimings::CLDGRoots]               = new ShenandoahWorkerDataArray<double>(max_gc_threads, "CLDG Roots (ms):");
   _gc_par_phases[ShenandoahPhaseTimings::JVMTIRoots]              = new ShenandoahWorkerDataArray<double>(max_gc_threads, "JVMTI Roots (ms):");
+  _gc_par_phases[ShenandoahPhaseTimings::FinishQueues]            = new ShenandoahWorkerDataArray<double>(max_gc_threads, "Finish Queues (ms):");
 }
 
 // record the time a phase took in seconds
