@@ -79,11 +79,12 @@ void ShenandoahRootProcessor::process_all_roots_slow(OopClosure* oops) {
 void ShenandoahRootProcessor::process_strong_roots(OopClosure* oops,
                                                    OopClosure* weak_oops,
                                                    CLDClosure* clds,
+                                                   CLDClosure* weak_clds,
                                                    CodeBlobClosure* blobs,
                                                    ThreadClosure* thread_cl,
                                                    uint worker_id) {
   assert(thread_cl == NULL, "not implemented yet");
-  process_java_roots(oops, clds, clds, NULL, blobs, worker_id);
+  process_java_roots(oops, clds, clds, weak_clds, blobs, worker_id);
   process_vm_roots(oops, NULL, weak_oops, worker_id);
 
   _process_strong_tasks->all_tasks_completed();
@@ -110,7 +111,7 @@ void ShenandoahRootProcessor::process_all_roots(OopClosure* oops,
 }
 
 void ShenandoahRootProcessor::process_java_roots(OopClosure* strong_roots,
-						 CLDClosure* thread_clds,
+                                                 CLDClosure* thread_clds,
                                                  CLDClosure* strong_clds,
                                                  CLDClosure* weak_clds,
                                                  CodeBlobClosure* strong_code,
