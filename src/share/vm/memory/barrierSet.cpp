@@ -79,11 +79,11 @@ bool BarrierSet::obj_equals(narrowOop obj1, narrowOop obj2) {
 }
 
 #ifdef ASSERT
-bool BarrierSet::is_safe(oop o) {
-  return true;
+void BarrierSet::verify_safe_oop(oop p) {
+  // Do nothing
 }
 
-bool BarrierSet::is_safe(narrowOop o) {
-  return true;
+void BarrierSet::verify_safe_oop(narrowOop p) {
+  // Do nothing
 }
 #endif
