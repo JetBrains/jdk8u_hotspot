@@ -34,7 +34,7 @@ inline void ShenandoahMarkRefsSuperClosure::work(T *p) {
 
 template <class T>
 inline void ShenandoahUpdateHeapRefsClosure::do_oop_nv(T* p) {
-  _heap->maybe_update_oop_ref(p);
+  _heap->maybe_update_with_forwarded(p);
 }
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_INLINE_HPP

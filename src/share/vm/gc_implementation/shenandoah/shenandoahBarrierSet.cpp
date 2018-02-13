@@ -34,7 +34,7 @@ private:
   ShenandoahHeap* _heap;
   template <class T>
   inline void do_oop_work(T* p) {
-    _heap->maybe_update_oop_ref(p);
+    _heap->maybe_update_with_forwarded(p);
   }
 public:
   ShenandoahUpdateRefsForOopClosure() : _heap(ShenandoahHeap::heap()) {
@@ -268,15 +268,15 @@ void ShenandoahBarrierSet::write_region_work(MemRegion mr) {
 }
 
 oop ShenandoahBarrierSet::read_barrier(oop src) {
-  return ShenandoahBarrierSet::resolve_oop_static(src);
+  return ShenandoahBarrierSet::resolve_forwarded(src);
 }
 
 bool ShenandoahBarrierSet::obj_equals(oop obj1, oop obj2) {
   bool eq = oopDesc::unsafe_equals(obj1, obj2);
   if (! eq && ShenandoahAcmpBarrier) {
     OrderAccess::loadload();
-    obj1 = resolve_oop_static(obj1);
-    obj2 = resolve_oop_static(obj2);
+    obj1 = resolve_forwarded(obj1);
+    obj2 = resolve_forwarded(obj2);
     eq = oopDesc::unsafe_equals(obj1, obj2);
   }
   return eq;
@@ -301,7 +301,7 @@ oop ShenandoahBarrierSet::write_barrier(oop obj) {
     if (!oopDesc::is_null(obj)) {
       bool evac_in_progress = _heap->is_evacuation_in_progress();
       OrderAccess::loadload();
-      oop fwd = resolve_oop_static_not_null(obj);
+      oop fwd = resolve_forwarded_not_null(obj);
       if (evac_in_progress &&
           _heap->in_collection_set(obj) &&
           oopDesc::unsafe_equals(obj, fwd)) {
