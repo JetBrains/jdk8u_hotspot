@@ -55,7 +55,6 @@ private:
   oop _obj;
 };
 
-typedef FormatBuffer<8192> ShenandoahMessageBuffer;
 typedef Stack<ShenandoahVerifierTask, mtGC> ShenandoahVerifierStack;
 typedef volatile jint ShenandoahLivenessData;
 
@@ -183,10 +182,6 @@ public:
   void verify_before_partial();
   void verify_after_partial();
   void verify_generic(VerifyOption option);
-
-#ifdef ASSERT
-  static void assert_correct(oop obj, oop fwdptr);
-#endif
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFIER_HPP

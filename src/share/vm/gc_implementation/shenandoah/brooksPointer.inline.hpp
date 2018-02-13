@@ -25,7 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_BROOKSPOINTER_INLINE_HPP
 
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
-#include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
+#include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
@@ -50,19 +50,13 @@ inline HeapWord* BrooksPointer::get_raw(oop obj) {
 
 inline oop BrooksPointer::forwardee(oop obj) {
   oop result = oop(*brooks_ptr_addr(obj));
-#ifdef ASSERT
-  ShenandoahVerifier::assert_correct(obj, result);
-#endif
+  shenandoah_assert_correct(NULL, obj, result);
   return result;
 }
 
 inline oop BrooksPointer::try_update_forwardee(oop obj, oop update) {
   oop result = (oop) Atomic::cmpxchg_ptr(update, brooks_ptr_addr(obj), obj);
-#ifdef ASSERT
-  if (oopDesc::unsafe_equals(result, obj)) {
-    ShenandoahVerifier::assert_correct(obj, update);
-  }
-#endif
+  shenandoah_assert_correct_except(NULL, obj, update, !oopDesc::unsafe_equals(result, obj));
   return result;
 }
 

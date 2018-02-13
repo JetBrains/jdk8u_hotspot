@@ -23,6 +23,7 @@
 
 #include "precompiled.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
+#include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
@@ -191,15 +192,7 @@ template <class T>
 void ShenandoahBarrierSet::write_ref_array_pre_work(T* dst, int count) {
   assert (UseShenandoahGC && ShenandoahSATBBarrier, "Should be enabled");
 
-#ifdef ASSERT
-    if (_heap->is_in(dst) &&
-        _heap->in_collection_set(dst) &&
-        ! _heap->cancelled_concgc()) {
-      tty->print_cr("dst = "PTR_FORMAT, p2i(dst));
-      _heap->heap_region_containing((HeapWord*) dst)->print();
-      assert(false, "We should have fixed this earlier");
-    }
-#endif
+  shenandoah_assert_not_in_cset_loc_except(dst, _heap->cancelled_concgc());
 
   if (! JavaThread::satb_mark_queue_set().is_active()) return;
   T* elem_ptr = dst;
@@ -227,20 +220,7 @@ template <class T>
 void ShenandoahBarrierSet::write_ref_field_pre_static(T* field, oop newVal) {
   T heap_oop = oopDesc::load_heap_oop(field);
 
-#ifdef ASSERT
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-    if (heap->is_in(field) &&
-        heap->in_collection_set(field) &&
-        ! heap->cancelled_concgc()) {
-      tty->print_cr("field = "PTR_FORMAT, p2i(field));
-      tty->print_cr("in_cset: %s", BOOL_TO_STR(heap->in_collection_set(field)));
-      heap->heap_region_containing((HeapWord*)field)->print();
-      tty->print_cr("marking: %s, evacuating: %s",
-                    BOOL_TO_STR(heap->is_concurrent_mark_in_progress()),
-                    BOOL_TO_STR(heap->is_evacuation_in_progress()));
-      assert(false, "We should have fixed this earlier");
-    }
-#endif
+  shenandoah_assert_not_in_cset_loc_except(field, ShenandoahHeap::heap()->cancelled_concgc());
 
   if (!oopDesc::is_null(heap_oop)) {
     G1SATBCardTableModRefBS::enqueue(oopDesc::decode_heap_oop(heap_oop));
@@ -266,18 +246,9 @@ void ShenandoahBarrierSet::write_ref_field_pre_work(void* field, oop new_val) {
 }
 
 void ShenandoahBarrierSet::write_ref_field_work(void* v, oop o, bool release) {
-#ifdef ASSERT
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  if (!(heap->cancelled_concgc() || !heap->in_collection_set(v))) {
-    tty->print_cr("field not in collection set: "PTR_FORMAT, p2i(v));
-    tty->print_cr("containing heap region:");
-    ShenandoahHeap::heap()->heap_region_containing(v)->print();
-  }
-  assert(heap->cancelled_concgc() || !heap->in_collection_set(v), "only write to to-space");
-  if (! need_update_refs_barrier()) return;
-  assert(o == NULL || oopDesc::unsafe_equals(o, resolve_oop_static(o)), "only write to-space values");
-  assert(o == NULL || !heap->in_collection_set(o), "only write to-space values");
-#endif
+  shenandoah_assert_not_in_cset_loc_except(v, _heap->cancelled_concgc());
+  shenandoah_assert_not_forwarded_except  (v, o, o == NULL || _heap->cancelled_concgc() || !_heap->is_concurrent_mark_in_progress());
+  shenandoah_assert_not_in_cset_except    (v, o, o == NULL || _heap->cancelled_concgc() || !_heap->is_concurrent_mark_in_progress());
 }
 
 void ShenandoahBarrierSet::write_region_work(MemRegion mr) {
@@ -346,22 +317,7 @@ oop ShenandoahBarrierSet::write_barrier(oop obj) {
 
 #ifdef ASSERT
 void ShenandoahBarrierSet::verify_safe_oop(oop p) {
-  ShenandoahHeap* heap = ShenandoahHeap::heap();
-  if (p == NULL) return;
-  if (heap->in_collection_set(p) &&
-      ! heap->cancelled_concgc()) {
-    tty->print_cr("oop = "PTR_FORMAT", resolved: "PTR_FORMAT", marked-next %s, marked-complete: %s",
-                  p2i(p),
-                  p2i(read_barrier(p)),
-                  BOOL_TO_STR(heap->is_marked_next(p)),
-                  BOOL_TO_STR(heap->is_marked_complete(p)));
-    tty->print_cr("in_cset: %s", BOOL_TO_STR(heap->in_collection_set(p)));
-    heap->heap_region_containing((HeapWord*) p)->print();
-    tty->print_cr("top-at-mark-start: %p", heap->next_top_at_mark_start((HeapWord*) p));
-    tty->print_cr("top-at-prev-mark-start: %p", heap->complete_top_at_mark_start((HeapWord*) p));
-    tty->print_cr("marking: %s, evacuating: %s", BOOL_TO_STR(heap->is_concurrent_mark_in_progress()), BOOL_TO_STR(heap->is_evacuation_in_progress()));
-    assert(false, "We should have fixed this earlier");
-  }
+  shenandoah_assert_not_in_cset_except(NULL, p, (p == NULL) || ShenandoahHeap::heap()->cancelled_concgc());
 }
 
 void ShenandoahBarrierSet::verify_safe_oop(narrowOop p) {
