@@ -1096,7 +1096,7 @@ Unsafe_DefineAnonymousClass_impl(JNIEnv *env,
   (*temp_alloc) = body;
 
   {
-    jbyte* array_base = typeArrayOop(oopDesc::bs()->read_barrier(JNIHandles::resolve_non_null(data)))->byte_at_addr(0);
+    jbyte* array_base = typeArrayOop(JNIHandles::resolve_non_null(data))->byte_at_addr(0);
     Copy::conjoint_words((HeapWord*) array_base, body, word_length);
   }
 

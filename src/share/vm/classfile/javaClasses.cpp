@@ -207,7 +207,6 @@ Handle java_lang_String::create_from_str(const char* utf8_str, TRAPS) {
   Handle h_obj = basic_create(length, CHECK_NH);
   if (length > 0) {
     typeArrayOop buffer = value(h_obj());
-    buffer = typeArrayOop(oopDesc::bs()->write_barrier(buffer));
     UTF8::convert_to_unicode(utf8_str, buffer->char_at_addr(0), length);
   }
   return h_obj;
@@ -223,7 +222,6 @@ Handle java_lang_String::create_from_symbol(Symbol* symbol, TRAPS) {
   Handle h_obj = basic_create(length, CHECK_NH);
   if (length > 0) {
     typeArrayOop buffer = value(h_obj());
-    buffer = typeArrayOop(oopDesc::bs()->write_barrier(buffer));
     UTF8::convert_to_unicode((char*)symbol->bytes(), buffer->char_at_addr(0), length);
   }
   return h_obj;
