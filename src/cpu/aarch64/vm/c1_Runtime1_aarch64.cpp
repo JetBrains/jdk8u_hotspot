@@ -79,7 +79,7 @@ int StubAssembler::call_RT(Register oop_result1, Register metadata_result, addre
   }
   pop(r0, sp);
 #endif
-  reset_last_Java_frame(true, true);
+  reset_last_Java_frame(true);
   maybe_isb();
 
   // check for pending exceptions
@@ -569,7 +569,7 @@ OopMapSet* Runtime1::generate_patching(StubAssembler* sasm, address target) {
     __ bind(L);
   }
 #endif
-  __ reset_last_Java_frame(true, false);
+  __ reset_last_Java_frame(true);
   __ maybe_isb();
 
   // check for pending exceptions
