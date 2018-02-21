@@ -1364,6 +1364,7 @@ inline intptr_t p2i(const void * p) {
 #define INT64_FORMAT           "%" PRId64
 #define UINT64_FORMAT          "%" PRIu64
 #define UINT64_FORMAT_X        "%" PRIx64
+#define UINT64_FORMAT_HEX_W(width) "%" #width PRIx64
 #define INT64_FORMAT_W(width)  "%" #width PRId64
 #define UINT64_FORMAT_W(width) "%" #width PRIu64
 
