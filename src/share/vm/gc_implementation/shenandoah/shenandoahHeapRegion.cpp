@@ -288,16 +288,20 @@ void ShenandoahHeapRegion::clear_live_data() {
   OrderAccess::release_store_fence(&_live_data, 0);
 }
 
-void ShenandoahHeapRegion::reset_alloc_stats() {
+void ShenandoahHeapRegion::reset_alloc_metadata() {
   _tlab_allocs = 0;
   _gclab_allocs = 0;
   _shared_allocs = 0;
 }
 
-void ShenandoahHeapRegion::reset_alloc_stats_to_shared() {
-  _tlab_allocs = 0;
-  _gclab_allocs = 0;
-  _shared_allocs = used() >> LogHeapWordSize;
+void ShenandoahHeapRegion::reset_alloc_metadata_to_shared() {
+  if (used() > 0) {
+    _tlab_allocs = 0;
+    _gclab_allocs = 0;
+    _shared_allocs = used() >> LogHeapWordSize;
+  } else {
+    reset_alloc_metadata();
+  }
 }
 
 size_t ShenandoahHeapRegion::get_shared_allocs() const {
@@ -457,7 +461,7 @@ void ShenandoahHeapRegion::recycle() {
     ContiguousSpace::mangle_unused_area_complete();
   }
   clear_live_data();
-  reset_alloc_stats();
+  reset_alloc_metadata();
   // Reset C-TAMS pointer to ensure size-based iteration, everything
   // in that regions is going to be new objects.
   _heap->set_complete_top_at_mark_start(bottom(), bottom());

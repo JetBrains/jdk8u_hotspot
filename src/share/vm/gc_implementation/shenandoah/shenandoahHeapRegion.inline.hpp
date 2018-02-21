@@ -34,28 +34,32 @@ HeapWord* ShenandoahHeapRegion::allocate(size_t size, ShenandoahHeap::AllocType 
   HeapWord* obj = top();
   if (pointer_delta(end(), obj) >= size) {
     make_regular_allocation();
+    adjust_alloc_metadata(type, size);
+
     HeapWord* new_top = obj + size;
     set_top(new_top);
     assert(is_aligned(obj) && is_aligned(new_top), "checking alignment");
 
-    switch (type) {
-      case ShenandoahHeap::_alloc_shared:
-      case ShenandoahHeap::_alloc_shared_gc:
-        _shared_allocs += size;
-        break;
-      case ShenandoahHeap::_alloc_tlab:
-        _tlab_allocs += size;
-        break;
-      case ShenandoahHeap::_alloc_gclab:
-        _gclab_allocs += size;
-        break;
-      default:
-        ShouldNotReachHere();
-    }
-
     return obj;
   } else {
     return NULL;
+  }
+}
+
+inline void ShenandoahHeapRegion::adjust_alloc_metadata(ShenandoahHeap::AllocType type, size_t size) {
+  switch (type) {
+    case ShenandoahHeap::_alloc_shared:
+    case ShenandoahHeap::_alloc_shared_gc:
+      _shared_allocs += size;
+      break;
+    case ShenandoahHeap::_alloc_tlab:
+      _tlab_allocs += size;
+      break;
+    case ShenandoahHeap::_alloc_gclab:
+      _gclab_allocs += size;
+      break;
+    default:
+      ShouldNotReachHere();
   }
 }
 

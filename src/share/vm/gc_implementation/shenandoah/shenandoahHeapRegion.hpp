@@ -309,12 +309,6 @@ public:
   inline void increase_live_data_words(size_t s);
   inline void increase_live_data_words(jint s);
 
-  void reset_alloc_stats_to_shared();
-  void reset_alloc_stats();
-  size_t get_shared_allocs() const;
-  size_t get_tlab_allocs() const;
-  size_t get_gclab_allocs() const;
-
   bool has_live() const;
   size_t get_live_data_bytes() const;
   size_t get_live_data_words() const;
@@ -341,6 +335,13 @@ public:
 
   void set_new_top(HeapWord* new_top) { _new_top = new_top; }
   HeapWord* new_top() const { return _new_top; }
+
+  inline void adjust_alloc_metadata(ShenandoahHeap::AllocType type, size_t);
+  void reset_alloc_metadata_to_shared();
+  void reset_alloc_metadata();
+  size_t get_shared_allocs() const;
+  size_t get_tlab_allocs() const;
+  size_t get_gclab_allocs() const;
 
 private:
   void do_commit();
