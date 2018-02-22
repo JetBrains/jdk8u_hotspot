@@ -73,7 +73,7 @@ inline void ShenandoahHeapRegion::increase_live_data_words(jint s) {
 #ifdef ASSERT
   size_t live_bytes = (size_t)(new_live_data * HeapWordSize);
   size_t used_bytes = used();
-  assert(live_bytes <= used_bytes || is_humongous(),
+  assert(live_bytes <= used_bytes,
          err_msg("can't have more live data than used: " SIZE_FORMAT ", " SIZE_FORMAT, live_bytes, used_bytes));
 #endif
 }
