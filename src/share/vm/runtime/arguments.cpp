@@ -2121,6 +2121,11 @@ void check_gclog_consistency() {
                 "GCLogFileSize changed to minimum 8K\n");
   }
 
+  // Record more information about previous cycles for improved debugging pleasure
+  if (FLAG_IS_DEFAULT(LogEventsBufferEntries)) {
+    FLAG_SET_DEFAULT(LogEventsBufferEntries, 250);
+  }
+
   if (ShenandoahConcurrentEvacCodeRoots) {
     if (!ShenandoahBarriersForConst) {
       if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {

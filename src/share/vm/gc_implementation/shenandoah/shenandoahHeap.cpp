@@ -2268,7 +2268,10 @@ void ShenandoahHeap::vmop_entry_full(GCCause::Cause cause) {
 void ShenandoahHeap::entry_init_mark() {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::init_mark);
-  GCTraceTime time("Pause Init Mark", PrintGC, _gc_timer, tracer()->gc_id());
+
+  static const char* msg = "Pause Init Mark";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
+  EventMark em("%s", msg);
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_init_marking());
 
@@ -2284,6 +2287,7 @@ void ShenandoahHeap::entry_final_mark() {
                      concurrentMark()->process_references() ? " (process refs)"   : "",
                      concurrentMark()->unload_classes() ?     " (unload classes)" : "");
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
+  EventMark em("%s", msg.buffer());
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_final_marking());
 
@@ -2293,7 +2297,10 @@ void ShenandoahHeap::entry_final_mark() {
 void ShenandoahHeap::entry_init_updaterefs() {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::init_update_refs);
-  GCTraceTime time("Pause Init Update Refs", PrintGC, _gc_timer, tracer()->gc_id());
+
+  static const char* msg = "Pause Init Update Refs";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
+  EventMark em("%s", msg);
 
   // No workers used in this phase, no setup required
 
@@ -2303,7 +2310,10 @@ void ShenandoahHeap::entry_init_updaterefs() {
 void ShenandoahHeap::entry_final_updaterefs() {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::final_update_refs);
-  GCTraceTime time("Pause Final Update Refs", PrintGC, _gc_timer, tracer()->gc_id());
+
+  static const char* msg = "Pause Final Update Refs";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
+  EventMark em("%s", msg);
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_final_update_ref());
 
@@ -2313,7 +2323,10 @@ void ShenandoahHeap::entry_final_updaterefs() {
 void ShenandoahHeap::entry_full(GCCause::Cause cause) {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc);
-  GCTraceTime time("Pause Full", PrintGC, _gc_timer, tracer()->gc_id(), true);
+
+  static const char* msg = "Pause Full";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
+  EventMark em("%s", msg);
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_fullgc());
 
@@ -2323,7 +2336,10 @@ void ShenandoahHeap::entry_full(GCCause::Cause cause) {
 void ShenandoahHeap::entry_verify_after_evac() {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::pause_other);
-  GCTraceTime time("Pause Verify After Evac", PrintGC, _gc_timer, tracer()->gc_id());
+
+  static const char *msg = "Pause Verify After Evac";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
+  EventMark em("%s", msg);
 
   op_verify_after_evac();
 }
@@ -2336,6 +2352,7 @@ void ShenandoahHeap::entry_mark() {
                      concurrentMark()->process_references() ? " (process refs)"   : "",
                      concurrentMark()->unload_classes() ?     " (unload classes)" : "");
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
+  EventMark em("%s", msg.buffer());
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_marking());
 
@@ -2346,7 +2363,10 @@ void ShenandoahHeap::entry_mark() {
 void ShenandoahHeap::entry_evac() {
   ShenandoahGCPhase conc_evac_phase(ShenandoahPhaseTimings::conc_evac);
   TraceCollectorStats tcs(monitoring_support()->concurrent_collection_counters());
-  GCTraceTime time("Concurrent evacuation", PrintGC, _gc_timer, tracer()->gc_id(), true);
+
+  static const char *msg = "Concurrent evacuation";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
+  EventMark em("%s", msg);
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_evac());
 
@@ -2356,7 +2376,10 @@ void ShenandoahHeap::entry_evac() {
 
 void ShenandoahHeap::entry_updaterefs() {
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_update_refs);
-  GCTraceTime time("Concurrent update references", PrintGC, _gc_timer, tracer()->gc_id(), true);
+
+  static const char* msg = "Concurrent update references";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
+  EventMark em("%s", msg);
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_update_ref());
 
@@ -2365,7 +2388,10 @@ void ShenandoahHeap::entry_updaterefs() {
 }
 void ShenandoahHeap::entry_cleanup() {
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_cleanup);
-  GCTraceTime time("Concurrent cleanup", PrintGC, _gc_timer, tracer()->gc_id(), true);
+
+  static const char* msg = "Concurrent cleanup";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
+  EventMark em("%s", msg);
 
   // This phase does not use workers, no need for setup
 
@@ -2375,7 +2401,10 @@ void ShenandoahHeap::entry_cleanup() {
 
 void ShenandoahHeap::entry_cleanup_bitmaps() {
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_cleanup);
-  GCTraceTime time("Concurrent cleanup", PrintGC, _gc_timer, tracer()->gc_id(), true);
+
+  static const char* msg = "Concurrent cleanup";
+  GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
+  EventMark em("%s", msg);
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_cleanup());
 
@@ -2386,7 +2415,10 @@ void ShenandoahHeap::entry_cleanup_bitmaps() {
 void ShenandoahHeap::entry_preclean() {
   if (ShenandoahPreclean && concurrentMark()->process_references()) {
     ShenandoahGCPhase conc_preclean(ShenandoahPhaseTimings::conc_preclean);
-    GCTraceTime time("Concurrent precleaning", PrintGC, _gc_timer, tracer()->gc_id(), true);
+
+    static const char* msg = "Concurrent precleaning";
+    GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
+    EventMark em("%s", msg);
 
     ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_preclean());
 
