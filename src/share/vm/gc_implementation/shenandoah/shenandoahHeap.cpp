@@ -1640,19 +1640,23 @@ ShenandoahForwardedIsAliveClosure::ShenandoahForwardedIsAliveClosure() :
   _heap(ShenandoahHeap::heap_no_check()) {
 }
 
+ShenandoahIsAliveClosure::ShenandoahIsAliveClosure() :
+  _heap(ShenandoahHeap::heap_no_check()) {
+}
+
 bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
-  assert(_heap != NULL, "sanity");
+  if (oopDesc::is_null(obj)) {
+    return false;
+  }
   obj = ShenandoahBarrierSet::resolve_forwarded_not_null(obj);
   shenandoah_assert_not_forwarded_if(NULL, obj, _heap->is_concurrent_mark_in_progress())
   return _heap->is_marked_next(obj);
 }
 
-ShenandoahIsAliveClosure::ShenandoahIsAliveClosure() :
-  _heap(ShenandoahHeap::heap_no_check()) {
-}
-
 bool ShenandoahIsAliveClosure::do_object_b(oop obj) {
-  assert(_heap != NULL, "sanity");
+  if (oopDesc::is_null(obj)) {
+    return false;
+  }
   shenandoah_assert_not_forwarded(NULL, obj);
   return _heap->is_marked_next(obj);
 }
