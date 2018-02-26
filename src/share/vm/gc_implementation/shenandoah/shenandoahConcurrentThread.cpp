@@ -37,6 +37,10 @@
 #include "memory/universe.hpp"
 #include "runtime/vmThread.hpp"
 
+#ifdef _WINDOWS
+#pragma warning(disable : 4355)
+#endif
+
 SurrogateLockerThread* ShenandoahConcurrentThread::_slt = NULL;
 
 ShenandoahConcurrentThread::ShenandoahConcurrentThread() :

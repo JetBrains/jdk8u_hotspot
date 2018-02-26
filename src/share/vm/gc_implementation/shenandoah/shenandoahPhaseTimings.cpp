@@ -30,7 +30,7 @@
 #include "utilities/ostream.hpp"
 
 ShenandoahPhaseTimings::ShenandoahPhaseTimings() : _policy(NULL) {
-  _worker_times = new ShenandoahWorkerTimings(MAX2(ConcGCThreads, ParallelGCThreads));
+  _worker_times = new ShenandoahWorkerTimings((uint)MAX2(ConcGCThreads, ParallelGCThreads));
   _policy = ShenandoahHeap::heap()->shenandoahPolicy();
   assert(_policy != NULL, "Can not be NULL");
   init_phase_names();
