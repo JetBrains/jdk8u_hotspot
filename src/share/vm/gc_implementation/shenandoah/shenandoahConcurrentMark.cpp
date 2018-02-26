@@ -181,11 +181,10 @@ public:
     ReferenceProcessor* rp;
     if (_cm->process_references()) {
       rp = ShenandoahHeap::heap()->ref_processor();
+      shenandoah_assert_rp_isalive_installed();
     } else {
       rp = NULL;
     }
-
-    ReferenceProcessorMaybeNullIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
 
     _cm->concurrent_scan_code_roots(worker_id, rp, _update_refs);
     _cm->mark_loop(worker_id, _terminator, rp,
@@ -221,11 +220,10 @@ public:
     ReferenceProcessor* rp;
     if (_cm->process_references()) {
       rp = ShenandoahHeap::heap()->ref_processor();
+      shenandoah_assert_rp_isalive_installed();
     } else {
       rp = NULL;
     }
-
-    ReferenceProcessorMaybeNullIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
 
     // Degenerated cycle may bypass concurrent cycle, so code roots might not be scanned,
     // let's check here.
@@ -377,6 +375,9 @@ void ShenandoahConcurrentMark::mark_from_roots() {
     rp->setup_policy(sh->is_full_gc_in_progress()); // snapshot the soft ref policy to be used in this cycle
   }
 
+  shenandoah_assert_rp_isalive_not_installed();
+  ReferenceProcessorIsAliveMutator fix_isalive(sh->ref_processor(), sh->is_alive_closure());
+
   task_queues()->reserve(nworkers);
 
   if (UseShenandoahOWST) {
@@ -433,6 +434,9 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
                                ShenandoahPhaseTimings::finish_queues);
     bool count_live = !(ShenandoahNoLivenessFullGC && full_gc); // we do not need liveness data for full GC
     task_queues()->reserve(nworkers);
+
+    shenandoah_assert_rp_isalive_not_installed();
+    ReferenceProcessorIsAliveMutator fix_isalive(sh->ref_processor(), sh->is_alive_closure());
 
     SharedHeap::StrongRootsScope scope(sh, true);
     if (UseShenandoahOWST) {
@@ -555,7 +559,7 @@ public:
     assert(scm->process_references(), "why else would we be here?");
     ReferenceProcessor* rp = sh->ref_processor();
 
-    ReferenceProcessorIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
+    shenandoah_assert_rp_isalive_installed();
 
     scm->mark_loop(_worker_id, _terminator, rp,
                    false, // not cancellable
@@ -733,7 +737,8 @@ void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
           ShenandoahPhaseTimings::full_gc_weakrefs_enqueue :
           ShenandoahPhaseTimings::weakrefs_enqueue;
 
-  ReferenceProcessorIsAliveMutator fix_alive(rp, sh->is_alive_closure());
+  shenandoah_assert_rp_isalive_not_installed();
+  ReferenceProcessorIsAliveMutator fix_isalive(rp, sh->is_alive_closure());
 
   WorkGang* workers = sh->workers();
   uint nworkers = workers->active_workers();
@@ -796,9 +801,10 @@ public:
     ShenandoahHeap* sh = ShenandoahHeap::heap();
     ShenandoahConcurrentMark* scm = sh->concurrentMark();
     assert(scm->process_references(), "why else would we be here?");
-    ReferenceProcessor* rp = sh->ref_processor();
     ParallelTaskTerminator terminator(1, scm->task_queues());
-    ReferenceProcessorIsAliveMutator fix_alive(rp, ShenandoahHeap::heap()->is_alive_closure());
+
+    ReferenceProcessor* rp = sh->ref_processor();
+    shenandoah_assert_rp_isalive_installed();
 
     scm->mark_loop(0, &terminator, rp,
                    false, // not cancellable
@@ -840,7 +846,9 @@ void ShenandoahConcurrentMark::preclean_weak_refs() {
   ShenandoahHeap* sh = ShenandoahHeap::heap();
   ReferenceProcessor* rp = sh->ref_processor();
   ReferenceProcessorMTDiscoveryMutator fix_mt_discovery(rp, false);
-  ReferenceProcessorIsAliveMutator fix_alive(rp, sh->is_alive_closure());
+
+  shenandoah_assert_rp_isalive_not_installed();
+  ReferenceProcessorIsAliveMutator fix_isalive(rp, sh->is_alive_closure());
 
   // Interrupt on cancelled GC
   ShenandoahCancelledGCYieldClosure yield;

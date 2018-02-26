@@ -32,6 +32,7 @@
 class ConcurrentGCTimer;
 
 class ShenandoahAllocTracker;
+class ShenandoahAsserts;
 class ShenandoahCollectionSet;
 class ShenandoahCollectorPolicy;
 class ShenandoahConcurrentMark;
@@ -109,6 +110,7 @@ class VMStructs;
 // //      ShenandoahHeap
 
 class ShenandoahHeap : public SharedHeap {
+  friend class ShenandoahAsserts;
   friend class VMStructs;
 public:
   // GC state describes the important parts of collector state, that may be
