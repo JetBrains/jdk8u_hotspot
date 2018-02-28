@@ -1704,7 +1704,9 @@ size_t ShenandoahHeap::tlab_used(Thread* thread) const {
 
 void ShenandoahHeap::cancel_concgc(GCCause::Cause cause) {
   if (try_cancel_concgc()) {
-    log_info(gc)("Cancelling concurrent GC: %s", GCCause::to_string(cause));
+    FormatBuffer<> msg("Cancelling concurrent GC: %s", GCCause::to_string(cause));
+    log_info(gc)("%s", msg.buffer());
+    Events::log(Thread::current(), "%s", msg.buffer());
     _shenandoah_policy->report_concgc_cancelled();
   }
 }
