@@ -290,19 +290,18 @@ void MacroAssembler::serialize_memory(Register thread, Register tmp) {
 }
 
 
-void MacroAssembler::reset_last_Java_frame(bool clear_fp,
-                                           bool clear_pc) {
+void MacroAssembler::reset_last_Java_frame(bool clear_fp) {
   // we must set sp to zero to clear frame
   str(zr, Address(rthread, JavaThread::last_Java_sp_offset()));
+
   // must clear fp, so that compiled frames are not confused; it is
   // possible that we need it only for debugging
   if (clear_fp) {
     str(zr, Address(rthread, JavaThread::last_Java_fp_offset()));
   }
 
-  if (clear_pc) {
-    str(zr, Address(rthread, JavaThread::last_Java_pc_offset()));
-  }
+  // Always clear the pc because it could have been set by make_walkable()
+  str(zr, Address(rthread, JavaThread::last_Java_pc_offset()));
 }
 
 // Calls to C land
@@ -656,7 +655,7 @@ void MacroAssembler::call_VM_base(Register oop_result,
 
   // reset last Java frame
   // Only interpreter should have to clear fp
-  reset_last_Java_frame(true, true);
+  reset_last_Java_frame(true);
 
    // C++ interp handles this in the interpreter
   check_and_handle_popframe(java_thread);
@@ -910,7 +909,7 @@ void MacroAssembler:: notify(int type) {
   if (type == bytecode_start) {
     // set_last_Java_frame(esp, rfp, (address)NULL);
     Assembler:: notify(type);
-    // reset_last_Java_frame(true, false);
+    // reset_last_Java_frame(true);
   }
   else
     Assembler:: notify(type);
@@ -926,8 +925,13 @@ void MacroAssembler::lookup_interface_method(Register recv_klass,
                                              RegisterOrConstant itable_index,
                                              Register method_result,
                                              Register scan_temp,
-                                             Label& L_no_such_interface) {
-  assert_different_registers(recv_klass, intf_klass, method_result, scan_temp);
+                                             Label& L_no_such_interface,
+                                             bool return_method) {
+  assert_different_registers(recv_klass, intf_klass, scan_temp);
+  assert_different_registers(method_result, intf_klass, scan_temp);
+  assert(recv_klass != method_result || !return_method,
+         "recv_klass can be destroyed when method isn't needed");
+
   assert(itable_index.is_constant() || itable_index.as_register() == method_result,
          "caller must use same register for non-constant itable index as for method");
 
@@ -950,12 +954,14 @@ void MacroAssembler::lookup_interface_method(Register recv_klass,
     round_to(scan_temp, BytesPerLong);
   }
 
-  // Adjust recv_klass by scaled itable_index, so we can free itable_index.
-  assert(itableMethodEntry::size() * wordSize == wordSize, "adjust the scaling in the code below");
-  // lea(recv_klass, Address(recv_klass, itable_index, Address::times_ptr, itentry_off));
-  lea(recv_klass, Address(recv_klass, itable_index, Address::lsl(3)));
-  if (itentry_off)
-    add(recv_klass, recv_klass, itentry_off);
+  if (return_method) {
+    // Adjust recv_klass by scaled itable_index, so we can free itable_index.
+    assert(itableMethodEntry::size() * wordSize == wordSize, "adjust the scaling in the code below");
+    // lea(recv_klass, Address(recv_klass, itable_index, Address::times_ptr, itentry_off));
+    lea(recv_klass, Address(recv_klass, itable_index, Address::lsl(3)));
+    if (itentry_off)
+      add(recv_klass, recv_klass, itentry_off);
+  }
 
   // for (scan = klass->itable(); scan->interface() != NULL; scan += scan_step) {
   //   if (scan->interface() == intf) {
@@ -988,9 +994,11 @@ void MacroAssembler::lookup_interface_method(Register recv_klass,
 
   bind(found_method);
 
-  // Got a hit.
-  ldr(scan_temp, Address(scan_temp, itableOffsetEntry::offset_offset_in_bytes()));
-  ldr(method_result, Address(recv_klass, scan_temp));
+  if (return_method) {
+    // Got a hit.
+    ldrw(scan_temp, Address(scan_temp, itableOffsetEntry::offset_offset_in_bytes()));
+    ldr(method_result, Address(recv_klass, scan_temp, Address::uxtw(0)));
+  }
 }
 
 // virtual method calling
@@ -1009,7 +1017,8 @@ void MacroAssembler::lookup_virtual_method(Register recv_klass,
     ldr(method_result, Address(method_result, vtable_offset_in_bytes));
   } else {
     vtable_offset_in_bytes += vtable_index.as_constant() * wordSize;
-    ldr(method_result, Address(recv_klass, vtable_offset_in_bytes));
+    ldr(method_result,
+        form_address(rscratch1, recv_klass, vtable_offset_in_bytes, 0));
   }
 }
 

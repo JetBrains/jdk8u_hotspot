@@ -434,8 +434,8 @@ private:
   void mov(Register dst, Address a);
 
 public:
-  int push(RegSet regs, Register stack) { if (regs.bits()) push(regs.bits(), stack); }
-  int pop(RegSet regs, Register stack) { if (regs.bits()) pop(regs.bits(), stack); }
+  void push(RegSet regs, Register stack) { if (regs.bits()) push(regs.bits(), stack); }
+  void pop(RegSet regs, Register stack) { if (regs.bits()) pop(regs.bits(), stack); }
 
   // Push and pop everything that might be clobbered by a native
   // runtime call except rscratch1 and rscratch2.  (They are always
@@ -767,10 +767,10 @@ public:
                            Register last_java_pc,
 			   Register scratch);
 
-  void reset_last_Java_frame(Register thread, bool clearfp, bool clear_pc);
+  void reset_last_Java_frame(Register thread);
 
-  // thread in the default location (r15_thread on 64bit)
-  void reset_last_Java_frame(bool clear_fp, bool clear_pc);
+  // thread in the default location (rthread)
+  void reset_last_Java_frame(bool clear_fp);
 
   // Stores
   void store_check(Register obj);                // store check for obj - register is destroyed afterwards
@@ -882,7 +882,8 @@ public:
                                RegisterOrConstant itable_index,
                                Register method_result,
                                Register scan_temp,
-                               Label& no_such_interface);
+                               Label& no_such_interface,
+                               bool return_method = true);
 
   // virtual method calling
   // n.b. x86 allows RegisterOrConstant for vtable_index
