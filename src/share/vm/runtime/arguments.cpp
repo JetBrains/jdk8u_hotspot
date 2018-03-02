@@ -1804,6 +1804,13 @@ void Arguments::set_shenandoah_gc_flags() {
     FLAG_SET_DEFAULT(AlwaysPreTouch, false);
     FLAG_SET_DEFAULT(ShenandoahAlwaysPreTouch, true);
   }
+
+  if (ShenandoahAlwaysPreTouch) {
+    if (!FLAG_IS_DEFAULT(ShenandoahUncommit)) {
+      warning("AlwaysPreTouch is enabled, disabling ShenandoahUncommit");
+    }
+    FLAG_SET_DEFAULT(ShenandoahUncommit, false);
+  }
 }
 
 #if !INCLUDE_ALL_GCS

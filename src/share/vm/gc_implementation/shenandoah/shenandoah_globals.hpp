@@ -193,6 +193,9 @@
           " 1 - parallel iterator;"                                         \
           " 2 - parallel iterator with filters;")                           \
                                                                             \
+  experimental(bool, ShenandoahUncommit, true,                              \
+          "Allow Shenandoah to uncommit unused memory.")                    \
+                                                                            \
   experimental(uintx, ShenandoahUncommitDelay, 5*60*1000,                   \
            "Shenandoah would start to uncommit memory for regions that were"\
            " not used for more than this time. First use after that would " \
