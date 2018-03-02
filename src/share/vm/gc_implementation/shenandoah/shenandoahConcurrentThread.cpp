@@ -128,6 +128,10 @@ void ShenandoahConcurrentThread::run() {
         mode = concurrent_normal;
         cause = GCCause::_shenandoah_concurrent_gc;
       }
+
+      // Ask policy if this cycle wants to process references or unload classes
+      heap->set_process_references(policy->should_process_references());
+      heap->set_unload_classes(policy->should_unload_classes());
     }
 
     bool gc_requested = (mode != none);

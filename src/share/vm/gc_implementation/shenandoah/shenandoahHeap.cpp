@@ -1441,7 +1441,7 @@ void ShenandoahHeap::op_final_mark() {
     sh->concurrentMark()->cancel();
     sh->stop_concurrent_marking();
 
-    if (sh->concurrentMark()->process_references()) {
+    if (sh->process_references()) {
       // Abandon reference processing right away: pre-cleaning must have failed.
       ReferenceProcessor *rp = ref_processor();
       rp->disable_discovery();
@@ -1881,6 +1881,22 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
 
 void ShenandoahHeap::set_has_forwarded_objects(bool cond) {
   set_gc_state_mask(HAS_FORWARDED, cond);
+}
+
+void ShenandoahHeap::set_process_references(bool pr) {
+  _process_references.set_cond(pr);
+}
+
+void ShenandoahHeap::set_unload_classes(bool uc) {
+  _unload_classes.set_cond(uc);
+}
+
+bool ShenandoahHeap::process_references() const {
+  return _process_references.is_set();
+}
+
+bool ShenandoahHeap::unload_classes() const {
+  return _unload_classes.is_set();
 }
 
 //fixme this should be in heapregionset
@@ -2354,9 +2370,12 @@ void ShenandoahHeap::entry_init_mark() {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::init_mark);
 
-  static const char* msg = "Pause Init Mark";
+  FormatBuffer<> msg("Pause Init Mark%s%s%s",
+                     has_forwarded_objects() ? " (update refs)"    : "",
+                     process_references() ?    " (process refs)"   : "",
+                     unload_classes() ?        " (unload classes)" : "");
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
-  EventMark em("%s", msg);
+  EventMark em("%s", msg.buffer());
 
   ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_init_marking());
 
@@ -2368,9 +2387,9 @@ void ShenandoahHeap::entry_final_mark() {
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::final_mark);
 
   FormatBuffer<> msg("Pause Final Mark%s%s%s",
-                     has_forwarded_objects() ?                " (update refs)"    : "",
-                     concurrentMark()->process_references() ? " (process refs)"   : "",
-                     concurrentMark()->unload_classes() ?     " (unload classes)" : "");
+                     has_forwarded_objects() ? " (update refs)"    : "",
+                     process_references() ?    " (process refs)"   : "",
+                     unload_classes() ?        " (unload classes)" : "");
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
   EventMark em("%s", msg.buffer());
 
@@ -2449,9 +2468,9 @@ void ShenandoahHeap::entry_mark() {
   TraceCollectorStats tcs(monitoring_support()->concurrent_collection_counters());
 
   FormatBuffer<> msg("Concurrent marking%s%s%s",
-                     has_forwarded_objects() ?                " (update refs)"    : "",
-                     concurrentMark()->process_references() ? " (process refs)"   : "",
-                     concurrentMark()->unload_classes() ?     " (unload classes)" : "");
+                     has_forwarded_objects() ? " (update refs)"    : "",
+                     process_references() ?    " (process refs)"   : "",
+                     unload_classes() ?        " (unload classes)" : "");
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
   EventMark em("%s", msg.buffer());
 
@@ -2514,7 +2533,7 @@ void ShenandoahHeap::entry_cleanup_bitmaps() {
 }
 
 void ShenandoahHeap::entry_preclean() {
-  if (ShenandoahPreclean && concurrentMark()->process_references()) {
+  if (ShenandoahPreclean && process_references()) {
     ShenandoahGCPhase conc_preclean(ShenandoahPhaseTimings::conc_preclean);
 
     static const char* msg = "Concurrent precleaning";

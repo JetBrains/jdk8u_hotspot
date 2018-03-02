@@ -39,9 +39,6 @@ private:
   // The per-worker-thread work queues
   ShenandoahObjToScanQueueSet* _task_queues;
 
-  ShenandoahSharedFlag _process_references;
-  ShenandoahSharedFlag _unload_classes;
-
   ShenandoahSharedFlag _claimed_codecache;
 
   // Used for buffering per-region liveness data.
@@ -116,10 +113,7 @@ public:
   // We need to do this later when the heap is already created.
   void initialize(uint workers);
 
-  void set_process_references(bool pr);
   bool process_references() const;
-
-  void set_unload_classes(bool uc);
   bool unload_classes() const;
 
   bool claim_codecache();
