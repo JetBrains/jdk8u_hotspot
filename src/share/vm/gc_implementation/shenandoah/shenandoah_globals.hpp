@@ -84,7 +84,8 @@
           "and static allocation threshold are tripped), "                  \
           "passive (do not start concurrent GC, wait for Full GC) "         \
           "aggressive (run concurrent GC continuously, evacuate everything), " \
-          "Defaults to adaptive")                                            \
+          "compact (run GC with lower footprint target)."                    \
+          "Defaults to adaptive")                                           \
                                                                             \
   experimental(ccstr, ShenandoahUpdateRefsEarly, "adaptive",                \
           "Run a separate concurrent reference updating phase after"        \

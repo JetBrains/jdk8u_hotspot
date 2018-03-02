@@ -44,7 +44,7 @@ public class TestHeuristicsUnlock {
     public static void main(String[] args) throws Exception {
         testWith("adaptive",        Mode.PRODUCT);
         testWith("static",          Mode.PRODUCT);
-        testWith("continuous",      Mode.PRODUCT);
+        testWith("compact",         Mode.PRODUCT);
 
         testWith("aggressive",      Mode.DIAGNOSTIC);
         testWith("passive",         Mode.DIAGNOSTIC);
