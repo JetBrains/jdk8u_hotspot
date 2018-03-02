@@ -218,10 +218,7 @@ private:
   HeapWord** _next_top_at_mark_starts;
   HeapWord** _next_top_at_mark_starts_base;
 
-  size_t _bytes_allocated_since_cm;
-  size_t _bytes_allocated_during_cm;
-  size_t _allocated_last_gc;
-  size_t _used_start_gc;
+  volatile jlong _bytes_allocated_since_gc_start;
 
   ShenandoahSharedFlag _degenerated_gc_in_progress;
   ShenandoahSharedFlag _full_gc_in_progress;
@@ -417,6 +414,8 @@ public:
   void increase_committed(size_t bytes);
   void decrease_committed(size_t bytes);
 
+  void increase_allocated(size_t bytes);
+
   void handle_heap_shrinkage();
 
   size_t garbage();
@@ -438,8 +437,8 @@ public:
 
   void print_heap_regions_on(outputStream* st) const;
 
-  size_t bytes_allocated_since_cm();
-  void set_bytes_allocated_since_cm(size_t bytes);
+  size_t bytes_allocated_since_gc_start();
+  void reset_bytes_allocated_since_gc_start();
 
   size_t trash_humongous_region_at(ShenandoahHeapRegion *r);
 

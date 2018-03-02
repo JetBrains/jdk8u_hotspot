@@ -30,13 +30,6 @@
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 
 class ShenandoahHeuristics : public CHeapObj<mtGC> {
-
-  NumberSeq _allocation_rate_bytes;
-  NumberSeq _reclamation_rate_bytes;
-
-  size_t _bytes_allocated_since_CM;
-  size_t _bytes_reclaimed_this_cycle;
-
 protected:
   bool _update_refs_early;
   bool _update_refs_adaptive;
@@ -71,9 +64,6 @@ protected:
   RegionData* _region_data;
   size_t _region_data_size;
   
-  size_t _bytes_allocated_start_CM;
-  size_t _bytes_allocated_during_CM;
-
   size_t _bytes_allocated_after_last_gc;
 
   uint _degenerated_cycles_in_a_row;
@@ -88,17 +78,12 @@ public:
   ShenandoahHeuristics();
   virtual ~ShenandoahHeuristics();
 
-  void record_bytes_allocated(size_t bytes);
-  void record_bytes_reclaimed(size_t bytes);
-  void record_bytes_start_CM(size_t bytes);
-  void record_bytes_end_CM(size_t bytes);
-
   void record_gc_start() {
     // Do nothing.
   }
 
   void record_gc_end() {
-    _bytes_allocated_after_last_gc = ShenandoahHeap::heap()->used();
+    // Do nothing.
   }
 
   virtual void record_cycle_start() {
@@ -192,11 +177,6 @@ protected:
 };
 
 ShenandoahHeuristics::ShenandoahHeuristics() :
-  _bytes_allocated_since_CM(0),
-  _bytes_reclaimed_this_cycle(0),
-  _bytes_allocated_start_CM(0),
-  _bytes_allocated_during_CM(0),
-  _bytes_allocated_after_last_gc(0),
   _bytes_in_cset(0),
   _degenerated_cycles_in_a_row(0),
   _successful_cycles_in_a_row(0),
@@ -343,26 +323,6 @@ void ShenandoahCollectorPolicy::record_gc_end() {
   _heuristics->record_gc_end();
 }
 
-void ShenandoahHeuristics::record_bytes_allocated(size_t bytes) {
-  _bytes_allocated_since_CM = bytes;
-  _bytes_allocated_start_CM = bytes;
-  _allocation_rate_bytes.add(bytes);
-}
-
-void ShenandoahHeuristics::record_bytes_reclaimed(size_t bytes) {
-  _bytes_reclaimed_this_cycle = bytes;
-  _reclamation_rate_bytes.add(bytes);
-}
-
-void ShenandoahHeuristics::record_bytes_start_CM(size_t bytes) {
-  _bytes_allocated_start_CM = bytes;
-}
-
-void ShenandoahHeuristics::record_bytes_end_CM(size_t bytes) {
-  _bytes_allocated_during_CM = (bytes > _bytes_allocated_start_CM) ? (bytes - _bytes_allocated_start_CM)
-                                                                   : bytes;
-}
-
 #define SHENANDOAH_PASSIVE_OVERRIDE_FLAG(name)                              \
   do {                                                                      \
     if (FLAG_IS_DEFAULT(name) && (name)) {                                  \
@@ -507,7 +467,7 @@ public:
     size_t available = heap->free_regions()->available();
     size_t threshold_available = (capacity * ShenandoahFreeThreshold) / 100;
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
-    size_t bytes_allocated = heap->bytes_allocated_since_cm();
+    size_t bytes_allocated = heap->bytes_allocated_since_gc_start();
 
     double last_time_ms = (os::elapsedTime() - _last_cycle_end) * 1000;
     bool periodic_gc = (last_time_ms > ShenandoahGuaranteedGCInterval);
@@ -559,7 +519,7 @@ class ShenandoahContinuousHeuristics : public ShenandoahHeuristics {
 public:
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
     // Start the cycle, unless completely idle.
-    return ShenandoahHeap::heap()->bytes_allocated_since_cm() > 0;
+    return ShenandoahHeap::heap()->bytes_allocated_since_gc_start() > 0;
   }
 
   virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
@@ -775,7 +735,7 @@ public:
     double last_time_ms = (os::elapsedTime() - _last_cycle_end) * 1000;
     bool periodic_gc = (last_time_ms > ShenandoahGuaranteedGCInterval);
     size_t threshold_available = (capacity * factor) / 100;
-    size_t bytes_allocated = heap->bytes_allocated_since_cm();
+    size_t bytes_allocated = heap->bytes_allocated_since_gc_start();
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
 
     if (available < threshold_available &&
@@ -919,22 +879,6 @@ void ShenandoahCollectorPolicy::initialize_alignments() {
 
 void ShenandoahCollectorPolicy::post_heap_initialize() {
   // Nothing to do here (yet).
-}
-
-void ShenandoahCollectorPolicy::record_bytes_allocated(size_t bytes) {
-  _heuristics->record_bytes_allocated(bytes);
-}
-
-void ShenandoahCollectorPolicy::record_bytes_start_CM(size_t bytes) {
-  _heuristics->record_bytes_start_CM(bytes);
-}
-
-void ShenandoahCollectorPolicy::record_bytes_end_CM(size_t bytes) {
-  _heuristics->record_bytes_end_CM(bytes);
-}
-
-void ShenandoahCollectorPolicy::record_bytes_reclaimed(size_t bytes) {
-  _heuristics->record_bytes_reclaimed(bytes);
 }
 
 void ShenandoahCollectorPolicy::record_explicit_to_concurrent() {
