@@ -548,8 +548,6 @@ private:
 
   ShenandoahConcurrentThread* concurrent_thread() { return _concurrent_gc_thread; }
 
-  inline bool mark_next_no_checks(oop obj) const;
-
   inline oop atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c);
   inline oop atomic_compare_exchange_oop(oop n, oop* addr, oop c);
 
