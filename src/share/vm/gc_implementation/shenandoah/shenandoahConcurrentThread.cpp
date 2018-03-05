@@ -97,21 +97,24 @@ void ShenandoahConcurrentThread::run() {
     // Choose which GC mode to run in. The block below should select a single mode.
     GCMode mode = none;
     GCCause::Cause cause = GCCause::_last_gc_cause;
-    ShenandoahHeap::ShenandoahDegenerationPoint degen_point = ShenandoahHeap::_degenerated_outside_cycle;
+    ShenandoahHeap::ShenandoahDegenPoint degen_point = ShenandoahHeap::_degenerated_unset;
 
     if (alloc_failure_pending) {
       // Allocation failure takes precedence: we have to deal with it first thing
       cause = GCCause::_allocation_failure;
+
+      // Consume the degen point, and seed it with default value
+      degen_point = _degen_point;
+      _degen_point = ShenandoahHeap::_degenerated_outside_cycle;
+
       if (ShenandoahDegeneratedGC && policy->should_degenerate_cycle()) {
-        policy->record_alloc_failure_to_degenerated();
+        policy->record_alloc_failure_to_degenerated(degen_point);
         mode = stw_degenerated;
       } else {
         policy->record_alloc_failure_to_full();
         mode = stw_full;
       }
 
-      degen_point = _degen_point;
-      _degen_point = ShenandoahHeap::_degenerated_outside_cycle;
     } else if (explicit_gc_requested) {
       // Honor explicit GC requests
       if (ExplicitGCInvokesConcurrent) {
@@ -319,7 +322,7 @@ void ShenandoahConcurrentThread::service_concurrent_normal_cycle(GCCause::Cause 
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
-bool ShenandoahConcurrentThread::check_cancellation_or_degen(ShenandoahHeap::ShenandoahDegenerationPoint point) {
+bool ShenandoahConcurrentThread::check_cancellation_or_degen(ShenandoahHeap::ShenandoahDegenPoint point) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->cancelled_concgc()) {
     assert (is_alloc_failure_gc() || in_graceful_shutdown(), "Cancel GC either for alloc failure GC, or gracefully exiting");
@@ -370,7 +373,8 @@ void ShenandoahConcurrentThread::service_stw_full_cycle(GCCause::Cause cause) {
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
-void ShenandoahConcurrentThread::service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahHeap::ShenandoahDegenerationPoint point) {
+void ShenandoahConcurrentThread::service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahHeap::ShenandoahDegenPoint point) {
+  assert (point != ShenandoahHeap::_degenerated_unset, "Degenerated point should be set");
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   ShenandoahGCSession session;
 

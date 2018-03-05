@@ -144,15 +144,19 @@ public:
     UPDATEREFS    = 1 << UPDATEREFS_BITPOS,
   };
 
-  enum ShenandoahDegenerationPoint {
+  enum ShenandoahDegenPoint {
+    _degenerated_unset,
     _degenerated_outside_cycle,
     _degenerated_mark,
     _degenerated_evac,
     _degenerated_updaterefs,
+    _DEGENERATED_LIMIT,
   };
 
-  static const char* degen_point_to_string(ShenandoahDegenerationPoint point) {
+  static const char* degen_point_to_string(ShenandoahDegenPoint point) {
     switch (point) {
+      case _degenerated_unset:
+        return "<UNSET>";
       case _degenerated_outside_cycle:
         return "Outside of Cycle";
       case _degenerated_mark:
@@ -568,7 +572,7 @@ public:
   void vmop_entry_final_updaterefs();
   void vmop_entry_full(GCCause::Cause cause);
   void vmop_entry_verify_after_evac();
-  void vmop_degenerated(ShenandoahDegenerationPoint point);
+  void vmop_degenerated(ShenandoahDegenPoint point);
 
   // Entry methods to normally STW GC operations. These set up logging, monitoring
   // and workers for net VM operation
@@ -597,7 +601,7 @@ private:
   void op_final_updaterefs();
   void op_full(GCCause::Cause cause);
   void op_verify_after_evac();
-  void op_degenerated(ShenandoahDegenerationPoint point);
+  void op_degenerated(ShenandoahDegenPoint point);
   void op_degenerated_fail();
   void op_degenerated_futile();
 

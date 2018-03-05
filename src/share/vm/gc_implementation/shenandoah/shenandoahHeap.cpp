@@ -1536,7 +1536,7 @@ void ShenandoahHeap::op_full(GCCause::Cause cause) {
   full_gc()->do_it(cause);
 }
 
-void ShenandoahHeap::op_degenerated(ShenandoahDegenerationPoint point) {
+void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
   // Degenerated GC is STW, but it can also fail. Current mechanics communicates
   // GC failure via cancelled_concgc() flag. So, if we detect the failure after
   // some phase, we have to upgrade the Degenerate GC to Full GC.
@@ -2359,7 +2359,7 @@ void ShenandoahHeap::vmop_entry_full(GCCause::Cause cause) {
   VMThread::execute(&op);
 }
 
-void ShenandoahHeap::vmop_degenerated(ShenandoahDegenerationPoint point) {
+void ShenandoahHeap::vmop_degenerated(ShenandoahDegenPoint point) {
   TraceCollectorStats tcs(monitoring_support()->full_stw_collection_counters());
   ShenandoahGCPhase total(ShenandoahPhaseTimings::total_pause_gross);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::degen_gc_gross);
@@ -2454,7 +2454,7 @@ void ShenandoahHeap::entry_degenerated(int point) {
   ShenandoahGCPhase total_phase(ShenandoahPhaseTimings::total_pause);
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::degen_gc);
 
-  ShenandoahDegenerationPoint dpoint = (ShenandoahDegenerationPoint)point;
+  ShenandoahDegenPoint dpoint = (ShenandoahDegenPoint)point;
   FormatBuffer<> msg("Pause Degenerated GC (%s)", degen_point_to_string(dpoint));
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
   EventMark em("%s", msg.buffer());
