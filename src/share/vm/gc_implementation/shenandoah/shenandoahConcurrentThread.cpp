@@ -431,27 +431,6 @@ void ShenandoahConcurrentThread::handle_alloc_failure_evac() {
   heap->collector_policy()->set_should_clear_all_soft_refs(true);
   try_set_alloc_failure_gc();
   heap->cancel_concgc(GCCause::_shenandoah_allocation_failure_evac);
-
-  if (!t->is_GC_task_thread() && !t->is_ConcurrentGC_thread() && t != slt()) {
-    assert(! Threads_lock->owned_by_self()
-           || SafepointSynchronize::is_at_safepoint(), "must not hold Threads_lock here");
-    ResourceMark rm;
-    log_info(gc)("%s. Thread \"%s\" waits until evacuation finishes.",
-                 GCCause::to_string(GCCause::_shenandoah_allocation_failure_evac),
-                 Thread::current()->name());
-    while (heap->is_evacuation_in_progress()) { // wait.
-      os::naked_short_sleep(1);
-    }
-  }
-
-  // Special case for SurrogateLockerThread that may evacuate in VMOperation prolog:
-  // if OOM happened during evacuation in SLT, we ignore it, and let the whole thing
-  // slide into Full GC. Dropping evac_in_progress flag helps to avoid another OOME
-  // when Full GC VMOperation is executed.
-  if (t == slt()) {
-    Events::log(t, "SurrogateLockerThread had failed evacuation, dropping evac-in-progress");
-    heap->set_evacuation_in_progress_concurrently(false);
-  }
 }
 
 void ShenandoahConcurrentThread::notify_alloc_failure_waiters() {

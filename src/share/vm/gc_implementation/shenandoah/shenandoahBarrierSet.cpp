@@ -169,6 +169,7 @@ void ShenandoahBarrierSet::write_ref_array_work(MemRegion r) {
 template <class T>
 void ShenandoahBarrierSet::write_ref_array_loop(HeapWord* start, size_t count) {
   assert(UseShenandoahGC && ShenandoahCloneBarrier, "Should be enabled");
+  ShenandoahEvacOOMScope oom_evac_scope;
   ShenandoahUpdateRefsForOopClosure cl;
   T* dst = (T*) start;
   for (size_t i = 0; i < count; i++) {
@@ -261,6 +262,7 @@ void ShenandoahBarrierSet::write_region_work(MemRegion mr) {
   // it would be NULL in any case. But we *are* interested in any oop*
   // that potentially need to be updated.
 
+  ShenandoahEvacOOMScope oom_evac_scope;
   oop obj = oop(mr.start());
   assert(obj->is_oop(), "must be an oop");
   ShenandoahUpdateRefsForOopClosure cl;
@@ -305,6 +307,7 @@ oop ShenandoahBarrierSet::write_barrier(oop obj) {
       if (evac_in_progress &&
           _heap->in_collection_set(obj) &&
           oopDesc::unsafe_equals(obj, fwd)) {
+        ShenandoahEvacOOMScope oom_evac_scope;
         bool evac;
         return _heap->evacuate_object(obj, Thread::current(), evac);
       } else {

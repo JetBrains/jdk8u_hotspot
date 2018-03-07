@@ -814,6 +814,8 @@ public:
 
   void work(uint worker_id) {
 
+    ShenandoahEvacOOMScope oom_evac_scope;
+
     // If concurrent code cache evac is enabled, evacuate it here.
     // Note we cannot update the roots here, because we risk non-atomic stores to the alive
     // nmethods. The update would be handled elsewhere.
@@ -989,6 +991,7 @@ public:
   }
 
   void work(uint worker_id) {
+    ShenandoahEvacOOMScope oom_evac_scope;
     ShenandoahEvacuateUpdateRootsClosure cl;
 
     if (ShenandoahConcurrentEvacCodeRoots) {
@@ -1012,6 +1015,7 @@ public:
   }
 
   void work(uint worker_id) {
+    ShenandoahEvacOOMScope oom_evac_scope;
     ShenandoahUpdateRefsClosure cl;
     MarkingCodeBlobClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
 
@@ -2561,4 +2565,12 @@ void ShenandoahHeap::try_inject_alloc_failure() {
 
 bool ShenandoahHeap::should_inject_alloc_failure() {
   return _inject_alloc_failure.is_set() && _inject_alloc_failure.try_unset();
+}
+
+void ShenandoahHeap::enter_evacuation() {
+  _oom_evac_handler.enter_evacuation();
+}
+
+void ShenandoahHeap::leave_evacuation() {
+  _oom_evac_handler.leave_evacuation();
 }

@@ -228,6 +228,8 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
     // see ShenandoahHeap::oom_during_evacuation(). It seems to be the lesser evil
     // to do there, because we cannot trigger Full GC right here, when we are
     // in another VMOperation.
+
+    ShenandoahEvacOOMScopeLeaver leaver;
     oop pll = java_lang_ref_Reference::pending_list_lock();
     oopDesc::bs()->write_barrier(pll);
   }
