@@ -197,7 +197,7 @@ void ShenandoahConcurrentThread::run() {
     }
 
     // Wait before performing the next action
-    Thread::current()->_ParkEvent->park(ShenandoahControlLoopInterval);
+    os::naked_short_sleep(ShenandoahControlLoopInterval);
 
     // Make sure the _do_full_gc flag changes are seen.
     OrderAccess::storeload();
@@ -205,7 +205,7 @@ void ShenandoahConcurrentThread::run() {
 
   // Wait for the actual stop(), can't leave run_service() earlier.
   while (! _should_terminate) {
-    Thread::current()->_ParkEvent->park(10);
+    os::naked_short_sleep(ShenandoahControlLoopInterval);
   }
   terminate();
 }
@@ -443,7 +443,7 @@ void ShenandoahConcurrentThread::handle_alloc_failure_evac() {
                  GCCause::to_string(GCCause::_shenandoah_allocation_failure_evac),
                  Thread::current()->name());
     while (heap->is_evacuation_in_progress()) { // wait.
-      t->_ParkEvent->park(1);
+      os::naked_short_sleep(1);
     }
   }
 

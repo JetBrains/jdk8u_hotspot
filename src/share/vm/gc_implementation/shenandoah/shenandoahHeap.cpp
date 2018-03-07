@@ -2552,7 +2552,7 @@ void ShenandoahHeap::entry_preclean() {
 void ShenandoahHeap::try_inject_alloc_failure() {
   if (ShenandoahAllocFailureALot && !cancelled_concgc() && ((os::random() % 1000) > 950)) {
     _inject_alloc_failure.set();
-    Thread::current()->_ParkEvent->park(1);
+    os::naked_short_sleep(1);
     if (cancelled_concgc()) {
       log_info(gc)("Allocation failure was successfully injected");
     }
