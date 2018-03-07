@@ -198,9 +198,6 @@ void ShenandoahConcurrentThread::run() {
 
     // Wait before performing the next action
     os::naked_short_sleep(ShenandoahControlLoopInterval);
-
-    // Make sure the _do_full_gc flag changes are seen.
-    OrderAccess::storeload();
   }
 
   // Wait for the actual stop(), can't leave run_service() earlier.
