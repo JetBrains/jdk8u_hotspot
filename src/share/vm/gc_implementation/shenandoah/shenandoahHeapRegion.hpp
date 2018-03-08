@@ -306,8 +306,12 @@ public:
 
   void clear_live_data();
   void set_live_data(size_t s);
-  inline void increase_live_data_words(size_t s);
-  inline void increase_live_data_words(jint s);
+
+  // Increase live data for newly allocated region
+  inline void increase_live_data_alloc_words(size_t s);
+
+  // Increase live data for region scanned with GC
+  inline void increase_live_data_gc_words(size_t s);
 
   bool has_live() const;
   size_t get_live_data_bytes() const;
@@ -346,6 +350,8 @@ public:
 private:
   void do_commit();
   void do_uncommit();
+
+  inline void internal_increase_live_data(size_t s);
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
