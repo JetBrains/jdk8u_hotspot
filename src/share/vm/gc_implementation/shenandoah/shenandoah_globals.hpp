@@ -240,11 +240,22 @@
   product_rw(bool, ShenandoahRegionSampling, false,                         \
           "Turns on heap region sampling via JVMStat")                      \
                                                                             \
-  experimental(uintx, ShenandoahControlLoopInterval, 10,                    \
-              "The sleep interval for control loop that drives the cycles. "\
-              "Lower values would increase GC responsiveness to changing "  \
-              "heap conditions, at the expense of higher perf overhead. "   \
-              "Time is in milliseconds.")                                   \
+  experimental(uintx, ShenandoahControlIntervalMin, 1,                      \
+              "The minumum sleep interval for control loop that drives "    \
+              "the cycles. Lower values would increase GC responsiveness "  \
+              "to changing heap conditions, at the expense of higher perf " \
+              "overhead. Time is in milliseconds.")                         \
+                                                                            \
+  experimental(uintx, ShenandoahControlIntervalMax, 10,                     \
+              "The maximum sleep interval for control loop that drives "    \
+              "the cycles. Lower values would increase GC responsiveness "  \
+              "to changing heap conditions, at the expense of higher perf " \
+              "overhead. Time is in milliseconds.")                         \
+                                                                            \
+  experimental(uintx, ShenandoahControlIntervalAdjustPeriod, 1000,          \
+              "The time period for one step in control loop interval "      \
+              "adjustment. Lower values make adjustments faster, at the "   \
+              "expense of higher perf overhead. Time is in milliseconds.")  \
                                                                             \
   diagnostic(bool, ShenandoahAllocImplicitLive, true,                       \
               "Treat (non-evac) allocations implicitely live")              \
