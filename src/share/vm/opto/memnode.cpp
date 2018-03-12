@@ -943,8 +943,8 @@ Node *LoadNode::Identity( PhaseTransform *phase ) {
           (value->in(0)->in(1) != NULL &&
            value->in(0)->in(1)->is_IfProj() &&
            (igvn->_worklist.member(value->in(0)->in(1)) ||
-            value->in(0)->in(1)->in(0) != NULL &&
-            igvn->_worklist.member(value->in(0)->in(1)->in(0))))) {
+            (value->in(0)->in(1)->in(0) != NULL &&
+             igvn->_worklist.member(value->in(0)->in(1)->in(0)))))) {
         igvn->_worklist.push(this);
         return this;
       }
