@@ -25,6 +25,8 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHASSERTS_HPP
 
 #include "memory/allocation.hpp"
+#include "oops/oop.hpp"
+#include "utilities/debug.hpp"
 
 typedef FormatBuffer<8192> ShenandoahMessageBuffer;
 
