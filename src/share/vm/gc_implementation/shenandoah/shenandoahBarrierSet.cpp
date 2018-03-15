@@ -302,7 +302,6 @@ oop ShenandoahBarrierSet::write_barrier(oop obj) {
   if (ShenandoahWriteBarrier) {
     if (!oopDesc::is_null(obj)) {
       bool evac_in_progress = _heap->is_evacuation_in_progress();
-      OrderAccess::loadload();
       oop fwd = resolve_forwarded_not_null(obj);
       if (evac_in_progress &&
           _heap->in_collection_set(obj) &&

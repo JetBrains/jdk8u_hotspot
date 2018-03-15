@@ -3482,28 +3482,6 @@ void PhaseIdealLoop::shenandoah_test_evacuation_in_progress(Node* ctrl, int alia
   Node* gc_state = new (C) LoadUBNode(ctrl, raw_mem, gc_state_addr, gc_state_adr_type, TypeInt::BYTE, MemNode::unordered);
   register_new_node(gc_state, ctrl);
 
-  if (ShenandoahWriteBarrierMemBar) {
-    Node *mb = MemBarNode::make(C, Op_MemBarAcquire, Compile::AliasIdxRaw);
-    mb->init_req(TypeFunc::Control, ctrl);
-    mb->init_req(TypeFunc::Memory, raw_mem);
-    register_control(mb, loop, ctrl);
-    Node *ctrl_proj = new(C) ProjNode(mb, TypeFunc::Control);
-    register_control(ctrl_proj, loop, mb);
-    raw_mem = new(C) ProjNode(mb, TypeFunc::Memory);
-    register_new_node(raw_mem, mb);
-
-    mb = MemBarNode::make(C, Op_MemBarAcquire, alias);
-    mb->init_req(TypeFunc::Control, ctrl_proj);
-    mb->init_req(TypeFunc::Memory, wb_mem);
-    register_control(mb, loop, ctrl_proj);
-    ctrl_proj = new(C) ProjNode(mb, TypeFunc::Control);
-    register_control(ctrl_proj, loop, mb);
-    wb_mem = new(C) ProjNode(mb, TypeFunc::Memory);
-    register_new_node(wb_mem, mb);
-
-    ctrl = ctrl_proj;
-  }
-
   Node* evacuation_in_progress = new (C) AndINode(gc_state, _igvn.intcon(ShenandoahHeap::EVACUATION));
   register_new_node(evacuation_in_progress, ctrl);
   Node* evacuation_in_progress_cmp = new (C) CmpINode(evacuation_in_progress, _igvn.zerocon(T_INT));

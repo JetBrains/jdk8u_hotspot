@@ -116,6 +116,9 @@ public:
     evac_jvmti_roots,
     evac_finish_queues,
 
+    final_evac_gross,
+    final_evac,
+
     init_update_refs_gross,
     init_update_refs,
 

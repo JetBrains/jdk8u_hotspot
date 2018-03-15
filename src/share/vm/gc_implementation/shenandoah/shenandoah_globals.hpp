@@ -224,9 +224,6 @@
   experimental(bool, ShenandoahWriteBarrierCsetTestInIR, true,              \
           "Perform cset test in IR rather than in the stub")                \
                                                                             \
-  experimental(bool, ShenandoahWriteBarrierMemBar, true,                    \
-          "Emit write barrier with membar for concurrent change of flag")   \
-                                                                            \
   experimental(bool, UseShenandoahOWST, true,                               \
           "Use Shenandoah work stealing termination protocol")              \
                                                                             \
