@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2000, 2013, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2012, 2013 SAP AG. All rights reserved.
+ * Copyright (c) 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -20,35 +19,29 @@
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
  * or visit www.oracle.com if you need additional information or have any
  * questions.
- *
  */
 
-#include "precompiled.hpp"
-#include "opto/compile.hpp"
-#include "opto/node.hpp"
-#include "runtime/globals.hpp"
-#include "utilities/debug.hpp"
+import com.oracle.java.testlibrary.ProcessTools;
+import com.oracle.java.testlibrary.OutputAnalyzer;
 
-// processor dependent initialization for ppc
+/*
+ * @test MaxMetaspaceSizeTest
+ * @requires vm.bits == "64"
+ * @bug 8087291
+ * @library /testlibrary
+ * @run main/othervm MaxMetaspaceSizeTest
+ */
 
-void Compile::pd_compiler2_init() {
-
-  // Power7 and later
-  if (PowerArchitecturePPC64 > 6) {
-    if (FLAG_IS_DEFAULT(UsePopCountInstruction)) {
-      FLAG_SET_ERGO(bool, UsePopCountInstruction, true);
+public class MaxMetaspaceSizeTest {
+    public static void main(String... args) throws Exception {
+        ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
+            "-Xmx1g",
+            "-XX:InitialBootClassLoaderMetaspaceSize=4195328",
+            "-XX:MaxMetaspaceSize=4195328",
+            "-XX:+UseCompressedClassPointers",
+            "-XX:CompressedClassSpaceSize=1g",
+            "-version");
+        OutputAnalyzer output = new OutputAnalyzer(pb.start());
+        output.shouldContain("MaxMetaspaceSize is too small.");
     }
-  }
-
-  if (PowerArchitecturePPC64 == 6) {
-    if (FLAG_IS_DEFAULT(InsertEndGroupPPC64)) {
-      FLAG_SET_ERGO(bool, InsertEndGroupPPC64, true);
-    }
-  }
-
-  if (OptimizeFill) {
-    warning("OptimizeFill is not supported on this CPU.");
-    FLAG_SET_DEFAULT(OptimizeFill, false);
-  }
-
 }
