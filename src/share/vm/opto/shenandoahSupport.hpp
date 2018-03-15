@@ -113,6 +113,7 @@ public:
   virtual void dump_spec(outputStream *st) const;
 #endif
   static void do_cmpp_if(GraphKit& kit, Node*& taken_branch, Node*& untaken_branch, Node*& taken_memory, Node*& untaken_memory);
+  static const TypePtr* fix_addp_type(const TypePtr* res, Node* base);
 
 protected:
   uint hash() const;
