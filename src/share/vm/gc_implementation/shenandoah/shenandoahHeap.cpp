@@ -44,6 +44,8 @@
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahPacer.hpp"
+#include "gc_implementation/shenandoah/shenandoahPacer.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
@@ -175,6 +177,13 @@ jint ShenandoahHeap::initialize() {
   _complete_top_at_mark_starts_base = NEW_C_HEAP_ARRAY(HeapWord*, _num_regions, mtGC);
   _complete_top_at_mark_starts = _complete_top_at_mark_starts_base -
                ((uintx) pgc_rs.base() >> ShenandoahHeapRegion::region_size_bytes_shift());
+
+  if (ShenandoahPacing) {
+    _pacer = new ShenandoahPacer(this);
+    _pacer->setup_for_idle();
+  } else {
+    _pacer = NULL;
+  }
 
   {
     ShenandoahHeapLocker locker(lock());
@@ -330,6 +339,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _mark_bit_map1(),
   _aux_bit_map(),
   _verifier(NULL),
+  _pacer(NULL),
 #ifdef ASSERT
   _heap_expansion_count(0),
 #endif
@@ -647,6 +657,10 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
   HeapWord* result = NULL;
 
   if (type == _alloc_tlab || type == _alloc_shared) {
+    if (ShenandoahPacing) {
+      pacer()->pace_for_alloc(word_size);
+    }
+
     if (!ShenandoahAllocFailureALot || !should_inject_alloc_failure()) {
       result = allocate_memory_under_lock(word_size, type, in_new_region);
     }
@@ -684,6 +698,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
 
   if (result != NULL) {
     increase_allocated(word_size * HeapWordSize);
+    concurrent_thread()->notify_alloc(word_size);
   }
 
   return result;
@@ -837,6 +852,10 @@ public:
       if (_sh->cancelled_concgc()) {
         log_develop_trace(gc, region)("Cancelled concgc while evacuating region " SIZE_FORMAT, r->region_number());
         break;
+      }
+
+      if (ShenandoahPacing) {
+        _sh->pacer()->report_evac(r->get_live_data_words());
       }
     }
   }
@@ -1195,6 +1214,13 @@ void ShenandoahHeap::print_tracing_info() const {
     out->cr();
     out->cr();
 
+    if (ShenandoahPacing) {
+      pacer()->print_on(out);
+    }
+
+    out->cr();
+    out->cr();
+
     if (ShenandoahAllocationTrace) {
       assert(alloc_tracker() != NULL, "Must be");
       alloc_tracker()->print_on(out);
@@ -1404,6 +1430,10 @@ void ShenandoahHeap::op_init_mark() {
     ShenandoahGCPhase phase(ShenandoahPhaseTimings::resize_tlabs);
     resize_all_tlabs();
   }
+
+  if (ShenandoahPacing) {
+    pacer()->setup_for_mark();
+  }
 }
 
 void ShenandoahHeap::op_mark() {
@@ -1438,6 +1468,10 @@ void ShenandoahHeap::op_final_mark() {
 
       ShenandoahGCPhase init_evac(ShenandoahPhaseTimings::init_evac);
       evacuate_and_update_roots();
+    }
+
+    if (ShenandoahPacing) {
+      pacer()->setup_for_evac();
     }
   } else {
     concurrentMark()->cancel();
@@ -1952,6 +1986,11 @@ void ShenandoahHeap::reset_bytes_allocated_since_gc_start() {
   OrderAccess::release_store_fence(&_bytes_allocated_since_gc_start, (size_t)0);
 }
 
+ShenandoahPacer* ShenandoahHeap::pacer() const {
+  assert (_pacer != NULL, "sanity");
+  return _pacer;
+}
+
 void ShenandoahHeap::set_next_top_at_mark_start(HeapWord* region_base, HeapWord* addr) {
   uintx index = ((uintx) region_base) >> ShenandoahHeapRegion::region_size_bytes_shift();
   _next_top_at_mark_starts[index] = addr;
@@ -2094,6 +2133,9 @@ public:
       } else {
         if (r->is_active()) {
           _heap->marked_object_oop_safe_iterate(r, &cl);
+          if (ShenandoahPacing) {
+            _heap->pacer()->report_updaterefs(r->get_live_data_words());
+          }
         }
       }
       if (_heap->cancelled_concgc()) {
@@ -2126,6 +2168,10 @@ void ShenandoahHeap::op_init_updaterefs() {
 
   // Initiate region walk: this cursor will update in concurrent and final phases
   _ordered_regions->clear_current_index();
+
+  if (ShenandoahPacing) {
+    pacer()->setup_for_updaterefs();
+  }
 }
 
 void ShenandoahHeap::op_final_updaterefs() {

@@ -45,6 +45,7 @@ class ShenandoahHeapRegionSet;
 class ShenandoahMarkCompact;
 class ShenandoahMonitoringSupport;
 class ShenandoahPhaseTimings;
+class ShenandoahPacer;
 class ShenandoahVerifier;
 class ShenandoahWorkGang;
 
@@ -191,6 +192,7 @@ private:
   ShenandoahConcurrentMark* _scm;
   ShenandoahMarkCompact* _full_gc;
   ShenandoahVerifier*  _verifier;
+  ShenandoahPacer*  _pacer;
 
 
 
@@ -461,6 +463,7 @@ public:
   ShenandoahConcurrentMark* concurrentMark() { return _scm; }
   ShenandoahMarkCompact* full_gc() { return _full_gc; }
   ShenandoahVerifier* verifier();
+  ShenandoahPacer* pacer() const;
 
   ReferenceProcessor* ref_processor() { return _ref_processor;}
 

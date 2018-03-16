@@ -217,6 +217,8 @@ private:
   RegionState _state;
   double _empty_time;
 
+  ShenandoahPacer* _pacer;
+
 public:
   ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t size_words, size_t index, bool committed);
 
