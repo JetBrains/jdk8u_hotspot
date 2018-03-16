@@ -365,6 +365,10 @@
           "beginning of the GC cycle. Lower value makes the pacing less "   \
           "uniform during the cycle.")                                      \
                                                                             \
+  diagnostic(bool, ShenandoahAllowMixedAllocs, true,                        \
+          "Allow mixing mutator and collector allocations in a single "     \
+          "region")                                                         \
+                                                                            \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \
