@@ -423,7 +423,7 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
         assert (slots[c] < tams,  err_msg("only objects below TAMS here: "  PTR_FORMAT " (" PTR_FORMAT ")", p2i(slots[c]), p2i(tams)));
         assert (slots[c] < limit, err_msg("only objects below limit here: " PTR_FORMAT " (" PTR_FORMAT ")", p2i(slots[c]), p2i(limit)));
         oop obj = oop(slots[c]);
-        do_marked_object(mark_bit_map, cl, obj);
+        do_object_marked_complete(cl, obj);
       }
     } while (avail > 0);
   } else {
@@ -431,7 +431,7 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
       assert (cb < tams,  err_msg("only objects below TAMS here: "  PTR_FORMAT " (" PTR_FORMAT ")", p2i(cb), p2i(tams)));
       assert (cb < limit, err_msg("only objects below limit here: " PTR_FORMAT " (" PTR_FORMAT ")", p2i(cb), p2i(limit)));
       oop obj = oop(cb);
-      do_marked_object(mark_bit_map, cl, obj);
+      do_object_marked_complete(cl, obj);
       cb += skip_bitmap_delta;
       if (cb < limit_bitmap) {
         cb = mark_bit_map->getNextMarkedWordAddress(cb, limit_bitmap);
@@ -448,17 +448,15 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
     assert (cs < limit, err_msg("only objects below limit here: " PTR_FORMAT " (" PTR_FORMAT ")", p2i(cs), p2i(limit)));
     oop obj = oop(cs);
     int size = obj->size();
-    do_marked_object(mark_bit_map, cl, obj);
+    do_object_marked_complete(cl, obj);
     cs += size + skip_objsize_delta;
   }
 }
 
 template<class T>
-inline void ShenandoahHeap::do_marked_object(MarkBitMap* bitmap, T* cl, oop obj) {
+inline void ShenandoahHeap::do_object_marked_complete(T* cl, oop obj) {
   assert(!oopDesc::is_null(obj), "sanity");
   assert(obj->is_oop(), "sanity");
-  assert(is_in(obj), "sanity");
-  assert(bitmap == _complete_mark_bit_map, "only iterate completed mark bitmap");
   assert(is_marked_complete(obj), "object expected to be marked");
   cl->do_object(obj);
 }
