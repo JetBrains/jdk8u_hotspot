@@ -55,15 +55,20 @@ void ShenandoahPacer::setup_for_mark() {
   size_t used = _heap->used();
   size_t free = (_heap->capacity() - used);
 
+  // Determine the non-taxable base
+  size_t non_taxable = free * ShenandoahPacingCycleSlack / 100;
+  free -= non_taxable;
+
   double tax = 1.0 * used / free;  // base tax for available free space
   tax *= 3;                        // mark is phase 1 of 3, claim 1/3 of free for it
   tax = MAX2<double>(1, tax);      // never allocate more than GC collects during the cycle
   tax *= 1.1;                      // additional surcharge to help unclutter heap
 
-  restart_with(0, tax);
+  restart_with(non_taxable, tax);
 
-  log_info(gc, ergo)("Pacer for Mark. Used: " SIZE_FORMAT "M, Free: " SIZE_FORMAT "M, Alloc Tax Rate: %.1fx",
-               used / M, free / M, tax);
+  log_info(gc, ergo)("Pacer for Mark. Used: " SIZE_FORMAT "M, Free: " SIZE_FORMAT
+                     "M, Non-Taxable: " SIZE_FORMAT "M, Alloc Tax Rate: %.1fx",
+                     used / M, free / M, non_taxable / M, tax);
 }
 
 void ShenandoahPacer::setup_for_evac() {
@@ -72,15 +77,20 @@ void ShenandoahPacer::setup_for_evac() {
   size_t cset = _heap->collection_set()->live_data();
   size_t free = (_heap->capacity() - _heap->used());
 
+  // Determine the non-taxable base
+  size_t non_taxable = free * ShenandoahPacingCycleSlack / 100;
+  free -= non_taxable;
+
   double tax = 1.0 * cset / free;  // base tax for available free space
   tax *= 2;                        // evac is phase 2 of 3, claim 1/2 of remaining free
   tax = MAX2<double>(1, tax);      // never allocate more than GC collects during the cycle
   tax *= 1.1;                      // additional surcharge to help unclutter heap
 
-  restart_with(0, tax);
+  restart_with(non_taxable, tax);
 
-  log_info(gc, ergo)("Pacer for Evacuation. CSet: " SIZE_FORMAT "M, Free: " SIZE_FORMAT "M, Alloc Tax Rate: %.1fx",
-          cset / M, free / M, tax);
+  log_info(gc, ergo)("Pacer for Evacuation. CSet: " SIZE_FORMAT "M, Free: " SIZE_FORMAT
+                     "M, Non-Taxable: " SIZE_FORMAT "M, Alloc Tax Rate: %.1fx",
+                     cset / M, free / M, non_taxable / M, tax);
 }
 
 void ShenandoahPacer::setup_for_updaterefs() {
@@ -89,15 +99,20 @@ void ShenandoahPacer::setup_for_updaterefs() {
   size_t used = _heap->used();
   size_t free = (_heap->capacity() - used);
 
+  // Determine the non-taxable base
+  size_t non_taxable = free * ShenandoahPacingCycleSlack / 100;
+  free -= non_taxable;
+
   double tax = 1.0 * used / free;  // base tax for available free space
   tax *= 1;                        // update-refs is phase 3 of 3, claim the remaining free
   tax = MAX2<double>(1, tax);      // never allocate more than GC collects during the cycle
   tax *= 1.1;                      // additional surcharge to help unclutter heap
 
-  restart_with(0, tax);
+  restart_with(non_taxable, tax);
 
-  log_info(gc, ergo)("Pacer for Update-Refs. Used: " SIZE_FORMAT "M, Free: " SIZE_FORMAT "M, Alloc Tax Rate: %.1fx",
-               used / M, free / M, tax);
+  log_info(gc, ergo)("Pacer for Update-Refs. Used: " SIZE_FORMAT "M, Free: " SIZE_FORMAT
+                     "M, Non-Taxable: " SIZE_FORMAT "M, Alloc Tax Rate: %.1fx",
+                     used / M, free / M, non_taxable / M, tax);
 }
 
 /*
@@ -112,20 +127,21 @@ void ShenandoahPacer::setup_for_updaterefs() {
 void ShenandoahPacer::setup_for_idle() {
   assert(ShenandoahPacing, "Only be here when pacing is enabled");
 
-  // Start at 2%
-  size_t initial = _heap->num_regions() * ShenandoahHeapRegion::region_size_words() * 2 / 100;
+  size_t initial = _heap->capacity() * ShenandoahPacingIdleSlack / 100;
   double tax = 1;
 
   restart_with(initial, tax);
 
-  log_info(gc, ergo)("Pacer for Idle. Alloc Tax Rate: %.1fx", tax);
+  log_info(gc, ergo)("Pacer for Idle. Initial: " SIZE_FORMAT "M, Alloc Tax Rate: %.1fx",
+                     initial / M, tax);
 }
 
-void ShenandoahPacer::restart_with(jlong initial_budget, jdouble tax_rate) {
+void ShenandoahPacer::restart_with(jlong non_taxable_bytes, jdouble tax_rate) {
+  jlong initial = (jlong)(non_taxable_bytes * tax_rate) >> LogHeapWordSize;
   jlong cur;
   do {
     cur = OrderAccess::load_acquire(&_budget);
-  } while (Atomic::cmpxchg(initial_budget, &_budget, cur) != cur);
+  } while (Atomic::cmpxchg(initial, &_budget, cur) != cur);
   OrderAccess::release_store(&_tax_rate, tax_rate);
 }
 

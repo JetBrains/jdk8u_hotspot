@@ -63,7 +63,7 @@ public:
   void print_on(outputStream* out) const;
 
 private:
-  void restart_with(jlong initial_budget, jdouble tax_rate);
+  void restart_with(jlong non_taxable_bytes, jdouble tax_rate);
 };
 
 #endif //SHARE_VM_GC_SHENANDOAH_SHENANDOAHPACER_HPP
