@@ -242,9 +242,9 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   // Step 1. Build up the region candidates we care about, rejecting losers and accepting winners right away.
 
   ShenandoahHeapRegionSet* regions = heap->regions();
-  size_t active = regions->active_regions();
+  size_t num_regions = heap->num_regions();
 
-  RegionData* candidates = get_region_data_cache(active);
+  RegionData* candidates = get_region_data_cache(num_regions);
 
   size_t cand_idx = 0;
 
@@ -254,7 +254,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   size_t free = 0;
   size_t free_regions = 0;
 
-  for (size_t i = 0; i < active; i++) {
+  for (size_t i = 0; i < num_regions; i++) {
     ShenandoahHeapRegion* region = regions->get(i);
 
     if (region->is_empty()) {
@@ -323,16 +323,16 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
     log_info(gc, ergo)("Live/garbage ratio in collected regions: "SIZE_FORMAT"%%",
                        collection_set->live_data() * 100 / MAX2(collection_set->garbage(), (size_t)1));
     log_info(gc, ergo)("Free: "SIZE_FORMAT"M, "SIZE_FORMAT" regions ("SIZE_FORMAT"%% of total)",
-                       free / M, free_regions, free_regions * 100 / active);
+                       free / M, free_regions, free_regions * 100 / num_regions);
   }
 
   collection_set->update_region_status();
 }
 
 void ShenandoahHeuristics::choose_free_set(ShenandoahFreeSet* free_set) {
-  ShenandoahHeapRegionSet* ordered_regions = ShenandoahHeap::heap()->regions();
-  for (size_t i = 0; i < ordered_regions->active_regions(); i++) {
-    ShenandoahHeapRegion* region = ordered_regions->get(i);
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+  for (size_t i = 0; i < heap->num_regions(); i++) {
+    ShenandoahHeapRegion* region = heap->regions()->get(i);
     if (region->is_alloc_allowed()) {
       free_set->add_region(region);
     }
@@ -482,7 +482,7 @@ public:
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-    size_t available = heap->free_regions()->available();
+    size_t available = heap->free_set()->available();
     size_t threshold_available = (capacity * ShenandoahFreeThreshold) / 100;
     size_t threshold_bytes_allocated = heap->capacity() * ShenandoahAllocationThreshold / 100;
     size_t bytes_allocated = heap->bytes_allocated_since_gc_start();
@@ -546,7 +546,7 @@ public:
   virtual bool should_start_concurrent_mark(size_t used, size_t capacity) const {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
 
-    size_t available = heap->free_regions()->available();
+    size_t available = heap->free_set()->available();
     double last_time_ms = (os::elapsedTime() - _last_cycle_end) * 1000;
     bool periodic_gc = (last_time_ms > ShenandoahGuaranteedGCInterval);
     size_t bytes_allocated = heap->bytes_allocated_since_gc_start();
@@ -776,7 +776,7 @@ public:
     bool shouldStartConcurrentMark = false;
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    size_t available = heap->free_regions()->available();
+    size_t available = heap->free_set()->available();
     uintx factor = _free_threshold;
     size_t cset_threshold = 0;
     if (! update_refs()) {

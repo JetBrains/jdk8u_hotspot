@@ -185,9 +185,8 @@ private:
   MemRegion _bitmap1_region;
   MemRegion _aux_bitmap_region;
 
-  // Sortable array of regions
-  ShenandoahHeapRegionSet* _ordered_regions;
-  ShenandoahFreeSet* _free_regions;
+  ShenandoahHeapRegionSet* _regions;
+  ShenandoahFreeSet* _free_set;
   ShenandoahCollectionSet* _collection_set;
   ShenandoahConcurrentMark* _scm;
   ShenandoahMarkCompact* _full_gc;
@@ -417,11 +416,9 @@ public:
   inline bool try_cancel_concgc();
   inline void clear_cancelled_concgc();
 
-  ShenandoahHeapRegionSet* regions() const { return _ordered_regions;}
-  ShenandoahFreeSet* free_regions() const  { return _free_regions; }
+  ShenandoahHeapRegionSet* regions()        const { return _regions;}
+  ShenandoahFreeSet* free_set()             const { return _free_set; }
   ShenandoahCollectionSet* collection_set() const { return _collection_set; }
-  void clear_free_regions();
-  void add_free_region(ShenandoahHeapRegion* r);
 
   void increase_used(size_t bytes);
   void decrease_used(size_t bytes);

@@ -29,6 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
@@ -645,7 +646,7 @@ private:
 
 public:
   ShenandoahPostCompactClosure() : _live(0), _heap(ShenandoahHeap::heap()) {
-    _heap->clear_free_regions();
+    _heap->free_set()->clear();
   }
 
   bool heap_region_do(ShenandoahHeapRegion* r) {
@@ -683,7 +684,7 @@ public:
       if (_heap->collection_set()->is_in(r)) {
         _heap->collection_set()->remove_region(r);
       }
-      _heap->add_free_region(r);
+      _heap->free_set()->add_region(r);
     }
 
     r->set_live_data(live);
