@@ -721,7 +721,7 @@ static void ensure_string_alive(oop string) {
   // considered dead. The SATB part of G1 needs to get notified about this
   // potential resurrection, otherwise the marking might not find the object.
 #if INCLUDE_ALL_GCS
-  if (UseG1GC && string != NULL) {
+  if ((UseG1GC || (UseShenandoahGC && ShenandoahSATBBarrier)) && string != NULL) {
     G1SATBCardTableModRefBS::enqueue(string);
   }
 #endif

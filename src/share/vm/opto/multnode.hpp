@@ -89,13 +89,15 @@ public:
   virtual void dump_spec(outputStream *st) const;
 #endif
 
-  // Return true if proj is for "proj->[region->..]call_uct"
-  bool is_uncommon_trap_proj(Deoptimization::DeoptReason reason);
-  // Return true for    "if(test)-> proj -> ...
-  //                          |
-  //                          V
-  //                      other_proj->[region->..]call_uct"
-  bool is_uncommon_trap_if_pattern(Deoptimization::DeoptReason reason);
+  // Return uncommon trap call node if proj is for "proj->[region->..]call_uct"
+  // NULL otherwise
+  CallStaticJavaNode* is_uncommon_trap_proj(Deoptimization::DeoptReason reason);
+  // Return uncommon trap call node for    "if(test)-> proj -> ...
+  //                                                 |
+  //                                                 V
+  //                                             other_proj->[region->..]call_uct"
+  // NULL otherwise
+  CallStaticJavaNode* is_uncommon_trap_if_pattern(Deoptimization::DeoptReason reason);
 };
 
 #endif // SHARE_VM_OPTO_MULTNODE_HPP

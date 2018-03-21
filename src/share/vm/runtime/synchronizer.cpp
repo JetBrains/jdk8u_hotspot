@@ -209,7 +209,7 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   // swing the displaced header from the box back to the mark.
   if (mark == (markOop) lock) {
      assert (dhw->is_neutral(), "invariant") ;
-     if ((markOop) Atomic::cmpxchg_ptr (dhw, object->mark_addr(), mark) == mark) {
+     if (object->cas_set_mark(dhw, mark) == mark) {
         TEVENT (fast_exit: release stacklock) ;
         return;
      }
@@ -231,7 +231,7 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
     // Anticipate successful CAS -- the ST of the displaced mark must
     // be visible <= the ST performed by the CAS.
     lock->set_displaced_header(mark);
-    if (mark == (markOop) Atomic::cmpxchg_ptr(lock, obj()->mark_addr(), mark)) {
+    if (mark == obj()->cas_set_mark((markOop) lock, mark)) {
       TEVENT (slow_enter: release stacklock) ;
       return ;
     }
@@ -650,7 +650,7 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
     hash = get_next_hash(Self, obj);  // allocate a new hash code
     temp = mark->copy_set_hash(hash); // merge the hash code into header
     // use (machine word version) atomic operation to install the hash
-    test = (markOop) Atomic::cmpxchg_ptr(temp, obj->mark_addr(), mark);
+    test = obj->cas_set_mark(temp, mark);
     if (test == mark) {
       return hash;
     }
@@ -855,6 +855,17 @@ static inline ObjectMonitor* next(ObjectMonitor* block) {
 
 
 void ObjectSynchronizer::oops_do(OopClosure* f) {
+  if (MonitorInUseLists) {
+    // When using thread local monitor lists, we only scan the
+    // global used list here (for moribund threads), and
+    // the thread-local monitors in Thread::oops_do().
+    global_used_oops_do(f);
+  } else {
+    global_oops_do(f);
+  }
+}
+
+void ObjectSynchronizer::global_oops_do(OopClosure* f) {
   assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
   for (ObjectMonitor* block = gBlockList; block != NULL; block = next(block)) {
     assert(block->object() == CHAINMARKER, "must be a block header");
@@ -867,6 +878,26 @@ void ObjectSynchronizer::oops_do(OopClosure* f) {
   }
 }
 
+
+void ObjectSynchronizer::global_used_oops_do(OopClosure* f) {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  list_oops_do(gOmInUseList, f);
+}
+
+void ObjectSynchronizer::thread_local_used_oops_do(Thread* thread, OopClosure* f) {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  list_oops_do(thread->omInUseList, f);}
+
+
+void ObjectSynchronizer::list_oops_do(ObjectMonitor* list, OopClosure* f) {
+  assert(SafepointSynchronize::is_at_safepoint(), "must be at safepoint");
+  ObjectMonitor* mid;
+  for (mid = list; mid != NULL; mid = mid->FreeNext) {
+    if (mid->object() != NULL) {
+      f->do_oop((oop*)mid->object_addr());
+    }
+  }
+}
 
 // -----------------------------------------------------------------------------
 // ObjectMonitor Lifecycle
@@ -1118,14 +1149,14 @@ void ObjectSynchronizer::omRelease (Thread * Self, ObjectMonitor * m, bool fromP
 // a global gOmInUseList under the global list lock so these
 // will continue to be scanned.
 //
-// We currently call omFlush() from the Thread:: dtor _after the thread
+// We currently call omFlush() from Threads::remove() _before the thread
 // has been excised from the thread list and is no longer a mutator.
-// That means that omFlush() can run concurrently with a safepoint and
-// the scavenge operator.  Calling omFlush() from JavaThread::exit() might
-// be a better choice as we could safely reason that that the JVM is
-// not at a safepoint at the time of the call, and thus there could
-// be not inopportune interleavings between omFlush() and the scavenge
-// operator.
+// This means that omFlush() can not run concurrently with a safepoint and
+// interleave with the scavenge operator. In particular, this ensures that
+// the thread's monitors are scanned by a GC safepoint, either via
+// Thread::oops_do() (if safepoint happens before omFlush()) or via
+// ObjectSynchronizer::oops_do() (if it happens after omFlush() and the thread's
+// monitors have been transferred to the global in-use list).
 
 void ObjectSynchronizer::omFlush (Thread * Self) {
     ObjectMonitor * List = Self->omFreeList ;  // Null-terminated SLL
@@ -1166,6 +1197,8 @@ void ObjectSynchronizer::omFlush (Thread * Self) {
       Tail->FreeNext = gFreeList ;
       gFreeList = List ;
       MonitorFreeCount += Tally;
+      assert(Self->omFreeCount == Tally, "free-count off");
+      Self->omFreeCount = 0;
     }
 
     if (InUseTail != NULL) {
@@ -1215,7 +1248,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       if (mark->has_monitor()) {
           ObjectMonitor * inf = mark->monitor() ;
           assert (inf->header()->is_neutral(), "invariant");
-          assert (inf->object() == object, "invariant") ;
+          assert (oopDesc::equals((oop) inf->object(), object), "invariant") ;
           assert (ObjectSynchronizer::verify_objmon_isinpool(inf), "monitor is invalid");
           return inf ;
       }
@@ -1262,7 +1295,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
           m->_recursions   = 0 ;
           m->_SpinDuration = ObjectMonitor::Knob_SpinLimit ;   // Consider: maintain by type/class
 
-          markOop cmp = (markOop) Atomic::cmpxchg_ptr (markOopDesc::INFLATING(), object->mark_addr(), mark) ;
+          markOop cmp = object->cas_set_mark(markOopDesc::INFLATING(), mark);
           if (cmp != mark) {
              omRelease (Self, m, true) ;
              continue ;       // Interference -- just retry
@@ -1355,7 +1388,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       m->_Responsible  = NULL ;
       m->_SpinDuration = ObjectMonitor::Knob_SpinLimit ;       // consider: keep metastats by type/class
 
-      if (Atomic::cmpxchg_ptr (markOopDesc::encode(m), object->mark_addr(), mark) != mark) {
+      if (object->cas_set_mark(markOopDesc::encode(m), mark) != mark) {
           m->set_object (NULL) ;
           m->set_owner  (NULL) ;
           m->OwnerIsThread = 0 ;
@@ -1730,3 +1763,44 @@ int ObjectSynchronizer::verify_objmon_isinpool(ObjectMonitor *monitor) {
 }
 
 #endif
+
+ParallelObjectSynchronizerIterator ObjectSynchronizer::parallel_iterator() {
+  return ParallelObjectSynchronizerIterator(gBlockList);
+}
+
+// ParallelObjectSynchronizerIterator implementation
+ParallelObjectSynchronizerIterator::ParallelObjectSynchronizerIterator(ObjectMonitor * head)
+  : _cur(head) {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must at safepoint");
+}
+
+ObjectMonitor* ParallelObjectSynchronizerIterator::claim() {
+  ObjectMonitor* my_cur = _cur;
+
+  while (true) {
+    if (my_cur == NULL) return NULL;
+    ObjectMonitor* next_block = next(my_cur);
+    ObjectMonitor* cas_result = (ObjectMonitor*) Atomic::cmpxchg_ptr(next_block, &_cur, my_cur);
+    if (my_cur == cas_result) {
+      // We succeeded.
+      return my_cur;
+    } else {
+      // We failed. Retry with offending CAS result.
+      my_cur = cas_result;
+    }
+  }
+}
+
+bool ParallelObjectSynchronizerIterator::parallel_oops_do(OopClosure* f) {
+  ObjectMonitor* block = claim();
+  if (block != NULL) {
+    for (int i = 1; i < ObjectSynchronizer::_BLOCKSIZE; i++) {
+      ObjectMonitor* mid = &block[i];
+      if (mid->object() != NULL) {
+        f->do_oop((oop*) mid->object_addr());
+      }
+    }
+    return true;
+  }
+  return false;
+}

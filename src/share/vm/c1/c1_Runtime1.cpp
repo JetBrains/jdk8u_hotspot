@@ -586,7 +586,7 @@ JRT_ENTRY_NO_ASYNC(static address, exception_handler_for_pc_helper(JavaThread* t
     // Update the exception cache only when there didn't happen
     // another exception during the computation of the compiled
     // exception handler.
-    if (continuation != NULL && original_exception() == exception()) {
+    if (continuation != NULL && oopDesc::equals(original_exception(), exception())) {
       nm->add_handler_for_exception_and_pc(exception, pc, continuation);
     }
   }
@@ -1366,6 +1366,10 @@ JRT_LEAF(int, Runtime1::arraycopy(oopDesc* src, int src_pos, oopDesc* dst, int d
   if ((unsigned int) arrayOop(dst)->length() < (unsigned int)dst_pos + (unsigned int)length) return ac_failed;
 
   if (length == 0) return ac_ok;
+
+  oopDesc::bs()->read_barrier(src);
+  oopDesc::bs()->write_barrier(dst);
+
   if (src->is_typeArray()) {
     Klass* klass_oop = src->klass();
     if (klass_oop != dst->klass()) return ac_failed;

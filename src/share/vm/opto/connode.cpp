@@ -544,20 +544,6 @@ void CastIINode::dump_spec(outputStream *st) const {
 #endif
 
 //=============================================================================
-
-//------------------------------Ideal_DU_postCCP-------------------------------
-// If not converting int->oop, throw away cast after constant propagation
-Node *CastPPNode::Ideal_DU_postCCP( PhaseCCP *ccp ) {
-  const Type *t = ccp->type(in(1));
-  if (!t->isa_oop_ptr() || ((in(1)->is_DecodeN()) && Matcher::gen_narrow_oop_implicit_null_checks())) {
-    return NULL; // do not transform raw pointers or narrow oops
-  }
-  return ConstraintCastNode::Ideal_DU_postCCP(ccp);
-}
-
-
-
-//=============================================================================
 //------------------------------Identity---------------------------------------
 // If input is already higher or equal to cast type, then this is an identity.
 Node *CheckCastPPNode::Identity( PhaseTransform *phase ) {
@@ -690,10 +676,6 @@ const Type *EncodePNode::Value( PhaseTransform *phase ) const {
   return t->make_narrowoop();
 }
 
-
-Node *EncodeNarrowPtrNode::Ideal_DU_postCCP( PhaseCCP *ccp ) {
-  return MemNode::Ideal_common_DU_postCCP(ccp, this, in(1));
-}
 
 Node* DecodeNKlassNode::Identity(PhaseTransform* phase) {
   const Type *t = phase->type( in(1) );

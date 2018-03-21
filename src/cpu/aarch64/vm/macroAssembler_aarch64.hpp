@@ -443,14 +443,13 @@ public:
   // 64 bits of each vector register.
   void push_call_clobbered_registers();
   void pop_call_clobbered_registers();
+  void push_call_clobbered_fp_registers();
+  void pop_call_clobbered_fp_registers();
 
   // now mov instructions for loading absolute addresses and 32 or
   // 64 bit integers
 
-  inline void mov(Register dst, address addr)
-  {
-    mov_immediate64(dst, (u_int64_t)addr);
-  }
+  void mov(Register dst, address addr);
 
   inline void mov(Register dst, u_int64_t imm64)
   {
@@ -534,6 +533,17 @@ public:
   inline void clear_fpsr()
   {
     msr(0b011, 0b0100, 0b0100, 0b001, zr);
+  }
+
+  // Macro instructions for accessing and updating the condition flags
+  inline void get_nzcv(Register reg)
+  {
+    mrs(0b011, 0b0100, 0b0010, 0b000, reg);
+  }
+
+  inline void set_nzcv(Register reg)
+  {
+    msr(0b011, 0b0100, 0b0010, 0b000, reg);
   }
 
   // DCZID_EL0: op1 == 011
@@ -781,6 +791,8 @@ public:
                              Register tmp,
                              Register tmp2);
 
+  void shenandoah_write_barrier(Register dst);
+
 #endif // INCLUDE_ALL_GCS
 
   // split store_check(Register obj) to enhance instruction interleaving
@@ -933,7 +945,7 @@ public:
   void verify_FPU(int stack_depth, const char* s = "illegal FPU state");
 
   // prints msg, dumps registers and stops execution
-  void stop(const char* msg);
+  void stop(const char* msg, Label *l = NULL);
 
   // prints msg and continues
   void warn(const char* msg);
@@ -970,6 +982,8 @@ public:
   void addptr(const Address &dst, int32_t src);
   void cmpptr(Register src1, Address src2);
 
+  void cmpoops(Register src1, Register src2);
+
   void cmpxchgptr(Register oldv, Register newv, Register addr, Register tmp,
 		  Label &suceed, Label *fail);
 
@@ -997,6 +1011,10 @@ public:
                bool acquire, bool release,
                Register tmp = rscratch1);
 
+  void cmpxchg_oop_shenandoah(Register addr, Register expected, Register new_val,
+                              enum operand_size size,
+                              bool acquire, bool release, bool weak,
+                              Register result = noreg, Register tmp2 = rscratch2);
   // Calls
 
   address trampoline_call(Address entry, CodeBuffer *cbuf = NULL);
@@ -1213,7 +1231,22 @@ public:
                       Register tmp1, Register tmp2,
                       Register tmp3, Register tmp4,
                       int int_cnt1, Register result);
+
+  void in_heap_check(Register r, Register tmp, Label &nope);
+
 private:
+  void shenandoah_cset_check(Register obj, Register tmp1, Register tmp2, Label& done);
+
+public:
+  void _shenandoah_store_addr_check(Register addr, const char* msg, const char* file, int line);
+  void _shenandoah_store_addr_check(Address addr, const char* msg, const char* file, int line);
+#define shenandoah_store_addr_check(reg) _shenandoah_store_addr_check(reg, "oop not safe for writing", __FILE__, __LINE__)
+
+  void _shenandoah_store_check(Address addr, Register value, const char* msg, const char* file, int line);
+  void _shenandoah_store_check(Register addr, Register value, const char* msg, const char* file, int line);
+#define shenandoah_store_check(addr, value) _shenandoah_store_check(addr, value, "oop not safe for writing", __FILE__, __LINE__)
+
+ private:
   void add2_with_carry(Register final_dest_hi, Register dest_hi, Register dest_lo,
                        Register src1, Register src2);
   void add2_with_carry(Register dest_hi, Register dest_lo, Register src1, Register src2) {

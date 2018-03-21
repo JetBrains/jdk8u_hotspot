@@ -495,7 +495,7 @@ void nmethod::init_defaults() {
   _oops_do_mark_link       = NULL;
   _jmethod_id              = NULL;
   _osr_link                = NULL;
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     _unloading_next        = NULL;
   } else {
     _scavenge_root_link    = NULL;
@@ -1871,7 +1871,7 @@ void nmethod::do_unloading(BoolObjectClosure* is_alive, bool unloading_occurred)
 
   // Scopes
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     if (can_unload(is_alive, p, unloading_occurred)) {
       return;
     }
@@ -2044,7 +2044,7 @@ bool nmethod::do_unloading_parallel(BoolObjectClosure* is_alive, bool unloading_
 
   // Scopes
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     if (can_unload(is_alive, p, unloading_occurred)) {
       is_unloaded = true;
       break;
@@ -2258,7 +2258,7 @@ void nmethod::oops_do(OopClosure* f, bool allow_zombie) {
   // Scopes
   // This includes oop constants not inlined in the code stream.
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     f->do_oop(p);
   }
 }
@@ -2857,7 +2857,7 @@ public:
 };
 
 void nmethod::verify_scavenge_root_oops() {
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     return;
   }
 

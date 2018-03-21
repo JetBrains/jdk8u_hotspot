@@ -79,6 +79,7 @@ class GCHeapLog : public EventLogBase<GCMessage> {
 //   SharedHeap
 //     GenCollectedHeap
 //     G1CollectedHeap
+//   ShenandoahHeap
 //   ParallelScavengeHeap
 //
 class CollectedHeap : public CHeapObj<mtInternal> {
@@ -188,7 +189,8 @@ class CollectedHeap : public CHeapObj<mtInternal> {
     SharedHeap,
     GenCollectedHeap,
     ParallelScavengeHeap,
-    G1CollectedHeap
+    G1CollectedHeap,
+    ShenandoahHeap
   };
 
   static inline size_t filler_array_max_size() {
@@ -196,6 +198,8 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   }
 
   virtual CollectedHeap::Name kind() const { return CollectedHeap::Abstract; }
+
+  virtual HeapWord* tlab_post_allocation_setup(HeapWord* obj);
 
   /**
    * Returns JNI error code JNI_ENOMEM if memory could not be allocated,
@@ -322,6 +326,12 @@ class CollectedHeap : public CHeapObj<mtInternal> {
 
   inline static void post_allocation_install_obj_klass(KlassHandle klass,
                                                        oop obj);
+
+  virtual uint oop_extra_words();
+
+#ifndef CC_INTERP
+  virtual void compile_prepare_oop(MacroAssembler* masm, Register obj);
+#endif
 
   // Raw memory allocation facilities
   // The obj and array allocate methods are covers for these methods.
@@ -603,11 +613,25 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   virtual void register_nmethod(nmethod* nm);
   virtual void unregister_nmethod(nmethod* nm);
 
+  // The following two methods are there to support object pinning for JNI critical
+  // regions. They are called whenever a thread enters or leaves a JNI critical
+  // region and requires an object not to move. Notice that there's another
+  // mechanism for GCs to implement critical region (see gcLocker.hpp). The default
+  // implementation does nothing.
+  virtual void pin_object(oop o);
+  virtual void unpin_object(oop o);
+
   void trace_heap_before_gc(GCTracer* gc_tracer);
   void trace_heap_after_gc(GCTracer* gc_tracer);
 
   // Heap verification
   virtual void verify(bool silent, VerifyOption option) = 0;
+
+  // Shut down all GC workers and other GC related threads.
+  virtual void shutdown();
+
+  // Accumulate additional statistics from GCLABs.
+  virtual void accumulate_statistics_all_gclabs();
 
   // Non product verification and debugging.
 #ifndef PRODUCT

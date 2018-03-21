@@ -1539,6 +1539,16 @@ void Assembler::jccb(Condition cc, Label& L) {
   }
 }
 
+void Assembler::jccb_if_possible(Condition cc, Label& L) {
+
+#ifdef ASSERT
+  if (UseShenandoahGC) {
+    jcc(cc, L);
+  } else
+#endif
+    jccb(cc, L);
+}
+
 void Assembler::jmp(Address adr) {
   InstructionMark im(this);
   prefix(adr);
@@ -1610,6 +1620,16 @@ void Assembler::jmpb(Label& L) {
     emit_int8((unsigned char)0xEB);
     emit_int8(0);
   }
+}
+
+void Assembler::jmpb_if_possible(Label& L) {
+
+#ifdef ASSERT
+  if (UseShenandoahGC) {
+    jmp(L);
+  } else
+#endif
+    jmpb(L);
 }
 
 void Assembler::ldmxcsr( Address src) {
@@ -2925,6 +2945,14 @@ void Assembler::testb(Register dst, int imm8) {
   NOT_LP64(assert(dst->has_byte_register(), "must have byte register"));
   (void) prefix_and_encode(dst->encoding(), true);
   emit_arith_b(0xF6, 0xC0, dst, imm8);
+}
+
+void Assembler::testb(Address dst, int imm8) {
+  InstructionMark im(this);
+  prefix(dst);
+  emit_int8((unsigned char)0xF6);
+  emit_operand(rax, dst, 1);
+  emit_int8(imm8);
 }
 
 void Assembler::testl(Register dst, int32_t imm32) {

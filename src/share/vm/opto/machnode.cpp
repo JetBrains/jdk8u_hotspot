@@ -26,6 +26,7 @@
 #include "gc_interface/collectedHeap.hpp"
 #include "opto/machnode.hpp"
 #include "opto/regalloc.hpp"
+#include "opto/shenandoahSupport.hpp"
 
 //=============================================================================
 // Return the value requested
@@ -246,7 +247,7 @@ const MachOper*  MachNode::memory_inputs(Node* &base, Node* &index) const {
 }
 
 //-----------------------------get_base_and_disp----------------------------
-const Node* MachNode::get_base_and_disp(intptr_t &offset, const TypePtr* &adr_type) const {
+Node* MachNode::get_base_and_disp(intptr_t &offset, const TypePtr* &adr_type) const {
 
   // Find the memory inputs using our helper function
   Node* base;
@@ -325,9 +326,10 @@ const Node* MachNode::get_base_and_disp(intptr_t &offset, const TypePtr* &adr_ty
 const class TypePtr *MachNode::adr_type() const {
   intptr_t offset = 0;
   const TypePtr *adr_type = TYPE_PTR_SENTINAL;  // attempt computing adr_type
-  const Node *base = get_base_and_disp(offset, adr_type);
+  Node *base = get_base_and_disp(offset, adr_type);
+
   if( adr_type != TYPE_PTR_SENTINAL ) {
-    return adr_type;      // get_base_and_disp has the answer
+    return ShenandoahBarrierNode::fix_addp_type(adr_type, base);      // get_base_and_disp has the answer
   }
 
   // Direct addressing modes have no base node, simply an indirect
@@ -379,7 +381,7 @@ const class TypePtr *MachNode::adr_type() const {
   }
   assert(tp->base() != Type::AnyPtr, "not a bare pointer");
 
-  return tp->add_offset(offset);
+  return ShenandoahBarrierNode::fix_addp_type(tp->add_offset(offset), base);
 }
 
 
@@ -783,6 +785,13 @@ JVMState jvms_for_throw(0);
 JVMState *MachHaltNode::jvms() const {
   return &jvms_for_throw;
 }
+
+uint MachMemBarNode::size_of() const { return sizeof(*this); }
+
+const TypePtr *MachMemBarNode::adr_type() const {
+  return _adr_type;
+}
+
 
 //=============================================================================
 #ifndef PRODUCT

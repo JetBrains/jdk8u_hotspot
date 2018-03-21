@@ -158,6 +158,8 @@ address StubRoutines::_safefetchN_fault_pc               = NULL;
 address StubRoutines::_safefetchN_continuation_pc        = NULL;
 #endif
 
+address StubRoutines::_shenandoah_wb_C = NULL;
+
 // Initialization
 //
 // Note: to break cycle with universe initialization, stubs are generated in two phases.

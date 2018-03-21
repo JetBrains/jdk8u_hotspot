@@ -281,7 +281,6 @@ public:
   CastPPNode (Node *n, const Type *t ): ConstraintCastNode(n, t) {}
   virtual int Opcode() const;
   virtual uint ideal_reg() const { return Op_RegP; }
-  virtual Node *Ideal_DU_postCCP( PhaseCCP * );
 };
 
 //------------------------------CheckCastPPNode--------------------------------
@@ -299,9 +298,6 @@ public:
   virtual Node *Ideal(PhaseGVN *phase, bool can_reshape);
   virtual int   Opcode() const;
   virtual uint  ideal_reg() const { return Op_RegP; }
-  // No longer remove CheckCast after CCP as it gives me a place to hang
-  // the proper address type - which is required to compute anti-deps.
-  //virtual Node *Ideal_DU_postCCP( PhaseCCP * );
 };
 
 
@@ -316,7 +312,6 @@ class EncodeNarrowPtrNode : public TypeNode {
   }
  public:
   virtual uint  ideal_reg() const { return Op_RegN; }
-  virtual Node *Ideal_DU_postCCP( PhaseCCP *ccp );
 };
 
 //------------------------------EncodeP--------------------------------

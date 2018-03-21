@@ -243,6 +243,8 @@ class StubRoutines: AllStatic {
   static address _safefetchN_continuation_pc;
 #endif
 
+  static address _shenandoah_wb_C;
+
  public:
   // Initialization/Testing
   static void    initialize1();                            // must happen before universe::genesis
@@ -253,7 +255,7 @@ class StubRoutines: AllStatic {
   static bool contains(address addr) {
     return
       (_code1 != NULL && _code1->blob_contains(addr)) ||
-      (_code2 != NULL && _code2->blob_contains(addr)) ;
+      (_code2 != NULL && _code1->blob_contains(addr)) ;
   }
 
   static CodeBlob* code1() { return _code1; }
@@ -462,6 +464,11 @@ class StubRoutines: AllStatic {
   static void arrayof_jlong_copy     (HeapWord* src, HeapWord* dest, size_t count);
   static void arrayof_oop_copy       (HeapWord* src, HeapWord* dest, size_t count);
   static void arrayof_oop_copy_uninit(HeapWord* src, HeapWord* dest, size_t count);
+
+  static address shenandoah_wb_C()
+  {
+    return _shenandoah_wb_C;
+  }
 };
 
 #ifndef BUILTIN_SIM

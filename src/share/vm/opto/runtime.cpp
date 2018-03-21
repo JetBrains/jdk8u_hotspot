@@ -34,6 +34,7 @@
 #include "compiler/compileBroker.hpp"
 #include "compiler/compilerOracle.hpp"
 #include "compiler/oopMap.hpp"
+#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/g1/heapRegion.hpp"
 #include "gc_interface/collectedHeap.hpp"
@@ -559,6 +560,31 @@ const TypeFunc *OptoRuntime::g1_wb_post_Type() {
   // create result type (range)
   fields = TypeTuple::fields(0);
   const TypeTuple *range = TypeTuple::make(TypeFunc::Parms, fields);
+
+  return TypeFunc::make(domain, range);
+}
+
+const TypeFunc *OptoRuntime::shenandoah_clone_barrier_Type() {
+  const Type **fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // original field value
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(0);
+  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+0, fields);
+
+  return TypeFunc::make(domain, range);
+}
+
+const TypeFunc *OptoRuntime::shenandoah_write_barrier_Type() {
+  const Type **fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // original field value
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL;
+  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1, fields);
 
   return TypeFunc::make(domain, range);
 }
@@ -1242,7 +1268,7 @@ JRT_ENTRY_NO_ASYNC(address, OptoRuntime::handle_exception_C_helper(JavaThread* t
         // Update the exception cache only when the unwind was not forced
         // and there didn't happen another exception during the computation of the
         // compiled exception handler.
-        if (!force_unwind && original_exception() == exception()) {
+        if (!force_unwind && oopDesc::equals(original_exception(), exception())) {
           nm->add_handler_for_exception_and_pc(exception,pc,handler_address);
         }
       } else {

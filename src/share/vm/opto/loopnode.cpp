@@ -2347,6 +2347,10 @@ void PhaseIdealLoop::build_and_optimize(bool do_split_ifs, bool skip_loop_opts) 
       C->set_major_progress();
     }
 
+    if (UseShenandoahGC && !C->major_progress()) {
+      shenandoah_pin_and_expand_barriers();
+    }
+
     // Cleanup any modified bits
     _igvn.optimize();
 
@@ -3303,7 +3307,10 @@ Node *PhaseIdealLoop::get_late_ctrl( Node *n, Node *early ) {
     }
     while(worklist.size() != 0 && LCA != early) {
       Node* s = worklist.pop();
-      if (s->is_Load()) {
+      if (s->is_Load() ||
+          (UseShenandoahGC &&
+           (s->is_ShenandoahBarrier() || s->Opcode() == Op_SafePoint ||
+            (s->is_CallStaticJava() && s->as_CallStaticJava()->uncommon_trap_request() != 0)))) {
         continue;
       } else if (s->is_MergeMem()) {
         for (DUIterator_Fast imax, i = s->fast_outs(imax); i < imax; i++) {
@@ -3312,7 +3319,7 @@ Node *PhaseIdealLoop::get_late_ctrl( Node *n, Node *early ) {
         }
       } else {
         Node *sctrl = has_ctrl(s) ? get_ctrl(s) : s->in(0);
-        assert(sctrl != NULL || s->outcnt() == 0, "must have control");
+        assert(sctrl != NULL || s->outcnt() == 0 || s->is_ShenandoahBarrier(), "must have control");
         if (sctrl != NULL && !sctrl->is_top() && is_dominator(early, sctrl)) {
           LCA = dom_lca_for_get_late_ctrl(LCA, sctrl, n);
         }
@@ -3533,6 +3540,9 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
     case Op_StrEquals:
     case Op_StrIndexOf:
     case Op_AryEq:
+    case Op_ShenandoahReadBarrier:
+    case Op_ShenandoahWriteBarrier:
+    case Op_ShenandoahWBMemProj:
       pinned = false;
     }
     if( pinned ) {
@@ -3589,8 +3599,29 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
   // which can inhibit range check elimination.
   if (least != early) {
     Node* ctrl_out = least->unique_ctrl_out();
-    if (ctrl_out && ctrl_out->is_CountedLoop() &&
+    if (UseShenandoahGC &&
+        ctrl_out && ctrl_out->is_Loop() &&
         least == ctrl_out->in(LoopNode::EntryControl)) {
+      Node* new_ctrl = least;
+      if (find_predicate_insertion_point(new_ctrl, Deoptimization::Reason_loop_limit_check) != NULL) {
+        new_ctrl = new_ctrl->in(0)->in(0);
+        assert(is_dominator(early, new_ctrl), "least != early so we can move up the dominator tree");
+      }
+      if (find_predicate_insertion_point(new_ctrl, Deoptimization::Reason_predicate) != NULL) {
+        Node* c = new_ctrl->in(0)->in(0);
+        assert(is_dominator(early, c), "least != early so we can move up the dominator tree");
+        new_ctrl = c;
+      }
+      if (new_ctrl != least) {
+        least = new_ctrl;
+      } else if (ctrl_out->is_CountedLoop()) {
+        Node* least_dom = idom(least);
+        if (get_loop(least_dom)->is_member(get_loop(least))) {
+          least = least_dom;
+        }
+      }
+    } else if (ctrl_out && ctrl_out->is_CountedLoop() &&
+               least == ctrl_out->in(LoopNode::EntryControl)) {
       Node* least_dom = idom(least);
       if (get_loop(least_dom)->is_member(get_loop(least))) {
         least = least_dom;
@@ -3621,6 +3652,16 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
   IdealLoopTree *chosen_loop = get_loop(least);
   if( !chosen_loop->_child )   // Inner loop?
     chosen_loop->_body.push(n);// Collect inner loops
+
+  if (n->Opcode() == Op_ShenandoahWriteBarrier) {
+    // The write barrier and its memory proj must have the same
+    // control otherwise some loop opts could put nodes (Phis) between
+    // them
+    Node* proj = n->find_out_with(Op_ShenandoahWBMemProj);
+    if (proj != NULL) {
+      set_ctrl_and_loop(proj, least);
+    }
+  }
 }
 
 #ifdef ASSERT
@@ -3776,6 +3817,7 @@ void PhaseIdealLoop::dump( IdealLoopTree *loop, uint idx, Node_List &rpo_list ) 
     }
   }
 }
+#endif
 
 // Collect a R-P-O for the whole CFG.
 // Result list is in post-order (scan backwards for RPO)
@@ -3798,7 +3840,6 @@ void PhaseIdealLoop::rpo( Node *start, Node_Stack &stk, VectorSet &visited, Node
     }
   }
 }
-#endif
 
 
 //=============================================================================

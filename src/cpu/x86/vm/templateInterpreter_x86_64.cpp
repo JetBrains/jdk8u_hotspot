@@ -542,12 +542,14 @@ void InterpreterGenerator::lock_method(void) {
 #endif // ASSERT
 
     __ bind(done);
+    oopDesc::bs()->interpreter_write_barrier(_masm, rax);
   }
 
   // add space for monitor & lock
   __ subptr(rsp, entry_size); // add space for a monitor entry
   __ movptr(monitor_block_top, rsp);  // set new monitor block top
   // store object
+  __ shenandoah_store_addr_check(rax);
   __ movptr(Address(rsp, BasicObjectLock::obj_offset_in_bytes()), rax);
   __ movptr(c_rarg1, rsp); // object address
   __ lock_object(c_rarg1);
@@ -680,6 +682,8 @@ address InterpreterGenerator::generate_accessor_entry(void) {
                     ConstantPoolCache::base_offset() +
                     ConstantPoolCacheEntry::flags_offset()));
 
+    oopDesc::bs()->interpreter_read_barrier_not_null(_masm, rax);
+
     Label notObj, notInt, notByte, notBool, notShort;
     const Address field_address(rax, rcx, Address::times_1);
 
@@ -790,7 +794,7 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
   const int referent_offset = java_lang_ref_Reference::referent_offset;
   guarantee(referent_offset > 0, "referent offset not initialized");
 
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     Label slow_path;
     // rbx: method
 
@@ -800,6 +804,8 @@ address InterpreterGenerator::generate_Reference_get_entry(void) {
 
     __ testptr(rax, rax);
     __ jcc(Assembler::zero, slow_path);
+
+    oopDesc::bs()->interpreter_read_barrier_not_null(_masm, rax);
 
     // rax: local 0
     // rbx: method (but can be used as scratch now)
@@ -931,6 +937,7 @@ address InterpreterGenerator::generate_CRC32_updateBytes_entry(AbstractInterpret
       __ movl(crc,   Address(rsp, 5*wordSize)); // Initial CRC
     } else {
       __ movptr(buf, Address(rsp, 3*wordSize)); // byte[] array
+      oopDesc::bs()->interpreter_read_barrier_not_null(_masm, buf);
       __ addptr(buf, arrayOopDesc::base_offset_in_bytes(T_BYTE)); // + header size
       __ movl2ptr(off, Address(rsp, 2*wordSize)); // offset
       __ addq(buf, off); // + offset
@@ -1354,6 +1361,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
       __ lea(c_rarg1, monitor); // address of first monitor
 
       __ movptr(t, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
+      __ shenandoah_store_addr_check(t); // Invariant
       __ testptr(t, t);
       __ jcc(Assembler::notZero, unlock);
 

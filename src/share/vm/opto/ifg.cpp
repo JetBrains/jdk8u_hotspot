@@ -735,7 +735,7 @@ uint PhaseChaitin::build_ifg_physical( ResourceArea *a ) {
         // the flags and assumes it's dead.  This keeps the (useless)
         // flag-setting behavior alive while also keeping the (useful)
         // memory update effect.
-        for (uint k = ((n->Opcode() == Op_SCMemProj) ? 0:1); k < n->req(); k++) {
+        for (uint k = ((n->Opcode() == Op_SCMemProj || n->Opcode() == Op_ShenandoahWBMemProj) ? 0:1); k < n->req(); k++) {
           Node *def = n->in(k);
           uint x = _lrg_map.live_range_id(def);
           if (!x) {

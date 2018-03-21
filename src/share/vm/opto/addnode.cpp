@@ -30,6 +30,7 @@
 #include "opto/machnode.hpp"
 #include "opto/mulnode.hpp"
 #include "opto/phaseX.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/subnode.hpp"
 
 // Portions of code courtesy of Clifford Click
@@ -638,6 +639,38 @@ Node *AddPNode::Ideal(PhaseGVN *phase, bool can_reshape) {
     }
   }
 
+  if (UseShenandoahGC &&
+      in(Base) == in(AddPNode::Address) &&
+      phase->type(in(Base)) == TypePtr::NULL_PTR) {
+    if (can_reshape) {
+      for (DUIterator_Fast imax, i = fast_outs(imax); i < imax; i++) {
+        Node* u = fast_out(i);
+        if (u->is_LoadStore()) {
+          if (u->as_LoadStore()->adr_type() != NULL) {
+            u->as_LoadStore()->set_adr_type(TypeRawPtr::BOTTOM);
+          }
+        }
+#ifdef ASSERT
+        else if (u->is_Mem()) {
+          assert(u->as_Mem()->raw_adr_type() == TypeOopPtr::BOTTOM, "bad slice");
+          u->as_Mem()->set_raw_adr_type(TypeRawPtr::BOTTOM);
+        } else if (u->Opcode() == Op_CallLeafNoFP && !strcmp(u->as_CallLeaf()->_name, "unsafe_arraycopy")) {
+          assert(u->in(0) == NULL || u->in(0)->is_top() || u->in(0)->in(0) == NULL || u->in(0)->in(0)->is_top() ||
+                 (u->in(0)->is_Proj() && u->in(0)->in(0)->is_MemBar()), "need membar before");
+          Node* c = u->unique_ctrl_out();
+          assert(c == NULL || c->is_Proj(), "need membar after");
+          c = c->unique_ctrl_out();
+          assert(c == NULL || c->is_MemBar(), "need membar after");
+        } else {
+          u->dump();
+          ShouldNotReachHere();
+        }
+#endif
+      }
+    }
+    return new (phase->C) CastX2PNode(in(AddPNode::Offset));
+  }
+
   return NULL;                  // No progress
 }
 
@@ -656,7 +689,7 @@ const Type *AddPNode::bottom_type() const {
   if (tx->is_con()) {   // Left input is an add of a constant?
     txoffset = tx->get_con();
   }
-  return tp->add_offset(txoffset);
+  return ShenandoahBarrierNode::fix_addp_type(tp->add_offset(txoffset), in(Base));
 }
 
 //------------------------------Value------------------------------------------
@@ -676,7 +709,7 @@ const Type *AddPNode::Value( PhaseTransform *phase ) const {
   if (p2->is_con()) {   // Left input is an add of a constant?
     p2offset = p2->get_con();
   }
-  return p1->add_offset(p2offset);
+  return ShenandoahBarrierNode::fix_addp_type(p1->add_offset(p2offset), in(Base));
 }
 
 //------------------------Ideal_base_and_offset--------------------------------

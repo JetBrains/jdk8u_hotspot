@@ -28,7 +28,6 @@
 #include "jvmtifiles/jvmti.h"
 #include "runtime/atomic.hpp"
 #include "runtime/extendedPC.hpp"
-#include "runtime/handles.hpp"
 #include "utilities/top.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "jvm_linux.h"
@@ -54,6 +53,7 @@
 #endif
 
 class AgentLibrary;
+class methodHandle;
 
 // os defines the interface to operating system; this includes traditional
 // OS services (time, I/O) as well as other functionality with system-

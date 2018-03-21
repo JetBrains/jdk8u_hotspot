@@ -2280,6 +2280,7 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     // Load the oop from the handle
     __ movptr(obj_reg, Address(oop_handle_reg, 0));
 
+    oopDesc::bs()->interpreter_write_barrier(masm, obj_reg);
     if (UseBiasedLocking) {
       __ biased_locking_enter(lock_reg, obj_reg, swap_reg, rscratch1, false, lock_done, &slow_path_lock);
     }
@@ -2448,9 +2449,11 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
 
     // Get locked oop from the handle we passed to jni
     __ movptr(obj_reg, Address(oop_handle_reg, 0));
+    oopDesc::bs()->interpreter_write_barrier(masm, obj_reg);
 
     Label done;
 
+    __ shenandoah_store_addr_check(obj_reg);
     if (UseBiasedLocking) {
       __ biased_locking_exit(obj_reg, old_hdr, done);
     }

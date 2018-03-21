@@ -63,6 +63,7 @@
 #include "gc_implementation/concurrentMarkSweep/compactibleFreeListSpace.hpp"
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #endif // INCLUDE_ALL_GCS
 
 // Note: This is a special bug reporting site for the JVM
@@ -1382,6 +1383,7 @@ void Arguments::set_cms_and_parnew_gc_flags() {
   if (!ClassUnloading) {
     FLAG_SET_CMDLINE(bool, CMSClassUnloadingEnabled, false);
     FLAG_SET_CMDLINE(bool, ExplicitGCInvokesConcurrentAndUnloadsClasses, false);
+    FLAG_SET_CMDLINE(uintx, ShenandoahUnloadClassesFrequency, 0);
   }
 
   if (PrintGCDetails && Verbose) {
@@ -1563,6 +1565,8 @@ void Arguments::set_conservative_max_heap_alignment() {
     heap_alignment = ParallelScavengeHeap::conservative_max_heap_alignment();
   } else if (UseG1GC) {
     heap_alignment = G1CollectedHeap::conservative_max_heap_alignment();
+  } else if (UseShenandoahGC) {
+    heap_alignment = ShenandoahHeap::conservative_max_heap_alignment();
   }
 #endif // INCLUDE_ALL_GCS
   _conservative_max_heap_alignment = MAX4(heap_alignment,
@@ -1714,6 +1718,101 @@ void Arguments::set_g1_gc_flags() {
   }
 }
 
+void Arguments::set_shenandoah_gc_flags() {
+
+#if !(defined AARCH64 || defined AMD64)
+  UNSUPPORTED_GC_OPTION(UseShenandoahGC);
+#endif
+
+  if (!FLAG_IS_DEFAULT(ShenandoahGarbageThreshold)) {
+    if (0 > ShenandoahGarbageThreshold || ShenandoahGarbageThreshold > 100) {
+      vm_exit_during_initialization("The flag -XX:ShenandoahGarbageThreshold is out of range", NULL);
+    }
+  }
+
+  if (!FLAG_IS_DEFAULT(ShenandoahAllocationThreshold)) {
+    if (0 > ShenandoahAllocationThreshold || ShenandoahAllocationThreshold > 100) {
+      vm_exit_during_initialization("The flag -XX:ShenandoahAllocationThreshold is out of range", NULL);
+    }
+  }
+
+  if (!FLAG_IS_DEFAULT(ShenandoahFreeThreshold)) {
+    if (0 > ShenandoahFreeThreshold || ShenandoahFreeThreshold > 100) {
+      vm_exit_during_initialization("The flag -XX:ShenandoahFreeThreshold is out of range", NULL);
+    }
+  }
+
+#ifdef _LP64
+  // The optimized ObjArrayChunkedTask takes some bits away from the full 64 addressable
+  // bits, fail if we ever attempt to address more than we can. Only valid on 64bit.
+  if (MaxHeapSize >= ObjArrayChunkedTask::max_addressable()) {
+    jio_fprintf(defaultStream::error_stream(),
+                "Shenandoah GC cannot address more than " SIZE_FORMAT " bytes, and " SIZE_FORMAT " bytes heap requested.",
+                ObjArrayChunkedTask::max_addressable(), MaxHeapSize);
+    vm_exit(1);
+  }
+#endif
+
+  FLAG_SET_DEFAULT(ParallelGCThreads,
+                   Abstract_VM_Version::parallel_worker_threads());
+
+  if (FLAG_IS_DEFAULT(ConcGCThreads)) {
+    uint conc_threads = MAX2((uint) 1, (uint)ParallelGCThreads);
+    FLAG_SET_DEFAULT(ConcGCThreads, conc_threads);
+  }
+
+  if (FLAG_IS_DEFAULT(ParallelRefProcEnabled)) {
+    FLAG_SET_DEFAULT(ParallelRefProcEnabled, true);
+  }
+
+  if (ShenandoahRegionSampling && FLAG_IS_DEFAULT(PerfDataMemorySize)) {
+    // When sampling is enabled, max out the PerfData memory to get more
+    // Shenandoah data in, including Matrix.
+    FLAG_SET_DEFAULT(PerfDataMemorySize, 2048*K);
+  }
+
+#ifdef COMPILER2
+  // Shenandoah cares more about pause times, rather than raw throughput.
+  // Enabling safepoints in counted loops makes it more responsive with
+  // long loops.
+  if (FLAG_IS_DEFAULT(UseCountedLoopSafepoints)) {
+    FLAG_SET_DEFAULT(UseCountedLoopSafepoints, true);
+  }
+
+#ifdef ASSERT
+  // C2 barrier verification is only reliable when all default barriers are enabled
+  if (ShenandoahVerifyOptoBarriers &&
+          (!FLAG_IS_DEFAULT(ShenandoahSATBBarrier)    ||
+           !FLAG_IS_DEFAULT(ShenandoahReadBarrier)    ||
+           !FLAG_IS_DEFAULT(ShenandoahWriteBarrier)   ||
+           !FLAG_IS_DEFAULT(ShenandoahCASBarrier)     ||
+           !FLAG_IS_DEFAULT(ShenandoahAcmpBarrier)    ||
+           !FLAG_IS_DEFAULT(ShenandoahCloneBarrier)
+          )) {
+    warning("Unusual barrier configuration, disabling C2 barrier verification");
+    FLAG_SET_DEFAULT(ShenandoahVerifyOptoBarriers, false);
+  }
+#else
+  guarantee(!ShenandoahVerifyOptoBarriers, "Should be disabled");
+#endif // ASSERT
+#endif // COMPILER2
+
+  if (AlwaysPreTouch) {
+    // Shenandoah handles pre-touch on its own. It does not let the
+    // generic storage code to do the pre-touch before Shenandoah has
+    // a chance to do it on its own.
+    FLAG_SET_DEFAULT(AlwaysPreTouch, false);
+    FLAG_SET_DEFAULT(ShenandoahAlwaysPreTouch, true);
+  }
+
+  if (ShenandoahAlwaysPreTouch) {
+    if (!FLAG_IS_DEFAULT(ShenandoahUncommit)) {
+      warning("AlwaysPreTouch is enabled, disabling ShenandoahUncommit");
+    }
+    FLAG_SET_DEFAULT(ShenandoahUncommit, false);
+  }
+}
+
 #if !INCLUDE_ALL_GCS
 #ifdef ASSERT
 static bool verify_serial_gc_flags() {
@@ -1735,6 +1834,8 @@ void Arguments::set_gc_specific_flags() {
     set_parnew_gc_flags();
   } else if (UseG1GC) {
     set_g1_gc_flags();
+  } else if (UseShenandoahGC) {
+    set_shenandoah_gc_flags();
   }
   check_deprecated_gcs();
   check_deprecated_gc_flags();
@@ -2026,6 +2127,37 @@ void check_gclog_consistency() {
     jio_fprintf(defaultStream::output_stream(),
                 "GCLogFileSize changed to minimum 8K\n");
   }
+
+  // Record more information about previous cycles for improved debugging pleasure
+  if (FLAG_IS_DEFAULT(LogEventsBufferEntries)) {
+    FLAG_SET_DEFAULT(LogEventsBufferEntries, 250);
+  }
+
+  if (ShenandoahConcurrentEvacCodeRoots) {
+    if (!ShenandoahBarriersForConst) {
+      if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
+        warning("Concurrent code cache evacuation is enabled, enabling barriers for constants.");
+        FLAG_SET_DEFAULT(ShenandoahBarriersForConst, true);
+      } else {
+        warning("Concurrent code cache evacuation is enabled, but barriers for constants are disabled. "
+                "This may lead to surprising crashes.");
+      }
+    }
+  } else {
+    if (ShenandoahBarriersForConst) {
+      if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
+        warning("Concurrent code cache evacuation is disabled, disabling barriers for constants.");
+        FLAG_SET_DEFAULT(ShenandoahBarriersForConst, false);
+      }
+    }
+  }
+
+  if (AlwaysPreTouch || ShenandoahAlwaysPreTouch) {
+    if (!FLAG_IS_DEFAULT(ShenandoahUncommitDelay)) {
+      warning("AlwaysPreTouch is enabled, disabling ShenandoahUncommitDelay");
+    }
+    FLAG_SET_DEFAULT(ShenandoahUncommitDelay, max_uintx);
+  }
 }
 
 // This function is called for -Xloggc:<filename>, it can be used
@@ -2121,6 +2253,7 @@ bool Arguments::check_gc_consistency() {
   if (UseConcMarkSweepGC || UseParNewGC) i++;
   if (UseParallelGC || UseParallelOldGC) i++;
   if (UseG1GC)                           i++;
+  if (UseShenandoahGC)                   i++;
   if (i > 1) {
     jio_fprintf(defaultStream::error_stream(),
                 "Conflicting collector combinations in option list; "

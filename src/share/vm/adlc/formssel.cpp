@@ -639,22 +639,6 @@ bool InstructForm::needs_anti_dependence_check(FormDict &globals) const {
 }
 
 
-bool InstructForm::is_wide_memory_kill(FormDict &globals) const {
-  if( _matrule == NULL ) return false;
-  if( !_matrule->_opType ) return false;
-
-  if( strcmp(_matrule->_opType,"MemBarRelease") == 0 ) return true;
-  if( strcmp(_matrule->_opType,"MemBarAcquire") == 0 ) return true;
-  if( strcmp(_matrule->_opType,"MemBarReleaseLock") == 0 ) return true;
-  if( strcmp(_matrule->_opType,"MemBarAcquireLock") == 0 ) return true;
-  if( strcmp(_matrule->_opType,"MemBarStoreStore") == 0 ) return true;
-  if( strcmp(_matrule->_opType,"MemBarVolatile") == 0 ) return true;
-  if( strcmp(_matrule->_opType,"StoreFence") == 0 ) return true;
-  if( strcmp(_matrule->_opType,"LoadFence") == 0 ) return true;
-
-  return false;
-}
-
 int InstructForm::memory_operand(FormDict &globals) const {
   // Machine independent loads must be checked for anti-dependences
   // Check if instruction has a USE of a memory operand class, or a def.
@@ -782,7 +766,9 @@ bool InstructForm::captures_bottom_type(FormDict &globals) const {
         !strcmp(_matrule->_rChild->_opType,"CreateEx")     ||  // type of exception
         !strcmp(_matrule->_rChild->_opType,"CheckCastPP")  ||
         !strcmp(_matrule->_rChild->_opType,"GetAndSetP")   ||
-        !strcmp(_matrule->_rChild->_opType,"GetAndSetN")) )  return true;
+        !strcmp(_matrule->_rChild->_opType,"GetAndSetN")   ||
+        !strcmp(_matrule->_rChild->_opType,"ShenandoahReadBarrier") ||
+        !strcmp(_matrule->_rChild->_opType,"ShenandoahWriteBarrier")) )  return true;
   else if ( is_ideal_load() == Form::idealP )                return true;
   else if ( is_ideal_store() != Form::none  )                return true;
 
@@ -1156,6 +1142,9 @@ const char *InstructForm::mach_base_class(FormDict &globals)  const {
   }
   else if (is_ideal_nop()) {
     return "MachNopNode";
+  }
+  else if( is_ideal_membar()) {
+    return "MachMemBarNode";
   }
   else if (is_mach_constant()) {
     return "MachConstantNode";
@@ -3487,6 +3476,7 @@ int MatchNode::needs_ideal_memory_edge(FormDict &globals) const {
     "ClearArray",
     "GetAndAddI", "GetAndSetI", "GetAndSetP",
     "GetAndAddL", "GetAndSetL", "GetAndSetN",
+    "ShenandoahReadBarrier", "ShenandoahWriteBarrier",
   };
   int cnt = sizeof(needs_ideal_memory_list)/sizeof(char*);
   if( strcmp(_opType,"PrefetchRead")==0 ||

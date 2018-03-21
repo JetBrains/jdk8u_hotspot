@@ -139,7 +139,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_ldc(JavaThread* thread, Bytecodes::C
     // The bytecode wrappers aren't GC-safe so construct a new one
     Bytecode_loadconstant ldc2(m, bci(thread));
     oop coop = m->constants()->resolved_references()->obj_at(ldc2.cache_index());
-    assert(result == coop, "expected result for assembly code");
+    assert(oopDesc::equals(result, coop), "expected result for assembly code");
   }
 #endif
   thread->set_vm_result(result);
@@ -615,7 +615,7 @@ IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorenter(JavaThread* thread, Ba
   if (PrintBiasedLockingStatistics) {
     Atomic::inc(BiasedLocking::slow_path_entry_count_addr());
   }
-  Handle h_obj(thread, elem->obj());
+  Handle h_obj(thread, oopDesc::bs()->write_barrier(elem->obj()));
   assert(Universe::heap()->is_in_reserved_or_null(h_obj()),
          "must be NULL or an object");
   if (UseBiasedLocking) {
@@ -637,7 +637,7 @@ IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorexit(JavaThread* thread, Bas
 #ifdef ASSERT
   thread->last_frame().interpreter_frame_verify_monitor(elem);
 #endif
-  Handle h_obj(thread, elem->obj());
+  Handle h_obj(thread, oopDesc::bs()->write_barrier(elem->obj()));
   assert(Universe::heap()->is_in_reserved_or_null(h_obj()),
          "must be NULL or an object");
   if (elem == NULL || h_obj()->is_unlocked()) {

@@ -29,6 +29,7 @@
 #include "memory/memRegion.hpp"
 #include "memory/metaspace.hpp"
 #include "memory/metaspaceCounters.hpp"
+#include "runtime/handles.hpp"
 #include "runtime/mutex.hpp"
 #include "utilities/growableArray.hpp"
 #include "utilities/macros.hpp"
@@ -174,6 +175,7 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   friend class ClassLoaderDataGraphMetaspaceIterator;
   friend class MetaDataFactory;
   friend class Method;
+  friend class ParallelCLDRootIterator;
 
   static ClassLoaderData * _the_null_class_loader_data;
 

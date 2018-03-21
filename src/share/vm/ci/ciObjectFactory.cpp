@@ -250,7 +250,7 @@ ciObject* ciObjectFactory::get(oop key) {
   // into the cache.
   Handle keyHandle(key);
   ciObject* new_object = create_new_object(keyHandle());
-  assert(keyHandle() == new_object->get_oop(), "must be properly recorded");
+  assert(oopDesc::equals(keyHandle(), new_object->get_oop()), "must be properly recorded");
   init_ident_of(new_object);
   assert(Universe::heap()->is_in_reserved(new_object->get_oop()), "must be");
 
@@ -403,7 +403,7 @@ void ciObjectFactory::ensure_metadata_alive(ciMetadata* m) {
   ASSERT_IN_VM; // We're handling raw oops here.
 
 #if INCLUDE_ALL_GCS
-  if (!UseG1GC) {
+  if (!(UseG1GC || (UseShenandoahGC && ShenandoahSATBBarrier))) {
     return;
   }
   Klass* metadata_owner_klass;
@@ -488,8 +488,8 @@ ciKlass* ciObjectFactory::get_unloaded_klass(ciKlass* accessing_klass,
   for (int i=0; i<_unloaded_klasses->length(); i++) {
     ciKlass* entry = _unloaded_klasses->at(i);
     if (entry->name()->equals(name) &&
-        entry->loader() == loader &&
-        entry->protection_domain() == domain) {
+        oopDesc::equals(entry->loader(), loader) &&
+        oopDesc::equals(entry->protection_domain(), domain)) {
       // We've found a match.
       return entry;
     }

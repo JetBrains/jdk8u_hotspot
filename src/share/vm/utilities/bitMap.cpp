@@ -175,8 +175,9 @@ void BitMap::clear_large_range(idx_t beg, idx_t end) {
   idx_t beg_full_word = word_index_round_up(beg);
   idx_t end_full_word = word_index(end);
 
-  assert(end_full_word - beg_full_word >= 32,
-         "the range must include at least 32 bytes");
+  if (end_full_word - beg_full_word < 32) {
+    clear_range(beg, end);
+  }
 
   // The range includes at least one full word.
   clear_range_within_word(beg, bit_index(beg_full_word));

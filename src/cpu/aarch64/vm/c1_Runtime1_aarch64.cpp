@@ -43,6 +43,7 @@
 #include "runtime/vframeArray.hpp"
 #include "vmreg_aarch64.inline.hpp"
 #if INCLUDE_ALL_GCS
+#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #endif
 
@@ -1176,7 +1177,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         // arg0 : previous value of memory
 
         BarrierSet* bs = Universe::heap()->barrier_set();
-        if (bs->kind() != BarrierSet::G1SATBCTLogging) {
+        if (bs->kind() != BarrierSet::G1SATBCTLogging && bs->kind() != BarrierSet::ShenandoahBarrierSet) {
 	  __ mov(r0, (int)id);
 	  __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, unimplemented_entry), r0);
 	  __ should_not_reach_here();
@@ -1226,6 +1227,13 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         Address store_addr(rfp, 2*BytesPerWord);
 
         BarrierSet* bs = Universe::heap()->barrier_set();
+        if (bs->kind() == BarrierSet::ShenandoahBarrierSet) {
+          __ movptr(r0, (int)id);
+          __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, unimplemented_entry), r0);
+          __ should_not_reach_here();
+          break;
+        }
+
         CardTableModRefBS* ct = (CardTableModRefBS*)bs;
         assert(sizeof(*ct->byte_map_base) == sizeof(jbyte), "adjust this code");
 

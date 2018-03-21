@@ -25,6 +25,7 @@
 #ifndef SHARE_VM_OOPS_OOPSHIERARCHY_HPP
 #define SHARE_VM_OOPS_OOPSHIERARCHY_HPP
 
+#include "gc_implementation/shenandoah/shenandoah_globals.hpp"
 #include "runtime/globals.hpp"
 #include "utilities/globalDefinitions.hpp"
 
@@ -99,10 +100,30 @@ public:
 
   // General access
   oopDesc*  operator->() const        { return obj(); }
-  bool operator==(const oop o) const  { return obj() == o.obj(); }
-  bool operator==(void *p) const      { return obj() == p; }
-  bool operator!=(const volatile oop o) const  { return obj() != o.obj(); }
-  bool operator!=(void *p) const      { return obj() != p; }
+  bool operator==(const oop o) const  {
+    if (VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+    return obj() == o.obj();
+  }
+  bool operator==(void *p) const      {
+    if (p != NULL && VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+    return obj() == p;
+  }
+  bool operator!=(const volatile oop o) const  {
+    if (VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+    return obj() != o.obj();
+  }
+  bool operator!=(void *p) const      {
+    if (p != NULL && VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+    return obj() != p;
+  }
 
   bool operator<(oop o) const         { return obj() < o.obj(); }
   bool operator>(oop o) const         { return obj() > o.obj(); }
