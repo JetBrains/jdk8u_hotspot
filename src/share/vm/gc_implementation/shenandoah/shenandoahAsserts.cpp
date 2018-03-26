@@ -27,11 +27,14 @@
 #include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "memory/resourceArea.hpp"
 
 
 void ShenandoahAsserts::print_obj(ShenandoahMessageBuffer& msg, oop obj) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   ShenandoahHeapRegion *r = heap->heap_region_containing(obj);
+
+  ResourceMark rm;
   stringStream ss;
   r->print_on(&ss);
 
