@@ -2073,31 +2073,6 @@ void ShenandoahHeap::assert_gc_workers(uint nworkers) {
 }
 #endif
 
-class ShenandoahCountGarbageClosure : public ShenandoahHeapRegionClosure {
-private:
-  size_t            _garbage;
-public:
-  ShenandoahCountGarbageClosure() : _garbage(0) {
-  }
-
-  bool heap_region_do(ShenandoahHeapRegion* r) {
-    if (r->is_regular()) {
-      _garbage += r->garbage();
-    }
-    return false;
-  }
-
-  size_t garbage() {
-    return _garbage;
-  }
-};
-
-size_t ShenandoahHeap::garbage() {
-  ShenandoahCountGarbageClosure cl;
-  heap_region_iterate(&cl);
-  return cl.garbage();
-}
-
 ShenandoahUpdateHeapRefsClosure::ShenandoahUpdateHeapRefsClosure() :
   _heap(ShenandoahHeap::heap()) {}
 
