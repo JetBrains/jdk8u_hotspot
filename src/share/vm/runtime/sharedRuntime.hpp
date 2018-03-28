@@ -491,6 +491,10 @@ class SharedRuntime: AllStatic {
   static void get_utf(oopDesc* src, address dst);
 #endif // def HAVE_DTRACE_H
 
+  // pin/unpin array arguments of critical native method
+  static oopDesc* pin_critical_native_array(oopDesc* obj);
+  static void unpin_critical_native_array(oopDesc* obj);
+
   // A compiled caller has just called the interpreter, but compiled code
   // exists.  Patch the caller so he no longer calls into the interpreter.
   static void fixup_callers_callsite(Method* moop, address ret_pc);

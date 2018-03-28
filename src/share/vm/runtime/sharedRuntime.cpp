@@ -2841,6 +2841,25 @@ void SharedRuntime::convert_ints_to_longints(int i2l_argcnt, int& in_args_count,
   }
 }
 
+JRT_LEAF(oopDesc*, SharedRuntime::pin_critical_native_array(oopDesc* obj))
+  assert(Universe::heap()->pin_arrays_for_critical_native(), "Why we here?");
+  oop o(obj);
+  assert(!oopDesc::is_null(o), "Should not be null");
+  assert(o->is_typeArray(), "Must be");
+  o = Universe::heap()->pin_critical_native_array(o);
+  assert(!oopDesc::is_null(o), "Should not be null");
+  assert(o->is_typeArray(), "Must be");
+  return o;
+JRT_END
+
+JRT_LEAF(void, SharedRuntime::unpin_critical_native_array(oopDesc* obj))
+  assert(Universe::heap()->pin_arrays_for_critical_native(), "Why we here?");
+  oop o(obj);
+  assert(!oopDesc::is_null(o), "Should not be null");
+  assert(o->is_typeArray(), "Must be");
+  Universe::heap()->unpin_critical_native_array(o);
+JRT_END
+
 // -------------------------------------------------------------------------
 // Java-Java calling convention
 // (what you use when Java calls Java)
