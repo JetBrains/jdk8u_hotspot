@@ -198,9 +198,10 @@ jint ShenandoahHeap::initialize() {
       _next_top_at_mark_starts_base[i] = r->bottom();
 
       _regions->add_region(r);
-      _free_set->add_region(r);
       assert(!collection_set()->is_in(i), "New region should not be in collection set");
     }
+
+    _free_set->rebuild();
   }
 
   assert(_regions->count() == _num_regions, "Must match");
@@ -953,7 +954,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
 #endif
 
       _shenandoah_policy->choose_collection_set(_collection_set);
-      _shenandoah_policy->choose_free_set(_free_set);
+      _free_set->rebuild();
     }
 
     if (UseShenandoahMatrix) {
@@ -2183,16 +2184,8 @@ void ShenandoahHeap::op_final_updaterefs() {
   }
 
   {
-    // Rebuild the free set
     ShenandoahHeapLocker locker(lock());
-    _free_set->clear();
-    for (size_t i = 0; i < num_regions(); i++) {
-      ShenandoahHeapRegion* r = _regions->get(i);
-      if (r->is_alloc_allowed()) {
-        assert (!in_collection_set(r), "collection set should be clear");
-        _free_set->add_region(r);
-      }
-    }
+    _free_set->rebuild();
   }
 
   set_update_refs_in_progress(false);

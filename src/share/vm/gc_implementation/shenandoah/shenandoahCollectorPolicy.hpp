@@ -113,7 +113,6 @@ public:
   bool is_at_shutdown();
 
   void choose_collection_set(ShenandoahCollectionSet* collection_set, int* connections=NULL);
-  void choose_free_set(ShenandoahFreeSet* free_set);
 
   bool should_process_references();
   bool should_unload_classes();
