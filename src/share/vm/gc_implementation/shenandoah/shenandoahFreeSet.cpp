@@ -25,7 +25,8 @@
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 
-ShenandoahFreeSet::ShenandoahFreeSet(ShenandoahHeapRegionSet* regions, size_t max_regions) :
+ShenandoahFreeSet::ShenandoahFreeSet(ShenandoahHeap* heap, ShenandoahHeapRegionSet* regions, size_t max_regions) :
+        _heap(heap),
         _regions(regions),
         _mutator_free_bitmap(max_regions, /* in_resource_area = */ false),
         _collector_free_bitmap(max_regions, /* in_resource_area = */ false),
@@ -173,7 +174,7 @@ HeapWord* ShenandoahFreeSet::try_allocate_in(ShenandoahHeapRegion* r, size_t wor
     // Allocation successful, bump live data stats:
     r->increase_live_data_alloc_words(word_size);
     increase_used(word_size * HeapWordSize);
-    ShenandoahHeap::heap()->increase_used(word_size * HeapWordSize);
+    _heap->increase_used(word_size * HeapWordSize);
   } else {
     // Region cannot afford allocation. Retire it.
     // While this seems a bit harsh, especially in the case when this large allocation does not
@@ -261,8 +262,6 @@ HeapWord* ShenandoahFreeSet::allocate_contiguous(size_t words_size) {
   }
 #endif
 
-  ShenandoahHeap* sh = ShenandoahHeap::heap();
-
   // Initialize regions:
   for (size_t i = beg; i <= end; i++) {
     ShenandoahHeapRegion* r = _regions->get(i);
@@ -285,7 +284,7 @@ HeapWord* ShenandoahFreeSet::allocate_contiguous(size_t words_size) {
     r->reset_alloc_metadata_to_shared();
 
     r->increase_live_data_alloc_words(used_words);
-    sh->increase_used(used_words * HeapWordSize);
+    _heap->increase_used(used_words * HeapWordSize);
 
     _mutator_free_bitmap.clear_bit(r->region_number());
   }
@@ -394,7 +393,7 @@ HeapWord* ShenandoahFreeSet::allocate_small_memory(size_t word_size, ShenandoahH
   if (result == NULL) {
     // No free regions? Chances are, we have acquired the lock before the recycler.
     // Ask allocator to recycle some trash and try to allocate again.
-    ShenandoahHeap::heap()->recycle_trash_assist(1);
+    _heap->recycle_trash_assist(1);
     result = allocate_single(word_size, type, in_new_region);
   }
 
@@ -411,14 +410,14 @@ HeapWord* ShenandoahFreeSet::allocate_large_memory(size_t words) {
   }
 
   // Try to recycle up enough regions for this allocation:
-  ShenandoahHeap::heap()->recycle_trash_assist(ShenandoahHeapRegion::required_regions(words*HeapWordSize));
+  _heap->recycle_trash_assist(ShenandoahHeapRegion::required_regions(words*HeapWordSize));
   r = allocate_contiguous(words);
   if (r != NULL) {
     return r;
   }
 
   // Try to recycle all regions: it is possible we have cleaned up a fragmented block before:
-  ShenandoahHeap::heap()->recycle_trash_assist(_max);
+  _heap->recycle_trash_assist(_max);
   r = allocate_contiguous(words);
   if (r != NULL) {
     return r;
@@ -460,7 +459,7 @@ void ShenandoahFreeSet::print_on(outputStream* out) const {
 
 #ifdef ASSERT
 void ShenandoahFreeSet::assert_heaplock_owned_by_current_thread() const {
-  ShenandoahHeap::heap()->assert_heaplock_owned_by_current_thread();
+  _heap->assert_heaplock_owned_by_current_thread();
 }
 
 
