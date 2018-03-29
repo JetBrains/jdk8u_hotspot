@@ -134,7 +134,7 @@ void ShenandoahConcurrentThread::run() {
       cause = _explicit_gc_cause;
     } else {
       // Potential normal cycle: ask heuristics if it wants to act
-      if (policy->should_start_concurrent_mark(heap->used(), heap->capacity())) {
+      if (policy->should_start_normal_gc()) {
         mode = concurrent_normal;
         cause = GCCause::_shenandoah_concurrent_gc;
       }

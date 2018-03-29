@@ -97,7 +97,7 @@ public:
   void record_explicit_to_concurrent();
   void record_explicit_to_full();
 
-  bool should_start_concurrent_mark(size_t used, size_t capacity);
+  bool should_start_normal_gc();
 
   // Returns true when there should be a separate concurrent reference
   // updating phase after evacuation.
