@@ -166,6 +166,8 @@ HeapWord* ShenandoahFreeSet::allocate_single(size_t word_size, ShenandoahHeap::A
 }
 
 HeapWord* ShenandoahFreeSet::try_allocate_in(ShenandoahHeapRegion* r, size_t word_size, ShenandoahHeap::AllocType type, bool& in_new_region) {
+  assert (!has_no_alloc_capacity(r), err_msg("Performance: should avoid full regions on this path: " SIZE_FORMAT, r->region_number()));
+
   try_recycle_trashed(r);
 
   in_new_region = r->is_empty();
@@ -177,8 +179,11 @@ HeapWord* ShenandoahFreeSet::try_allocate_in(ShenandoahHeapRegion* r, size_t wor
     r->increase_live_data_alloc_words(word_size);
     increase_used(word_size * HeapWordSize);
     _heap->increase_used(word_size * HeapWordSize);
-  } else {
-    // Region cannot afford allocation. Retire it.
+  }
+
+  if (result == NULL || has_no_alloc_capacity(r)) {
+    // Region cannot afford this or future allocations. Retire it.
+    //
     // While this seems a bit harsh, especially in the case when this large allocation does not
     // fit, but the next small one would, we are risking to inflate scan times when lots of
     // almost-full regions precede the fully-empty region where we want allocate the entire TLAB.
@@ -310,6 +315,11 @@ void ShenandoahFreeSet::add_region(ShenandoahHeapRegion* r) {
   assert(!is_mutator_free(idx), "We are about to add it, it shouldn't be there already");
   assert(!is_collector_free(idx), "We are about to add it, it shouldn't be there already");
 
+  // Do not add regions that would surely fail allocation
+  if (has_no_alloc_capacity(r)) {
+    return;
+  }
+
   _capacity += alloc_capacity(r);
   assert(_used <= _capacity, "must not use more than we have");
 
@@ -329,6 +339,10 @@ size_t ShenandoahFreeSet::alloc_capacity(ShenandoahHeapRegion *r) {
   } else {
     return r->free();
   }
+}
+
+bool ShenandoahFreeSet::has_no_alloc_capacity(ShenandoahHeapRegion *r) {
+  return alloc_capacity(r) == 0;
 }
 
 void ShenandoahFreeSet::try_recycle_trashed(ShenandoahHeapRegion *r) {
