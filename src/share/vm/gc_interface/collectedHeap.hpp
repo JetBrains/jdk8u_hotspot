@@ -613,19 +613,6 @@ class CollectedHeap : public CHeapObj<mtInternal> {
   virtual void register_nmethod(nmethod* nm);
   virtual void unregister_nmethod(nmethod* nm);
 
-  // The following two methods are there to support object pinning for JNI critical
-  // regions. They are called whenever a thread enters or leaves a JNI critical
-  // region and requires an object not to move. Notice that there's another
-  // mechanism for GCs to implement critical region (see gcLocker.hpp). The default
-  // implementation does nothing.
-  virtual void pin_object(oop o);
-  virtual void unpin_object(oop o);
-
-  // Critical native support
-  virtual bool pin_arrays_for_critical_native() const { return false; }
-  virtual oop  pin_critical_native_array(oop o) { return o; }
-  virtual void unpin_critical_native_array(oop o) { }
-
   void trace_heap_before_gc(GCTracer* gc_tracer);
   void trace_heap_after_gc(GCTracer* gc_tracer);
 
@@ -637,6 +624,13 @@ class CollectedHeap : public CHeapObj<mtInternal> {
 
   // Accumulate additional statistics from GCLABs.
   virtual void accumulate_statistics_all_gclabs();
+
+  // Support for object pinning. This is used by JNI Get*Critical()
+  // and Release*Critical() family of functions. If supported, the GC
+  // must guarantee that pinned objects never move.
+  virtual bool supports_object_pinning() const;
+  virtual oop pin_object(JavaThread* thread, oop obj);
+  virtual void unpin_object(JavaThread* thread, oop obj);
 
   // Non product verification and debugging.
 #ifndef PRODUCT

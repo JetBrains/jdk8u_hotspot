@@ -2841,23 +2841,20 @@ void SharedRuntime::convert_ints_to_longints(int i2l_argcnt, int& in_args_count,
   }
 }
 
-JRT_LEAF(oopDesc*, SharedRuntime::pin_critical_native_array(oopDesc* obj))
-  assert(Universe::heap()->pin_arrays_for_critical_native(), "Why we here?");
+JRT_LEAF(oopDesc*, SharedRuntime::pin_object(JavaThread* thread, oopDesc* obj))
+  assert(Universe::heap()->supports_object_pinning(), "Why we here?");
+  assert(obj != NULL, "Should not be null");
   oop o(obj);
-  assert(!oopDesc::is_null(o), "Should not be null");
-  assert(o->is_typeArray(), "Must be");
-  o = Universe::heap()->pin_critical_native_array(o);
-  assert(!oopDesc::is_null(o), "Should not be null");
-  assert(o->is_typeArray(), "Must be");
+  o = Universe::heap()->pin_object(thread, o);
+  assert(o != NULL, "Should not be null");
   return o;
 JRT_END
 
-JRT_LEAF(void, SharedRuntime::unpin_critical_native_array(oopDesc* obj))
-  assert(Universe::heap()->pin_arrays_for_critical_native(), "Why we here?");
+JRT_LEAF(void, SharedRuntime::unpin_object(JavaThread* thread, oopDesc* obj))
+  assert(Universe::heap()->supports_object_pinning(), "Why we here?");
+  assert(obj != NULL, "Should not be null");
   oop o(obj);
-  assert(!oopDesc::is_null(o), "Should not be null");
-  assert(o->is_typeArray(), "Must be");
-  Universe::heap()->unpin_critical_native_array(o);
+  Universe::heap()->unpin_object(thread, o);
 JRT_END
 
 // -------------------------------------------------------------------------
