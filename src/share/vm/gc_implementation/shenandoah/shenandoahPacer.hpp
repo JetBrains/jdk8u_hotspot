@@ -38,7 +38,7 @@ class ShenandoahHeap;
 class ShenandoahPacer : public CHeapObj<mtGC> {
 private:
   ShenandoahHeap* _heap;
-  volatile jlong _budget;
+  volatile intptr_t _budget;
   volatile jdouble _tax_rate;
   BinaryMagnitudeSeq _delays;
 
@@ -57,12 +57,13 @@ public:
 
   inline void report_alloc(size_t words);
 
-  bool claim_for_alloc(size_t words);
+  bool claim_for_alloc(size_t words, bool force);
   void pace_for_alloc(size_t words);
 
   void print_on(outputStream* out) const;
 
 private:
+  inline void report_internal(size_t words);
   void restart_with(jlong non_taxable_bytes, jdouble tax_rate);
 };
 

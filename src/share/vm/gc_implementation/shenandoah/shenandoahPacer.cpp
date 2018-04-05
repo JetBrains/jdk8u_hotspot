@@ -135,21 +135,22 @@ void ShenandoahPacer::setup_for_idle() {
 }
 
 void ShenandoahPacer::restart_with(jlong non_taxable_bytes, jdouble tax_rate) {
-  jlong initial = (jlong)(non_taxable_bytes * tax_rate) >> LogHeapWordSize;
-  jlong cur;
+  STATIC_ASSERT(sizeof(size_t) <= sizeof(intptr_t));
+  intptr_t initial = (size_t)(non_taxable_bytes * tax_rate) >> LogHeapWordSize;
+  intptr_t cur;
   do {
     cur = OrderAccess::load_acquire(&_budget);
   } while (Atomic::cmpxchg(initial, &_budget, cur) != cur);
   OrderAccess::release_store(&_tax_rate, tax_rate);
 }
 
-bool ShenandoahPacer::claim_for_alloc(size_t words) {
+bool ShenandoahPacer::claim_for_alloc(size_t words, bool force) {
   assert(ShenandoahPacing, "Only be here when pacing is enabled");
 
-  jlong tax = MAX2<jlong>(1, words * OrderAccess::load_acquire(&_tax_rate));
+  intptr_t tax = MAX2<intptr_t>(1, words * OrderAccess::load_acquire(&_tax_rate));
 
-  jlong cur = 0;
-  jlong new_val = 0;
+  intptr_t cur = 0;
+  intptr_t new_val = 0;
   do {
     cur = OrderAccess::load_acquire(&_budget);
     if (cur < tax) {
@@ -165,7 +166,7 @@ void ShenandoahPacer::pace_for_alloc(size_t words) {
   assert(ShenandoahPacing, "Only be here when pacing is enabled");
 
   // Fast path: try to allocate right away
-  if (claim_for_alloc(words)) {
+  if (claim_for_alloc(words, false)) {
     return;
   }
 
@@ -184,10 +185,14 @@ void ShenandoahPacer::pace_for_alloc(size_t words) {
       // Breaking out and allocating anyway, which may mean we outpace GC,
       // and start Degenerated GC cycle.
       _delays.add(ms);
+
+      // Forcefully claim the budget: it may go negative at this point, and
+      // GC should replenish for this and subsequent allocations
+      claim_for_alloc(words, true);
       break;
     }
 
-    if (claim_for_alloc(words)) {
+    if (claim_for_alloc(words, false)) {
       // Acquired enough permit, nice. Can allocate now.
       _delays.add(ms);
       break;
