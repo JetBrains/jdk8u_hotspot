@@ -208,7 +208,7 @@ private:
 
   ShenandoahWorkGang* _workers;
 
-  volatile size_t _used;
+  volatile jlong _used;
   volatile size_t _committed;
 
   MarkBitMap _verification_bit_map;

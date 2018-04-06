@@ -32,6 +32,7 @@ import sun.jvm.hotspot.types.Type;
 import sun.jvm.hotspot.types.TypeDataBase;
 import sun.jvm.hotspot.memory.MemRegion;
 import sun.jvm.hotspot.types.CIntegerField;
+import sun.jvm.hotspot.types.JLongField;
 import sun.jvm.hotspot.types.AddressField;
 import sun.jvm.hotspot.memory.SpaceClosure;
 import java.io.PrintStream;
@@ -41,7 +42,7 @@ import java.util.Observer;
 
 public class ShenandoahHeap extends CollectedHeap {
     static private CIntegerField numRegions;
-    static private CIntegerField usedRegions;
+    static private JLongField    usedRegions;
     static private CIntegerField committedRegions;
     static private AddressField  regionsField;
 
@@ -56,7 +57,7 @@ public class ShenandoahHeap extends CollectedHeap {
     static private synchronized void initialize(TypeDataBase db) {
         Type type = db.lookupType("ShenandoahHeap");
         numRegions = type.getCIntegerField("_num_regions");
-        usedRegions = type.getCIntegerField("_used");
+        usedRegions = type.getJLongField("_used");
         committedRegions = type.getCIntegerField("_committed");
 
         regionsField = type.getAddressField("_regions");

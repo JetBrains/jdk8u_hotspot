@@ -178,7 +178,6 @@ HeapWord* ShenandoahFreeSet::try_allocate_in(ShenandoahHeapRegion* r, size_t wor
     // Allocation successful, bump live data stats:
     r->increase_live_data_alloc_words(word_size);
     increase_used(word_size * HeapWordSize);
-    _heap->increase_used(word_size * HeapWordSize);
   }
 
   if (result == NULL || has_no_alloc_capacity(r)) {
@@ -292,7 +291,6 @@ HeapWord* ShenandoahFreeSet::allocate_contiguous(size_t words_size) {
     r->reset_alloc_metadata_to_shared();
 
     r->increase_live_data_alloc_words(used_words);
-    _heap->increase_used(used_words * HeapWordSize);
 
     _mutator_free_bitmap.clear_bit(r->region_number());
   }

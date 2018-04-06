@@ -31,7 +31,7 @@
 #define VM_STRUCTS_SHENANDOAH(nonstatic_field, volatile_nonstatic_field, static_field)  \
   static_field(ShenandoahHeapRegion, RegionSizeBytes,        size_t)                    \
   nonstatic_field(ShenandoahHeap, _num_regions,              size_t)                    \
-  volatile_nonstatic_field(ShenandoahHeap, _used,            size_t)                    \
+  volatile_nonstatic_field(ShenandoahHeap, _used,            jlong)                     \
   volatile_nonstatic_field(ShenandoahHeap, _committed,       size_t)                    \
   nonstatic_field(ShenandoahHeap,          _regions, ShenandoahHeapRegionSet*)          \
   nonstatic_field(ShenandoahHeapRegion,    _state,  ShenandoahHeapRegion::RegionState)  \
