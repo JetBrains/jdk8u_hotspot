@@ -283,19 +283,25 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
                        BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words()));
 #endif
       if (!region->has_live()) {
-        size_t reclaimed = heap->trash_humongous_region_at(region);
-        immediate_regions += reclaimed;
-        immediate_garbage += reclaimed * ShenandoahHeapRegion::region_size_bytes();
+        heap->trash_humongous_region_at(region);
+
+        // Count only the start. Continuations would be counted on "trash" path
+        immediate_regions++;
+        immediate_garbage += garbage;
       }
     } else if (region->is_trash()) {
       // Count in just trashed collection set, during coalesced CM-with-UR
       immediate_regions++;
-      immediate_garbage += ShenandoahHeapRegion::region_size_bytes();
+      immediate_garbage += garbage;
     }
   }
 
   // Step 2. Look back at garbage statistics, and decide if we want to collect anything,
   // given the amount of immediately reclaimable garbage. If we do, figure out the collection set.
+
+  assert (immediate_garbage <= total_garbage,
+          err_msg("Cannot have more immediate garbage than total garbage: " SIZE_FORMAT "M vs " SIZE_FORMAT "M",
+                  immediate_garbage / M, total_garbage / M));
 
   size_t immediate_percent = total_garbage == 0 ? 0 : (immediate_garbage * 100 / total_garbage);
 

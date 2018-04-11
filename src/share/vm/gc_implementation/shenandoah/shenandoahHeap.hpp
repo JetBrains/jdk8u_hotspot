@@ -456,7 +456,7 @@ public:
   size_t bytes_allocated_since_gc_start();
   void reset_bytes_allocated_since_gc_start();
 
-  size_t trash_humongous_region_at(ShenandoahHeapRegion *r);
+  void trash_humongous_region_at(ShenandoahHeapRegion *r);
 
   ShenandoahMonitoringSupport* monitoring_support();
   ShenandoahConcurrentMark* concurrentMark() { return _scm; }
