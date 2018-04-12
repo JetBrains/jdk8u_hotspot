@@ -98,12 +98,12 @@ GCMemoryManager* MemoryManager::get_g1OldGen_memory_manager() {
   return (GCMemoryManager*) new G1OldGenMemoryManager();
 }
 
-GCMemoryManager* MemoryManager::get_shenandoah_minor_memory_manager() {
-  return (GCMemoryManager*) new ShenandoahMinorMemoryManager();
+GCMemoryManager* MemoryManager::get_shenandoah_cycles_memory_manager() {
+  return (GCMemoryManager*) new ShenandoahCyclesMemoryManager();
 }
 
-GCMemoryManager* MemoryManager::get_shenandoah_major_memory_manager() {
-  return (GCMemoryManager*) new ShenandoahMajorMemoryManager();
+GCMemoryManager* MemoryManager::get_shenandoah_pauses_memory_manager() {
+  return (GCMemoryManager*) new ShenandoahPausesMemoryManager();
 }
 
 instanceOop MemoryManager::get_memory_manager_instance(TRAPS) {

@@ -199,21 +199,18 @@ void MemoryService::add_g1_heap_info(G1CollectedHeap* g1h) {
 void MemoryService::add_shenandoah_heap_info(ShenandoahHeap* heap) {
   assert(UseShenandoahGC, "sanity");
 
-  // Need to have different names for these managers, because having the same name
-  // would confuse notification mechanics: it will enable notifications only for
-  // the first manager with the matching name.
-  _major_gc_manager = MemoryManager::get_shenandoah_major_memory_manager();
-  _minor_gc_manager = MemoryManager::get_shenandoah_minor_memory_manager();
+  // We reuse the "minor/major" names, even though they make little sense
+  // in Shenandoah. JDK 10+ makes this right, but not JDK 9-.
+  _major_gc_manager = MemoryManager::get_shenandoah_pauses_memory_manager();
+  _minor_gc_manager = MemoryManager::get_shenandoah_cycles_memory_manager();
   _managers_list->append(_major_gc_manager);
   _managers_list->append(_minor_gc_manager);
 
   ShenandoahMemoryPool* pool = new ShenandoahMemoryPool(heap);
-  _major_gc_manager->add_pool(pool);
   _pools_list->append(pool);
 
-  ShenandoahDummyMemoryPool* dummy = new ShenandoahDummyMemoryPool();
-  _minor_gc_manager->add_pool(dummy);
-  _pools_list->append(dummy);
+  _major_gc_manager->add_pool(pool);
+  _minor_gc_manager->add_pool(pool);
 }
 
 #endif // INCLUDE_ALL_GCS

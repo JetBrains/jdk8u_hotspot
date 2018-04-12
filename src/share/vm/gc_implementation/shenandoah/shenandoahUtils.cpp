@@ -33,9 +33,19 @@
 
 
 ShenandoahGCSession::ShenandoahGCSession() {
-  _timer = ShenandoahHeap::heap()->gc_timer();
+  ShenandoahHeap* sh = ShenandoahHeap::heap();
+  _timer = sh->gc_timer();
   _timer->register_gc_start();
-  ShenandoahHeap::heap()->shenandoahPolicy()->record_cycle_start();
+  sh->shenandoahPolicy()->record_cycle_start();
+  _trace_cycle.initialize(false, sh->gc_cause(),
+          /* recordGCBeginTime = */       true,
+          /* recordPreGCUsage = */        true,
+          /* recordPeakUsage = */         true,
+          /* recordPostGCUsage = */       true,
+          /* recordAccumulatedGCTime = */ true,
+          /* recordGCEndTime = */         true,
+          /* countCollection = */         true
+  );
 }
 
 ShenandoahGCSession::~ShenandoahGCSession() {
@@ -43,10 +53,20 @@ ShenandoahGCSession::~ShenandoahGCSession() {
   _timer->register_gc_end();
 }
 
-ShenandoahGCPauseMark::ShenandoahGCPauseMark(SvcGCMarker::reason_type type)
-        : _svc_gc_mark(type), _is_gc_active_mark() {
+ShenandoahGCPauseMark::ShenandoahGCPauseMark(SvcGCMarker::reason_type type) :
+        _svc_gc_mark(type), _is_gc_active_mark() {
   ShenandoahHeap* sh = ShenandoahHeap::heap();
   sh->shenandoahPolicy()->record_gc_start();
+
+  _trace_pause.initialize(true, sh->gc_cause(),
+          /* recordGCBeginTime = */       true,
+          /* recordPreGCUsage = */        false,
+          /* recordPeakUsage = */         false,
+          /* recordPostGCUsage = */       false,
+          /* recordAccumulatedGCTime = */ true,
+          /* recordGCEndTime = */         true,
+          /* countCollection = */         true
+  );
 }
 
 ShenandoahGCPauseMark::~ShenandoahGCPauseMark() {

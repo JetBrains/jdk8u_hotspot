@@ -35,7 +35,7 @@ class GCTimer;
 class ShenandoahGCSession : public StackObj {
 private:
   GCTimer*  _timer;
-
+  TraceMemoryManagerStats _trace_cycle;
 public:
   ShenandoahGCSession();
   ~ShenandoahGCSession();
@@ -54,6 +54,7 @@ class ShenandoahGCPauseMark : public StackObj {
 private:
   const SvcGCMarker       _svc_gc_mark;
   const IsGCActiveMark    _is_gc_active_mark;
+  TraceMemoryManagerStats _trace_pause;
 public:
   ShenandoahGCPauseMark(SvcGCMarker::reason_type type);
   ~ShenandoahGCPauseMark();
