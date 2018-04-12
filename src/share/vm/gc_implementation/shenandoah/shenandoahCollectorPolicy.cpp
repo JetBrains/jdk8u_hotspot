@@ -28,6 +28,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
+#include "utilities/quickSort.hpp"
 
 #define SHENANDOAH_ERGO_DISABLE_FLAG(name)                                  \
   do {                                                                      \
@@ -61,6 +62,7 @@ protected:
   typedef struct {
     ShenandoahHeapRegion* _region;
     size_t _garbage;
+    uint64_t _seqnum_last_alloc;
   } RegionData;
 
   static int compare_by_garbage(RegionData a, RegionData b) {
