@@ -109,6 +109,9 @@ const char* GCCause::to_string(GCCause::Cause cause) {
     case _shenandoah_concurrent_gc:
       return "Shenandoah Concurrent GC";
 
+    case _shenandoah_upgrade_to_full_gc:
+      return "Shenandoah Upgrade To Full GC";
+
     case _last_ditch_collection:
       return "Last ditch collection";
 
