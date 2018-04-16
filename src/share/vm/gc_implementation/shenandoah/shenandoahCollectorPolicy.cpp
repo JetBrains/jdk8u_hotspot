@@ -239,7 +239,6 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
 
   // Step 1. Build up the region candidates we care about, rejecting losers and accepting winners right away.
 
-  ShenandoahHeapRegionSet* regions = heap->regions();
   size_t num_regions = heap->num_regions();
 
   RegionData* candidates = get_region_data_cache(num_regions);
@@ -255,7 +254,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   size_t free_regions = 0;
 
   for (size_t i = 0; i < num_regions; i++) {
-    ShenandoahHeapRegion* region = regions->get(i);
+    ShenandoahHeapRegion* region = heap->get_region(i);
 
     size_t garbage = region->garbage();
     total_garbage += garbage;

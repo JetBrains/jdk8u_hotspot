@@ -49,6 +49,29 @@ class ShenandoahPacer;
 class ShenandoahVerifier;
 class ShenandoahWorkGang;
 
+class ShenandoahRegionIterator : public StackObj {
+private:
+  volatile jint _index;
+  ShenandoahHeap* _heap;
+public:
+  ShenandoahRegionIterator();
+  ShenandoahRegionIterator(ShenandoahHeap* heap);
+
+  // Returns next region, or NULL if there are no more regions.
+  // This is multi-thread-safe.
+  inline ShenandoahHeapRegion* next();
+
+  // This is *not* MT safe. However, in the absence of multithreaded access, it
+  // can be used to determine if there is more work to do.
+  bool has_next() const;
+};
+
+class ShenandoahHeapRegionClosure : public StackObj {
+public:
+  // typically called on each region until it returns true;
+  virtual bool heap_region_do(ShenandoahHeapRegion* r) = 0;
+};
+
 class ShenandoahUpdateRefsClosure: public OopClosure {
 private:
   ShenandoahHeap* _heap;
@@ -185,9 +208,12 @@ private:
   MemRegion _bitmap1_region;
   MemRegion _aux_bitmap_region;
 
-  ShenandoahHeapRegionSet* _regions;
+  ShenandoahHeapRegion** _regions;
   ShenandoahFreeSet* _free_set;
   ShenandoahCollectionSet* _collection_set;
+
+  ShenandoahRegionIterator _update_refs_iterator;
+
   ShenandoahConcurrentMark* _scm;
   ShenandoahMarkCompact* _full_gc;
   ShenandoahVerifier*  _verifier;
@@ -336,7 +362,7 @@ public:
   ShenandoahPhaseTimings*   phase_timings()     const { return _phase_timings; }
   ShenandoahAllocTracker*   alloc_tracker()     const { return _alloc_tracker; }
 
-  inline ShenandoahHeapRegion* heap_region_containing(const void* addr) const;
+  inline ShenandoahHeapRegion* const heap_region_containing(const void* addr) const;
   inline size_t heap_region_index_containing(const void* addr) const;
   inline bool requires_marking(const void* entry) const;
 
@@ -356,7 +382,7 @@ public:
   void prepare_for_concurrent_evacuation();
   void evacuate_and_update_roots();
 
-  void update_heap_references(ShenandoahHeapRegionSet* regions);
+  void update_heap_references(bool concurrent);
 
   void roots_iterate(OopClosure* cl);
 
@@ -418,7 +444,10 @@ public:
   inline bool try_cancel_concgc();
   inline void clear_cancelled_concgc();
 
-  ShenandoahHeapRegionSet* regions()        const { return _regions;}
+  inline ShenandoahHeapRegion* const get_region(size_t region_idx) const;
+  ShenandoahRegionIterator region_iterator() const;
+  void heap_region_iterate(ShenandoahHeapRegionClosure& cl) const;
+
   ShenandoahFreeSet* free_set()             const { return _free_set; }
   ShenandoahCollectionSet* collection_set() const { return _collection_set; }
 
