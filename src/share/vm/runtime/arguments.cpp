@@ -1720,8 +1720,23 @@ void Arguments::set_g1_gc_flags() {
 
 void Arguments::set_shenandoah_gc_flags() {
 
-#if !(defined AARCH64 || defined AMD64)
+#if !(defined AARCH64 || defined AMD64 || defined IA32)
   UNSUPPORTED_GC_OPTION(UseShenandoahGC);
+#endif
+
+#ifdef IA32
+  log_warning(gc)("Shenandoah GC is not fully supported on this platform:");
+  log_warning(gc)("  concurrent modes are not supported, only STW cycles are enabled;");
+  log_warning(gc)("  arch-specific barrier code is not implemented, disabling barriers;");
+
+  FLAG_SET_DEFAULT(ShenandoahGCHeuristics,           "passive");
+
+  FLAG_SET_DEFAULT(ShenandoahSATBBarrier,            false);
+  FLAG_SET_DEFAULT(ShenandoahWriteBarrier,           false);
+  FLAG_SET_DEFAULT(ShenandoahReadBarrier,            false);
+  FLAG_SET_DEFAULT(ShenandoahCASBarrier,             false);
+  FLAG_SET_DEFAULT(ShenandoahAcmpBarrier,            false);
+  FLAG_SET_DEFAULT(ShenandoahCloneBarrier,           false);
 #endif
 
   if (!FLAG_IS_DEFAULT(ShenandoahGarbageThreshold)) {
