@@ -20,7 +20,8 @@
  * questions.
  *
  */
-#include "precompiled.hpp"
+
+// Deliberately avoids precompiled headers, to break name clashes and accidental dependencies
 
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
