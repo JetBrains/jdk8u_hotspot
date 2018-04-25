@@ -1235,18 +1235,6 @@ public:
   void in_heap_check(Register r, Register tmp, Label &nope);
 
 private:
-  void shenandoah_cset_check(Register obj, Register tmp1, Register tmp2, Label& done);
-
-public:
-  void _shenandoah_store_addr_check(Register addr, const char* msg, const char* file, int line);
-  void _shenandoah_store_addr_check(Address addr, const char* msg, const char* file, int line);
-#define shenandoah_store_addr_check(reg) _shenandoah_store_addr_check(reg, "oop not safe for writing", __FILE__, __LINE__)
-
-  void _shenandoah_store_check(Address addr, Register value, const char* msg, const char* file, int line);
-  void _shenandoah_store_check(Register addr, Register value, const char* msg, const char* file, int line);
-#define shenandoah_store_check(addr, value) _shenandoah_store_check(addr, value, "oop not safe for writing", __FILE__, __LINE__)
-
- private:
   void add2_with_carry(Register final_dest_hi, Register dest_hi, Register dest_lo,
                        Register src1, Register src2);
   void add2_with_carry(Register dest_hi, Register dest_lo, Register src1, Register src2) {

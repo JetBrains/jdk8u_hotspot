@@ -583,18 +583,6 @@ class MacroAssembler: public Assembler {
   void verify_oop_addr(Address addr, const char * s = "broken oop addr");
 
   void in_heap_check(Register raddr, Register tmp, Label& done);
-  void shenandoah_cset_check(Register raddr, Register tmp1, Register tmp2, Label& done);
-
-  void _shenandoah_store_addr_check(Register dst, const char* msg, const char* file, int line);
-  void _shenandoah_store_addr_check(Address dst, const char* msg, const char* file, int line);
-#define shenandoah_store_addr_check(reg) _shenandoah_store_addr_check(reg, "oop not safe for writing", __FILE__, __LINE__)
-
-  void _shenandoah_store_check(Address addr, Register value, const char* msg, const char* file, int line);
-  void _shenandoah_store_check(Register addr, Register value, const char* msg, const char* file, int line);
-#define shenandoah_store_check(addr, value) _shenandoah_store_check(addr, value, "oop not safe for writing", __FILE__, __LINE__)
-
-  void _shenandoah_lock_check(Register dst, const char* msg, const char* file, int line);
-#define shenandoah_lock_check(reg) _shenandoah_lock_check(reg, "lock/oop not safe for writing", __FILE__, __LINE__)
 
   // TODO: verify method and klass metadata (compare against vptr?)
   void _verify_method_ptr(Register reg, const char * msg, const char * file, int line) {}

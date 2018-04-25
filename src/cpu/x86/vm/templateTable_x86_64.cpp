@@ -3741,7 +3741,6 @@ void TemplateTable::monitorenter() {
     // if not used then remember entry in c_rarg1
     __ cmov(Assembler::equal, c_rarg1, c_rarg3);
     // check if current entry is for same object
-    __ shenandoah_lock_check(c_rarg3); // Invariant
     __ cmpptr(rax, Address(c_rarg3, BasicObjectLock::obj_offset_in_bytes()));
     // if same object then stop searching
     __ jccb(Assembler::equal, exit);
@@ -3791,7 +3790,6 @@ void TemplateTable::monitorenter() {
   __ increment(r13);
 
   // store object
-  __ shenandoah_store_addr_check(rax); // Invariant
   __ movptr(Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()), rax);
   __ lock_object(c_rarg1);
 
@@ -3835,7 +3833,6 @@ void TemplateTable::monitorexit() {
 
     __ bind(loop);
     // check if current entry is for same object
-    __ shenandoah_lock_check(c_rarg1); // Invariant
     __ cmpptr(rax, Address(c_rarg1, BasicObjectLock::obj_offset_in_bytes()));
     // if same object then stop searching
     __ jcc(Assembler::equal, found);

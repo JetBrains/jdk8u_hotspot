@@ -1842,7 +1842,6 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     }
 
     // Load (object->mark() | 1) into swap_reg r0
-    __ shenandoah_store_addr_check(obj_reg); // Access mark word
     __ ldr(rscratch1, Address(obj_reg, 0));
     __ orr(swap_reg, rscratch1, 1);
 
@@ -2008,8 +2007,6 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
     oopDesc::bs()->interpreter_write_barrier(masm, obj_reg);
 
     Label done;
-
-    __ shenandoah_store_addr_check(obj_reg);
 
     if (UseBiasedLocking) {
       __ biased_locking_exit(obj_reg, old_hdr, done);

@@ -2572,7 +2572,6 @@ nmethod* SharedRuntime::generate_native_wrapper(MacroAssembler* masm,
 
     Label done;
 
-    __ shenandoah_store_addr_check(obj_reg);
     if (UseBiasedLocking) {
       __ biased_locking_exit(obj_reg, old_hdr, done);
     }
