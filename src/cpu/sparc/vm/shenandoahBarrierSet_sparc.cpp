@@ -22,8 +22,8 @@
  */
 
 #include "precompiled.hpp"
-#include "gc/shenandoah/brooksPointer.hpp"
-#include "gc/shenandoah/shenandoahBarrierSet.inline.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
+#include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
 
 #include "asm/macroAssembler.hpp"
 #include "interpreter/interpreter.hpp"
