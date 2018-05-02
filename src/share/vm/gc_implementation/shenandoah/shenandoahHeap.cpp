@@ -85,13 +85,11 @@ private:
   char* _bitmap0_base;
   char* _bitmap1_base;
 public:
-  ShenandoahPretouchTask(ShenandoahRegionIterator regions,
-                         char* bitmap0_base, char* bitmap1_base, size_t bitmap_size,
+  ShenandoahPretouchTask(char* bitmap0_base, char* bitmap1_base, size_t bitmap_size,
                          size_t page_size) :
     AbstractGangTask("Shenandoah PreTouch"),
     _bitmap0_base(bitmap0_base),
     _bitmap1_base(bitmap1_base),
-    _regions(regions),
     _bitmap_size(bitmap_size),
     _page_size(page_size) {}
 
@@ -286,7 +284,7 @@ jint ShenandoahHeap::initialize() {
 
     log_info(gc, heap)("Parallel pretouch " SIZE_FORMAT " regions with " SIZE_FORMAT " byte pages",
                        _num_regions, page_size);
-    ShenandoahPretouchTask cl(region_iterator(), bitmap0.base(), bitmap1.base(), _bitmap_size, page_size);
+    ShenandoahPretouchTask cl(bitmap0.base(), bitmap1.base(), _bitmap_size, page_size);
     _workers->run_task(&cl);
   }
 
@@ -323,7 +321,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _regions(NULL),
   _free_set(NULL),
   _collection_set(NULL),
-  _update_refs_iterator(ShenandoahRegionIterator(this)),
+  _update_refs_iterator(this),
   _bytes_allocated_since_gc_start(0),
   _max_workers((uint)MAX2(ConcGCThreads, ParallelGCThreads)),
   _ref_processor(NULL),
@@ -367,9 +365,8 @@ private:
   ShenandoahRegionIterator _regions;
 
 public:
-  ShenandoahResetNextBitmapTask(ShenandoahRegionIterator regions) :
-    AbstractGangTask("Parallel Reset Bitmap Task"),
-    _regions(regions) {}
+  ShenandoahResetNextBitmapTask() :
+    AbstractGangTask("Parallel Reset Bitmap Task") {}
 
   void work(uint worker_id) {
     ShenandoahHeapRegion* region = _regions.next();
@@ -391,7 +388,7 @@ public:
 void ShenandoahHeap::reset_next_mark_bitmap() {
   assert_gc_workers(_workers->active_workers());
 
-  ShenandoahResetNextBitmapTask task(region_iterator());
+  ShenandoahResetNextBitmapTask task;
   _workers->run_task(&task);
 }
 
@@ -2082,11 +2079,11 @@ ShenandoahVerifier* ShenandoahHeap::verifier() {
 class ShenandoahUpdateHeapRefsTask : public AbstractGangTask {
 private:
   ShenandoahHeap* _heap;
-  ShenandoahRegionIterator _regions;
+  ShenandoahRegionIterator* _regions;
   bool _concurrent;
 
 public:
-  ShenandoahUpdateHeapRefsTask(ShenandoahRegionIterator regions, bool concurrent) :
+  ShenandoahUpdateHeapRefsTask(ShenandoahRegionIterator* regions, bool concurrent) :
     AbstractGangTask("Concurrent Update References Task"),
     _heap(ShenandoahHeap::heap()),
     _regions(regions),
@@ -2095,7 +2092,7 @@ public:
 
   void work(uint worker_id) {
     ShenandoahUpdateHeapRefsClosure cl;
-    ShenandoahHeapRegion* r = _regions.next();
+    ShenandoahHeapRegion* r = _regions->next();
     while (r != NULL) {
       if (_heap->in_collection_set(r)) {
         HeapWord* bottom = r->bottom();
@@ -2114,13 +2111,13 @@ public:
       if (_heap->cancelled_concgc()) {
         return;
       }
-      r = _regions.next();
+      r = _regions->next();
     }
   }
 };
 
 void ShenandoahHeap::update_heap_references(bool concurrent) {
-  ShenandoahUpdateHeapRefsTask task(_update_refs_iterator, concurrent);
+  ShenandoahUpdateHeapRefsTask task(&_update_refs_iterator, concurrent);
   workers()->run_task(&task);
 }
 
@@ -2140,7 +2137,7 @@ void ShenandoahHeap::op_init_updaterefs() {
   }
 
   // Reset iterator.
-  _update_refs_iterator = region_iterator();
+  _update_refs_iterator = ShenandoahRegionIterator();
 
   if (ShenandoahPacing) {
     pacer()->setup_for_updaterefs();
@@ -2545,16 +2542,18 @@ ShenandoahRegionIterator::ShenandoahRegionIterator(ShenandoahHeap* heap) :
   _index(0),
   _heap(heap) {}
 
+ShenandoahRegionIterator& ShenandoahRegionIterator::operator=(const ShenandoahRegionIterator& o) {
+  _index = o._index;
+  assert(_heap == o._heap, "must be same");
+  return *this;
+}
+
 bool ShenandoahRegionIterator::has_next() const {
   return _index < (jint)_heap->num_regions();
 }
 
-ShenandoahRegionIterator ShenandoahHeap::region_iterator() const {
-  return ShenandoahRegionIterator();
-}
-
 void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure& cl) const {
-  ShenandoahRegionIterator regions = region_iterator();
+  ShenandoahRegionIterator regions;
   ShenandoahHeapRegion* r = regions.next();
   while (r != NULL) {
     if (cl.heap_region_do(r)) {
