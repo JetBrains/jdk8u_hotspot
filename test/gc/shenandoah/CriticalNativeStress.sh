@@ -25,6 +25,7 @@
 
 ##
 ## @test
+## @requires (os.arch =="x86_64" | os.arch == "amd64") & (vm.bits == "64")
 ## @summary test JNI critical arrays support in Shenandoah
 ## @run shell/timeout=480 CriticalNativeStress.sh
 ##
