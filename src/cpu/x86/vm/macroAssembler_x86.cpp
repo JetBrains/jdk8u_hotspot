@@ -3859,6 +3859,7 @@ void MacroAssembler::serialize_memory(Register thread, Register tmp) {
 
 // Special Shenandoah CAS implementation that handles false negatives
 // due to concurrent evacuation.
+#if INCLUDE_ALL_GCS
 #ifndef _LP64
 void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register oldval, Register newval,
                               bool exchange,
@@ -3950,7 +3951,8 @@ void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register
     movzbl(res, res);
   }
 }
-#endif
+#endif // INCLUDE_ALL_GCS
+#endif // LP64
 
 // Calls to C land
 //
@@ -5361,7 +5363,7 @@ void MacroAssembler::verify_oop(Register reg, const char* s) {
   BLOCK_COMMENT("} verify_oop");
 }
 
-
+#if INCLUDE_ALL_GCS
 void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
   ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
 
@@ -5376,6 +5378,7 @@ void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
   jcc(Assembler::aboveEqual, done);
 
 }
+#endif
 
 RegisterOrConstant MacroAssembler::delayed_value_impl(intptr_t* delayed_value_addr,
                                                       Register tmp,
@@ -8731,6 +8734,7 @@ void MacroAssembler::cmpoops(Register src1, Register src2) {
 
 void MacroAssembler::cmpoops(Register src1, Address src2) {
   cmpptr(src1, src2);
+#if INCLUDE_ALL_GCS
   if (UseShenandoahGC && ShenandoahAcmpBarrier) {
     Label done;
     jccb(Assembler::equal, done);
@@ -8740,4 +8744,5 @@ void MacroAssembler::cmpoops(Register src1, Address src2) {
     cmpptr(src1, rscratch2);
     bind(done);
   }
+#endif
 }

@@ -969,7 +969,7 @@ void LIR_Assembler::stack2stack(LIR_Opr src, LIR_Opr dest, BasicType type) {
   stack2reg(src, temp, src->type());
   reg2stack(temp, dest, dest->type(), false);
 }
-
+#endif
 
 void LIR_Assembler::mem2reg(LIR_Opr src, LIR_Opr dest, BasicType type, LIR_PatchCode patch_code, CodeEmitInfo* info, bool wide, bool /* unaligned */) {
   LIR_Address* addr = src->as_address_ptr();
@@ -1069,7 +1069,6 @@ void LIR_Assembler::mem2reg(LIR_Opr src, LIR_Opr dest, BasicType type, LIR_Patch
   }
 }
 
-
 void LIR_Assembler::prefetchr(LIR_Opr src) { Unimplemented(); }
 
 
@@ -1156,7 +1155,7 @@ void LIR_Assembler::emit_opBranch(LIR_OpBranch* op) {
   }
 }
 
-
+#if INCLUDE_ALL_GCS
 void LIR_Assembler::emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* op) {
 
   Register obj = op->in_opr()->as_register();
@@ -1692,6 +1691,7 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
     assert(op->tmp1()->is_valid(), "must be");
     Register t1 = op->tmp1()->as_register();
     if (UseCompressedOops) {
+#if INCLUDE_ALL_GCS
       if (UseShenandoahGC && ShenandoahCASBarrier) {
         __ encode_heap_oop(t1, cmpval);
         cmpval = t1;
@@ -1701,7 +1701,9 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
         newval = t2;
         __ cmpxchg_oop_shenandoah(addr, cmpval, newval, Assembler::word, /*acquire*/ false, /*release*/ true, /*weak*/ false);
         __ csetw(res, Assembler::EQ);
-      } else {
+      } else
+#endif
+      {
         __ encode_heap_oop(t1, cmpval);
         cmpval = t1;
         __ encode_heap_oop(rscratch2, newval);
@@ -1710,10 +1712,13 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
         __ eorw (res, r8, 1);
       }
     } else {
+#if INCLUDE_ALL_GCS
       if (UseShenandoahGC && ShenandoahCASBarrier) {
         __ cmpxchg_oop_shenandoah(addr, cmpval, newval, Assembler::xword, /*acquire*/ false, /*release*/ true, /*weak*/ false);
         __ csetw(res, Assembler::EQ);
-      } else {
+      } else
+#endif
+      {
         casl(addr, newval, cmpval);
         __ eorw (res, r8, 1);
       }

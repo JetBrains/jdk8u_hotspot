@@ -582,7 +582,9 @@ class MacroAssembler: public Assembler {
   void verify_oop(Register reg, const char* s = "broken oop");
   void verify_oop_addr(Address addr, const char * s = "broken oop addr");
 
+#if INCLUDE_ALL_GCS
   void in_heap_check(Register raddr, Register tmp, Label& done);
+#endif
 
   // TODO: verify method and klass metadata (compare against vptr?)
   void _verify_method_ptr(Register reg, const char * msg, const char * file, int line) {}
@@ -757,11 +759,13 @@ class MacroAssembler: public Assembler {
 
   void cmpxchgptr(Register reg, Address adr);
 
+#if INCLUDE_ALL_GCS
   // Special Shenandoah CAS implementation that handles false negatives
   // due to concurrent evacuation.
   void cmpxchg_oop_shenandoah(Register res, Address addr, Register oldval, Register newval,
                               bool exchange,
                               Register tmp1, Register tmp2);
+#endif
 
   void locked_cmpxchgptr(Register reg, AddressLiteral adr);
 

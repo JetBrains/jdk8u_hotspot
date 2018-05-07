@@ -1726,10 +1726,11 @@ void Arguments::set_shenandoah_gc_flags() {
 #endif
 
 #ifdef IA32
-  log_warning(gc)("Shenandoah GC is not fully supported on this platform:");
-  log_warning(gc)("  concurrent modes are not supported, only STW cycles are enabled;");
-  log_warning(gc)("  arch-specific barrier code is not implemented, disabling barriers;");
+  warning("Shenandoah GC is not fully supported on this platform:");
+  warning("  concurrent modes are not supported, only STW cycles are enabled;");
+  warning("  arch-specific barrier code is not implemented, disabling barriers;");
 
+#if INCLUDE_ALL_GCS
   FLAG_SET_DEFAULT(ShenandoahGCHeuristics,           "passive");
 
   FLAG_SET_DEFAULT(ShenandoahSATBBarrier,            false);
@@ -1739,7 +1740,9 @@ void Arguments::set_shenandoah_gc_flags() {
   FLAG_SET_DEFAULT(ShenandoahAcmpBarrier,            false);
   FLAG_SET_DEFAULT(ShenandoahCloneBarrier,           false);
 #endif
+#endif
 
+#if INCLUDE_ALL_GCS
   if (!FLAG_IS_DEFAULT(ShenandoahGarbageThreshold)) {
     if (0 > ShenandoahGarbageThreshold || ShenandoahGarbageThreshold > 100) {
       vm_exit_during_initialization("The flag -XX:ShenandoahGarbageThreshold is out of range", NULL);
@@ -1757,6 +1760,7 @@ void Arguments::set_shenandoah_gc_flags() {
       vm_exit_during_initialization("The flag -XX:ShenandoahFreeThreshold is out of range", NULL);
     }
   }
+#endif
 
 #ifdef _LP64
   // The optimized ObjArrayChunkedTask takes some bits away from the full 64 addressable
@@ -1781,11 +1785,13 @@ void Arguments::set_shenandoah_gc_flags() {
     FLAG_SET_DEFAULT(ParallelRefProcEnabled, true);
   }
 
+#if INCLUDE_ALL_GCS
   if (ShenandoahRegionSampling && FLAG_IS_DEFAULT(PerfDataMemorySize)) {
     // When sampling is enabled, max out the PerfData memory to get more
     // Shenandoah data in, including Matrix.
     FLAG_SET_DEFAULT(PerfDataMemorySize, 2048*K);
   }
+#endif
 
 #ifdef COMPILER2
   // Shenandoah cares more about pause times, rather than raw throughput.
@@ -1813,6 +1819,7 @@ void Arguments::set_shenandoah_gc_flags() {
 #endif // ASSERT
 #endif // COMPILER2
 
+#if INCLUDE_ALL_GCS
   if (AlwaysPreTouch) {
     // Shenandoah handles pre-touch on its own. It does not let the
     // generic storage code to do the pre-touch before Shenandoah has
@@ -1827,6 +1834,7 @@ void Arguments::set_shenandoah_gc_flags() {
     }
     FLAG_SET_DEFAULT(ShenandoahUncommit, false);
   }
+#endif
 }
 
 #if !INCLUDE_ALL_GCS
@@ -2149,6 +2157,7 @@ void check_gclog_consistency() {
     FLAG_SET_DEFAULT(LogEventsBufferEntries, 250);
   }
 
+#if INCLUDE_ALL_GCS
   if (ShenandoahConcurrentEvacCodeRoots) {
     if (!ShenandoahBarriersForConst) {
       if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
@@ -2174,6 +2183,7 @@ void check_gclog_consistency() {
     }
     FLAG_SET_DEFAULT(ShenandoahUncommitDelay, max_uintx);
   }
+#endif
 }
 
 // This function is called for -Xloggc:<filename>, it can be used

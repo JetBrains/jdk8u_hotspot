@@ -1221,6 +1221,7 @@ UNSAFE_ENTRY(jboolean, Unsafe_CompareAndSwapObject(JNIEnv *env, jobject unsafe, 
 
   HeapWord* addr = (HeapWord *)index_oop_from_field_offset_long(p, offset);
   jboolean success;
+#if INCLUDE_ALL_GCS
   if (UseShenandoahGC && ShenandoahCASBarrier) {
     oop expected;
     do {
@@ -1228,7 +1229,9 @@ UNSAFE_ENTRY(jboolean, Unsafe_CompareAndSwapObject(JNIEnv *env, jobject unsafe, 
       e = oopDesc::atomic_compare_exchange_oop(x, addr, expected, true);
       success  = oopDesc::unsafe_equals(e, expected);
     } while ((! success) && oopDesc::unsafe_equals(oopDesc::bs()->read_barrier(e), oopDesc::bs()->read_barrier(expected)));
-  } else {
+  } else
+#endif
+  {
     success = oopDesc::unsafe_equals(e, oopDesc::atomic_compare_exchange_oop(x, addr, e, true));
   }
   if (! success) {

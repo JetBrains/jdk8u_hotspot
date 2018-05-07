@@ -36,9 +36,6 @@
                          manageable, \
                          product_rw) \
                                                                             \
-  product(bool, UseShenandoahGC, false,                                     \
-          "Use the Shenandoah garbage collector")                           \
-                                                                            \
   product(bool, ShenandoahOptimizeStaticFinals, true,                       \
           "Optimize barriers on static final fields. "                      \
           "Turn it off for maximum compatibility with reflection or JNI "   \

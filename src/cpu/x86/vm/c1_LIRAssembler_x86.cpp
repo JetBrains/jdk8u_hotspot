@@ -1513,6 +1513,7 @@ void LIR_Assembler::emit_opBranch(LIR_OpBranch* op) {
   }
 }
 
+#if INCLUDE_ALL_GCS
 void LIR_Assembler::emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* op) {
   Label done;
   Register obj = op->in_opr()->as_register();
@@ -1533,6 +1534,7 @@ void LIR_Assembler::emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* 
   __ bind(done);
 
 }
+#endif
 
 void LIR_Assembler::emit_opConvert(LIR_OpConvert* op) {
   LIR_Opr src  = op->in_opr();
@@ -2019,6 +2021,7 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
     if ( op->code() == lir_cas_obj) {
 #ifdef _LP64
       if (UseCompressedOops) {
+#if INCLUDE_ALL_GCS
         if (UseShenandoahGC && ShenandoahCASBarrier) {
           Register tmp1 = op->tmp1()->as_register();
           Register tmp2 = op->tmp2()->as_register();
@@ -2027,7 +2030,9 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
           __ mov(rscratch1, newval);
           __ encode_heap_oop(rscratch1);
           __ cmpxchg_oop_shenandoah(NULL, Address(addr, 0), cmpval, rscratch1, true, tmp1, tmp2);
-        } else {
+        } else
+#endif
+        {
           __ encode_heap_oop(cmpval);
           __ mov(rscratch1, newval);
           __ encode_heap_oop(rscratch1);
@@ -2040,11 +2045,14 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
       } else
 #endif
       {
+#if INCLUDE_ALL_GCS
         if (UseShenandoahGC && ShenandoahCASBarrier) {
           Register tmp1 = op->tmp1()->as_register();
           Register tmp2 = op->tmp2()->as_register();
           __ cmpxchg_oop_shenandoah(NULL, Address(addr, 0), cmpval, newval, true, tmp1, tmp2);
-        } else {
+        } else
+#endif
+        {
           if (os::is_MP()) {
             __ lock();
           }

@@ -1423,6 +1423,9 @@ class CommandLineFlags {
   product(bool, UseParallelOldGC, false,                                    \
           "Use the Parallel Old garbage collector")                         \
                                                                             \
+  product(bool, UseShenandoahGC, false,                                     \
+          "Use the Shenandoah garbage collector")                           \
+                                                                            \
   product(uintx, HeapMaximumCompactionInterval, 20,                         \
           "How often should we maximally compact the heap (not allowing "   \
           "any dead space)")                                                \
