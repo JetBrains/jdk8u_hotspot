@@ -190,14 +190,14 @@ void ShenandoahBarrierSet::write_ref_array(HeapWord* start, size_t count) {
 }
 
 template <class T>
-void ShenandoahBarrierSet::write_ref_array_pre_work(T* dst, int count) {
+void ShenandoahBarrierSet::write_ref_array_pre_work(T* dst, size_t count) {
   assert (UseShenandoahGC && ShenandoahSATBBarrier, "Should be enabled");
 
   shenandoah_assert_not_in_cset_loc_except(dst, _heap->cancelled_concgc());
 
   if (! JavaThread::satb_mark_queue_set().is_active()) return;
   T* elem_ptr = dst;
-  for (int i = 0; i < count; i++, elem_ptr++) {
+  for (size_t i = 0; i < count; i++, elem_ptr++) {
     T heap_oop = oopDesc::load_heap_oop(elem_ptr);
     if (!oopDesc::is_null(heap_oop)) {
       G1SATBCardTableModRefBS::enqueue(oopDesc::decode_heap_oop_not_null(heap_oop));
@@ -207,13 +207,13 @@ void ShenandoahBarrierSet::write_ref_array_pre_work(T* dst, int count) {
 
 void ShenandoahBarrierSet::write_ref_array_pre(oop* dst, int count, bool dest_uninitialized) {
   if (! dest_uninitialized && ShenandoahSATBBarrier) {
-    write_ref_array_pre_work(dst, count);
+    write_ref_array_pre_work(dst, (size_t)count);
   }
 }
 
 void ShenandoahBarrierSet::write_ref_array_pre(narrowOop* dst, int count, bool dest_uninitialized) {
   if (! dest_uninitialized && ShenandoahSATBBarrier) {
-    write_ref_array_pre_work(dst, count);
+    write_ref_array_pre_work(dst, (size_t)count);
   }
 }
 

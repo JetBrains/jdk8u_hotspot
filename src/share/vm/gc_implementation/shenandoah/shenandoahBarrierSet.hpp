@@ -70,7 +70,7 @@ public:
   void write_ref_array_work(MemRegion r);
 
   template <class T> void
-  write_ref_array_pre_work(T* dst, int count);
+  write_ref_array_pre_work(T* dst, size_t count);
 
   void write_ref_array_pre(oop* dst, int count, bool dest_uninitialized);
 
