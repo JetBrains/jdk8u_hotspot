@@ -194,18 +194,15 @@ void ShenandoahRootProcessor::process_vm_roots(OopClosure* strong_roots,
 }
 
 ShenandoahRootEvacuator::ShenandoahRootEvacuator(ShenandoahHeap* heap, uint n_workers, ShenandoahPhaseTimings::Phase phase) :
-  _process_strong_tasks(new SubTasksDone(SHENANDOAH_RP_PS_NumElements)),
   _srs(heap, true),
   _phase(phase),
   _coderoots_cset_iterator(ShenandoahCodeRoots::cset_iterator())
 {
-  _process_strong_tasks->set_n_threads(n_workers);
   heap->set_par_threads(n_workers);
   heap->phase_timings()->record_workers_start(_phase);
 }
 
 ShenandoahRootEvacuator::~ShenandoahRootEvacuator() {
-  delete _process_strong_tasks;
   ShenandoahHeap::heap()->phase_timings()->record_workers_end(_phase);
 }
 
@@ -245,10 +242,7 @@ void ShenandoahRootEvacuator::process_evacuate_roots(OopClosure* oops,
     ShenandoahWorkerTimingsTracker timer(worker_times, ShenandoahPhaseTimings::CodeCacheRoots, worker_id);
     _coderoots_cset_iterator.possibly_parallel_blobs_do(blobs);
   }
-
-  _process_strong_tasks->all_tasks_completed();
 }
-
 
 // Implemenation of ParallelCLDRootIterator
 ParallelCLDRootIterator::ParallelCLDRootIterator() {

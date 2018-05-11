@@ -113,7 +113,6 @@ public:
 };
 
 class ShenandoahRootEvacuator : public StackObj {
-  SubTasksDone* _process_strong_tasks;
   SharedHeap::StrongRootsScope _srs;
   ShenandoahPhaseTimings::Phase _phase;
   ShenandoahCsetCodeRootsIterator _coderoots_cset_iterator;
