@@ -97,7 +97,7 @@
 # include "os_bsd.inline.hpp"
 #endif
 #if INCLUDE_ALL_GCS
-#include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
+#include "gc_implementation/shenandoah/shenandoahControlThread.hpp"
 #include "gc_implementation/concurrentMarkSweep/concurrentMarkSweepThread.hpp"
 #include "gc_implementation/g1/concurrentMarkThread.inline.hpp"
 #include "gc_implementation/parallelScavenge/pcTasks.hpp"
@@ -3659,7 +3659,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
     if (UseConcMarkSweepGC) {
       ConcurrentMarkSweepThread::makeSurrogateLockerThread(THREAD);
     } else if (UseShenandoahGC) {
-      ShenandoahConcurrentThread::makeSurrogateLockerThread(THREAD);
+      ShenandoahControlThread::makeSurrogateLockerThread(THREAD);
     } else {
       ConcurrentMarkThread::makeSurrogateLockerThread(THREAD);
     }

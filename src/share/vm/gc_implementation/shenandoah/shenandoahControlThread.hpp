@@ -31,21 +31,21 @@
 #include "memory/resourceArea.hpp"
 #include "runtime/task.hpp"
 
-class ShenandoahConcurrentThread;
+class ShenandoahControlThread;
 
 // Periodic task is useful for doing asynchronous things that do not require (heap) locks,
 // or synchronization with other parts of collector. These could run even when ShenandoahConcurrentThread
 // is busy driving the GC cycle.
 class ShenandoahPeriodicTask : public PeriodicTask {
 private:
-  ShenandoahConcurrentThread* _thread;
+  ShenandoahControlThread* _thread;
 public:
-  ShenandoahPeriodicTask(ShenandoahConcurrentThread* thread) :
+  ShenandoahPeriodicTask(ShenandoahControlThread* thread) :
           PeriodicTask(100), _thread(thread) {}
   virtual void task();
 };
 
-class ShenandoahConcurrentThread: public ConcurrentGCThread {
+class ShenandoahControlThread: public ConcurrentGCThread {
   friend class VMStructs;
 
 private:
@@ -94,8 +94,8 @@ private:
 
 public:
   // Constructor
-  ShenandoahConcurrentThread();
-  ~ShenandoahConcurrentThread();
+  ShenandoahControlThread();
+  ~ShenandoahControlThread();
 
   static void makeSurrogateLockerThread(TRAPS);
   static SurrogateLockerThread* slt() { return _slt; }

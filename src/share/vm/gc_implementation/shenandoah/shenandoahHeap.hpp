@@ -37,7 +37,7 @@ class ShenandoahAsserts;
 class ShenandoahCollectionSet;
 class ShenandoahCollectorPolicy;
 class ShenandoahConcurrentMark;
-class ShenandoahConcurrentThread;
+class ShenandoahControlThread;
 class ShenandoahFreeSet;
 class ShenandoahHeapRegion;
 class ShenandoahHeapRegionClosure;
@@ -228,7 +228,7 @@ private:
 
 
 
-  ShenandoahConcurrentThread* _concurrent_gc_thread;
+  ShenandoahControlThread* _control_thread;
 
   ShenandoahMonitoringSupport* _monitoring_support;
 
@@ -593,7 +593,7 @@ private:
   template<class T>
   inline void do_object_marked_complete(T* cl, oop obj);
 
-  ShenandoahConcurrentThread* concurrent_thread() { return _concurrent_gc_thread; }
+  ShenandoahControlThread* control_thread() { return _control_thread; }
 
   inline oop atomic_compare_exchange_oop(oop n, narrowOop* addr, oop c);
   inline oop atomic_compare_exchange_oop(oop n, oop* addr, oop c);

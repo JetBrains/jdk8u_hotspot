@@ -25,7 +25,7 @@
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
-#include "gc_implementation/shenandoah/shenandoahConcurrentThread.hpp"
+#include "gc_implementation/shenandoah/shenandoahControlThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
@@ -42,9 +42,9 @@
 #pragma warning(disable : 4355)
 #endif
 
-SurrogateLockerThread* ShenandoahConcurrentThread::_slt = NULL;
+SurrogateLockerThread* ShenandoahControlThread::_slt = NULL;
 
-ShenandoahConcurrentThread::ShenandoahConcurrentThread() :
+ShenandoahControlThread::ShenandoahControlThread() :
   ConcurrentGCThread(),
   _alloc_failure_waiters_lock(Mutex::leaf, "ShenandoahAllocFailureGC_lock", true),
   _explicit_gc_waiters_lock(Mutex::leaf, "ShenandoahExplicitGC_lock", true),
@@ -57,7 +57,7 @@ ShenandoahConcurrentThread::ShenandoahConcurrentThread() :
   _periodic_task.enroll();
 }
 
-ShenandoahConcurrentThread::~ShenandoahConcurrentThread() {
+ShenandoahControlThread::~ShenandoahControlThread() {
   // This is here so that super is called.
 }
 
@@ -66,7 +66,7 @@ void ShenandoahPeriodicTask::task() {
   _thread->handle_counters_update();
 }
 
-void ShenandoahConcurrentThread::run() {
+void ShenandoahControlThread::run() {
   initialize_in_thread();
 
   wait_for_universe_init();
@@ -242,7 +242,7 @@ void ShenandoahConcurrentThread::run() {
   terminate();
 }
 
-void ShenandoahConcurrentThread::service_concurrent_normal_cycle(GCCause::Cause cause) {
+void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cause) {
   // Normal cycle goes via all concurrent phases. If allocation failure (af) happens during
   // any of the concurrent phases, it first degrades to Degenerated GC and completes GC there.
   // If second allocation failure happens during Degenerated GC cycle (for example, when GC
@@ -347,7 +347,7 @@ void ShenandoahConcurrentThread::service_concurrent_normal_cycle(GCCause::Cause 
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
-bool ShenandoahConcurrentThread::check_cancellation_or_degen(ShenandoahHeap::ShenandoahDegenPoint point) {
+bool ShenandoahControlThread::check_cancellation_or_degen(ShenandoahHeap::ShenandoahDegenPoint point) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   if (heap->cancelled_concgc()) {
     assert (is_alloc_failure_gc() || in_graceful_shutdown(), "Cancel GC either for alloc failure GC, or gracefully exiting");
@@ -361,7 +361,7 @@ bool ShenandoahConcurrentThread::check_cancellation_or_degen(ShenandoahHeap::She
   return false;
 }
 
-void ShenandoahConcurrentThread::stop() {
+void ShenandoahControlThread::stop() {
   {
     MutexLockerEx ml(Terminator_lock);
     _should_terminate = true;
@@ -380,7 +380,7 @@ void ShenandoahConcurrentThread::stop() {
   }
 }
 
-void ShenandoahConcurrentThread::service_stw_full_cycle(GCCause::Cause cause) {
+void ShenandoahControlThread::service_stw_full_cycle(GCCause::Cause cause) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   ShenandoahGCSession session;
 
@@ -398,7 +398,7 @@ void ShenandoahConcurrentThread::service_stw_full_cycle(GCCause::Cause cause) {
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
-void ShenandoahConcurrentThread::service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahHeap::ShenandoahDegenPoint point) {
+void ShenandoahControlThread::service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahHeap::ShenandoahDegenPoint point) {
   assert (point != ShenandoahHeap::_degenerated_unset, "Degenerated point should be set");
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   ShenandoahGCSession session;
@@ -417,7 +417,7 @@ void ShenandoahConcurrentThread::service_stw_degenerated_cycle(GCCause::Cause ca
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
-void ShenandoahConcurrentThread::handle_explicit_gc(GCCause::Cause cause) {
+void ShenandoahControlThread::handle_explicit_gc(GCCause::Cause cause) {
   assert(GCCause::is_user_requested_gc(cause) || GCCause::is_serviceability_requested_gc(cause),
          "only requested GCs here");
   if (!DisableExplicitGC) {
@@ -431,7 +431,7 @@ void ShenandoahConcurrentThread::handle_explicit_gc(GCCause::Cause cause) {
   }
 }
 
-void ShenandoahConcurrentThread::handle_alloc_failure(size_t words) {
+void ShenandoahControlThread::handle_alloc_failure(size_t words) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
   heap->collector_policy()->set_should_clear_all_soft_refs(true);
@@ -452,7 +452,7 @@ void ShenandoahConcurrentThread::handle_alloc_failure(size_t words) {
   assert(!is_alloc_failure_gc(), "expect alloc failure GC to have completed");
 }
 
-void ShenandoahConcurrentThread::handle_alloc_failure_evac(size_t words) {
+void ShenandoahControlThread::handle_alloc_failure_evac(size_t words) {
   Thread* t = Thread::current();
 
   log_develop_trace(gc)("Out of memory during evacuation, cancel evacuation, schedule full GC by thread %d",
@@ -469,41 +469,41 @@ void ShenandoahConcurrentThread::handle_alloc_failure_evac(size_t words) {
   heap->cancel_concgc(GCCause::_shenandoah_allocation_failure_evac);
 }
 
-void ShenandoahConcurrentThread::notify_alloc_failure_waiters() {
+void ShenandoahControlThread::notify_alloc_failure_waiters() {
   _alloc_failure_gc.unset();
   MonitorLockerEx ml(&_alloc_failure_waiters_lock);
   ml.notify_all();
 }
 
-bool ShenandoahConcurrentThread::try_set_alloc_failure_gc() {
+bool ShenandoahControlThread::try_set_alloc_failure_gc() {
   return _alloc_failure_gc.try_set();
 }
 
-bool ShenandoahConcurrentThread::is_alloc_failure_gc() {
+bool ShenandoahControlThread::is_alloc_failure_gc() {
   return _alloc_failure_gc.is_set();
 }
 
-void ShenandoahConcurrentThread::notify_explicit_gc_waiters() {
+void ShenandoahControlThread::notify_explicit_gc_waiters() {
   _explicit_gc.unset();
   MonitorLockerEx ml(&_explicit_gc_waiters_lock);
   ml.notify_all();
 }
 
-void ShenandoahConcurrentThread::handle_counters_update() {
+void ShenandoahControlThread::handle_counters_update() {
   if (_do_counters_update.is_set()) {
     _do_counters_update.unset();
     ShenandoahHeap::heap()->monitoring_support()->update_counters();
   }
 }
 
-void ShenandoahConcurrentThread::handle_force_counters_update() {
+void ShenandoahControlThread::handle_force_counters_update() {
   if (_force_counters_update.is_set()) {
     _do_counters_update.unset(); // reset these too, we do update now!
     ShenandoahHeap::heap()->monitoring_support()->update_counters();
   }
 }
 
-void ShenandoahConcurrentThread::notify_heap_changed() {
+void ShenandoahControlThread::notify_heap_changed() {
   // This is called from allocation path, and thus should be fast.
 
   // Update monitoring counters when we took a new region. This amortizes the
@@ -517,40 +517,40 @@ void ShenandoahConcurrentThread::notify_heap_changed() {
   }
 }
 
-void ShenandoahConcurrentThread::pacing_notify_alloc(size_t words) {
+void ShenandoahControlThread::pacing_notify_alloc(size_t words) {
   assert(ShenandoahPacing, "should only call when pacing is enabled");
   Atomic::add(words, &_allocs_seen);
 }
 
-void ShenandoahConcurrentThread::set_forced_counters_update(bool value) {
+void ShenandoahControlThread::set_forced_counters_update(bool value) {
   _force_counters_update.set_cond(value);
 }
 
-void ShenandoahConcurrentThread::print() const {
+void ShenandoahControlThread::print() const {
   print_on(tty);
 }
 
-void ShenandoahConcurrentThread::print_on(outputStream* st) const {
+void ShenandoahControlThread::print_on(outputStream* st) const {
   st->print("Shenandoah Concurrent Thread");
   Thread::print_on(st);
   st->cr();
 }
 
-void ShenandoahConcurrentThread::start() {
+void ShenandoahControlThread::start() {
   create_and_start();
 }
 
-void ShenandoahConcurrentThread::makeSurrogateLockerThread(TRAPS) {
+void ShenandoahControlThread::makeSurrogateLockerThread(TRAPS) {
   assert(UseShenandoahGC, "SLT thread needed only for concurrent GC");
   assert(THREAD->is_Java_thread(), "must be a Java thread");
   assert(_slt == NULL, "SLT already created");
   _slt = SurrogateLockerThread::make(THREAD);
 }
 
-void ShenandoahConcurrentThread::prepare_for_graceful_shutdown() {
+void ShenandoahControlThread::prepare_for_graceful_shutdown() {
   _graceful_shutdown.set();
 }
 
-bool ShenandoahConcurrentThread::in_graceful_shutdown() {
+bool ShenandoahControlThread::in_graceful_shutdown() {
   return _graceful_shutdown.is_set();
 }
