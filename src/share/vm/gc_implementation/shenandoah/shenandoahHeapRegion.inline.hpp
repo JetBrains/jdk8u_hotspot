@@ -79,7 +79,7 @@ inline void ShenandoahHeapRegion::increase_live_data_gc_words(size_t s) {
 }
 
 inline void ShenandoahHeapRegion::internal_increase_live_data(size_t s) {
-  assert(s < max_jint, "sanity");
+  assert(s < (size_t)max_jint, "sanity");
   size_t new_live_data = (size_t)(Atomic::add((jint)s, &_live_data));
 #ifdef ASSERT
   size_t live_bytes = new_live_data * HeapWordSize;

@@ -315,6 +315,11 @@ jint ShenandoahHeap::initialize() {
   return JNI_OK;
 }
 
+#ifdef _MSC_VER
+#pragma warning( push )
+#pragma warning( disable:4355 ) // 'this' : used in base member initializer list
+#endif
+
 ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   SharedHeap(policy),
   _shenandoah_policy(policy),
@@ -359,6 +364,10 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
     _workers->initialize_workers();
   }
 }
+
+#ifdef _MSC_VER
+#pragma warning( pop )
+#endif
 
 class ShenandoahResetNextBitmapTask : public AbstractGangTask {
 private:
@@ -495,7 +504,7 @@ void ShenandoahHeap::set_used(size_t bytes) {
 
 void ShenandoahHeap::decrease_used(size_t bytes) {
   assert(used() >= bytes, "never decrease heap size by more than we've left");
-  Atomic::add(-bytes, &_used);
+  Atomic::add(-(jlong)bytes, &_used);
 }
 
 void ShenandoahHeap::increase_allocated(size_t bytes) {

@@ -153,6 +153,7 @@ VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/gc_implementation/parNew
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/gc_implementation/concurrentMarkSweep
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/gc_implementation/g1
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/gc_implementation/shenandoah
+VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/gc_implementation/shenandoah/heuristics
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/gc_interface
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/asm
 VM_PATH=$(VM_PATH);$(WorkSpace)/src/share/vm/memory
@@ -242,6 +243,9 @@ bytecodeInterpreterWithChecks.obj: ..\generated\jvmtifiles\bytecodeInterpreterWi
 {$(COMMONSRC)\share\vm\gc_implementation\shenandoah}.cpp.obj::
         $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
 
+{$(COMMONSRC)\share\vm\gc_implementation\shenandoah\heuristics}.cpp.obj::
+        $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
+
 {$(COMMONSRC)\share\vm\gc_interface}.cpp.obj::
         $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
 
@@ -326,6 +330,9 @@ bytecodeInterpreterWithChecks.obj: ..\generated\jvmtifiles\bytecodeInterpreterWi
         $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
 
 {$(ALTSRC)\share\vm\gc_implementation\shenandoah}.cpp.obj::
+        $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
+
+{$(ALTSRC)\share\vm\gc_implementation\shenandoah\heuristics}.cpp.obj::
         $(CXX) $(CXX_FLAGS) $(CXX_USE_PCH) /c $<
 
 {$(ALTSRC)\share\vm\gc_interface}.cpp.obj::
