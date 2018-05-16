@@ -102,7 +102,7 @@ inline ShenandoahHeapRegion* const ShenandoahHeap::heap_region_containing(const 
 template <class T>
 inline oop ShenandoahHeap::update_with_forwarded_not_null(T* p, oop obj) {
   if (in_collection_set(obj)) {
-    shenandoah_assert_forwarded_except(p, obj, is_full_gc_in_progress() || cancelled_concgc());
+    shenandoah_assert_forwarded_except(p, obj, is_full_gc_in_progress() || cancelled_gc());
     obj = ShenandoahBarrierSet::resolve_forwarded_not_null(obj);
     oopDesc::encode_store_heap_oop(p, obj);
   }
@@ -144,7 +144,7 @@ inline oop ShenandoahHeap::maybe_update_with_forwarded_not_null(T* p, oop heap_o
     oop forwarded_oop = ShenandoahBarrierSet::resolve_forwarded_not_null(heap_oop);
 
     shenandoah_assert_forwarded_except(p, heap_oop, is_full_gc_in_progress());
-    shenandoah_assert_not_in_cset_except(p, forwarded_oop, cancelled_concgc());
+    shenandoah_assert_not_in_cset_except(p, forwarded_oop, cancelled_gc());
 
     log_develop_trace(gc)("Updating old ref: "PTR_FORMAT" pointing to "PTR_FORMAT" to new ref: "PTR_FORMAT,
                           p2i(p), p2i(heap_oop), p2i(forwarded_oop));
@@ -172,16 +172,16 @@ inline oop ShenandoahHeap::maybe_update_with_forwarded_not_null(T* p, oop heap_o
   }
 }
 
-inline bool ShenandoahHeap::cancelled_concgc() const {
-  return _cancelled_concgc.is_set();
+inline bool ShenandoahHeap::cancelled_gc() const {
+  return _cancelled_gc.is_set();
 }
 
-inline bool ShenandoahHeap::try_cancel_concgc() {
-  return _cancelled_concgc.try_set();
+inline bool ShenandoahHeap::try_cancel_gc() {
+  return _cancelled_gc.try_set();
 }
 
-inline void ShenandoahHeap::clear_cancelled_concgc() {
-  _cancelled_concgc.unset();
+inline void ShenandoahHeap::clear_cancelled_gc() {
+  _cancelled_gc.unset();
   _oom_evac_handler.clear();
 }
 

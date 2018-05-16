@@ -193,7 +193,7 @@ template <class T>
 void ShenandoahBarrierSet::write_ref_array_pre_work(T* dst, size_t count) {
   assert (UseShenandoahGC && ShenandoahSATBBarrier, "Should be enabled");
 
-  shenandoah_assert_not_in_cset_loc_except(dst, _heap->cancelled_concgc());
+  shenandoah_assert_not_in_cset_loc_except(dst, _heap->cancelled_gc());
 
   if (! JavaThread::satb_mark_queue_set().is_active()) return;
   T* elem_ptr = dst;
@@ -221,7 +221,7 @@ template <class T>
 void ShenandoahBarrierSet::write_ref_field_pre_static(T* field, oop newVal) {
   T heap_oop = oopDesc::load_heap_oop(field);
 
-  shenandoah_assert_not_in_cset_loc_except(field, ShenandoahHeap::heap()->cancelled_concgc());
+  shenandoah_assert_not_in_cset_loc_except(field, ShenandoahHeap::heap()->cancelled_gc());
 
   if (!oopDesc::is_null(heap_oop)) {
     G1SATBCardTableModRefBS::enqueue(oopDesc::decode_heap_oop(heap_oop));
@@ -247,9 +247,9 @@ void ShenandoahBarrierSet::write_ref_field_pre_work(void* field, oop new_val) {
 }
 
 void ShenandoahBarrierSet::write_ref_field_work(void* v, oop o, bool release) {
-  shenandoah_assert_not_in_cset_loc_except(v, _heap->cancelled_concgc());
-  shenandoah_assert_not_forwarded_except  (v, o, o == NULL || _heap->cancelled_concgc() || !_heap->is_concurrent_mark_in_progress());
-  shenandoah_assert_not_in_cset_except    (v, o, o == NULL || _heap->cancelled_concgc() || !_heap->is_concurrent_mark_in_progress());
+  shenandoah_assert_not_in_cset_loc_except(v, _heap->cancelled_gc());
+  shenandoah_assert_not_forwarded_except  (v, o, o == NULL || _heap->cancelled_gc() || !_heap->is_concurrent_mark_in_progress());
+  shenandoah_assert_not_in_cset_except    (v, o, o == NULL || _heap->cancelled_gc() || !_heap->is_concurrent_mark_in_progress());
 }
 
 void ShenandoahBarrierSet::write_region_work(MemRegion mr) {
@@ -327,7 +327,7 @@ oop ShenandoahBarrierSet::write_barrier(oop obj) {
 
 #ifdef ASSERT
 void ShenandoahBarrierSet::verify_safe_oop(oop p) {
-  shenandoah_assert_not_in_cset_except(NULL, p, (p == NULL) || ShenandoahHeap::heap()->cancelled_concgc());
+  shenandoah_assert_not_in_cset_except(NULL, p, (p == NULL) || ShenandoahHeap::heap()->cancelled_gc());
 }
 
 void ShenandoahBarrierSet::verify_safe_oop(narrowOop p) {

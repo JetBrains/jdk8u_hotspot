@@ -41,7 +41,7 @@ void ShenandoahConcurrentMark::do_task(ShenandoahObjToScanQueue* q, T* cl, jusho
 
   shenandoah_assert_not_forwarded(NULL, obj);
   shenandoah_assert_marked_next(NULL, obj);
-  shenandoah_assert_not_in_cset_except(NULL, obj, _heap->cancelled_concgc());
+  shenandoah_assert_not_in_cset_except(NULL, obj, _heap->cancelled_gc());
 
   if (task->is_not_chunked()) {
     if (COUNT_LIVENESS) count_liveness(live_data, obj);
@@ -258,7 +258,7 @@ inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* hea
     // case we don't need to do anything else.
     if (UPDATE_REFS != CONCURRENT || !oopDesc::is_null(obj)) {
       shenandoah_assert_not_forwarded(p, obj);
-      shenandoah_assert_not_in_cset_except(p, obj, heap->cancelled_concgc());
+      shenandoah_assert_not_in_cset_except(p, obj, heap->cancelled_gc());
 
       if (heap->mark_next(obj)) {
         bool pushed = q->push(ShenandoahMarkTask(obj));

@@ -268,7 +268,7 @@ private:
   ShenandoahSharedFlag _process_references;
   ShenandoahSharedFlag _unload_classes;
 
-  ShenandoahSharedFlag _cancelled_concgc;
+  ShenandoahSharedFlag _cancelled_gc;
 
   ReferenceProcessor* _ref_processor;
 
@@ -362,7 +362,7 @@ public:
   static ShenandoahHeap* heap_no_check();
   static size_t conservative_max_heap_alignment();
   static address in_cset_fast_test_addr();
-  static address cancelled_concgc_addr();
+  static address cancelled_gc_addr();
   static address gc_state_addr();
 
   ShenandoahCollectorPolicy *shenandoahPolicy() const { return _shenandoah_policy; }
@@ -447,9 +447,9 @@ public:
   // evacuated object by the competing thread. 'succeeded' is an out
   // param and set to true if this thread succeeded, otherwise to false.
   inline oop  evacuate_object(oop src, Thread* thread, bool& evacuated);
-  inline bool cancelled_concgc() const;
-  inline bool try_cancel_concgc();
-  inline void clear_cancelled_concgc();
+  inline bool cancelled_gc() const;
+  inline bool try_cancel_gc();
+  inline void clear_cancelled_gc();
 
   inline ShenandoahHeapRegion* const get_region(size_t region_idx) const;
   void heap_region_iterate(ShenandoahHeapRegionClosure& cl) const;
@@ -550,7 +550,7 @@ public:
 
   void swap_mark_bitmaps();
 
-  void cancel_concgc(GCCause::Cause cause);
+  void cancel_gc(GCCause::Cause cause);
 
   ShenandoahHeapLock* lock() { return &_lock; }
   void assert_heaplock_owned_by_current_thread() PRODUCT_RETURN;

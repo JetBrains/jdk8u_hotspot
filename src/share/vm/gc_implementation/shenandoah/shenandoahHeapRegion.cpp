@@ -189,7 +189,7 @@ void ShenandoahHeapRegion::make_pinned() {
       _critical_pins++;
       return;
     case _cset:
-      guarantee(_heap->cancelled_concgc(), "only valid when evac has been cancelled");
+      guarantee(_heap->cancelled_gc(), "only valid when evac has been cancelled");
       assert (_critical_pins == 0, "sanity");
       _state = _pinned_cset;
       _critical_pins++;
@@ -214,7 +214,7 @@ void ShenandoahHeapRegion::make_unpinned() {
       assert (_critical_pins == 0, "sanity");
       return;
     case _pinned_cset:
-      guarantee(_heap->cancelled_concgc(), "only valid when evac has been cancelled");
+      guarantee(_heap->cancelled_gc(), "only valid when evac has been cancelled");
       assert (_critical_pins > 0, "sanity");
       _critical_pins--;
       if (_critical_pins == 0) {
