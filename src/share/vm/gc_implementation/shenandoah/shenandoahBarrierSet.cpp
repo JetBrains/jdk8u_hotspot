@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeuristics.hpp"
 #include "runtime/interfaceSupport.hpp"
 
 class ShenandoahUpdateRefsForOopClosure: public ExtendedOopClosure {
@@ -155,7 +156,7 @@ bool ShenandoahBarrierSet::write_prim_needs_barrier(HeapWord* hw, size_t s, juin
 }
 
 bool ShenandoahBarrierSet::need_update_refs_barrier() {
-  if (_heap->shenandoahPolicy()->update_refs()) {
+  if (_heap->heuristics()->update_refs()) {
     return _heap->is_update_refs_in_progress();
   } else {
     return _heap->is_concurrent_mark_in_progress() && _heap->has_forwarded_objects();

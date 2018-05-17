@@ -44,6 +44,7 @@ class ShenandoahHeapRegionClosure;
 class ShenandoahHeapRegionSet;
 class ShenandoahMarkCompact;
 class ShenandoahMonitoringSupport;
+class ShenandoahHeuristics;
 class ShenandoahPhaseTimings;
 class ShenandoahPacer;
 class ShenandoahVerifier;
@@ -207,6 +208,7 @@ private:
   ShenandoahSharedBitmap _gc_state;
   ShenandoahHeapLock _lock;
   ShenandoahCollectorPolicy* _shenandoah_policy;
+  ShenandoahHeuristics* _heuristics;
   size_t _bitmap_size;
   size_t _bitmap_regions_per_slice;
   size_t _bitmap_bytes_per_slice;
@@ -285,6 +287,8 @@ private:
 
 public:
   ShenandoahHeap(ShenandoahCollectorPolicy* policy);
+
+  void initialize_heuristics();
 
   const char* name() const /* override */;
   HeapWord* allocate_new_tlab(size_t word_size) /* override */;
@@ -366,6 +370,7 @@ public:
   static address gc_state_addr();
 
   ShenandoahCollectorPolicy *shenandoahPolicy() const { return _shenandoah_policy; }
+  ShenandoahHeuristics*     heuristics()        const { return _heuristics; }
   ShenandoahPhaseTimings*   phase_timings()     const { return _phase_timings; }
   ShenandoahAllocTracker*   alloc_tracker()     const { return _alloc_tracker; }
 

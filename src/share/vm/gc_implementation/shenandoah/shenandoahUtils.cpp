@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeuristics.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
@@ -37,6 +38,7 @@ ShenandoahGCSession::ShenandoahGCSession() {
   _timer = sh->gc_timer();
   _timer->register_gc_start();
   sh->shenandoahPolicy()->record_cycle_start();
+  sh->heuristics()->record_cycle_start();
   _trace_cycle.initialize(false, sh->gc_cause(),
           /* recordGCBeginTime = */       true,
           /* recordPreGCUsage = */        true,
@@ -49,14 +51,14 @@ ShenandoahGCSession::ShenandoahGCSession() {
 }
 
 ShenandoahGCSession::~ShenandoahGCSession() {
-  ShenandoahHeap::heap()->shenandoahPolicy()->record_cycle_end();
+  ShenandoahHeap::heap()->heuristics()->record_cycle_end();
   _timer->register_gc_end();
 }
 
 ShenandoahGCPauseMark::ShenandoahGCPauseMark(SvcGCMarker::reason_type type) :
         _svc_gc_mark(type), _is_gc_active_mark() {
   ShenandoahHeap* sh = ShenandoahHeap::heap();
-  sh->shenandoahPolicy()->record_gc_start();
+  sh->heuristics()->record_gc_start();
 
   _trace_pause.initialize(true, sh->gc_cause(),
           /* recordGCBeginTime = */       true,
@@ -71,7 +73,7 @@ ShenandoahGCPauseMark::ShenandoahGCPauseMark(SvcGCMarker::reason_type type) :
 
 ShenandoahGCPauseMark::~ShenandoahGCPauseMark() {
   ShenandoahHeap* sh = ShenandoahHeap::heap();
-  sh->shenandoahPolicy()->record_gc_end();
+  sh->heuristics()->record_gc_end();
 }
 
 ShenandoahGCPhase::ShenandoahGCPhase(const ShenandoahPhaseTimings::Phase phase) :

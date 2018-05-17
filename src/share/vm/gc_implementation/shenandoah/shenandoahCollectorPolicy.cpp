@@ -23,25 +23,11 @@
 
 #include "precompiled.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
-#include "gc_implementation/shenandoah/heuristics/shenandoahAdaptiveHeuristics.hpp"
-#include "gc_implementation/shenandoah/heuristics/shenandoahAggressiveHeuristics.hpp"
-#include "gc_implementation/shenandoah/heuristics/shenandoahCompactHeuristics.hpp"
-#include "gc_implementation/shenandoah/heuristics/shenandoahPassiveHeuristics.hpp"
-#include "gc_implementation/shenandoah/heuristics/shenandoahStaticHeuristics.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeuristics.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
-
-void ShenandoahCollectorPolicy::record_gc_start() {
-  _heuristics->record_gc_start();
-}
-
-void ShenandoahCollectorPolicy::record_gc_end() {
-  _heuristics->record_gc_end();
-}
 
 ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _cycle_counter(0),
@@ -62,42 +48,6 @@ ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   initialize_all();
 
   _tracer = new (ResourceObj::C_HEAP, mtGC) ShenandoahTracer();
-
-  if (ShenandoahGCHeuristics != NULL) {
-    if (strcmp(ShenandoahGCHeuristics, "aggressive") == 0) {
-      _heuristics = new ShenandoahAggressiveHeuristics();
-    } else if (strcmp(ShenandoahGCHeuristics, "static") == 0) {
-      _heuristics = new ShenandoahStaticHeuristics();
-    } else if (strcmp(ShenandoahGCHeuristics, "adaptive") == 0) {
-      _heuristics = new ShenandoahAdaptiveHeuristics();
-    } else if (strcmp(ShenandoahGCHeuristics, "passive") == 0) {
-      _heuristics = new ShenandoahPassiveHeuristics();
-    } else if (strcmp(ShenandoahGCHeuristics, "compact") == 0) {
-      _heuristics = new ShenandoahCompactHeuristics();
-    } else {
-      vm_exit_during_initialization("Unknown -XX:ShenandoahGCHeuristics option");
-    }
-
-    if (_heuristics->is_diagnostic() && !UnlockDiagnosticVMOptions) {
-      vm_exit_during_initialization(
-              err_msg("Heuristics \"%s\" is diagnostic, and must be enabled via -XX:+UnlockDiagnosticVMOptions.",
-                      _heuristics->name()));
-    }
-    if (_heuristics->is_experimental() && !UnlockExperimentalVMOptions) {
-      vm_exit_during_initialization(
-              err_msg("Heuristics \"%s\" is experimental, and must be enabled via -XX:+UnlockExperimentalVMOptions.",
-                      _heuristics->name()));
-    }
-    log_info(gc, init)("Shenandoah heuristics: %s",
-                       _heuristics->name());
-    _heuristics->print_thresholds();
-  } else {
-      ShouldNotReachHere();
-  }
-}
-
-ShenandoahCollectorPolicy* ShenandoahCollectorPolicy::as_pgc_policy() {
-  return this;
 }
 
 BarrierSet::Name ShenandoahCollectorPolicy::barrier_set_name() {
@@ -123,28 +73,20 @@ void ShenandoahCollectorPolicy::initialize_alignments() {
   _heap_alignment = ShenandoahHeapRegion::region_size_bytes();
 }
 
-void ShenandoahCollectorPolicy::post_heap_initialize() {
-  // Nothing to do here (yet).
-}
-
 void ShenandoahCollectorPolicy::record_explicit_to_concurrent() {
-  _heuristics->record_explicit_gc();
   _explicit_concurrent++;
 }
 
 void ShenandoahCollectorPolicy::record_explicit_to_full() {
-  _heuristics->record_explicit_gc();
   _explicit_full++;
 }
 
 void ShenandoahCollectorPolicy::record_alloc_failure_to_full() {
-  _heuristics->record_allocation_failure_gc();
   _alloc_failure_full++;
 }
 
 void ShenandoahCollectorPolicy::record_alloc_failure_to_degenerated(ShenandoahHeap::ShenandoahDegenPoint point) {
   assert(point < ShenandoahHeap::_DEGENERATED_LIMIT, "sanity");
-  _heuristics->record_allocation_failure_gc();
   _alloc_failure_degenerated++;
   _degen_points[point]++;
 }
@@ -154,7 +96,6 @@ void ShenandoahCollectorPolicy::record_degenerated_upgrade_to_full() {
 }
 
 void ShenandoahCollectorPolicy::record_success_concurrent() {
-  _heuristics->record_success_concurrent();
   _success_concurrent_gcs++;
 }
 
@@ -163,62 +104,19 @@ void ShenandoahCollectorPolicy::record_success_partial() {
 }
 
 void ShenandoahCollectorPolicy::record_success_degenerated() {
-  _heuristics->record_success_degenerated();
   _success_degenerated_gcs++;
 }
 
 void ShenandoahCollectorPolicy::record_success_full() {
-  _heuristics->record_success_full();
   _success_full_gcs++;
-}
-
-bool ShenandoahCollectorPolicy::should_start_normal_gc() {
-  return _heuristics->should_start_normal_gc();
-}
-
-bool ShenandoahCollectorPolicy::should_degenerate_cycle() {
-  return _heuristics->should_degenerate_cycle();
-}
-
-bool ShenandoahCollectorPolicy::update_refs() {
-  return _heuristics->update_refs();
-}
-
-bool ShenandoahCollectorPolicy::should_start_update_refs() {
-  return _heuristics->should_start_update_refs();
-}
-
-void ShenandoahCollectorPolicy::record_peak_occupancy() {
-  _heuristics->record_peak_occupancy();
-}
-
-void ShenandoahCollectorPolicy::choose_collection_set(ShenandoahCollectionSet* collection_set) {
-  _heuristics->choose_collection_set(collection_set);
-}
-
-bool ShenandoahCollectorPolicy::should_process_references() {
-  return _heuristics->should_process_references();
-}
-
-bool ShenandoahCollectorPolicy::should_unload_classes() {
-  return _heuristics->should_unload_classes();
 }
 
 size_t ShenandoahCollectorPolicy::cycle_counter() const {
   return _cycle_counter;
 }
 
-void ShenandoahCollectorPolicy::record_phase_time(ShenandoahPhaseTimings::Phase phase, double secs) {
-  _heuristics->record_phase_time(phase, secs);
-}
-
 void ShenandoahCollectorPolicy::record_cycle_start() {
   _cycle_counter++;
-  _heuristics->record_cycle_start();
-}
-
-void ShenandoahCollectorPolicy::record_cycle_end() {
-  _heuristics->record_cycle_end();
 }
 
 void ShenandoahCollectorPolicy::record_shutdown() {

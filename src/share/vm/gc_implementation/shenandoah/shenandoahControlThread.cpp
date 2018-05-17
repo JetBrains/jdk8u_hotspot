@@ -29,6 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeuristics.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
@@ -94,6 +95,7 @@ void ShenandoahControlThread::run() {
 
   ShenandoahCollectorPolicy* policy = heap->shenandoahPolicy();
 
+  ShenandoahHeuristics* heuristics = heap->heuristics();
   while (!in_graceful_shutdown() && !_should_terminate) {
     // Figure out if we have pending requests.
     bool alloc_failure_pending = _alloc_failure_gc.is_set();
@@ -115,10 +117,12 @@ void ShenandoahControlThread::run() {
       degen_point = _degen_point;
       _degen_point = ShenandoahHeap::_degenerated_outside_cycle;
 
-      if (ShenandoahDegeneratedGC && policy->should_degenerate_cycle()) {
+      if (ShenandoahDegeneratedGC && heuristics->should_degenerate_cycle()) {
+        heuristics->record_allocation_failure_gc();
         policy->record_alloc_failure_to_degenerated(degen_point);
         mode = stw_degenerated;
       } else {
+        heuristics->record_allocation_failure_gc();
         policy->record_alloc_failure_to_full();
         mode = stw_full;
       }
@@ -126,23 +130,25 @@ void ShenandoahControlThread::run() {
     } else if (explicit_gc_requested) {
       // Honor explicit GC requests
       if (ExplicitGCInvokesConcurrent) {
+        heuristics->record_explicit_gc();
         policy->record_explicit_to_concurrent();
         mode = concurrent_normal;
       } else {
+        heuristics->record_explicit_gc();
         policy->record_explicit_to_full();
         mode = stw_full;
       }
       cause = _explicit_gc_cause;
     } else {
       // Potential normal cycle: ask heuristics if it wants to act
-      if (policy->should_start_normal_gc()) {
+      if (heuristics->should_start_normal_gc()) {
         mode = concurrent_normal;
         cause = GCCause::_shenandoah_concurrent_gc;
       }
 
       // Ask policy if this cycle wants to process references or unload classes
-      heap->set_process_references(policy->should_process_references());
-      heap->set_unload_classes(policy->should_unload_classes());
+      heap->set_process_references(heuristics->should_process_references());
+      heap->set_unload_classes(heuristics->should_unload_classes());
     }
 
     bool gc_requested = (mode != none);
@@ -295,7 +301,7 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
 
   // Capture peak occupancy right after starting the cycle
-  heap->shenandoahPolicy()->record_peak_occupancy();
+  heap->heuristics()->record_peak_occupancy();
 
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
@@ -327,7 +333,7 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
     // Perform update-refs phase, if required. This phase can be skipped if heuristics
     // decides to piggy-back the update-refs on the next marking cycle. On either path,
     // we need to turn off evacuation: either in init-update-refs, or in final-evac.
-    if (heap->shenandoahPolicy()->should_start_update_refs()) {
+    if (heap->heuristics()->should_start_update_refs()) {
       heap->vmop_entry_init_updaterefs();
       heap->entry_updaterefs();
       if (check_cancellation_or_degen(ShenandoahHeap::_degenerated_updaterefs)) return;
@@ -342,6 +348,7 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   heap->entry_cleanup_bitmaps();
 
   // Cycle is complete
+  heap->heuristics()->record_success_concurrent();
   heap->shenandoahPolicy()->record_success_concurrent();
 
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
@@ -393,6 +400,7 @@ void ShenandoahControlThread::service_stw_full_cycle(GCCause::Cause cause) {
 
   heap->vmop_entry_full(cause);
 
+  heap->heuristics()->record_success_full();
   heap->shenandoahPolicy()->record_success_full();
 
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
@@ -412,6 +420,7 @@ void ShenandoahControlThread::service_stw_degenerated_cycle(GCCause::Cause cause
 
   heap->vmop_degenerated(point);
 
+  heap->heuristics()->record_success_degenerated();
   heap->shenandoahPolicy()->record_success_degenerated();
   
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
