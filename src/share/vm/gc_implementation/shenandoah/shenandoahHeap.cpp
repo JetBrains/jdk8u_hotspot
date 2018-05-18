@@ -43,6 +43,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
 #include "gc_implementation/shenandoah/shenandoahMonitoringSupport.hpp"
+#include "gc_implementation/shenandoah/shenandoahMetrics.hpp"
 #include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahPacer.hpp"
 #include "gc_implementation/shenandoah/shenandoahPacer.inline.hpp"
@@ -719,23 +720,30 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
       result = allocate_memory_under_lock(word_size, type, in_new_region);
     }
 
-    // Allocation failed, try full-GC, then retry allocation.
+    // Allocation failed, block until control thread reacted, then retry allocation.
     //
     // It might happen that one of the threads requesting allocation would unblock
-    // way later after full-GC happened, only to fail the second allocation, because
+    // way later after GC happened, only to fail the second allocation, because
     // other threads have already depleted the free storage. In this case, a better
-    // strategy would be to try full-GC again.
+    // strategy is to try again, as long as GC makes progress.
     //
-    // Lacking the way to detect progress from "collect" call, we are left with blindly
-    // retrying for some bounded number of times.
-    // TODO: Poll if Full GC made enough progress to warrant retry.
-    int tries = 0;
-    while ((result == NULL) && (tries++ < ShenandoahAllocGCTries)) {
-      log_debug(gc)("[" PTR_FORMAT " Failed to allocate " SIZE_FORMAT " bytes, doing GC, try %d",
-                    p2i(Thread::current()), word_size * HeapWordSize, tries);
+    // Then, we need to make sure the allocation was retried after at least one
+    // Full GC, which means we want to try more than ShenandoahFullGCThreshold times.
+
+    size_t tries = 0;
+
+    while (result == NULL && last_gc_made_progress()) {
+      tries++;
       control_thread()->handle_alloc_failure(word_size);
       result = allocate_memory_under_lock(word_size, type, in_new_region);
     }
+
+    while (result == NULL && tries <= ShenandoahFullGCThreshold) {
+      tries++;
+      control_thread()->handle_alloc_failure(word_size);
+      result = allocate_memory_under_lock(word_size, type, in_new_region);
+    }
+
   } else {
     assert(type == _alloc_gclab || type == _alloc_shared_gc, "Can only accept these types here");
     result = allocate_memory_under_lock(word_size, type, in_new_region);
@@ -747,10 +755,9 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
     control_thread()->notify_heap_changed();
   }
 
-  log_develop_trace(gc, alloc)("allocate memory chunk of size "SIZE_FORMAT" at addr "PTR_FORMAT " by thread %d ",
-                               word_size, p2i(result), Thread::current()->osthread()->thread_id());
-
   if (result != NULL) {
+    log_develop_trace(gc, alloc)("allocate memory chunk of size "SIZE_FORMAT" at addr "PTR_FORMAT " by thread %d ",
+                                 word_size, p2i(result), Thread::current()->osthread()->thread_id());
     notify_alloc(word_size, false);
   }
 
@@ -1630,7 +1637,21 @@ void ShenandoahHeap::op_preclean() {
 }
 
 void ShenandoahHeap::op_full(GCCause::Cause cause) {
+  ShenandoahMetricsSnapshot metrics;
+  metrics.snap_before();
+
   full_gc()->do_it(cause);
+
+  metrics.snap_after();
+  metrics.print();
+
+  if (metrics.is_good_progress("Full GC")) {
+    _progress_last_gc.set();
+  } else {
+    // Nothing to do. Tell the allocation path that we have failed to make
+    // progress, and it can finally fail.
+    _progress_last_gc.unset();
+  }
 }
 
 void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
@@ -1640,7 +1661,8 @@ void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
 
   clear_cancelled_gc();
 
-  size_t used_before = used();
+  ShenandoahMetricsSnapshot metrics;
+  metrics.snap_before();
 
   switch (point) {
     case _degenerated_evac:
@@ -1709,13 +1731,17 @@ void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
     verifier()->verify_after_degenerated();
   }
 
+  metrics.snap_after();
+  metrics.print();
+
   // Check for futility and fail. There is no reason to do several back-to-back Degenerated cycles,
   // because that probably means the heap is overloaded and/or fragmented.
-  size_t used_after = used();
-  size_t difference = (used_before > used_after) ? used_before - used_after : 0;
-  if (difference < ShenandoahHeapRegion::region_size_words()) {
+  if (!metrics.is_good_progress("Degenerated GC")) {
+    _progress_last_gc.unset();
     cancel_gc(GCCause::_shenandoah_upgrade_to_full_gc);
     op_degenerated_futile();
+  } else {
+    _progress_last_gc.set();
   }
 }
 
@@ -1726,7 +1752,6 @@ void ShenandoahHeap::op_degenerated_fail() {
 }
 
 void ShenandoahHeap::op_degenerated_futile() {
-  log_info(gc)("Degenerated GC had not reclaimed enough, upgrading to Full GC");
   shenandoahPolicy()->record_degenerated_upgrade_to_full();
   op_full(GCCause::_shenandoah_upgrade_to_full_gc);
 }
@@ -1982,6 +2007,10 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
 
 void ShenandoahHeap::set_has_forwarded_objects(bool cond) {
   set_gc_state_mask(HAS_FORWARDED, cond);
+}
+
+bool ShenandoahHeap::last_gc_made_progress() const {
+  return _progress_last_gc.is_set();
 }
 
 void ShenandoahHeap::set_process_references(bool pr) {

@@ -149,8 +149,7 @@ hotspot_fast_gc_shenandoah = \
   gc/shenandoah/compiler/ \
   gc/shenandoah/mxbeans/ \
   gc/shenandoah/TestSmallHeap.java \
-  gc/shenandoah/TestAllocLargeObjOOM.java \
-  gc/shenandoah/TestAllocSmallObjOOM.java
+  gc/shenandoah/oom/
 
 hotspot_runtime = \
   sanity/ExecuteInternalVMTests.java

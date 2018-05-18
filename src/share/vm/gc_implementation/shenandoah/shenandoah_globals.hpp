@@ -113,9 +113,8 @@
           "Turns on logging in Shenandoah at warning level. ")              \
                                                                             \
   product_rw(uintx, ShenandoahFullGCThreshold, 3,                           \
-          "How many cycles in a row to do degenerated marking on "          \
-          "cancelled GC before triggering a full-gc"                        \
-          "Defaults to 3")                                                  \
+          "How many back-to-back Degenerated GCs to do before triggering "  \
+          "a Full GC. Defaults to 3.")                                      \
                                                                             \
   product_rw(uintx, ShenandoahGarbageThreshold, 60,                         \
           "Sets the percentage of garbage a region need to contain before " \
@@ -314,10 +313,6 @@
           "How many objects to prefetch ahead when traversing mark bitmaps." \
           "Set to 0 to disable prefetching.")                               \
                                                                             \
-  experimental(intx, ShenandoahAllocGCTries, 5,                             \
-          "How many times to try to do GC on allocation failure."           \
-          "Set to 0 to never try, and fail instead.")                       \
-                                                                            \
   experimental(bool, ShenandoahFastSyncRoots, true,                         \
           "Enable fast synchronizer roots scanning")                        \
                                                                             \
@@ -358,6 +353,11 @@
           "the GC cycle. Larger value makes the pacing milder at the "      \
           "beginning of the GC cycle. Lower value makes the pacing less "   \
           "uniform during the cycle.")                                      \
+                                                                            \
+  experimental(uintx, ShenandoahCriticalFreeThreshold, 1,                   \
+          "Percent of heap that needs to be free after recovery cycles, "   \
+          "either Degenerated or Full GC. If this much space is not "       \
+          "available, next recovery step would triggered.")                 \
                                                                             \
   diagnostic(bool, ShenandoahAllowMixedAllocs, true,                        \
           "Allow mixing mutator and collector allocations in a single "     \
