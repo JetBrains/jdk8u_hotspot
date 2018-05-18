@@ -25,7 +25,7 @@
  * @test TestThreadFailure
  * @summary Test OOME in separate thread is recoverable
  * @library /testlibrary
- * @run main TestThreadFailure
+ * @run main/timeout=480 TestThreadFailure
  */
 
 import java.util.*;

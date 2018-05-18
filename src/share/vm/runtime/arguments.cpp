@@ -1834,6 +1834,11 @@ void Arguments::set_shenandoah_gc_flags() {
     }
     FLAG_SET_DEFAULT(ShenandoahUncommit, false);
   }
+
+  // If class unloading is disabled, no unloading for concurrent cycles as well.
+  if (!ClassUnloading) {
+    FLAG_SET_DEFAULT(ClassUnloadingWithConcurrentMark, false);
+  }
 #endif
 }
 

@@ -80,6 +80,11 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   } else {
     vm_exit_during_initialization("Unknown -XX:ShenandoahUpdateRefsEarly option: %s", ShenandoahUpdateRefsEarly);
   }
+
+  // No unloading during concurrent mark? Communicate that to heuristics
+  if (!ClassUnloadingWithConcurrentMark) {
+    FLAG_SET_DEFAULT(ShenandoahUnloadClassesFrequency, 0);
+  }
 }
 
 ShenandoahHeuristics::~ShenandoahHeuristics() {
