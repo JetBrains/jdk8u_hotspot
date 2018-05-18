@@ -33,6 +33,7 @@
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
+#include "gc_implementation/shenandoah/shenandoahStringDedup.hpp"
 #include "memory/allocation.inline.hpp"
 #include "runtime/fprofiler.hpp"
 #include "runtime/mutex.hpp"
@@ -49,6 +50,10 @@ ShenandoahRootProcessor::ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_wo
   heap->phase_timings()->record_workers_start(_phase);
   _process_strong_tasks->set_n_threads(n_workers);
   heap->set_par_threads(n_workers);
+
+  if (ShenandoahStringDedup::is_enabled()) {
+    ShenandoahStringDedup::clear_claimed();
+  }
 }
 
 ShenandoahRootProcessor::~ShenandoahRootProcessor() {
@@ -73,6 +78,10 @@ void ShenandoahRootProcessor::process_all_roots_slow(OopClosure* oops) {
   ObjectSynchronizer::oops_do(oops);
   SystemDictionary::roots_oops_do(oops, oops);
   StringTable::oops_do(oops);
+
+  if (ShenandoahStringDedup::is_enabled()) {
+    ShenandoahStringDedup::oops_do_slow(oops);
+  }
 
   // Do thread roots the last. This allows verification code to find
   // any broken objects from those special roots first, not the accidental
@@ -175,6 +184,11 @@ void ShenandoahRootProcessor::process_vm_roots(OopClosure* strong_roots,
       ShenandoahWorkerTimingsTracker timer(worker_times, ShenandoahPhaseTimings::JNIWeakRoots, worker_id);
       JNIHandles::weak_oops_do(&always_true, jni_weak_roots);
     }
+  }
+
+  if (ShenandoahStringDedup::is_enabled() && weak_roots != NULL) {
+    ShenandoahWorkerTimingsTracker timer(worker_times, ShenandoahPhaseTimings::StringDedupRoots, worker_id);
+    ShenandoahStringDedup::parallel_oops_do(weak_roots);
   }
 
   {

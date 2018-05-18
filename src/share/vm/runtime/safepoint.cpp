@@ -115,7 +115,7 @@ void SafepointSynchronize::begin() {
     // In the future we should investigate whether CMS can use the
     // more-general mechanism below.  DLD (01/05).
     ConcurrentMarkSweepThread::synchronize(false);
-  } else if (UseG1GC) {
+  } else if (UseG1GC || (UseShenandoahGC && UseStringDeduplication)) {
     SuspendibleThreadSet::synchronize();
   }
 #endif // INCLUDE_ALL_GCS
@@ -491,7 +491,7 @@ void SafepointSynchronize::end() {
   // If there are any concurrent GC threads resume them.
   if (UseConcMarkSweepGC) {
     ConcurrentMarkSweepThread::desynchronize(false);
-  } else if (UseG1GC) {
+  } else if (UseG1GC || (UseShenandoahGC && UseStringDeduplication)) {
     SuspendibleThreadSet::desynchronize();
   }
 #endif // INCLUDE_ALL_GCS

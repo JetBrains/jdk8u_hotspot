@@ -308,6 +308,8 @@ jint ShenandoahHeap::initialize() {
     _alloc_tracker = new ShenandoahAllocTracker();
   }
 
+  ShenandoahStringDedup::initialize();
+
   _control_thread = new ShenandoahControlThread();
 
   ShenandoahCodeRoots::initialize();
@@ -1201,10 +1203,16 @@ void ShenandoahHeap::prepare_for_verify() {
 
 void ShenandoahHeap::print_gc_threads_on(outputStream* st) const {
   workers()->print_worker_threads_on(st);
+  if (ShenandoahStringDedup::is_enabled()) {
+    ShenandoahStringDedup::print_worker_threads_on(st);
+  }
 }
 
 void ShenandoahHeap::gc_threads_do(ThreadClosure* tcl) const {
   workers()->threads_do(tcl);
+  if (ShenandoahStringDedup::is_enabled()) {
+    ShenandoahStringDedup::threads_do(tcl);
+  }
 }
 
 void ShenandoahHeap::print_tracing_info() const {
@@ -1835,6 +1843,11 @@ void ShenandoahHeap::stop() {
 
   // Step 3. Wait until GC worker exits normally.
   _control_thread->stop();
+
+  // Step 4. Stop String Dedup thread if it is active
+  if (ShenandoahStringDedup::is_enabled()) {
+    ShenandoahStringDedup::stop();
+  }
 }
 
 void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
@@ -1907,6 +1920,16 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
     p->record_phase_time(phase_par_symbstring, times.tables_work_us() / active);
     p->record_phase_time(phase_par_sync,       times.sync_us() / active);
   }
+
+  if (ShenandoahStringDedup::is_enabled()) {
+    ShenandoahPhaseTimings::Phase phase_par_string_dedup =
+            full_gc ?
+            ShenandoahPhaseTimings::full_gc_purge_par_string_dedup :
+            ShenandoahPhaseTimings::purge_par_string_dedup;
+    ShenandoahGCPhase phase(phase_par_string_dedup);
+    ShenandoahStringDedup::parallel_cleanup();
+  }
+
 
   {
     ShenandoahGCPhase phase(phase_cldg);

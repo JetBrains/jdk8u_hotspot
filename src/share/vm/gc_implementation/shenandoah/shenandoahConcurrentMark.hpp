@@ -29,7 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 
-class ShenandoahConcurrentMark;
+class ShenandoahStrDedupQueue;
 
 class ShenandoahConcurrentMark: public CHeapObj<mtGC> {
 
@@ -69,30 +69,30 @@ private:
   void mark_loop_work(T* cl, jushort* live_data, uint worker_id, ParallelTaskTerminator *t);
 
   template <bool CANCELLABLE, bool DRAIN_SATB, bool COUNT_LIVENESS>
-  void mark_loop_prework(uint w, ParallelTaskTerminator *t, ReferenceProcessor *rp,
-                         bool class_unload, bool update_refs);
+  void mark_loop_prework(uint worker_id, ParallelTaskTerminator *terminator, ReferenceProcessor *rp,
+                         bool class_unload, bool update_refs, bool strdedup);
 
   // ------------------------ Currying dynamic arguments to template args ----------------------------
 
   template <bool CANCELLABLE, bool DRAIN_SATB>
   void mark_loop_2(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp,
                    bool count_liveness,
-                   bool class_unload, bool update_refs) {
+                   bool class_unload, bool update_refs, bool strdedup) {
     if (count_liveness) {
-      mark_loop_prework<CANCELLABLE, DRAIN_SATB, true>(w, t, rp, class_unload, update_refs);
+      mark_loop_prework<CANCELLABLE, DRAIN_SATB, true>(w, t, rp, class_unload, update_refs, strdedup);
     } else {
-      mark_loop_prework<CANCELLABLE, DRAIN_SATB, false>(w, t, rp, class_unload, update_refs);
+      mark_loop_prework<CANCELLABLE, DRAIN_SATB, false>(w, t, rp, class_unload, update_refs, strdedup);
     }
   };
 
   template <bool CANCELLABLE>
   void mark_loop_1(uint w, ParallelTaskTerminator* t, ReferenceProcessor* rp,
                    bool drain_satb, bool count_liveness,
-                   bool class_unload, bool update_refs) {
+                   bool class_unload, bool update_refs, bool strdedup) {
     if (drain_satb) {
-      mark_loop_2<CANCELLABLE, true>(w, t, rp, count_liveness, class_unload, update_refs);
+      mark_loop_2<CANCELLABLE, true>(w, t, rp, count_liveness, class_unload, update_refs, strdedup);
     } else {
-      mark_loop_2<CANCELLABLE, false>(w, t, rp, count_liveness, class_unload, update_refs);
+      mark_loop_2<CANCELLABLE, false>(w, t, rp, count_liveness, class_unload, update_refs, strdedup);
     }
   };
 
@@ -102,11 +102,11 @@ public:
   // Translates dynamic arguments to template parameters with progressive currying.
   void mark_loop(uint worker_id, ParallelTaskTerminator* terminator, ReferenceProcessor *rp,
                  bool cancellable, bool drain_satb, bool count_liveness,
-                 bool class_unload, bool update_refs) {
+                 bool class_unload, bool update_refs, bool strdedup = false) {
     if (cancellable) {
-      mark_loop_1<true>(worker_id, terminator, rp, drain_satb, count_liveness, class_unload, update_refs);
+      mark_loop_1<true>(worker_id, terminator, rp, drain_satb, count_liveness, class_unload, update_refs, strdedup);
     } else {
-      mark_loop_1<false>(worker_id, terminator, rp, drain_satb, count_liveness, class_unload, update_refs);
+      mark_loop_1<false>(worker_id, terminator, rp, drain_satb, count_liveness, class_unload, update_refs, strdedup);
     }
   }
 
@@ -121,6 +121,9 @@ public:
 
   template<class T, UpdateRefsMode UPDATE_REFS>
   static inline void mark_through_ref(T* p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q);
+
+  template<class T, UpdateRefsMode UPDATE_REFS, bool STRING_DEDUP>
+  static inline void mark_through_ref(T* p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q, ShenandoahStrDedupQueue* dq = NULL);
 
   void mark_from_roots();
 
