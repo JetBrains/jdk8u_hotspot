@@ -340,7 +340,7 @@ size_t ShenandoahHeapRegion::get_gclab_allocs() const {
 void ShenandoahHeapRegion::set_live_data(size_t s) {
   assert(Thread::current()->is_VM_thread(), "by VM thread");
   size_t v = s >> LogHeapWordSize;
-  assert(v < max_jint, "sanity");
+  assert(v < (size_t)max_jint, "sanity");
   _live_data = (jint)v;
 }
 
