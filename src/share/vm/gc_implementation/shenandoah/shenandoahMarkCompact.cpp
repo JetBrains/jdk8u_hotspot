@@ -49,31 +49,6 @@
 #include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 
-class ShenandoahEnsureHeapActiveClosure: public ShenandoahHeapRegionClosure {
-private:
-  ShenandoahHeap* const _heap;
-
-public:
-  ShenandoahEnsureHeapActiveClosure() : _heap(ShenandoahHeap::heap()) {}
-  bool heap_region_do(ShenandoahHeapRegion* r) {
-    if (r->is_trash()) {
-      r->recycle();
-    }
-    if (r->is_cset()) {
-      r->make_regular_bypass();
-    }
-    if (r->is_empty_uncommitted()) {
-      r->make_committed_bypass();
-    }
-    assert (r->is_committed(), err_msg("only committed regions in heap now, see region " SIZE_FORMAT, r->region_number()));
-
-    // Record current region occupancy: this communicates empty regions are free
-    // to the rest of Full GC code.
-    r->set_new_top(r->top());
-    return false;
-  }
-};
-
 void ShenandoahMarkCompact::initialize(GCTimer* gc_timer) {
   _gc_timer = gc_timer;
 }
@@ -243,23 +218,6 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
 
   heap->swap_mark_bitmaps();
 }
-
-class ShenandoahMCReclaimHumongousRegionClosure : public ShenandoahHeapRegionClosure {
-private:
-  ShenandoahHeap* const _heap;
-public:
-  ShenandoahMCReclaimHumongousRegionClosure() : _heap(ShenandoahHeap::heap()) {}
-
-  bool heap_region_do(ShenandoahHeapRegion* r) {
-    if (r->is_humongous_start()) {
-      oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
-      if (!_heap->is_marked_complete(humongous_obj)) {
-        _heap->trash_humongous_region_at(r);
-      }
-    }
-    return false;
-  }
-};
 
 class ShenandoahPrepareForCompactionObjectClosure : public ObjectClosure {
 private:
@@ -439,28 +397,84 @@ void ShenandoahMarkCompact::calculate_target_humongous_objects() {
   }
 }
 
+class ShenandoahEnsureHeapActiveClosure: public ShenandoahHeapRegionClosure {
+private:
+  ShenandoahHeap* const _heap;
+
+public:
+  ShenandoahEnsureHeapActiveClosure() : _heap(ShenandoahHeap::heap()) {}
+  bool heap_region_do(ShenandoahHeapRegion* r) {
+    if (r->is_trash()) {
+      r->recycle();
+    }
+    if (r->is_cset()) {
+      r->make_regular_bypass();
+    }
+    if (r->is_empty_uncommitted()) {
+      r->make_committed_bypass();
+    }
+    assert (r->is_committed(), err_msg("only committed regions in heap now, see region " SIZE_FORMAT, r->region_number()));
+
+    // Record current region occupancy: this communicates empty regions are free
+    // to the rest of Full GC code.
+    r->set_new_top(r->top());
+    return false;
+  }
+};
+
+class ShenandoahTrashImmediateGarbageClosure: public ShenandoahHeapRegionClosure {
+private:
+  ShenandoahHeap* const _heap;
+
+public:
+  ShenandoahTrashImmediateGarbageClosure() : _heap(ShenandoahHeap::heap()) {}
+  bool heap_region_do(ShenandoahHeapRegion* r) {
+    if (r->is_humongous_start()) {
+      oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
+      if (!_heap->is_marked_complete(humongous_obj)) {
+        assert(!r->has_live(),
+               err_msg("Region " SIZE_FORMAT " is not marked, should not have live", r->region_number()));
+        _heap->trash_humongous_region_at(r);
+      } else {
+        assert(r->has_live(),
+               err_msg("Region " SIZE_FORMAT " should have live", r->region_number()));
+      }
+    } else if (r->is_humongous_continuation()) {
+      // If we hit continuation, the non-live humongous starts should have been trashed already
+      assert(r->humongous_start_region()->has_live(),
+             err_msg("Region " SIZE_FORMAT " should have live", r->region_number()));
+    } else if (r->is_regular()) {
+      if (!r->has_live()) {
+        assert(_heap->is_complete_bitmap_clear_range(r->bottom(), r->end()),
+               err_msg("Region " SIZE_FORMAT " should not have marks in bitmap", r->region_number()));
+        r->make_trash();
+      }
+    }
+    return false;
+  }
+};
+
 void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegionSet** worker_slices) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   GCTraceTime time("Phase 2: Compute new object addresses", ShenandoahLogDebug, _gc_timer, heap->tracer()->gc_id());
   ShenandoahGCPhase calculate_address_phase(ShenandoahPhaseTimings::full_gc_calculate_addresses);
 
   {
+    ShenandoahHeapLocker lock(heap->lock());
+
+    // Trash the immediately collectible regions before computing addresses
+    ShenandoahTrashImmediateGarbageClosure tigcl;
+    heap->heap_region_iterate(&tigcl, false, false);
+
+    // Make sure regions are in good state: committed, active, clean.
+    // This is needed because we are potentially sliding the data through them.
+    ShenandoahEnsureHeapActiveClosure ecl;
+    heap->heap_region_iterate(&ecl, false, false);
+  }
+
+  // Compute the new addresses for regular objects
+  {
     ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_calculate_addresses_regular);
-
-    {
-      ShenandoahHeapLocker lock(heap->lock());
-
-      ShenandoahMCReclaimHumongousRegionClosure cl;
-      heap->heap_region_iterate(&cl);
-
-      // After some humongous regions were reclaimed, we need to ensure their
-      // backing storage is active. This is needed because we are potentially
-      // sliding the data through them.
-      ShenandoahEnsureHeapActiveClosure ecl;
-      heap->heap_region_iterate(&ecl, false, false);
-    }
-
-    // Compute the new addresses for regular objects
     ShenandoahPrepareForCompactionTask prepare_task(worker_slices);
     heap->workers()->run_task(&prepare_task);
   }
