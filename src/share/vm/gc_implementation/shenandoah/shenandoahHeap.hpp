@@ -41,7 +41,6 @@ class ShenandoahControlThread;
 class ShenandoahFreeSet;
 class ShenandoahHeapRegion;
 class ShenandoahHeapRegionClosure;
-class ShenandoahHeapRegionSet;
 class ShenandoahMarkCompact;
 class ShenandoahMonitoringSupport;
 class ShenandoahHeuristics;
