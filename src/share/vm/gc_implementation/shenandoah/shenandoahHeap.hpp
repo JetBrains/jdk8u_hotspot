@@ -54,15 +54,16 @@ private:
   volatile jint _index;
   ShenandoahHeap* _heap;
 
-  // No implicit copying: iterators should be passed by reference to capture the state,
-  // or be copied explicitly by "=" operator
+  // No implicit copying: iterators should be passed by reference to capture the state
   ShenandoahRegionIterator(const ShenandoahRegionIterator& that);
+  ShenandoahRegionIterator& operator=(const ShenandoahRegionIterator& o);
 
 public:
   ShenandoahRegionIterator();
   ShenandoahRegionIterator(ShenandoahHeap* heap);
 
-  ShenandoahRegionIterator& operator=(const ShenandoahRegionIterator& o);
+  // Reset iterator to default state
+  void reset();
 
   // Returns next region, or NULL if there are no more regions.
   // This is multi-thread-safe.
