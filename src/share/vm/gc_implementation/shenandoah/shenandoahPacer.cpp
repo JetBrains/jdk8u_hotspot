@@ -147,7 +147,7 @@ void ShenandoahPacer::restart_with(jlong non_taxable_bytes, jdouble tax_rate) {
 bool ShenandoahPacer::claim_for_alloc(size_t words, bool force) {
   assert(ShenandoahPacing, "Only be here when pacing is enabled");
 
-  intptr_t tax = MAX2<intptr_t>(1, words * OrderAccess::load_acquire(&_tax_rate));
+  intptr_t tax = MAX2<intptr_t>(1, (intptr_t)(words * OrderAccess::load_acquire(&_tax_rate)));
 
   intptr_t cur = 0;
   intptr_t new_val = 0;
