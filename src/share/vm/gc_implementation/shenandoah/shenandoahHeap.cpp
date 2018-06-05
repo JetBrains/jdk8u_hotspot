@@ -60,6 +60,7 @@
 #include "gc_implementation/shenandoah/heuristics/shenandoahPassiveHeuristics.hpp"
 #include "gc_implementation/shenandoah/heuristics/shenandoahStaticHeuristics.hpp"
 
+#include "memory/metaspace.hpp"
 #include "runtime/vmThread.hpp"
 #include "services/mallocTracker.hpp"
 
@@ -490,6 +491,9 @@ void ShenandoahHeap::print_on(outputStream* st) const {
   st->print_cr(" - [" PTR_FORMAT ", " PTR_FORMAT ") ",
                p2i(reserved_region().start()),
                p2i(reserved_region().end()));
+
+  st->cr();
+  MetaspaceAux::print_on(st);
 
   if (Verbose) {
     print_heap_regions_on(st);
