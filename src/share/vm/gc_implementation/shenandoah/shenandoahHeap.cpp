@@ -1971,7 +1971,7 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
   {
     ShenandoahGCPhase phase(phase_unload);
     purged_class = SystemDictionary::do_unloading(is_alive,
-                                                  false /* defer cleaning */);
+                                                  full_gc /* do_cleaning*/ );
   }
 
   {
