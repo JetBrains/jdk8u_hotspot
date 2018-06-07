@@ -272,6 +272,7 @@ class LIRGenerator: public InstructionVisitor, public BlockClosure {
 #if INCLUDE_ALL_GCS
   LIR_Opr shenandoah_read_barrier(LIR_Opr obj, CodeEmitInfo* info, bool need_null_check);
   LIR_Opr shenandoah_write_barrier(LIR_Opr obj, CodeEmitInfo* info, bool need_null_check);
+  LIR_Opr ensure_in_register(LIR_Opr obj);
 #endif
 
   // specific implementations

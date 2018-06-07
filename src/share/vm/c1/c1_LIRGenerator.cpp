@@ -1865,10 +1865,26 @@ LIR_Opr LIRGenerator::shenandoah_read_barrier(LIR_Opr obj, CodeEmitInfo* info, b
   }
 }
 
+LIR_Opr LIRGenerator::ensure_in_register(LIR_Opr obj) {
+  if (!obj->is_register()) {
+    LIR_Opr obj_reg = new_register(T_OBJECT);
+    if (obj->is_constant()) {
+      __ move(obj, obj_reg);
+    } else {
+      __ leal(obj, obj_reg);
+    }
+    obj = obj_reg;
+  }
+  return obj;
+}
+
 LIR_Opr LIRGenerator::shenandoah_write_barrier(LIR_Opr obj, CodeEmitInfo* info, bool need_null_check) {
   if (UseShenandoahGC && ShenandoahWriteBarrier) {
 
     LIR_Opr result = new_register(T_OBJECT);
+    obj = ensure_in_register(obj);
+    assert(obj->is_register(), "must be a register at this point");
+
     __ shenandoah_wb(obj, result, info ? new CodeEmitInfo(info) : NULL, need_null_check);
     return result;
 
