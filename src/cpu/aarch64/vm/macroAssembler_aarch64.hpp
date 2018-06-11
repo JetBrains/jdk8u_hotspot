@@ -1231,9 +1231,6 @@ public:
                       Register tmp1, Register tmp2,
                       Register tmp3, Register tmp4,
                       int int_cnt1, Register result);
-
-  void in_heap_check(Register r, Register tmp, Label &nope);
-
 private:
   void add2_with_carry(Register final_dest_hi, Register dest_hi, Register dest_lo,
                        Register src1, Register src2);

@@ -3750,7 +3750,6 @@ void MacroAssembler::null_check(Register reg, int offset) {
     // provoke OS NULL exception if reg = NULL by
     // accessing M[reg] w/o changing any (non-CC) registers
     // NOTE: cmpl is plenty here to provoke a segv
-
     cmpptr(rax, Address(reg, 0));
     // Note: should probably use testl(rax, Address(reg, 0));
     //       may be shorter code (however, this version of

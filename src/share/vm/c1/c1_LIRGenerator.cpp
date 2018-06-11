@@ -1894,6 +1894,7 @@ LIR_Opr LIRGenerator::shenandoah_write_barrier(LIR_Opr obj, CodeEmitInfo* info, 
 }
 #endif
 
+
 //------------------------java.nio.Buffer.checkIndex------------------------
 
 // int java.nio.Buffer.checkIndex(int)
