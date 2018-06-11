@@ -37,6 +37,12 @@ public:
 
   ShenandoahBarrierSet(ShenandoahHeap* heap);
 
+  inline static ShenandoahBarrierSet* barrier_set() {
+    BarrierSet *bs = oopDesc::bs();
+    assert(bs->kind() == BarrierSet::ShenandoahBarrierSet, "sanity");
+    return (ShenandoahBarrierSet*)bs;
+  }
+
   void print_on(outputStream* st) const;
 
   bool is_a(BarrierSet::Name bsn);

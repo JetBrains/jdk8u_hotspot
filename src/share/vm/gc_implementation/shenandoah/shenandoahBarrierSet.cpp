@@ -298,12 +298,12 @@ bool ShenandoahBarrierSet::obj_equals(narrowOop obj1, narrowOop obj2) {
 }
 
 JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_JRT(oopDesc* src))
-  oop result = ((ShenandoahBarrierSet*)oopDesc::bs())->write_barrier(src);
+  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier(src);
   return (oopDesc*) result;
 JRT_END
 
 IRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_IRT(oopDesc* src))
-  oop result = ((ShenandoahBarrierSet*)oopDesc::bs())->write_barrier(src);
+  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier(src);
   return (oopDesc*) result;
 IRT_END
 
