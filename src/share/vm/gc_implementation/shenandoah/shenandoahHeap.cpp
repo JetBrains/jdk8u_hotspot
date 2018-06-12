@@ -290,7 +290,7 @@ jint ShenandoahHeap::initialize() {
     // For NUMA, it is important to pre-touch the storage under bitmaps with worker threads,
     // before initialize() below zeroes it with initializing thread. For any given region,
     // we touch the region and the corresponding bitmaps from the same thread.
-    ShenandoahWorkerScope scope(workers(), _max_workers);
+    ShenandoahWorkerScope scope(workers(), _max_workers, "parallel pretouch");
 
     log_info(gc, heap)("Parallel pretouch " SIZE_FORMAT " regions with " SIZE_FORMAT " byte pages",
                        _num_regions, page_size);
@@ -2453,7 +2453,9 @@ void ShenandoahHeap::entry_init_mark() {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
   EventMark em("%s", msg.buffer());
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_init_marking());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_init_marking(),
+                              "init marking");
 
   op_init_mark();
 }
@@ -2469,7 +2471,9 @@ void ShenandoahHeap::entry_final_mark() {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
   EventMark em("%s", msg.buffer());
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_final_marking());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_final_marking(),
+                              "final marking");
 
   op_final_mark();
 }
@@ -2506,7 +2510,9 @@ void ShenandoahHeap::entry_final_updaterefs() {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id());
   EventMark em("%s", msg);
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_final_update_ref());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_final_update_ref(),
+                              "final reference update");
 
   op_final_updaterefs();
 }
@@ -2519,7 +2525,9 @@ void ShenandoahHeap::entry_full(GCCause::Cause cause) {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
   EventMark em("%s", msg);
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_fullgc());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_fullgc(),
+                              "full gc");
 
   op_full(cause);
 }
@@ -2533,7 +2541,9 @@ void ShenandoahHeap::entry_degenerated(int point) {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
   EventMark em("%s", msg.buffer());
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_stw_degenerated());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_stw_degenerated(),
+                              "stw degenerated gc");
 
   set_degenerated_gc_in_progress(true);
   op_degenerated(dpoint);
@@ -2550,7 +2560,9 @@ void ShenandoahHeap::entry_mark() {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
   EventMark em("%s", msg.buffer());
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_marking());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_conc_marking(),
+                              "concurrent marking");
 
   try_inject_alloc_failure();
   op_mark();
@@ -2564,7 +2576,9 @@ void ShenandoahHeap::entry_evac() {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
   EventMark em("%s", msg);
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_evac());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_conc_evac(),
+                              "concurrent evacuation");
 
   try_inject_alloc_failure();
   op_evac();
@@ -2577,7 +2591,9 @@ void ShenandoahHeap::entry_updaterefs() {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
   EventMark em("%s", msg);
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_update_ref());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_conc_update_ref(),
+                              "concurrent reference update");
 
   try_inject_alloc_failure();
   op_updaterefs();
@@ -2602,7 +2618,9 @@ void ShenandoahHeap::entry_cleanup_bitmaps() {
   GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
   EventMark em("%s", msg);
 
-  ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_cleanup());
+  ShenandoahWorkerScope scope(workers(),
+                              ShenandoahWorkerPolicy::calc_workers_for_conc_cleanup(),
+                              "concurrent cleanup");
 
   try_inject_alloc_failure();
   op_cleanup_bitmaps();
@@ -2616,7 +2634,9 @@ void ShenandoahHeap::entry_preclean() {
     GCTraceTime time(msg, PrintGC, _gc_timer, tracer()->gc_id(), true);
     EventMark em("%s", msg);
 
-    ShenandoahWorkerScope scope(workers(), ShenandoahWorkerPolicy::calc_workers_for_conc_preclean());
+    ShenandoahWorkerScope scope(workers(),
+                                ShenandoahWorkerPolicy::calc_workers_for_conc_preclean(),
+                                "concurrent preclean");
 
     try_inject_alloc_failure();
     op_preclean();

@@ -65,9 +65,9 @@ uint ShenandoahWorkerPolicy::calc_workers_for_final_marking() {
 uint ShenandoahWorkerPolicy::calc_workers_for_conc_evac() {
   uint active_workers = (_prev_conc_evac == 0) ? ConcGCThreads : _prev_conc_evac;
   _prev_conc_evac =
-    AdaptiveSizePolicy::calc_active_workers(ConcGCThreads,
-                                            active_workers,
-                                            Threads::number_of_non_daemon_threads());
+    AdaptiveSizePolicy::calc_active_conc_workers(ConcGCThreads,
+                                                 active_workers,
+                                                 Threads::number_of_non_daemon_threads());
   return _prev_conc_evac;
 }
 
@@ -95,9 +95,9 @@ uint ShenandoahWorkerPolicy::calc_workers_for_stw_partial() {
 uint ShenandoahWorkerPolicy::calc_workers_for_conc_update_ref() {
   uint active_workers = (_prev_conc_update_ref == 0) ? ConcGCThreads : _prev_conc_update_ref;
   _prev_conc_update_ref =
-    AdaptiveSizePolicy::calc_active_workers(ConcGCThreads,
-                                            active_workers,
-                                            Threads::number_of_non_daemon_threads());
+    AdaptiveSizePolicy::calc_active_conc_workers(ConcGCThreads,
+                                                 active_workers,
+                                                 Threads::number_of_non_daemon_threads());
   return _prev_conc_update_ref;
 }
 
@@ -128,8 +128,8 @@ uint ShenandoahWorkerPolicy::calc_workers_for_conc_preclean() {
 uint ShenandoahWorkerPolicy::calc_workers_for_conc_cleanup() {
   uint active_workers = (_prev_conc_cleanup == 0) ? ConcGCThreads : _prev_conc_cleanup;
   _prev_conc_cleanup =
-          AdaptiveSizePolicy::calc_active_workers(ConcGCThreads,
-                                                  active_workers,
-                                                  Threads::number_of_non_daemon_threads());
+          AdaptiveSizePolicy::calc_active_conc_workers(ConcGCThreads,
+                                                       active_workers,
+                                                       Threads::number_of_non_daemon_threads());
   return _prev_conc_cleanup;
 }
