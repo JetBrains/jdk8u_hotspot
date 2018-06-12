@@ -29,7 +29,9 @@
 #include "opto/memnode.hpp"
 #include "opto/mulnode.hpp"
 #include "opto/phaseX.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/subnode.hpp"
+#include "utilities/macros.hpp"
 
 // Portions of code courtesy of Clifford Click
 
@@ -472,6 +474,15 @@ Node *AndINode::Ideal(PhaseGVN *phase, bool can_reshape) {
   const int mask = t2->get_con();
   Node *load = in(1);
   uint lop = load->Opcode();
+
+#if INCLUDE_ALL_GCS
+  if (UseShenandoahGC && ShenandoahWriteBarrierNode::is_gc_state_load(load)) {
+    // Do not touch the load+mask, we would match the whole sequence exactly.
+    // Converting the load to LoadUB/LoadUS would mismatch and waste a register
+    // on the barrier fastpath.
+    return NULL;
+  }
+#endif
 
   // Masking bits off of a Character?  Hi bits are already zero.
   if( lop == Op_LoadUS &&
