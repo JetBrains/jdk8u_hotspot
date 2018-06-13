@@ -994,7 +994,7 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
     // Allocations might have happened before we STWed here, record peak:
     heuristics()->record_peak_occupancy();
 
-    make_tlabs_parsable(true);
+    make_parsable(true);
 
     if (ShenandoahVerify) {
       verifier()->verify_after_concmark();
@@ -1051,7 +1051,7 @@ public:
   }
 };
 
-void ShenandoahHeap::make_tlabs_parsable(bool retire_tlabs) {
+void ShenandoahHeap::make_parsable(bool retire_tlabs) {
   if (UseTLAB) {
     CollectedHeap::ensure_parsability(retire_tlabs);
     ShenandoahRetireTLABClosure cl(retire_tlabs);
@@ -1252,7 +1252,7 @@ jlong ShenandoahHeap::millis_since_last_gc() {
 
 void ShenandoahHeap::prepare_for_verify() {
   if (SafepointSynchronize::is_at_safepoint()) {
-    make_tlabs_parsable(false);
+    make_parsable(false);
   }
 }
 
@@ -1343,7 +1343,7 @@ public:
  * This is public API, used in preparation of object_iterate().
  * Since we don't do linear scan of heap in object_iterate() (see comment below), we don't
  * need to make the heap parsable. For Shenandoah-internal linear heap scans that we can
- * control, we call SH::make_tlabs_parsable().
+ * control, we call SH::make_parsable().
  */
 void ShenandoahHeap::ensure_parsability(bool retire_tlabs) {
   // No-op.
@@ -1482,7 +1482,7 @@ void ShenandoahHeap::op_init_mark() {
   // We need to reset all TLABs because we'd lose marks on all objects allocated in them.
   if (UseTLAB) {
     ShenandoahGCPhase phase(ShenandoahPhaseTimings::make_parsable);
-    make_tlabs_parsable(true);
+    make_parsable(true);
   }
 
   {
@@ -2241,7 +2241,7 @@ void ShenandoahHeap::op_init_updaterefs() {
 
   set_evacuation_in_progress(false);
   set_update_refs_in_progress(true);
-  make_tlabs_parsable(true);
+  make_parsable(true);
   for (uint i = 0; i < num_regions(); i++) {
     ShenandoahHeapRegion* r = get_region(i);
     r->set_concurrent_iteration_safe_limit(r->top());

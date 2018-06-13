@@ -610,7 +610,7 @@ private:
   void ref_processing_init();
 
 public:
-  void make_tlabs_parsable(bool retire_tlabs) /* override */;
+  void make_parsable(bool retire_tlabs);
 
 public:
   // Entry points to STW GC operations, these cause a related safepoint, that then
