@@ -103,6 +103,16 @@ class WorkerThread;
 
 class Thread: public ThreadShadow {
   friend class VMStructs;
+
+#if INCLUDE_ALL_GCS
+protected:
+  // Support for Shenandoah barriers. This is only accessible from JavaThread,
+  // but we really want to keep this field at lower Thread offset (below first
+  // 128 bytes), because that makes barrier fastpaths optimally encoded.
+  char _gc_state;
+  static char _gc_state_global;
+#endif
+
  private:
   // Exception handling
   // (Note: _pending_exception and friends are in ThreadShadow)
@@ -990,10 +1000,6 @@ class JavaThread: public Thread {
   static DirtyCardQueueSet _dirty_card_queue_set;
 
   void flush_barrier_queues();
-
-  // Support for Shenandoah barriers
-  static char _gc_state_global;
-  char _gc_state;
 
 #endif // INCLUDE_ALL_GCS
 
