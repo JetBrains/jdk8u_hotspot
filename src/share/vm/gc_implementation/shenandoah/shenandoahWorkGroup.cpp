@@ -46,7 +46,7 @@ ShenandoahPushWorkerScope::ShenandoahPushWorkerScope(ShenandoahWorkGang* workers
   _workers->set_active_workers(nworkers);
 
   // bypass concurrent/parallel protocol check for non-regular paths, e.g. verifier, etc.
-  if (!check) {
+  if (check) {
     ShenandoahHeap::heap()->assert_gc_workers(nworkers);
   }
 }
