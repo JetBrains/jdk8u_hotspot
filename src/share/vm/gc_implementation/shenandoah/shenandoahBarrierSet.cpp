@@ -170,7 +170,6 @@ void ShenandoahBarrierSet::write_ref_array_work(MemRegion r) {
 template <class T>
 void ShenandoahBarrierSet::write_ref_array_loop(HeapWord* start, size_t count) {
   assert(UseShenandoahGC && ShenandoahCloneBarrier, "Should be enabled");
-  ShenandoahEvacOOMScope oom_evac_scope;
   ShenandoahUpdateRefsForOopClosure cl;
   T* dst = (T*) start;
   for (size_t i = 0; i < count; i++) {
@@ -183,6 +182,7 @@ void ShenandoahBarrierSet::write_ref_array(HeapWord* start, size_t count) {
   if (!ShenandoahCloneBarrier) return;
   if (!need_update_refs_barrier()) return;
 
+  ShenandoahEvacOOMScope oom_evac_scope;
   if (UseCompressedOops) {
     write_ref_array_loop<narrowOop>(start, count);
   } else {
