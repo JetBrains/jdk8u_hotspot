@@ -1002,6 +1002,9 @@ void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint wo
 
   q = get_queue(worker_id);
 
+  ShenandoahSATBBufferClosure drain_satb(q);
+  SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
+
   /*
    * Normal marking loop:
    */
@@ -1012,14 +1015,26 @@ void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint wo
       return;
     }
 
+    if (DRAIN_SATB) {
+      while (satb_mq_set.completed_buffers_num() > 0) {
+        satb_mq_set.apply_closure_to_completed_buffer(&drain_satb);
+      }
+    }
+
+    uint work = 0;
     for (uint i = 0; i < stride; i++) {
       if (try_queue(q, t) ||
-              (DRAIN_SATB && try_draining_satb_buffer(q, t)) ||
-              queues->steal(worker_id, &seed, t)) {
+          queues->steal(worker_id, &seed, t)) {
         do_task<T>(q, cl, live_data, &t);
+        work++;
       } else {
-        if (terminator->offer_termination()) return;
+        break;
       }
+    }
+
+    if (work == 0) {
+      // No work encountered in current stride, try to terminate.
+      if (terminator->offer_termination()) return;
     }
   }
 }

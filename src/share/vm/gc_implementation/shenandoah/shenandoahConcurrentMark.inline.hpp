@@ -221,13 +221,6 @@ public:
   }
 };
 
-inline bool ShenandoahConcurrentMark::try_draining_satb_buffer(ShenandoahObjToScanQueue *q, ShenandoahMarkTask &task) {
-  ShenandoahSATBBufferClosure cl(q);
-  SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
-  bool had_refs = satb_mq_set.apply_closure_to_completed_buffer(&cl);
-  return had_refs && try_queue(q, task);
-}
-
 template<class T, UpdateRefsMode UPDATE_REFS>
 inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q) {
   ShenandoahConcurrentMark::mark_through_ref<T, UPDATE_REFS, false /* string dedup */>(p, heap, q, NULL);
