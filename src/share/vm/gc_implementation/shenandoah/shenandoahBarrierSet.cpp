@@ -155,14 +155,6 @@ bool ShenandoahBarrierSet::write_prim_needs_barrier(HeapWord* hw, size_t s, juin
   return false;
 }
 
-bool ShenandoahBarrierSet::need_update_refs_barrier() {
-  if (_heap->heuristics()->update_refs()) {
-    return _heap->is_update_refs_in_progress();
-  } else {
-    return _heap->is_concurrent_mark_in_progress() && _heap->has_forwarded_objects();
-  }
-}
-
 void ShenandoahBarrierSet::write_ref_array_work(MemRegion r) {
   ShouldNotReachHere();
 }

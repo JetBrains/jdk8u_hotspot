@@ -238,10 +238,6 @@ bool ShenandoahHeuristics::should_start_update_refs() {
   return _update_refs_early;
 }
 
-bool ShenandoahHeuristics::update_refs() const {
-  return _update_refs_early;
-}
-
 bool ShenandoahHeuristics::should_degenerate_cycle() {
   return _degenerated_cycles_in_a_row <= ShenandoahFullGCThreshold;
 }

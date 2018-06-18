@@ -27,6 +27,11 @@
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 
+bool ShenandoahBarrierSet::need_update_refs_barrier() {
+  return  _heap->is_update_refs_in_progress() ||
+         (_heap->is_concurrent_mark_in_progress() && _heap->has_forwarded_objects());
+}
+
 inline oop ShenandoahBarrierSet::resolve_forwarded_not_null(oop p) {
   return BrooksPointer::forwardee(p);
 }

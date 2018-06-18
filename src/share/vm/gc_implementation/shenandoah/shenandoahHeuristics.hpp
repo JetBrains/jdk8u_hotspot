@@ -120,8 +120,6 @@ public:
 
   virtual bool should_start_update_refs();
 
-  virtual bool update_refs() const;
-
   virtual bool should_degenerate_cycle();
 
   virtual void record_success_concurrent();
