@@ -1061,26 +1061,6 @@ void LinkResolver::runtime_resolve_special_method(CallInfo& result, methodHandle
       }
     }
 
-    // Check that the class of objectref (the receiver) is the current class or interface,
-    // or a subtype of the current class or interface (the sender), otherwise invokespecial
-    // throws IllegalAccessError.
-    // The verifier checks that the sender is a subtype of the class in the I/MR operand.
-    // The verifier also checks that the receiver is a subtype of the sender, if the sender is
-    // a class.  If the sender is an interface, the check has to be performed at runtime.
-    InstanceKlass* sender = InstanceKlass::cast(current_klass());
-    sender = sender->is_anonymous() ? InstanceKlass::cast(sender->host_klass()) : sender;
-    if (sender->is_interface() && recv.not_null()) {
-      Klass* receiver_klass = recv->klass();
-      if (!receiver_klass->is_subtype_of(sender)) {
-        ResourceMark rm(THREAD);
-        char buf[500];
-        jio_snprintf(buf, sizeof(buf),
-                     "Receiver class %s must be the current class or a subtype of interface %s",
-                     receiver_klass->name()->as_C_string(),
-                     sender->name()->as_C_string());
-        THROW_MSG(vmSymbols::java_lang_IllegalAccessError(), buf);
-      }
-    }
   }
 
   // check if not static
