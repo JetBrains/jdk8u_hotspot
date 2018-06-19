@@ -49,6 +49,10 @@
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
 
+#ifdef BUILTIN_SIM
+#include "../../../../../simulator/simulator.hpp"
+#endif
+
 unsigned char nmethod::_global_unloading_clock = 0;
 
 #ifdef DTRACE_ENABLED
@@ -491,7 +495,7 @@ void nmethod::init_defaults() {
   _oops_do_mark_link       = NULL;
   _jmethod_id              = NULL;
   _osr_link                = NULL;
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     _unloading_next        = NULL;
   } else {
     _scavenge_root_link    = NULL;
@@ -710,6 +714,15 @@ nmethod::nmethod(
       Universe::heap()->register_nmethod(this);
     }
     debug_only(verify_scavenge_root_oops());
+
+#ifdef BUILTIN_SIM
+    if (NotifySimulator) {
+      unsigned char *base = code_buffer->insts()->start();
+      long delta = entry_point() - base;
+      AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck)->notifyRelocate(base, delta);
+    }
+#endif
+
     CodeCache::commit(this);
   }
 
@@ -915,6 +928,14 @@ nmethod::nmethod(
       Universe::heap()->register_nmethod(this);
     }
     debug_only(verify_scavenge_root_oops());
+
+#ifdef BUILTIN_SIM
+    if (NotifySimulator) {
+      unsigned char *base = code_buffer->insts()->start();
+      long delta = entry_point() - base;
+      AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck)->notifyRelocate(base, delta);
+    }
+#endif
 
     CodeCache::commit(this);
 
@@ -1748,12 +1769,11 @@ void static clean_ic_if_metadata_is_dead(CompiledIC *ic, BoolObjectClosure *is_a
     CompiledICHolder* cichk_oop = ic->cached_icholder();
 
     if (mark_on_stack) {
-      Metadata::mark_on_stack(cichk_oop->holder_method());
+      Metadata::mark_on_stack(cichk_oop->holder_metadata());
       Metadata::mark_on_stack(cichk_oop->holder_klass());
     }
 
-    if (cichk_oop->holder_method()->method_holder()->is_loader_alive(is_alive) &&
-        cichk_oop->holder_klass()->is_loader_alive(is_alive)) {
+    if (cichk_oop->is_loader_alive(is_alive)) {
       return;
     }
   } else {
@@ -1851,7 +1871,7 @@ void nmethod::do_unloading(BoolObjectClosure* is_alive, bool unloading_occurred)
 
   // Scopes
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     if (can_unload(is_alive, p, unloading_occurred)) {
       return;
     }
@@ -2024,7 +2044,7 @@ bool nmethod::do_unloading_parallel(BoolObjectClosure* is_alive, bool unloading_
 
   // Scopes
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     if (can_unload(is_alive, p, unloading_occurred)) {
       is_unloaded = true;
       break;
@@ -2180,7 +2200,7 @@ void nmethod::metadata_do(void f(Metadata*)) {
         CompiledIC *ic = CompiledIC_at(&iter);
         if (ic->is_icholder_call()) {
           CompiledICHolder* cichk = ic->cached_icholder();
-          f(cichk->holder_method());
+          f(cichk->holder_metadata());
           f(cichk->holder_klass());
         } else {
           Metadata* ic_oop = ic->cached_metadata();
@@ -2238,7 +2258,7 @@ void nmethod::oops_do(OopClosure* f, bool allow_zombie) {
   // Scopes
   // This includes oop constants not inlined in the code stream.
   for (oop* p = oops_begin(); p < oops_end(); p++) {
-    if (*p == Universe::non_oop_word())  continue;  // skip non-oops
+    if (oopDesc::unsafe_equals(*p, (oop) Universe::non_oop_word()))  continue;  // skip non-oops
     f->do_oop(p);
   }
 }
@@ -2837,7 +2857,7 @@ public:
 };
 
 void nmethod::verify_scavenge_root_oops() {
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     return;
   }
 

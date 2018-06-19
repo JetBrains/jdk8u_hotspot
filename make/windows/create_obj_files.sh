@@ -77,7 +77,7 @@ if [ -d "${ALTSRC}/share/vm/jfr/buffers" ]; then
   BASE_PATHS="${BASE_PATHS} ${ALTSRC}/share/vm/jfr/buffers"
 fi
 
-BASE_PATHS="${BASE_PATHS} ${COMMONSRC}/share/vm/prims/wbtestmethods"
+BASE_PATHS="${BASE_PATHS} ${COMMONSRC}/share/vm/prims/wbtestmethods ${COMMONSRC}/share/vm/gc_implementation/shenandoah/heuristics"
 
 # shared is already in BASE_PATHS. Should add vm/memory but that one is also in BASE_PATHS.
 if [ -d "${ALTSRC}/share/vm/gc_implementation" ]; then

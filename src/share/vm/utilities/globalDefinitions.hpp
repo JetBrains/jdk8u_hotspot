@@ -414,8 +414,16 @@ enum RTMState {
   ProfileRTM = 0x0  // Use RTM with abort ratio calculation
 };
 
+// The maximum size of the code cache.  Can be overridden by targets.
+#define CODE_CACHE_SIZE_LIMIT (2*G)
+// Allow targets to reduce the default size of the code cache.
+#define CODE_CACHE_DEFAULT_LIMIT CODE_CACHE_SIZE_LIMIT
+
 #ifdef TARGET_ARCH_x86
 # include "globalDefinitions_x86.hpp"
+#endif
+#ifdef TARGET_ARCH_aarch64
+# include "globalDefinitions_aarch64.hpp"
 #endif
 #ifdef TARGET_ARCH_sparc
 # include "globalDefinitions_sparc.hpp"
@@ -1356,6 +1364,7 @@ inline intptr_t p2i(const void * p) {
 #define INT64_FORMAT           "%" PRId64
 #define UINT64_FORMAT          "%" PRIu64
 #define UINT64_FORMAT_X        "%" PRIx64
+#define UINT64_FORMAT_HEX_W(width) "%" #width PRIx64
 #define INT64_FORMAT_W(width)  "%" #width PRId64
 #define UINT64_FORMAT_W(width) "%" #width PRIu64
 

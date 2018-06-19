@@ -23,6 +23,7 @@
  */
 
 #include "precompiled.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "memory/allocation.inline.hpp"
 #include "opto/addnode.hpp"
 #include "opto/cfgnode.hpp"
@@ -234,6 +235,13 @@ static Node* split_if(IfNode *iff, PhaseIterGVN *igvn) {
       predicate_proj = proj;
     }
   }
+
+  // If all the defs of the phi are the same constant, we already have the desired end state.
+  // Skip the split that would create empty phi and region nodes.
+  if((r->req() - req_c) == 1) {
+    return NULL;
+  }
+
   Node* predicate_c = NULL;
   Node* predicate_x = NULL;
   bool counted_loop = r->is_CountedLoop();
@@ -597,6 +605,29 @@ Node* IfNode::up_one_dom(Node *curr, bool linear_only) {
 
   // Give up the search at true merges
   return NULL;                  // Dead loop?  Or hit root?
+}
+
+bool IfNode::is_shenandoah_marking_if(PhaseTransform *phase) const {
+  if (!UseShenandoahGC) {
+    return false;
+  }
+
+  if (Opcode() != Op_If) {
+    return false;
+  }
+
+  Node* bol = in(1);
+  assert(bol->is_Bool(), "");
+  Node* cmpx = bol->in(1);
+  if (bol->as_Bool()->_test._test == BoolTest::ne &&
+      cmpx->is_Cmp() && cmpx->in(2) == phase->intcon(0) &&
+      cmpx->in(1)->in(1)->is_shenandoah_state_load() &&
+      cmpx->in(1)->in(2)->is_Con() &&
+      cmpx->in(1)->in(2) == phase->intcon(ShenandoahHeap::MARKING)) {
+    return true;
+  }
+
+  return false;
 }
 
 
@@ -1195,6 +1226,22 @@ static IfNode* idealize_test(PhaseGVN* phase, IfNode* iff) {
 
   // Progress
   return iff;
+}
+
+bool IfNode::is_g1_marking_if(PhaseTransform *phase) const {
+  if (Opcode() != Op_If) {
+    return false;
+  }
+
+  Node* bol = in(1);
+  assert(bol->is_Bool(), "");
+  Node* cmpx = bol->in(1);
+  if (bol->as_Bool()->_test._test == BoolTest::ne &&
+      cmpx->is_Cmp() && cmpx->in(2) == phase->intcon(0) &&
+      cmpx->in(1)->is_g1_marking_load()) {
+    return true;
+  }
+  return false;
 }
 
 //------------------------------Identity---------------------------------------

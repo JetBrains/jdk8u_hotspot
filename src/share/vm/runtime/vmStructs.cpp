@@ -107,6 +107,9 @@
 #ifdef TARGET_ARCH_x86
 # include "vmStructs_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "vmStructs_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "vmStructs_sparc.hpp"
 #endif
@@ -121,6 +124,9 @@
 #endif
 #ifdef TARGET_OS_ARCH_linux_x86
 # include "vmStructs_linux_x86.hpp"
+#endif
+#ifdef TARGET_OS_ARCH_linux_aarch64
+# include "vmStructs_linux_aarch64.hpp"
 #endif
 #ifdef TARGET_OS_ARCH_linux_sparc
 # include "vmStructs_linux_sparc.hpp"
@@ -167,6 +173,7 @@
 #include "gc_implementation/parallelScavenge/psYoungGen.hpp"
 #include "gc_implementation/parallelScavenge/vmStructs_parallelgc.hpp"
 #include "gc_implementation/g1/vmStructs_g1.hpp"
+#include "gc_implementation/shenandoah/vmStructs_shenandoah.hpp"
 #endif // INCLUDE_ALL_GCS
 
 #if INCLUDE_TRACE
@@ -190,6 +197,7 @@
 #include "opto/parse.hpp"
 #include "opto/regalloc.hpp"
 #include "opto/rootnode.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/subnode.hpp"
 #include "opto/vectornode.hpp"
 #if defined ADGLOBALS_MD_HPP
@@ -198,6 +206,8 @@
 # include "adfiles/adGlobals_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "adfiles/adGlobals_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "adfiles/adGlobals_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "adfiles/adGlobals_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -278,7 +288,7 @@ typedef TwoOopHashtable<Symbol*, mtClass>     SymbolTwoOopHashtable;
   volatile_nonstatic_field(ArrayKlass,         _lower_dimension,                              Klass*)                                \
   nonstatic_field(ArrayKlass,                  _vtable_len,                                   int)                                   \
   nonstatic_field(ArrayKlass,                  _component_mirror,                             oop)                                   \
-  nonstatic_field(CompiledICHolder,     _holder_method,                                Method*)                               \
+  nonstatic_field(CompiledICHolder,     _holder_metadata,                              Metadata*)                             \
   nonstatic_field(CompiledICHolder,     _holder_klass,                                 Klass*)                                \
   nonstatic_field(ConstantPool,         _tags,                                         Array<u1>*)                            \
   nonstatic_field(ConstantPool,         _cache,                                        ConstantPoolCache*)                    \
@@ -2037,6 +2047,10 @@ typedef TwoOopHashtable<Symbol*, mtClass>     SymbolTwoOopHashtable;
   declare_c2_type(OverflowAddLNode, OverflowLNode)                        \
   declare_c2_type(OverflowSubLNode, OverflowLNode)                        \
   declare_c2_type(OverflowMulLNode, OverflowLNode)                        \
+  declare_c2_type(ShenandoahBarrierNode, TypeNode)                        \
+  declare_c2_type(ShenandoahReadBarrierNode, ShenandoahBarrierNode)       \
+  declare_c2_type(ShenandoahWriteBarrierNode, ShenandoahBarrierNode)      \
+  declare_c2_type(ShenandoahWBMemProjNode, ProjNode)                      \
                                                                           \
   /*********************/                                                 \
   /* Adapter Blob Entries */                                              \
@@ -2217,6 +2231,7 @@ typedef TwoOopHashtable<Symbol*, mtClass>     SymbolTwoOopHashtable;
   declare_constant(BarrierSet::CardTableExtension)                        \
   declare_constant(BarrierSet::G1SATBCT)                                  \
   declare_constant(BarrierSet::G1SATBCTLogging)                           \
+  declare_constant(BarrierSet::ShenandoahBarrierSet)                      \
   declare_constant(BarrierSet::Other)                                     \
                                                                           \
   declare_constant(BlockOffsetSharedArray::LogN)                          \
@@ -2240,6 +2255,7 @@ typedef TwoOopHashtable<Symbol*, mtClass>     SymbolTwoOopHashtable;
   declare_constant(CollectedHeap::Abstract)                               \
   declare_constant(CollectedHeap::SharedHeap)                             \
   declare_constant(CollectedHeap::GenCollectedHeap)                       \
+  declare_constant(CollectedHeap::ShenandoahHeap)                         \
                                                                           \
   declare_constant(GenCollectedHeap::max_gens)                            \
                                                                           \
@@ -2906,6 +2922,11 @@ VMStructEntry VMStructs::localHotSpotVMStructs[] = {
 
   VM_STRUCTS_G1(GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
                 GENERATE_STATIC_VM_STRUCT_ENTRY)
+
+  VM_STRUCTS_SHENANDOAH(GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+                        GENERATE_NONSTATIC_VM_STRUCT_ENTRY,
+                        GENERATE_STATIC_VM_STRUCT_ENTRY)
+
 #endif // INCLUDE_ALL_GCS
 
 #if INCLUDE_TRACE
@@ -2956,6 +2977,10 @@ VMTypeEntry VMStructs::localHotSpotVMTypes[] = {
 
   VM_TYPES_G1(GENERATE_VM_TYPE_ENTRY,
               GENERATE_TOPLEVEL_VM_TYPE_ENTRY)
+
+  VM_TYPES_SHENANDOAH(GENERATE_VM_TYPE_ENTRY,
+              GENERATE_TOPLEVEL_VM_TYPE_ENTRY,
+              GENERATE_INTEGER_VM_TYPE_ENTRY)
 #endif // INCLUDE_ALL_GCS
 
 #if INCLUDE_TRACE
@@ -2996,6 +3021,9 @@ VMIntConstantEntry VMStructs::localHotSpotVMIntConstants[] = {
   VM_INT_CONSTANTS_CMS(GENERATE_VM_INT_CONSTANT_ENTRY)
 
   VM_INT_CONSTANTS_PARNEW(GENERATE_VM_INT_CONSTANT_ENTRY)
+
+  VM_INT_CONSTANTS_SHENANDOAH(GENERATE_VM_INT_CONSTANT_ENTRY,
+                              GENERATE_VM_INT_CONSTANT_WITH_VALUE_ENTRY)
 #endif // INCLUDE_ALL_GCS
 
 #if INCLUDE_TRACE
@@ -3065,6 +3093,10 @@ VMStructs::init() {
   VM_STRUCTS_G1(CHECK_NONSTATIC_VM_STRUCT_ENTRY,
                 CHECK_STATIC_VM_STRUCT_ENTRY);
 
+
+  VM_STRUCTS_SHENANDOAH(CHECK_NONSTATIC_VM_STRUCT_ENTRY,
+                        CHECK_VOLATILE_NONSTATIC_VM_STRUCT_ENTRY,
+                        CHECK_STATIC_VM_STRUCT_ENTRY);
 #endif // INCLUDE_ALL_GCS
 
 #if INCLUDE_TRACE
@@ -3111,6 +3143,9 @@ VMStructs::init() {
   VM_TYPES_G1(CHECK_VM_TYPE_ENTRY,
               CHECK_SINGLE_ARG_VM_TYPE_NO_OP);
 
+  VM_TYPES_SHENANDOAH(CHECK_VM_TYPE_ENTRY,
+                      CHECK_SINGLE_ARG_VM_TYPE_NO_OP,
+                      CHECK_SINGLE_ARG_VM_TYPE_NO_OP);
 #endif // INCLUDE_ALL_GCS
 
 #if INCLUDE_TRACE

@@ -175,7 +175,7 @@ class JNIHandleBlock : public CHeapObj<mtInternal> {
 inline oop JNIHandles::resolve(jobject handle) {
   oop result = (handle == NULL ? (oop)NULL : *(oop*)handle);
   assert(result != NULL || (handle == NULL || !CheckJNICalls || is_weak_global_handle(handle)), "Invalid value read from jni handle");
-  assert(result != badJNIHandle, "Pointing to zapped jni handle area");
+  assert(! oopDesc::unsafe_equals(result, badJNIHandle), "Pointing to zapped jni handle area");
   return result;
 };
 
@@ -183,7 +183,7 @@ inline oop JNIHandles::resolve(jobject handle) {
 inline oop JNIHandles::resolve_external_guard(jobject handle) {
   if (handle == NULL) return NULL;
   oop result = *(oop*)handle;
-  if (result == NULL || result == badJNIHandle) return NULL;
+  if (result == NULL || oopDesc::unsafe_equals(result, badJNIHandle)) return NULL;
   return result;
 };
 
@@ -192,9 +192,9 @@ inline oop JNIHandles::resolve_non_null(jobject handle) {
   assert(handle != NULL, "JNI handle should not be null");
   oop result = *(oop*)handle;
   assert(result != NULL, "Invalid value read from jni handle");
-  assert(result != badJNIHandle, "Pointing to zapped jni handle area");
+  assert(! oopDesc::unsafe_equals(result, badJNIHandle), "Pointing to zapped jni handle area");
   // Don't let that private _deleted_handle object escape into the wild.
-  assert(result != deleted_handle(), "Used a deleted global handle.");
+  assert(! oopDesc::equals(result, deleted_handle()), "Used a deleted global handle.");
   return result;
 };
 

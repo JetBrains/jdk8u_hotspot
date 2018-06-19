@@ -32,6 +32,7 @@
 #include "opto/idealKit.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/runtime.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/stringopts.hpp"
 #include "opto/subnode.hpp"
 
@@ -1186,6 +1187,8 @@ Node* PhaseStringOpts::int_stringSize(GraphKit& kit, Node* arg) {
     kit.set_control(loop);
     Node* sizeTable = fetch_static_field(kit, size_table_field);
 
+    sizeTable = kit.shenandoah_read_barrier(sizeTable);
+
     Node* value = kit.load_array_element(NULL, sizeTable, index, TypeAryPtr::INTS);
     C->record_for_igvn(value);
     Node* limit = __ CmpI(phi, value);
@@ -1379,7 +1382,10 @@ Node* PhaseStringOpts::copy_string(GraphKit& kit, Node* str, Node* char_array, N
   Node* count  = kit.load_String_length(kit.control(), string);
   Node* value  = kit.load_String_value (kit.control(), string);
 
+  value = kit.shenandoah_read_barrier(value);
+
   // copy the contents
+  assert(!(ShenandoahBarrierNode::skip_through_barrier(value)->is_Con() && !value->is_Con()), "barrier prevents optimization");
   if (offset->is_Con() && count->is_Con() && value->is_Con() && count->get_int() < unroll_string_copy_length) {
     // For small constant strings just emit individual stores.
     // A length of 6 seems like a good space/speed tradeof.

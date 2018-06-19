@@ -199,6 +199,9 @@ class LIR_Assembler: public CompilationResourceObj {
   void emit_opLabel(LIR_OpLabel* op);
   void emit_arraycopy(LIR_OpArrayCopy* op);
   void emit_updatecrc32(LIR_OpUpdateCRC32* op);
+#if INCLUDE_ALL_GCS
+  void emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* op);
+#endif
   void emit_opConvert(LIR_OpConvert* op);
   void emit_alloc_obj(LIR_OpAllocObj* op);
   void emit_alloc_array(LIR_OpAllocArray* op);
@@ -264,6 +267,9 @@ class LIR_Assembler: public CompilationResourceObj {
 
 #ifdef TARGET_ARCH_x86
 # include "c1_LIRAssembler_x86.hpp"
+#endif
+#ifdef TARGET_ARCH_aarch64
+# include "c1_LIRAssembler_aarch64.hpp"
 #endif
 #ifdef TARGET_ARCH_sparc
 # include "c1_LIRAssembler_sparc.hpp"

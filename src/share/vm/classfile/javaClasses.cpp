@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -206,7 +206,8 @@ Handle java_lang_String::create_from_str(const char* utf8_str, TRAPS) {
   int length = UTF8::unicode_length(utf8_str);
   Handle h_obj = basic_create(length, CHECK_NH);
   if (length > 0) {
-    UTF8::convert_to_unicode(utf8_str, value(h_obj())->char_at_addr(0), length);
+    typeArrayOop buffer = value(h_obj());
+    UTF8::convert_to_unicode(utf8_str, buffer->char_at_addr(0), length);
   }
   return h_obj;
 }
@@ -220,7 +221,8 @@ Handle java_lang_String::create_from_symbol(Symbol* symbol, TRAPS) {
   int length = UTF8::unicode_length((char*)symbol->bytes(), symbol->utf8_length());
   Handle h_obj = basic_create(length, CHECK_NH);
   if (length > 0) {
-    UTF8::convert_to_unicode((char*)symbol->bytes(), value(h_obj())->char_at_addr(0), length);
+    typeArrayOop buffer = value(h_obj());
+    UTF8::convert_to_unicode((char*)symbol->bytes(), buffer->char_at_addr(0), length);
   }
   return h_obj;
 }
@@ -626,7 +628,7 @@ void java_lang_Class::create_mirror(KlassHandle k, Handle class_loader,
     }
 
     // set the classLoader field in the java_lang_Class instance
-    assert(class_loader() == k->class_loader(), "should be same");
+    assert(oopDesc::equals(class_loader(), k->class_loader()), "should be same");
     set_class_loader(mirror(), class_loader());
 
     // Setup indirection from klass->mirror last
@@ -837,9 +839,9 @@ BasicType java_lang_Class::primitive_type(oop java_class) {
     // Note: create_basic_type_mirror above initializes ak to a non-null value.
     type = ArrayKlass::cast(ak)->element_type();
   } else {
-    assert(java_class == Universe::void_mirror(), "only valid non-array primitive");
+    assert(oopDesc::equals(java_class, Universe::void_mirror()), "only valid non-array primitive");
   }
-  assert(Universe::java_mirror(type) == java_class, "must be consistent");
+  assert(oopDesc::equals(Universe::java_mirror(type), java_class), "must be consistent");
   return type;
 }
 
@@ -2679,6 +2681,32 @@ void java_lang_ref_SoftReference::set_clock(jlong value) {
   *offset = value;
 }
 
+// Support for java_lang_ref_ReferenceQueue
+
+oop java_lang_ref_ReferenceQueue::NULL_queue() {
+  InstanceKlass* ik = InstanceKlass::cast(SystemDictionary::ReferenceQueue_klass());
+  oop mirror = ik->java_mirror();
+  return mirror->obj_field(static_NULL_queue_offset);
+}
+
+oop java_lang_ref_ReferenceQueue::ENQUEUED_queue() {
+  InstanceKlass* ik = InstanceKlass::cast(SystemDictionary::ReferenceQueue_klass());
+  oop mirror = ik->java_mirror();
+  return mirror->obj_field(static_ENQUEUED_queue_offset);
+}
+
+void java_lang_ref_ReferenceQueue::compute_offsets() {
+  Klass* k = SystemDictionary::ReferenceQueue_klass();
+  compute_offset(static_NULL_queue_offset,
+                 k,
+                 vmSymbols::referencequeue_null_name(),
+                 vmSymbols::referencequeue_signature());
+  compute_offset(static_ENQUEUED_queue_offset,
+                 k,
+                 vmSymbols::referencequeue_enqueued_name(),
+                 vmSymbols::referencequeue_signature());
+}
+
 // Support for java_lang_invoke_DirectMethodHandle
 
 int java_lang_invoke_DirectMethodHandle::_member_offset;
@@ -2853,12 +2881,12 @@ void java_lang_invoke_MemberName::set_vmindex(oop mname, intptr_t index) {
 }
 
 bool java_lang_invoke_MemberName::equals(oop mn1, oop mn2) {
-  if (mn1 == mn2) {
+  if (oopDesc::equals(mn1, mn2)) {
      return true;
   }
   return (vmtarget(mn1) == vmtarget(mn2) && flags(mn1) == flags(mn2) &&
           vmindex(mn1) == vmindex(mn2) &&
-          clazz(mn1) == clazz(mn2));
+          oopDesc::equals(clazz(mn1), clazz(mn2)));
 }
 
 oop java_lang_invoke_LambdaForm::vmentry(oop lform) {
@@ -2906,14 +2934,14 @@ Symbol* java_lang_invoke_MethodType::as_signature(oop mt, bool intern_if_not_fou
 }
 
 bool java_lang_invoke_MethodType::equals(oop mt1, oop mt2) {
-  if (mt1 == mt2)
+  if (oopDesc::equals(mt1, mt2))
     return true;
-  if (rtype(mt1) != rtype(mt2))
+  if (! oopDesc::equals(rtype(mt1), rtype(mt2)))
     return false;
   if (ptype_count(mt1) != ptype_count(mt2))
     return false;
   for (int i = ptype_count(mt1) - 1; i >= 0; i--) {
-    if (ptype(mt1, i) != ptype(mt2, i))
+    if (! oopDesc::equals(ptype(mt1, i), ptype(mt2, i)))
       return false;
   }
   return true;
@@ -3037,6 +3065,7 @@ ClassLoaderData** java_lang_ClassLoader::loader_data_addr(oop loader) {
 }
 
 ClassLoaderData* java_lang_ClassLoader::loader_data(oop loader) {
+  loader = oopDesc::bs()->read_barrier(loader);
   return *java_lang_ClassLoader::loader_data_addr(loader);
 }
 
@@ -3065,7 +3094,7 @@ bool java_lang_ClassLoader::isAncestor(oop loader, oop cl) {
   // This loop taken verbatim from ClassLoader.java:
   do {
     acl = parent(acl);
-    if (cl == acl) {
+    if (oopDesc::equals(cl, acl)) {
       return true;
     }
     assert(++loop_count > 0, "loop_count overflow");
@@ -3092,7 +3121,7 @@ bool java_lang_ClassLoader::is_trusted_loader(oop loader) {
 
   oop cl = SystemDictionary::java_system_loader();
   while(cl != NULL) {
-    if (cl == loader) return true;
+    if (oopDesc::equals(cl, loader)) return true;
     cl = parent(cl);
   }
   return false;
@@ -3197,6 +3226,8 @@ int java_lang_ref_Reference::discovered_offset;
 int java_lang_ref_Reference::static_lock_offset;
 int java_lang_ref_Reference::static_pending_offset;
 int java_lang_ref_Reference::number_of_fake_oop_fields;
+int java_lang_ref_ReferenceQueue::static_NULL_queue_offset;
+int java_lang_ref_ReferenceQueue::static_ENQUEUED_queue_offset;
 int java_lang_ref_SoftReference::timestamp_offset;
 int java_lang_ref_SoftReference::static_clock_offset;
 int java_lang_ClassLoader::parent_offset;
@@ -3377,6 +3408,8 @@ void JavaClasses::compute_offsets() {
   }
   if (JDK_Version::is_jdk18x_version())
     java_lang_reflect_Parameter::compute_offsets();
+
+  java_lang_ref_ReferenceQueue::compute_offsets();
 
   // generated interpreter code wants to know about the offsets we just computed:
   AbstractAssembler::update_delayed_values();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -58,6 +58,9 @@
 #include "utilities/events.hpp"
 #ifdef TARGET_ARCH_x86
 # include "vm_version_x86.hpp"
+#endif
+#ifdef TARGET_ARCH_aarch64
+# include "vm_version_aarch64.hpp"
 #endif
 #ifdef TARGET_ARCH_sparc
 # include "vm_version_sparc.hpp"
@@ -136,7 +139,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_ldc(JavaThread* thread, Bytecodes::C
     // The bytecode wrappers aren't GC-safe so construct a new one
     Bytecode_loadconstant ldc2(m, bci(thread));
     oop coop = m->constants()->resolved_references()->obj_at(ldc2.cache_index());
-    assert(result == coop, "expected result for assembly code");
+    assert(oopDesc::equals(result, coop), "expected result for assembly code");
   }
 #endif
   thread->set_vm_result(result);
@@ -398,6 +401,7 @@ IRT_ENTRY(address, InterpreterRuntime::exception_handler_for_exception(JavaThrea
   int                handler_bci;
   int                current_bci = bci(thread);
 
+#ifndef CC_INTERP
   if (thread->frames_to_pop_failed_realloc() > 0) {
     // Allocation of scalar replaced object used in this frame
     // failed. Unconditionally pop the frame.
@@ -413,6 +417,7 @@ IRT_ENTRY(address, InterpreterRuntime::exception_handler_for_exception(JavaThrea
     return Interpreter::remove_activation_entry();
 #endif
   }
+#endif
 
   // Need to do this check first since when _do_not_unlock_if_synchronized
   // is set, we don't want to trigger any classloading which may make calls
@@ -610,7 +615,7 @@ IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorenter(JavaThread* thread, Ba
   if (PrintBiasedLockingStatistics) {
     Atomic::inc(BiasedLocking::slow_path_entry_count_addr());
   }
-  Handle h_obj(thread, elem->obj());
+  Handle h_obj(thread, oopDesc::bs()->write_barrier(elem->obj()));
   assert(Universe::heap()->is_in_reserved_or_null(h_obj()),
          "must be NULL or an object");
   if (UseBiasedLocking) {
@@ -632,7 +637,7 @@ IRT_ENTRY_NO_ASYNC(void, InterpreterRuntime::monitorexit(JavaThread* thread, Bas
 #ifdef ASSERT
   thread->last_frame().interpreter_frame_verify_monitor(elem);
 #endif
-  Handle h_obj(thread, elem->obj());
+  Handle h_obj(thread, oopDesc::bs()->write_barrier(elem->obj()));
   assert(Universe::heap()->is_in_reserved_or_null(h_obj()),
          "must be NULL or an object");
   if (elem == NULL || h_obj()->is_unlocked()) {
@@ -768,7 +773,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invoke(JavaThread* thread, Bytecodes
   // it is not an interface.  The receiver for invokespecial calls within interface
   // methods must be checked for every call.
   InstanceKlass* sender = pool->pool_holder();
-  sender = sender->is_anonymous() ? InstanceKlass::cast(sender->host_klass()) : sender;
+  sender = sender->has_host_klass() ? InstanceKlass::cast(sender->host_klass()) : sender;
 
   switch (info.call_kind()) {
   case CallInfo::direct_call:
@@ -786,6 +791,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invoke(JavaThread* thread, Bytecodes
   case CallInfo::itable_call:
     cache_entry(thread)->set_itable_call(
       bytecode,
+      info.resolved_klass(),
       info.resolved_method(),
       info.itable_index());
     break;
@@ -1274,7 +1280,7 @@ IRT_ENTRY(void, InterpreterRuntime::prepare_native_call(JavaThread* thread, Meth
   // preparing the same method will be sure to see non-null entry & mirror.
 IRT_END
 
-#if defined(IA32) || defined(AMD64) || defined(ARM)
+#if defined(IA32) || defined(AMD64) || defined(ARM) || defined(AARCH64)
 IRT_LEAF(void, InterpreterRuntime::popframe_move_outgoing_args(JavaThread* thread, void* src_address, void* dest_address))
   if (src_address == dest_address) {
     return;

@@ -1513,6 +1513,29 @@ void LIR_Assembler::emit_opBranch(LIR_OpBranch* op) {
   }
 }
 
+#if INCLUDE_ALL_GCS
+void LIR_Assembler::emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* op) {
+  Label done;
+  Register obj = op->in_opr()->as_register();
+  Register res = op->result_opr()->as_register();
+
+  if (res != obj) {
+    __ mov(res, obj);
+  }
+
+  // Check for null.
+  if (op->need_null_check()) {
+    __ testptr(res, res);
+    __ jcc(Assembler::zero, done);
+  }
+
+  __ shenandoah_write_barrier(res);
+
+  __ bind(done);
+
+}
+#endif
+
 void LIR_Assembler::emit_opConvert(LIR_OpConvert* op) {
   LIR_Opr src  = op->in_opr();
   LIR_Opr dest = op->result_opr();
@@ -1998,21 +2021,43 @@ void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
     if ( op->code() == lir_cas_obj) {
 #ifdef _LP64
       if (UseCompressedOops) {
-        __ encode_heap_oop(cmpval);
-        __ mov(rscratch1, newval);
-        __ encode_heap_oop(rscratch1);
-        if (os::is_MP()) {
-          __ lock();
+#if INCLUDE_ALL_GCS
+        if (UseShenandoahGC && ShenandoahCASBarrier) {
+          Register tmp1 = op->tmp1()->as_register();
+          Register tmp2 = op->tmp2()->as_register();
+
+          __ encode_heap_oop(cmpval);
+          __ mov(rscratch1, newval);
+          __ encode_heap_oop(rscratch1);
+          __ cmpxchg_oop_shenandoah(NULL, Address(addr, 0), cmpval, rscratch1, true, tmp1, tmp2);
+        } else
+#endif
+        {
+          __ encode_heap_oop(cmpval);
+          __ mov(rscratch1, newval);
+          __ encode_heap_oop(rscratch1);
+          if (os::is_MP()) {
+            __ lock();
+          }
+          // cmpval (rax) is implicitly used by this instruction
+          __ cmpxchgl(rscratch1, Address(addr, 0));
         }
-        // cmpval (rax) is implicitly used by this instruction
-        __ cmpxchgl(rscratch1, Address(addr, 0));
       } else
 #endif
       {
-        if (os::is_MP()) {
-          __ lock();
-        }
-        __ cmpxchgptr(newval, Address(addr, 0));
+#if INCLUDE_ALL_GCS
+        if (UseShenandoahGC && ShenandoahCASBarrier) {
+          Register tmp1 = op->tmp1()->as_register();
+          Register tmp2 = op->tmp2()->as_register();
+          __ cmpxchg_oop_shenandoah(NULL, Address(addr, 0), cmpval, newval, true, tmp1, tmp2);
+        } else
+#endif
+        {
+          if (os::is_MP()) {
+            __ lock();
+          }
+          __ cmpxchgptr(newval, Address(addr, 0));
+	}
       }
     } else {
       assert(op->code() == lir_cas_int, "lir_cas_int expected");
@@ -2701,7 +2746,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
     if (opr2->is_single_cpu()) {
       // cpu register - cpu register
       if (opr1->type() == T_OBJECT || opr1->type() == T_ARRAY) {
-        __ cmpptr(reg1, opr2->as_register());
+        __ cmpoops(reg1, opr2->as_register());
       } else {
         assert(opr2->type() != T_OBJECT && opr2->type() != T_ARRAY, "cmp int, oop?");
         __ cmpl(reg1, opr2->as_register());
@@ -2709,7 +2754,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
     } else if (opr2->is_stack()) {
       // cpu register - stack
       if (opr1->type() == T_OBJECT || opr1->type() == T_ARRAY) {
-        __ cmpptr(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
+        __ cmpoops(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
       } else {
         __ cmpl(reg1, frame_map()->address_for_slot(opr2->single_stack_ix()));
       }
@@ -2726,7 +2771,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
         } else {
 #ifdef _LP64
           __ movoop(rscratch1, o);
-          __ cmpptr(reg1, rscratch1);
+          __ cmpoops(reg1, rscratch1);
 #else
           __ cmpoop(reg1, c->as_jobject());
 #endif // _LP64
@@ -2839,7 +2884,7 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
 #ifdef _LP64
       // %%% Make this explode if addr isn't reachable until we figure out a
       // better strategy by giving noreg as the temp for as_Address
-      __ cmpptr(rscratch1, as_Address(addr, noreg));
+      __ cmpoops(rscratch1, as_Address(addr, noreg));
 #else
       __ cmpoop(as_Address(addr), c->as_jobject());
 #endif // _LP64
@@ -3171,11 +3216,11 @@ void LIR_Assembler::emit_arraycopy(LIR_OpArrayCopy* op) {
       if (PrintC1Statistics) {
         __ incrementl(ExternalAddress((address)&Runtime1::_generic_arraycopystub_cnt));
       }
-#endif
+#endif // PRODUCT
       __ call(RuntimeAddress(copyfunc_addr));
     }
     __ addptr(rsp, 6*wordSize);
-#else
+#else // 
     __ mov(c_rarg4, j_rarg4);
     if (copyfunc_addr == NULL) { // Use C version if stub was not generated
       __ call(RuntimeAddress(C_entry));

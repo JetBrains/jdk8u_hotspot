@@ -27,6 +27,9 @@
 
 #include "runtime/globals.hpp"
 #include "utilities/globalDefinitions.hpp"
+#if INCLUDE_ALL_GCS
+#include "gc_implementation/shenandoah/shenandoah_globals.hpp"
+#endif
 
 // OBJECT hierarchy
 // This hierarchy is a representation hierarchy, i.e. if A is a superclass
@@ -99,10 +102,38 @@ public:
 
   // General access
   oopDesc*  operator->() const        { return obj(); }
-  bool operator==(const oop o) const  { return obj() == o.obj(); }
-  bool operator==(void *p) const      { return obj() == p; }
-  bool operator!=(const volatile oop o) const  { return obj() != o.obj(); }
-  bool operator!=(void *p) const      { return obj() != p; }
+  bool operator==(const oop o) const  {
+#if INCLUDE_ALL_GCS
+    if (VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+#endif
+    return obj() == o.obj();
+  }
+  bool operator==(void *p) const      {
+#if INCLUDE_ALL_GCS
+    if (p != NULL && VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+#endif
+    return obj() == p;
+  }
+  bool operator!=(const volatile oop o) const  {
+#if INCLUDE_ALL_GCS
+    if (VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+#endif
+    return obj() != o.obj();
+  }
+  bool operator!=(void *p) const      {
+#if INCLUDE_ALL_GCS
+    if (p != NULL && VerifyStrictOopOperations) {
+      ShouldNotReachHere();
+    }
+#endif
+    return obj() != p;
+  }
 
   bool operator<(oop o) const         { return obj() < o.obj(); }
   bool operator>(oop o) const         { return obj() > o.obj(); }

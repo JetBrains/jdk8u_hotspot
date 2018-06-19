@@ -57,6 +57,10 @@
 # include "nativeInst_x86.hpp"
 # include "vmreg_x86.inline.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "nativeInst_aarch64.hpp"
+# include "vmreg_aarch64.inline.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "nativeInst_sparc.hpp"
 # include "vmreg_sparc.inline.hpp"
@@ -111,7 +115,7 @@ void SafepointSynchronize::begin() {
     // In the future we should investigate whether CMS can use the
     // more-general mechanism below.  DLD (01/05).
     ConcurrentMarkSweepThread::synchronize(false);
-  } else if (UseG1GC) {
+  } else if (UseG1GC || (UseShenandoahGC && UseStringDeduplication)) {
     SuspendibleThreadSet::synchronize();
   }
 #endif // INCLUDE_ALL_GCS
@@ -487,7 +491,7 @@ void SafepointSynchronize::end() {
   // If there are any concurrent GC threads resume them.
   if (UseConcMarkSweepGC) {
     ConcurrentMarkSweepThread::desynchronize(false);
-  } else if (UseG1GC) {
+  } else if (UseG1GC || (UseShenandoahGC && UseStringDeduplication)) {
     SuspendibleThreadSet::desynchronize();
   }
 #endif // INCLUDE_ALL_GCS

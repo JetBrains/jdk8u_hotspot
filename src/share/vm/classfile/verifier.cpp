@@ -48,6 +48,9 @@
 #ifdef TARGET_ARCH_x86
 # include "bytes_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "bytes_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "bytes_sparc.hpp"
 #endif
@@ -1949,9 +1952,11 @@ Klass* ClassVerifier::load_class(Symbol* name, TRAPS) {
   oop loader = current_class()->class_loader();
   oop protection_domain = current_class()->protection_domain();
 
-  return SystemDictionary::resolve_or_fail(
+  Klass* kls = SystemDictionary::resolve_or_fail(
     name, Handle(THREAD, loader), Handle(THREAD, protection_domain),
     true, CHECK_NULL);
+  current_class()->class_loader_data()->record_dependency(kls, CHECK_NULL);
+  return kls;
 }
 
 bool ClassVerifier::is_protected_access(instanceKlassHandle this_class,

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -43,6 +43,8 @@
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/g1/heapRegion.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #endif // INCLUDE_ALL_GCS
 
 #ifdef PRODUCT
@@ -1155,7 +1157,7 @@ int MacroAssembler::biased_locking_enter(Register lock_reg,
   // the prototype header is no longer biased and we have to revoke
   // the bias on this object.
   testptr(header_reg, markOopDesc::biased_lock_mask_in_place);
-  jccb(Assembler::notZero, try_revoke_bias);
+  jccb_if_possible(Assembler::notZero, try_revoke_bias);
 
   // Biasing is still enabled for this data type. See whether the
   // epoch of the current bias is still valid, meaning that the epoch
@@ -1167,7 +1169,7 @@ int MacroAssembler::biased_locking_enter(Register lock_reg,
   // otherwise the manipulations it performs on the mark word are
   // illegal.
   testptr(header_reg, markOopDesc::epoch_mask_in_place);
-  jccb(Assembler::notZero, try_rebias);
+  jccb_if_possible(Assembler::notZero, try_rebias);
 
   // The epoch of the current bias is still valid but we know nothing
   // about the owner; it might be set or it might be clear. Try to
@@ -1780,7 +1782,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
 
     movptr(tmpReg, Address(objReg, 0));          // [FETCH]
     testptr(tmpReg, markOopDesc::monitor_value); // inflated vs stack-locked|neutral|biased
-    jccb(Assembler::notZero, IsInflated);
+    jccb_if_possible(Assembler::notZero, IsInflated);
 
     // Attempt stack-locking ...
     orptr (tmpReg, markOopDesc::unlocked_value);
@@ -1871,7 +1873,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
          // Test-And-CAS instead of CAS
          movptr(tmpReg, Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2));   // rax, = m->_owner
          testptr(tmpReg, tmpReg);                   // Locked ?
-         jccb  (Assembler::notZero, DONE_LABEL);
+         jccb_if_possible(Assembler::notZero, DONE_LABEL);
        }
 
        // Appears unlocked - try to swing _owner from null to non-null.
@@ -1887,7 +1889,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
        }
        cmpxchgptr(scrReg, Address(boxReg, ObjectMonitor::owner_offset_in_bytes()-2));
        movptr(Address(scrReg, 0), 3);          // box->_displaced_header = 3
-       jccb  (Assembler::notZero, DONE_LABEL);
+       jccb_if_possible(Assembler::notZero, DONE_LABEL);
        get_thread (scrReg);                    // beware: clobbers ICCs
        movptr(Address(boxReg, ObjectMonitor::owner_offset_in_bytes()-2), scrReg);
        xorptr(boxReg, boxReg);                 // set icc.ZFlag = 1 to indicate success
@@ -1916,7 +1918,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
          // Can suffer RTS->RTO upgrades on shared or cold $ lines
          movptr(tmpReg, Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2));   // rax, = m->_owner
          testptr(tmpReg, tmpReg);                   // Locked ?
-         jccb  (Assembler::notZero, DONE_LABEL);
+         jccb_if_possible(Assembler::notZero, DONE_LABEL);
        }
 
        // Appears unlocked - try to swing _owner from null to non-null.
@@ -1951,7 +1953,7 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
     movptr (boxReg, tmpReg);
     movptr (tmpReg, Address(boxReg, ObjectMonitor::owner_offset_in_bytes()-2));
     testptr(tmpReg, tmpReg);
-    jccb   (Assembler::notZero, DONE_LABEL);
+    jccb_if_possible(Assembler::notZero, DONE_LABEL);
 
     // It's inflated and appears unlocked
     if (os::is_MP()) {
@@ -2069,7 +2071,7 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
       testptr(boxReg, boxReg);
       jccb(Assembler::notZero, L_regular_inflated_unlock);
       xend();
-      jmpb(DONE_LABEL);
+      jmpb_if_possible(DONE_LABEL);
       bind(L_regular_inflated_unlock);
     }
 #endif
@@ -2113,18 +2115,18 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
        orptr(boxReg, Address (tmpReg, ObjectMonitor::recursions_offset_in_bytes()-2));
        orptr(boxReg, Address (tmpReg, ObjectMonitor::EntryList_offset_in_bytes()-2));
        orptr(boxReg, Address (tmpReg, ObjectMonitor::cxq_offset_in_bytes()-2));
-       jccb  (Assembler::notZero, DONE_LABEL);
+       jccb_if_possible(Assembler::notZero, DONE_LABEL);
        movptr(Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2), NULL_WORD);
-       jmpb  (DONE_LABEL);
+       jmpb_if_possible(DONE_LABEL);
     } else {
        xorptr(boxReg, Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2));
        orptr(boxReg, Address (tmpReg, ObjectMonitor::recursions_offset_in_bytes()-2));
-       jccb  (Assembler::notZero, DONE_LABEL);
+       jccb_if_possible(Assembler::notZero, DONE_LABEL);
        movptr(boxReg, Address (tmpReg, ObjectMonitor::EntryList_offset_in_bytes()-2));
        orptr(boxReg, Address (tmpReg, ObjectMonitor::cxq_offset_in_bytes()-2));
-       jccb  (Assembler::notZero, CheckSucc);
+       jccb_if_possible(Assembler::notZero, CheckSucc);
        movptr(Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2), NULL_WORD);
-       jmpb  (DONE_LABEL);
+       jmpb_if_possible(DONE_LABEL);
     }
 
     // The Following code fragment (EmitSync & 65536) improves the performance of
@@ -2196,11 +2198,11 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
 
        bind  (LGoSlowPath);
        orptr(boxReg, 1);                      // set ICC.ZF=0 to indicate failure
-       jmpb  (DONE_LABEL);
+       jmpb_if_possible(DONE_LABEL);
 
        bind  (LSuccess);
        xorptr(boxReg, boxReg);                 // set ICC.ZF=1 to indicate success
-       jmpb  (DONE_LABEL);
+       jmpb_if_possible(DONE_LABEL);
     }
 
     bind (Stacked);
@@ -2229,12 +2231,12 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
     movptr(boxReg, Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2));
     xorptr(boxReg, r15_thread);
     orptr (boxReg, Address (tmpReg, ObjectMonitor::recursions_offset_in_bytes()-2));
-    jccb  (Assembler::notZero, DONE_LABEL);
+    jccb_if_possible(Assembler::notZero, DONE_LABEL);
     movptr(boxReg, Address (tmpReg, ObjectMonitor::cxq_offset_in_bytes()-2));
     orptr (boxReg, Address (tmpReg, ObjectMonitor::EntryList_offset_in_bytes()-2));
     jccb  (Assembler::notZero, CheckSucc);
     movptr(Address (tmpReg, ObjectMonitor::owner_offset_in_bytes()-2), (int32_t)NULL_WORD);
-    jmpb  (DONE_LABEL);
+    jmpb_if_possible(DONE_LABEL);
 
     if ((EmitSync & 65536) == 0) {
       Label LSuccess, LGoSlowPath ;
@@ -2261,11 +2263,11 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
 
       bind  (LGoSlowPath);
       orl   (boxReg, 1);                      // set ICC.ZF=0 to indicate failure
-      jmpb  (DONE_LABEL);
+      jmpb_if_possible(DONE_LABEL);
 
       bind  (LSuccess);
       testl (boxReg, 0);                      // set ICC.ZF=1 to indicate success
-      jmpb  (DONE_LABEL);
+      jmpb_if_possible(DONE_LABEL);
     }
 
     bind  (Stacked);
@@ -3854,6 +3856,103 @@ void MacroAssembler::serialize_memory(Register thread, Register tmp) {
   movl(as_Address(ArrayAddress(page, index)), tmp);
 }
 
+// Special Shenandoah CAS implementation that handles false negatives
+// due to concurrent evacuation.
+#if INCLUDE_ALL_GCS
+#ifndef _LP64
+void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register oldval, Register newval,
+                              bool exchange,
+                              Register tmp1, Register tmp2) {
+  // Shenandoah has no 32-bit version for this.
+  Unimplemented();
+}
+#else
+void MacroAssembler::cmpxchg_oop_shenandoah(Register res, Address addr, Register oldval, Register newval,
+                              bool exchange,
+                              Register tmp1, Register tmp2) {
+  assert (UseShenandoahGC && ShenandoahCASBarrier, "Should only be used with Shenandoah");
+  assert(oldval == rax, "must be in rax for implicit use in cmpxchg");
+
+  Label retry, done;
+
+  // Remember oldval for retry logic below
+  if (UseCompressedOops) {
+    movl(tmp1, oldval);
+  } else {
+    movptr(tmp1, oldval);
+  }
+
+  // Step 1. Try to CAS with given arguments. If successful, then we are done,
+  // and can safely return.
+  if (os::is_MP()) lock();
+  if (UseCompressedOops) {
+    cmpxchgl(newval, addr);
+  } else {
+    cmpxchgptr(newval, addr);
+  }
+  jcc(Assembler::equal, done, true);
+
+  // Step 2. CAS had failed. This may be a false negative.
+  //
+  // The trouble comes when we compare the to-space pointer with the from-space
+  // pointer to the same object. To resolve this, it will suffice to read both
+  // oldval and the value from memory through the read barriers -- this will give
+  // both to-space pointers. If they mismatch, then it was a legitimate failure.
+  //
+  if (UseCompressedOops) {
+    decode_heap_oop(tmp1);
+  }
+  oopDesc::bs()->interpreter_read_barrier(this, tmp1);
+
+  if (UseCompressedOops) {
+    movl(tmp2, oldval);
+    decode_heap_oop(tmp2);
+  } else {
+    movptr(tmp2, oldval);
+  }
+  oopDesc::bs()->interpreter_read_barrier(this, tmp2);
+
+  cmpptr(tmp1, tmp2);
+  jcc(Assembler::notEqual, done, true);
+
+  // Step 3. Try to CAS again with resolved to-space pointers.
+  //
+  // Corner case: it may happen that somebody stored the from-space pointer
+  // to memory while we were preparing for retry. Therefore, we can fail again
+  // on retry, and so need to do this in loop, always re-reading the failure
+  // witness through the read barrier.
+  bind(retry);
+  if (os::is_MP()) lock();
+  if (UseCompressedOops) {
+    cmpxchgl(newval, addr);
+  } else {
+    cmpxchgptr(newval, addr);
+  }
+  jcc(Assembler::equal, done, true);
+
+  if (UseCompressedOops) {
+    movl(tmp2, oldval);
+    decode_heap_oop(tmp2);
+  } else {
+    movptr(tmp2, oldval);
+  }
+  oopDesc::bs()->interpreter_read_barrier(this, tmp2);
+
+  cmpptr(tmp1, tmp2);
+  jcc(Assembler::equal, retry, true);
+
+  // Step 4. If we need a boolean result out of CAS, check the flag again,
+  // and promote the result. Note that we handle the flag from both the CAS
+  // itself and from the retry loop.
+  bind(done);
+  if (!exchange) {
+    setb(Assembler::equal, res);
+    movzbl(res, res);
+  }
+}
+#endif // INCLUDE_ALL_GCS
+#endif // LP64
+
 // Calls to C land
 //
 // When entering C land, the rbp, & rsp of the last Java frame have to be recorded
@@ -4155,15 +4254,21 @@ void MacroAssembler::g1_write_barrier_pre(Register obj,
   Address buffer(thread, in_bytes(JavaThread::satb_mark_queue_offset() +
                                        PtrQueue::byte_offset_of_buf()));
 
-
-  // Is marking active?
-  if (in_bytes(PtrQueue::byte_width_of_active()) == 4) {
-    cmpl(in_progress, 0);
+  if (UseShenandoahGC) {
+    Address gc_state(thread, in_bytes(JavaThread::gc_state_offset()));
+    testb(gc_state, ShenandoahHeap::MARKING);
+    jcc(Assembler::zero, done);
   } else {
-    assert(in_bytes(PtrQueue::byte_width_of_active()) == 1, "Assumption");
-    cmpb(in_progress, 0);
+    assert(UseG1GC, "Should be");
+    // Is marking active?
+    if (in_bytes(PtrQueue::byte_width_of_active()) == 4) {
+      cmpl(in_progress, 0);
+    } else {
+      assert(in_bytes(PtrQueue::byte_width_of_active()) == 1, "Assumption");
+      cmpb(in_progress, 0);
+    }
+    jcc(Assembler::equal, done);
   }
-  jcc(Assembler::equal, done);
 
   // Do we need to load the previous value?
   if (obj != noreg) {
@@ -4246,6 +4351,13 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
   assert(thread == r15_thread, "must be");
 #endif // _LP64
 
+  if (UseShenandoahGC) {
+    // No need for this in Shenandoah.
+    return;
+  }
+
+  assert(UseG1GC, "expect G1 GC");
+
   Address queue_index(thread, in_bytes(JavaThread::dirty_card_queue_offset() +
                                        PtrQueue::byte_offset_of_index()));
   Address buffer(thread, in_bytes(JavaThread::dirty_card_queue_offset() +
@@ -4325,6 +4437,46 @@ void MacroAssembler::g1_write_barrier_post(Register store_addr,
 
   bind(done);
 }
+
+#ifndef _LP64
+void MacroAssembler::shenandoah_write_barrier(Register dst) {
+  Unimplemented();
+}
+#else
+void MacroAssembler::shenandoah_write_barrier(Register dst) {
+  assert(UseShenandoahGC && ShenandoahWriteBarrier, "Should be enabled");
+
+  Label done;
+
+  Address gc_state(r15_thread, in_bytes(JavaThread::gc_state_offset()));
+
+  // Check for heap stability
+  cmpb(gc_state, 0);
+  jccb(Assembler::zero, done);
+
+  // Heap is unstable, need to perform the read-barrier even if WB is inactive
+  if (ShenandoahWriteBarrierRB) {
+    movptr(dst, Address(dst, BrooksPointer::byte_offset()));
+  }
+
+  // Check for evacuation-in-progress and jump to WB slow-path if needed
+  testb(gc_state, ShenandoahHeap::EVACUATION);
+  jccb(Assembler::zero, done);
+
+  if (dst != rax) {
+    xchgptr(dst, rax); // Move obj into rax and save rax into obj.
+  }
+
+  assert(StubRoutines::x86::shenandoah_wb() != NULL, "need write barrier stub");
+  call(RuntimeAddress(CAST_FROM_FN_PTR(address, StubRoutines::x86::shenandoah_wb())));
+
+  if (dst != rax) {
+    xchgptr(rax, dst); // Swap back obj with rax.
+  }
+
+  bind(done);
+}
+#endif // _LP64
 
 #endif // INCLUDE_ALL_GCS
 //////////////////////////////////////////////////////////////////////////////////
@@ -4422,10 +4574,15 @@ void MacroAssembler::tlab_allocate(Register obj,
 
   NOT_LP64(get_thread(thread));
 
+  uint oop_extra_words = Universe::heap()->oop_extra_words();
+
   movptr(obj, Address(thread, JavaThread::tlab_top_offset()));
   if (var_size_in_bytes == noreg) {
-    lea(end, Address(obj, con_size_in_bytes));
+    lea(end, Address(obj, con_size_in_bytes + oop_extra_words * HeapWordSize));
   } else {
+    if (oop_extra_words > 0) {
+      addptr(var_size_in_bytes, oop_extra_words * HeapWordSize);
+    }
     lea(end, Address(obj, var_size_in_bytes, Address::times_1));
   }
   cmpptr(end, Address(thread, JavaThread::tlab_end_offset()));
@@ -4433,6 +4590,8 @@ void MacroAssembler::tlab_allocate(Register obj,
 
   // update the tlab top pointer
   movptr(Address(thread, JavaThread::tlab_top_offset()), end);
+
+  Universe::heap()->compile_prepare_oop(this, obj);
 
   // recover var_size_in_bytes if necessary
   if (var_size_in_bytes == end) {
@@ -4581,65 +4740,9 @@ void MacroAssembler::incr_allocated_bytes(Register thread,
 void MacroAssembler::fp_runtime_fallback(address runtime_entry, int nb_args, int num_fpu_regs_in_use) {
   pusha();
 
+  save_vector_registers();
+
   // if we are coming from c1, xmm registers may be live
-  int off = 0;
-  if (UseSSE == 1)  {
-    subptr(rsp, sizeof(jdouble)*8);
-    movflt(Address(rsp,off++*sizeof(jdouble)),xmm0);
-    movflt(Address(rsp,off++*sizeof(jdouble)),xmm1);
-    movflt(Address(rsp,off++*sizeof(jdouble)),xmm2);
-    movflt(Address(rsp,off++*sizeof(jdouble)),xmm3);
-    movflt(Address(rsp,off++*sizeof(jdouble)),xmm4);
-    movflt(Address(rsp,off++*sizeof(jdouble)),xmm5);
-    movflt(Address(rsp,off++*sizeof(jdouble)),xmm6);
-    movflt(Address(rsp,off++*sizeof(jdouble)),xmm7);
-  } else if (UseSSE >= 2)  {
-#ifdef COMPILER2
-    if (MaxVectorSize > 16) {
-      assert(UseAVX > 0, "256bit vectors are supported only with AVX");
-      // Save upper half of YMM registes
-      subptr(rsp, 16 * LP64_ONLY(16) NOT_LP64(8));
-      vextractf128h(Address(rsp,  0),xmm0);
-      vextractf128h(Address(rsp, 16),xmm1);
-      vextractf128h(Address(rsp, 32),xmm2);
-      vextractf128h(Address(rsp, 48),xmm3);
-      vextractf128h(Address(rsp, 64),xmm4);
-      vextractf128h(Address(rsp, 80),xmm5);
-      vextractf128h(Address(rsp, 96),xmm6);
-      vextractf128h(Address(rsp,112),xmm7);
-#ifdef _LP64
-      vextractf128h(Address(rsp,128),xmm8);
-      vextractf128h(Address(rsp,144),xmm9);
-      vextractf128h(Address(rsp,160),xmm10);
-      vextractf128h(Address(rsp,176),xmm11);
-      vextractf128h(Address(rsp,192),xmm12);
-      vextractf128h(Address(rsp,208),xmm13);
-      vextractf128h(Address(rsp,224),xmm14);
-      vextractf128h(Address(rsp,240),xmm15);
-#endif
-    }
-#endif
-    // Save whole 128bit (16 bytes) XMM regiters
-    subptr(rsp, 16 * LP64_ONLY(16) NOT_LP64(8));
-    movdqu(Address(rsp,off++*16),xmm0);
-    movdqu(Address(rsp,off++*16),xmm1);
-    movdqu(Address(rsp,off++*16),xmm2);
-    movdqu(Address(rsp,off++*16),xmm3);
-    movdqu(Address(rsp,off++*16),xmm4);
-    movdqu(Address(rsp,off++*16),xmm5);
-    movdqu(Address(rsp,off++*16),xmm6);
-    movdqu(Address(rsp,off++*16),xmm7);
-#ifdef _LP64
-    movdqu(Address(rsp,off++*16),xmm8);
-    movdqu(Address(rsp,off++*16),xmm9);
-    movdqu(Address(rsp,off++*16),xmm10);
-    movdqu(Address(rsp,off++*16),xmm11);
-    movdqu(Address(rsp,off++*16),xmm12);
-    movdqu(Address(rsp,off++*16),xmm13);
-    movdqu(Address(rsp,off++*16),xmm14);
-    movdqu(Address(rsp,off++*16),xmm15);
-#endif
-  }
 
   // Preserve registers across runtime call
   int incoming_argument_and_return_value_offset = -1;
@@ -4705,7 +4808,73 @@ void MacroAssembler::fp_runtime_fallback(address runtime_entry, int nb_args, int
     addptr(rsp, sizeof(jdouble) * nb_args);
   }
 
-  off = 0;
+  restore_vector_registers();
+  popa();
+}
+
+void MacroAssembler::save_vector_registers() {
+  int off = 0;
+  if (UseSSE == 1)  {
+    subptr(rsp, sizeof(jdouble)*8);
+    movflt(Address(rsp,off++*sizeof(jdouble)),xmm0);
+    movflt(Address(rsp,off++*sizeof(jdouble)),xmm1);
+    movflt(Address(rsp,off++*sizeof(jdouble)),xmm2);
+    movflt(Address(rsp,off++*sizeof(jdouble)),xmm3);
+    movflt(Address(rsp,off++*sizeof(jdouble)),xmm4);
+    movflt(Address(rsp,off++*sizeof(jdouble)),xmm5);
+    movflt(Address(rsp,off++*sizeof(jdouble)),xmm6);
+    movflt(Address(rsp,off++*sizeof(jdouble)),xmm7);
+  } else if (UseSSE >= 2)  {
+#ifdef COMPILER2
+    if (MaxVectorSize > 16) {
+      assert(UseAVX > 0, "256bit vectors are supported only with AVX");
+      // Save upper half of YMM registes
+      subptr(rsp, 16 * LP64_ONLY(16) NOT_LP64(8));
+      vextractf128h(Address(rsp,  0),xmm0);
+      vextractf128h(Address(rsp, 16),xmm1);
+      vextractf128h(Address(rsp, 32),xmm2);
+      vextractf128h(Address(rsp, 48),xmm3);
+      vextractf128h(Address(rsp, 64),xmm4);
+      vextractf128h(Address(rsp, 80),xmm5);
+      vextractf128h(Address(rsp, 96),xmm6);
+      vextractf128h(Address(rsp,112),xmm7);
+#ifdef _LP64
+      vextractf128h(Address(rsp,128),xmm8);
+      vextractf128h(Address(rsp,144),xmm9);
+      vextractf128h(Address(rsp,160),xmm10);
+      vextractf128h(Address(rsp,176),xmm11);
+      vextractf128h(Address(rsp,192),xmm12);
+      vextractf128h(Address(rsp,208),xmm13);
+      vextractf128h(Address(rsp,224),xmm14);
+      vextractf128h(Address(rsp,240),xmm15);
+#endif
+    }
+#endif
+    // Save whole 128bit (16 bytes) XMM regiters
+    subptr(rsp, 16 * LP64_ONLY(16) NOT_LP64(8));
+    movdqu(Address(rsp,off++*16),xmm0);
+    movdqu(Address(rsp,off++*16),xmm1);
+    movdqu(Address(rsp,off++*16),xmm2);
+    movdqu(Address(rsp,off++*16),xmm3);
+    movdqu(Address(rsp,off++*16),xmm4);
+    movdqu(Address(rsp,off++*16),xmm5);
+    movdqu(Address(rsp,off++*16),xmm6);
+    movdqu(Address(rsp,off++*16),xmm7);
+#ifdef _LP64
+    movdqu(Address(rsp,off++*16),xmm8);
+    movdqu(Address(rsp,off++*16),xmm9);
+    movdqu(Address(rsp,off++*16),xmm10);
+    movdqu(Address(rsp,off++*16),xmm11);
+    movdqu(Address(rsp,off++*16),xmm12);
+    movdqu(Address(rsp,off++*16),xmm13);
+    movdqu(Address(rsp,off++*16),xmm14);
+    movdqu(Address(rsp,off++*16),xmm15);
+#endif
+  }
+}
+
+void MacroAssembler::restore_vector_registers() {
+  int off = 0;
   if (UseSSE == 1)  {
     movflt(xmm0, Address(rsp,off++*sizeof(jdouble)));
     movflt(xmm1, Address(rsp,off++*sizeof(jdouble)));
@@ -4762,7 +4931,6 @@ void MacroAssembler::fp_runtime_fallback(address runtime_entry, int nb_args, int
     }
 #endif
   }
-  popa();
 }
 
 static const double     pi_4 =  0.7853981633974483;
@@ -4853,8 +5021,13 @@ void MacroAssembler::lookup_interface_method(Register recv_klass,
                                              RegisterOrConstant itable_index,
                                              Register method_result,
                                              Register scan_temp,
-                                             Label& L_no_such_interface) {
-  assert_different_registers(recv_klass, intf_klass, method_result, scan_temp);
+                                             Label& L_no_such_interface,
+                                             bool return_method) {
+  assert_different_registers(recv_klass, intf_klass, scan_temp);
+  assert_different_registers(method_result, intf_klass, scan_temp);
+  assert(recv_klass != method_result || !return_method,
+         "recv_klass can be destroyed when method isn't needed");
+
   assert(itable_index.is_constant() || itable_index.as_register() == method_result,
          "caller must use same register for non-constant itable index as for method");
 
@@ -4876,9 +5049,11 @@ void MacroAssembler::lookup_interface_method(Register recv_klass,
     round_to(scan_temp, BytesPerLong);
   }
 
-  // Adjust recv_klass by scaled itable_index, so we can free itable_index.
-  assert(itableMethodEntry::size() * wordSize == wordSize, "adjust the scaling in the code below");
-  lea(recv_klass, Address(recv_klass, itable_index, Address::times_ptr, itentry_off));
+  if (return_method) {
+    // Adjust recv_klass by scaled itable_index, so we can free itable_index.
+    assert(itableMethodEntry::size() * wordSize == wordSize, "adjust the scaling in the code below");
+    lea(recv_klass, Address(recv_klass, itable_index, Address::times_ptr, itentry_off));
+  }
 
   // for (scan = klass->itable(); scan->interface() != NULL; scan += scan_step) {
   //   if (scan->interface() == intf) {
@@ -4912,9 +5087,11 @@ void MacroAssembler::lookup_interface_method(Register recv_klass,
 
   bind(found_method);
 
-  // Got a hit.
-  movl(scan_temp, Address(scan_temp, itableOffsetEntry::offset_offset_in_bytes()));
-  movptr(method_result, Address(recv_klass, scan_temp, Address::times_1));
+  if (return_method) {
+    // Got a hit.
+    movl(scan_temp, Address(scan_temp, itableOffsetEntry::offset_offset_in_bytes()));
+    movptr(method_result, Address(recv_klass, scan_temp, Address::times_1));
+  }
 }
 
 
@@ -5189,6 +5366,22 @@ void MacroAssembler::verify_oop(Register reg, const char* s) {
   BLOCK_COMMENT("} verify_oop");
 }
 
+#if INCLUDE_ALL_GCS
+void MacroAssembler::in_heap_check(Register raddr, Register tmp, Label& done) {
+  ShenandoahHeap *h = (ShenandoahHeap *)Universe::heap();
+
+  HeapWord* heap_base = (HeapWord*) h->base();
+  HeapWord* last_region_end = heap_base + (ShenandoahHeapRegion::region_size_bytes() / HeapWordSize) * h->num_regions();
+  guarantee(heap_base < last_region_end, err_msg("sanity: %p < %p", heap_base, last_region_end));
+  movptr(tmp, (intptr_t) heap_base);
+  cmpptr(raddr, tmp);
+  jcc(Assembler::below, done);
+  movptr(tmp, (intptr_t) last_region_end);
+  cmpptr(raddr, tmp);
+  jcc(Assembler::aboveEqual, done);
+
+}
+#endif
 
 RegisterOrConstant MacroAssembler::delayed_value_impl(intptr_t* delayed_value_addr,
                                                       Register tmp,
@@ -6850,7 +7043,11 @@ void MacroAssembler::char_arrays_equals(bool is_array_equ, Register ary1, Regist
   int base_offset    = arrayOopDesc::base_offset_in_bytes(T_CHAR);
 
   // Check the input args
-  cmpptr(ary1, ary2);
+  if (is_array_equ) {
+    cmpoops(ary1, ary2);
+  } else {
+    cmpptr(ary1, ary2);
+  }
   jcc(Assembler::equal, TRUE_LABEL);
 
   if (is_array_equ) {
@@ -8531,4 +8728,24 @@ SkipIfEqual::SkipIfEqual(
 
 SkipIfEqual::~SkipIfEqual() {
   _masm->bind(_label);
+}
+
+void MacroAssembler::cmpoops(Register src1, Register src2) {
+  cmpptr(src1, src2);
+  oopDesc::bs()->asm_acmp_barrier(this, src1, src2);
+}
+
+void MacroAssembler::cmpoops(Register src1, Address src2) {
+  cmpptr(src1, src2);
+#if INCLUDE_ALL_GCS
+  if (UseShenandoahGC && ShenandoahAcmpBarrier) {
+    Label done;
+    jccb(Assembler::equal, done);
+    movptr(rscratch2, src2);
+    oopDesc::bs()->interpreter_read_barrier(this, src1);
+    oopDesc::bs()->interpreter_read_barrier(this, rscratch2);
+    cmpptr(src1, rscratch2);
+    bind(done);
+  }
+#endif
 }

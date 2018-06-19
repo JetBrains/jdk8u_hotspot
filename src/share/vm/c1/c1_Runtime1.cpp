@@ -58,6 +58,9 @@
 #include "utilities/copy.hpp"
 #include "utilities/events.hpp"
 
+#ifdef BUILTIN_SIM
+#include "../../../../../../simulator/simulator.hpp"
+#endif
 
 // Implementation of StubAssembler
 
@@ -187,6 +190,23 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
   StubAssembler* sasm = new StubAssembler(&code, name_for(id), id);
   // generate code for runtime stub
   OopMapSet* oop_maps;
+#ifdef BUILTIN_SIM
+    AArch64Simulator *simulator = AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck);
+  if (NotifySimulator) {
+    size_t len = 65536;
+    char *name = new char[len];
+
+    // tell the sim about the new stub code
+    strncpy(name, name_for(id), len);
+    // replace spaces with underscore so we can write to file and reparse
+    for (char *p = strpbrk(name, " "); p; p = strpbrk(p, " ")) {
+      *p = '_';
+    }
+    unsigned char *base = buffer_blob->code_begin();
+    simulator->notifyCompile(name, base);
+//    delete[] name;
+  }
+#endif
   oop_maps = generate_code_for(id, sasm);
   assert(oop_maps == NULL || sasm->frame_size() != no_frame_size,
          "if stub has an oop map it must have a valid frame size");
@@ -210,6 +230,7 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
     // All other stubs should have oopmaps
     default:
       assert(oop_maps != NULL, "must have an oopmap");
+      break;
   }
 #endif
 
@@ -217,6 +238,7 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
   sasm->align(BytesPerWord);
   // make sure all code is in code buffer
   sasm->flush();
+
   // create blob - distinguish a few special cases
   CodeBlob* blob = RuntimeStub::new_runtime_stub(name_for(id),
                                                  &code,
@@ -224,6 +246,12 @@ void Runtime1::generate_blob_for(BufferBlob* buffer_blob, StubID id) {
                                                  sasm->frame_size(),
                                                  oop_maps,
                                                  sasm->must_gc_arguments());
+#ifdef BUILTIN_SIM
+  if (NotifySimulator) {
+    unsigned char *base = buffer_blob->code_begin();
+    simulator->notifyRelocate(base, blob->code_begin() - base);
+  }
+#endif
   // install blob
   assert(blob != NULL, "blob must exist");
   _blobs[id] = blob;
@@ -558,7 +586,7 @@ JRT_ENTRY_NO_ASYNC(static address, exception_handler_for_pc_helper(JavaThread* t
     // Update the exception cache only when there didn't happen
     // another exception during the computation of the compiled
     // exception handler.
-    if (continuation != NULL && original_exception() == exception()) {
+    if (continuation != NULL && oopDesc::equals(original_exception(), exception())) {
       nm->add_handler_for_exception_and_pc(exception, pc, continuation);
     }
   }
@@ -800,6 +828,11 @@ static Klass* resolve_field_return_klass(methodHandle caller, int bci, TRAPS) {
 JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_id ))
   NOT_PRODUCT(_patch_code_slowcase_cnt++;)
 
+#ifdef AARCH64
+  // AArch64 does not patch C1-generated code.
+  ShouldNotReachHere();
+#endif
+
   ResourceMark rm(thread);
   RegisterMap reg_map(thread, false);
   frame runtime_frame = thread->last_frame();
@@ -946,7 +979,6 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
   }
 
   // Now copy code back
-
   {
     MutexLockerEx ml_patch (Patching_lock, Mutex::_no_safepoint_check_flag);
     //
@@ -1129,6 +1161,7 @@ JRT_ENTRY(void, Runtime1::patch_code(JavaThread* thread, Runtime1::StubID stub_i
               (stub_id == Runtime1::load_klass_patching_id) ?
                                    relocInfo::metadata_type :
                                    relocInfo::oop_type;
+
             // update relocInfo to metadata
             nmethod* nm = CodeCache::find_nmethod(instr_pc);
             assert(nm != NULL, "invalid nmethod_pc");
@@ -1189,6 +1222,7 @@ JRT_END
 // completes we can check for deoptimization. This simplifies the
 // assembly code in the cpu directories.
 //
+#ifndef TARGET_ARCH_aarch64
 int Runtime1::move_klass_patching(JavaThread* thread) {
 //
 // NOTE: we are still in Java
@@ -1273,7 +1307,7 @@ int Runtime1::access_field_patching(JavaThread* thread) {
 
   return caller_is_deopted();
 JRT_END
-
+#endif
 
 JRT_LEAF(void, Runtime1::trace_block_entry(jint block_id))
   // for now we just print out the block id
@@ -1332,6 +1366,10 @@ JRT_LEAF(int, Runtime1::arraycopy(oopDesc* src, int src_pos, oopDesc* dst, int d
   if ((unsigned int) arrayOop(dst)->length() < (unsigned int)dst_pos + (unsigned int)length) return ac_failed;
 
   if (length == 0) return ac_ok;
+
+  oopDesc::bs()->read_barrier(src);
+  oopDesc::bs()->write_barrier(dst);
+
   if (src->is_typeArray()) {
     Klass* klass_oop = src->klass();
     if (klass_oop != dst->klass()) return ac_failed;

@@ -96,6 +96,7 @@ needs_jdk = \
   runtime/XCheckJniJsig/XCheckJSig.java \
   serviceability/attach/AttachWithStalePidFile.java \
   serviceability/sa/jmap-hprof/JMapHProfLargeHeapTest.java \
+  serviceability/dcmd/DynLibDcmdTest.java \
   testlibrary_tests/
 
 
@@ -134,6 +135,25 @@ hotspot_compiler = \
 hotspot_gc = \
   sanity/ExecuteInternalVMTests.java \
   -gc/g1/TestGreyReclaimedHumongousObjects.java
+
+hotspot_tier1_gc_shenandoah = \
+  gc/shenandoah/options/ \
+  gc/shenandoah/compiler/ \
+  gc/shenandoah/mxbeans/ \
+  gc/shenandoah/TestSmallHeap.java \
+  gc/shenandoah/oom/
+
+hotspot_tier2_gc_shenandoah = \
+  :hotspot_tier1_gc_shenandoah \
+  gc/arguments/TestUseCompressedOopsErgo.java \
+  gc/arguments/TestAlignmentToUseLargePages.java \
+  gc/logging/TestGCId.java \
+  gc/metaspace/TestMetaspacePerfCounters.java \
+  gc/startup_warnings/TestShenandoah.java \
+  gc/shenandoah/
+
+hotspot_tier3_gc_shenandoah = \
+  :hotspot_tier2_gc_shenandoah
 
 hotspot_runtime = \
   sanity/ExecuteInternalVMTests.java

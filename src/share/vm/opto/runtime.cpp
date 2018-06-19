@@ -34,6 +34,7 @@
 #include "compiler/compileBroker.hpp"
 #include "compiler/compilerOracle.hpp"
 #include "compiler/oopMap.hpp"
+#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/g1/g1SATBCardTableModRefBS.hpp"
 #include "gc_implementation/g1/heapRegion.hpp"
 #include "gc_interface/collectedHeap.hpp"
@@ -74,6 +75,8 @@
 # include "adfiles/ad_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "adfiles/ad_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "adfiles/ad_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -561,6 +564,31 @@ const TypeFunc *OptoRuntime::g1_wb_post_Type() {
   return TypeFunc::make(domain, range);
 }
 
+const TypeFunc *OptoRuntime::shenandoah_clone_barrier_Type() {
+  const Type **fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // original field value
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(0);
+  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+0, fields);
+
+  return TypeFunc::make(domain, range);
+}
+
+const TypeFunc *OptoRuntime::shenandoah_write_barrier_Type() {
+  const Type **fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // original field value
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL;
+  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  return TypeFunc::make(domain, range);
+}
+
 const TypeFunc *OptoRuntime::uncommon_trap_Type() {
   // create input type (domain)
   const Type **fields = TypeTuple::fields(1);
@@ -1003,12 +1031,20 @@ const TypeFunc* OptoRuntime::montgomeryMultiply_Type() {
   // create input type (domain)
   int num_args      = 7;
   int argcnt = num_args;
+  if (CCallingConventionRequiresIntsAsLongs) {
+    argcnt++;                           // additional placeholder
+  }
   const Type** fields = TypeTuple::fields(argcnt);
   int argp = TypeFunc::Parms;
   fields[argp++] = TypePtr::NOTNULL;    // a
   fields[argp++] = TypePtr::NOTNULL;    // b
   fields[argp++] = TypePtr::NOTNULL;    // n
-  fields[argp++] = TypeInt::INT;        // len
+  if (CCallingConventionRequiresIntsAsLongs) {
+    fields[argp++] = TypeLong::LONG;    // len
+    fields[argp++] = TypeLong::HALF;    // placeholder
+  } else {
+    fields[argp++] = TypeInt::INT;      // len
+  }
   fields[argp++] = TypeLong::LONG;      // inv
   fields[argp++] = Type::HALF;
   fields[argp++] = TypePtr::NOTNULL;    // result
@@ -1027,11 +1063,19 @@ const TypeFunc* OptoRuntime::montgomerySquare_Type() {
   // create input type (domain)
   int num_args      = 6;
   int argcnt = num_args;
+  if (CCallingConventionRequiresIntsAsLongs) {
+    argcnt++;                           // additional placeholder
+  }
   const Type** fields = TypeTuple::fields(argcnt);
   int argp = TypeFunc::Parms;
   fields[argp++] = TypePtr::NOTNULL;    // a
   fields[argp++] = TypePtr::NOTNULL;    // n
-  fields[argp++] = TypeInt::INT;        // len
+  if (CCallingConventionRequiresIntsAsLongs) {
+    fields[argp++] = TypeLong::LONG;    // len
+    fields[argp++] = TypeLong::HALF;    // placeholder
+  } else {
+    fields[argp++] = TypeInt::INT;      // len
+  }
   fields[argp++] = TypeLong::LONG;      // inv
   fields[argp++] = Type::HALF;
   fields[argp++] = TypePtr::NOTNULL;    // result
@@ -1224,7 +1268,7 @@ JRT_ENTRY_NO_ASYNC(address, OptoRuntime::handle_exception_C_helper(JavaThread* t
         // Update the exception cache only when the unwind was not forced
         // and there didn't happen another exception during the computation of the
         // compiled exception handler.
-        if (!force_unwind && original_exception() == exception()) {
+        if (!force_unwind && oopDesc::equals(original_exception(), exception())) {
           nm->add_handler_for_exception_and_pc(exception,pc,handler_address);
         }
       } else {

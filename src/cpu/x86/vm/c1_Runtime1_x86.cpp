@@ -1615,7 +1615,7 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         // arg0 : previous value of memory
 
         BarrierSet* bs = Universe::heap()->barrier_set();
-        if (bs->kind() != BarrierSet::G1SATBCTLogging) {
+        if (bs->kind() != BarrierSet::G1SATBCTLogging && bs->kind() != BarrierSet::ShenandoahBarrierSet) {
           __ movptr(rax, (int)id);
           __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, unimplemented_entry), rax);
           __ should_not_reach_here();
@@ -1708,6 +1708,12 @@ OopMapSet* Runtime1::generate_code_for(StubID id, StubAssembler* sasm) {
         Address store_addr(rbp, 2*BytesPerWord);
 
         BarrierSet* bs = Universe::heap()->barrier_set();
+        if (bs->kind() == BarrierSet::ShenandoahBarrierSet) {
+          __ movptr(rax, (int)id);
+          __ call_RT(noreg, noreg, CAST_FROM_FN_PTR(address, unimplemented_entry), rax);
+          __ should_not_reach_here();
+          break;
+        }
         CardTableModRefBS* ct = (CardTableModRefBS*)bs;
         assert(sizeof(*ct->byte_map_base) == sizeof(jbyte), "adjust this code");
 

@@ -89,10 +89,6 @@ public:
   // This one should probably be a phase-specific function:
   static bool all_controls_dominate(Node* dom, Node* sub);
 
-  // Find any cast-away of null-ness and keep its control.
-  static  Node *Ideal_common_DU_postCCP( PhaseCCP *ccp, Node* n, Node* adr );
-  virtual Node *Ideal_DU_postCCP( PhaseCCP *ccp );
-
   virtual const class TypePtr *adr_type() const;  // returns bottom_type of address
 
   // Shared code for Ideal methods:
@@ -110,6 +106,12 @@ public:
     return 0;
 #endif
   }
+
+#ifdef ASSERT
+  void set_raw_adr_type(const TypePtr *t) {
+    _adr_type = t;
+  }
+#endif
 
   // Map a load or store opcode to its corresponding store opcode.
   // (Return -1 if unknown.)
@@ -258,6 +260,22 @@ public:
   // Helper function to allow a raw load without control edge for some cases
   static bool is_immutable_value(Node* adr);
 #endif
+
+  virtual bool is_g1_marking_load() const {
+    const int marking_offset = in_bytes(JavaThread::satb_mark_queue_offset() + PtrQueue::byte_offset_of_active());
+    return in(2)->is_AddP() && in(2)->in(2)->Opcode() == Op_ThreadLocal
+      && in(2)->in(3)->is_Con()
+      && in(2)->in(3)->bottom_type()->is_intptr_t()->get_con() == marking_offset;
+  }
+
+  virtual bool is_shenandoah_state_load() const {
+    if (!UseShenandoahGC) return false;
+    const int state_offset = in_bytes(JavaThread::gc_state_offset());
+    return in(2)->is_AddP() && in(2)->in(2)->Opcode() == Op_ThreadLocal
+      && in(2)->in(3)->is_Con()
+      && in(2)->in(3)->bottom_type()->is_intptr_t()->get_con() == state_offset;
+  }
+
 protected:
   const Type* load_array_final_field(const TypeKlassPtr *tkls,
                                      ciKlass* klass) const;
@@ -789,6 +807,9 @@ public:
   virtual const Type *bottom_type() const { return _type; }
   virtual uint ideal_reg() const;
   virtual const class TypePtr *adr_type() const { return _adr_type; }  // returns bottom_type of address
+  void set_adr_type(const TypePtr *t) {
+    _adr_type = t;
+  }
 
   bool result_not_used() const;
 };

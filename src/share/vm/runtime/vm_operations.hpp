@@ -93,10 +93,18 @@
   template(HeapIterateOperation)                  \
   template(ReportJavaOutOfMemory)                 \
   template(JFRCheckpoint)                         \
+  template(ShenandoahFullGC)                      \
+  template(ShenandoahInitMark)                    \
+  template(ShenandoahFinalMarkStartEvac)          \
+  template(ShenandoahFinalEvac)                   \
+  template(ShenandoahInitUpdateRefs)              \
+  template(ShenandoahFinalUpdateRefs)             \
+  template(ShenandoahDegeneratedGC)               \
   template(Exit)                                  \
   template(LinuxDllLoad)                          \
   template(RotateGCLog)                           \
   template(WhiteBoxOperation)                     \
+  template(ClassLoaderStatsOperation)             \
 
 class VM_Operation: public CHeapObj<mtInternal> {
  public:

@@ -62,6 +62,10 @@
 # include "nativeInst_x86.hpp"
 # include "vmreg_x86.inline.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "nativeInst_aarch64.hpp"
+# include "vmreg_aarch64.inline.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "nativeInst_sparc.hpp"
 # include "vmreg_sparc.inline.hpp"
@@ -83,6 +87,10 @@
 #endif
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
+
+#ifdef BUILTIN_SIM
+#include "../../../../../../simulator/simulator.hpp"
+#endif
 
 // Shared stub locations
 RuntimeStub*        SharedRuntime::_wrong_method_blob;
@@ -233,6 +241,12 @@ JRT_END
 // G1 write-barrier post: executed after a pointer store.
 JRT_LEAF(void, SharedRuntime::g1_wb_post(void* card_addr, JavaThread* thread))
   thread->dirty_card_queue().enqueue(card_addr);
+JRT_END
+
+// Shenandoah clone barrier: makes sure that references point to to-space
+// in cloned objects.
+JRT_LEAF(void, SharedRuntime::shenandoah_clone_barrier(oopDesc* obj))
+  oopDesc::bs()->write_region(MemRegion((HeapWord*) obj, obj->size()));
 JRT_END
 
 #endif // INCLUDE_ALL_GCS
@@ -1871,7 +1885,7 @@ int SharedRuntime::_monitor_exit_ctr=0;
 #endif
 // Handles the uncommon cases of monitor unlocking in compiled code
 JRT_LEAF(void, SharedRuntime::complete_monitor_unlocking_C(oopDesc* _obj, BasicLock* lock))
-   oop obj(_obj);
+  oop obj(_obj);
 #ifndef PRODUCT
   _monitor_exit_ctr++;              // monitor exit slow
 #endif
@@ -2493,7 +2507,25 @@ AdapterHandlerEntry* AdapterHandlerLibrary::get_adapter(methodHandle method) {
       CompileBroker::handle_full_code_cache();
       return NULL; // Out of CodeCache space
     }
+#ifdef BUILTIN_SIM
+    address old_i2c = entry->get_i2c_entry();
+    address old_c2i = entry->get_c2i_entry();
+    AArch64Simulator *sim =  (NotifySimulator ? AArch64Simulator::get_current(UseSimulatorCache, DisableBCCheck) : NULL);
+#endif
+
     entry->relocate(new_adapter->content_begin());
+
+#ifdef BUILTIN_SIM
+    if (NotifySimulator) {
+      address new_i2c = entry->get_i2c_entry();
+      address new_c2i = entry->get_c2i_entry();
+      long offset = new_i2c - old_i2c;
+      sim->notifyRelocate(old_i2c, offset);
+      offset = new_c2i - old_c2i;
+      sim->notifyRelocate(old_c2i, offset);
+    }
+#endif
+
 #ifndef PRODUCT
     // debugging suppport
     if (PrintAdapterHandlers || PrintStubCode) {
@@ -2808,6 +2840,22 @@ void SharedRuntime::convert_ints_to_longints(int i2l_argcnt, int& in_args_count,
     assert(0, "This should not be needed on this platform");
   }
 }
+
+JRT_LEAF(oopDesc*, SharedRuntime::pin_object(JavaThread* thread, oopDesc* obj))
+  assert(Universe::heap()->supports_object_pinning(), "Why we here?");
+  assert(obj != NULL, "Should not be null");
+  oop o(obj);
+  o = Universe::heap()->pin_object(thread, o);
+  assert(o != NULL, "Should not be null");
+  return o;
+JRT_END
+
+JRT_LEAF(void, SharedRuntime::unpin_object(JavaThread* thread, oopDesc* obj))
+  assert(Universe::heap()->supports_object_pinning(), "Why we here?");
+  assert(obj != NULL, "Should not be null");
+  oop o(obj);
+  Universe::heap()->unpin_object(thread, o);
+JRT_END
 
 // -------------------------------------------------------------------------
 // Java-Java calling convention

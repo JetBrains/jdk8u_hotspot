@@ -197,20 +197,20 @@ public:
   )
 
   inline void move_to_next() {
-    if (_ref == _next) {
+    if (oopDesc::safe_equals(_ref, _next)) {
       // End of the list.
       _ref = NULL;
     } else {
       _ref = _next;
     }
-    assert(_ref != _first_seen, "cyclic ref_list found");
+    assert(! oopDesc::safe_equals(_ref, _first_seen), "cyclic ref_list found");
     NOT_PRODUCT(_processed++);
   }
 };
 
 class ReferenceProcessor : public CHeapObj<mtGC> {
 
- private:
+ public:
   size_t total_count(DiscoveredList lists[]);
 
  protected:
@@ -667,6 +667,10 @@ public:
   // Returns true if a task marks some oops as alive.
   bool marks_oops_alive() const
   { return _marks_oops_alive; }
+
+  bool is_empty() const {
+    return _ref_processor.total_count(_refs_lists) == 0;
+  }
 
 protected:
   ReferenceProcessor& _ref_processor;

@@ -39,6 +39,8 @@
  * @run main/othervm -Xms7M -Xmx9M -XX:+UseConcMarkSweepGC -XX:-UseLargePages TestAlignmentToUseLargePages
  * @run main/othervm -Xms7M -Xmx9M -XX:+UseG1GC -XX:+UseLargePages TestAlignmentToUseLargePages
  * @run main/othervm -Xms7M -Xmx9M -XX:+UseG1GC -XX:-UseLargePages TestAlignmentToUseLargePages
+ * @run main/othervm -Xms7M -Xmx9M -XX:+UseShenandoahGC -XX:+UseLargePages TestAlignmentToUseLargePages
+ * @run main/othervm -Xms7M -Xmx9M -XX:+UseShenandoahGC -XX:-UseLargePages TestAlignmentToUseLargePages
  */
 
 public class TestAlignmentToUseLargePages {

@@ -622,7 +622,7 @@ public:
   // Collect all the interesting edges from a call for use in
   // replacing the call by something else.  Used by macro expansion
   // and the late inlining support.
-  void extract_projections(CallProjections* projs, bool separate_io_proj);
+  void extract_projections(CallProjections* projs, bool separate_io_proj, bool do_asserts = true);
 
   virtual uint match_edge(uint idx) const;
 
@@ -760,6 +760,8 @@ public:
   virtual int   Opcode() const;
   virtual void  calling_convention( BasicType* sig_bt, VMRegPair *parm_regs, uint argcnt ) const;
 
+  bool is_call_to_arraycopystub() const;
+
 #ifndef PRODUCT
   virtual void  dump_spec(outputStream *st) const;
 #endif
@@ -778,6 +780,11 @@ public:
   }
   virtual int   Opcode() const;
   virtual bool        guaranteed_safepoint()  { return false; }
+  virtual bool is_g1_wb_pre_call() const { return entry_point() == CAST_FROM_FN_PTR(address, SharedRuntime::g1_wb_pre); }
+  virtual Node *Ideal(PhaseGVN *phase, bool can_reshape);
+
+  static bool has_only_g1_wb_pre_uses(Node* n);
+
 #ifndef PRODUCT
   virtual void  dump_spec(outputStream *st) const;
 #endif
@@ -894,6 +901,20 @@ public:
 
   // Convenience for initialization->maybe_set_complete(phase)
   bool maybe_set_complete(PhaseGVN* phase);
+
+#ifdef AARCH64
+  // Return true if allocation doesn't escape thread, its escape state
+  // needs be noEscape or ArgEscape. InitializeNode._does_not_escape
+  // is true when its allocation's escape state is noEscape or
+  // ArgEscape. In case allocation's InitializeNode is NULL, check
+  // AlllocateNode._is_non_escaping flag.
+  // AlllocateNode._is_non_escaping is true when its escape state is
+  // noEscape.
+  bool does_not_escape_thread() {
+    InitializeNode* init = NULL;
+    return _is_non_escaping || (((init = initialization()) != NULL) && init->does_not_escape());
+  }
+#endif
 };
 
 //------------------------------AllocateArray---------------------------------

@@ -28,7 +28,6 @@
 #include "jvmtifiles/jvmti.h"
 #include "runtime/atomic.hpp"
 #include "runtime/extendedPC.hpp"
-#include "runtime/handles.hpp"
 #include "utilities/top.hpp"
 #ifdef TARGET_OS_FAMILY_linux
 # include "jvm_linux.h"
@@ -54,6 +53,7 @@
 #endif
 
 class AgentLibrary;
+class methodHandle;
 
 // os defines the interface to operating system; this includes traditional
 // OS services (time, I/O) as well as other functionality with system-
@@ -819,6 +819,9 @@ class os: AllStatic {
 #ifdef TARGET_OS_ARCH_linux_x86
 # include "os_linux_x86.hpp"
 #endif
+#ifdef TARGET_OS_ARCH_linux_aarch64
+# include "os_linux_aarch64.hpp"
+#endif
 #ifdef TARGET_OS_ARCH_linux_sparc
 # include "os_linux_sparc.hpp"
 #endif
@@ -1003,5 +1006,9 @@ class os: AllStatic {
 // It'd also be eligible for inlining on many platforms.
 
 extern "C" int SpinPause();
+#ifdef BUILTIN_SIM
+extern "C" int SafeFetch32(int * adr, int errValue) ;
+extern "C" intptr_t SafeFetchN(intptr_t * adr, intptr_t errValue) ;
+#endif
 
 #endif // SHARE_VM_RUNTIME_OS_HPP

@@ -59,7 +59,7 @@ inline jlong Thread::cooked_allocated_bytes() {
   return allocated_bytes;
 }
 
-#ifdef PPC64
+#if defined(PPC64) || defined (AARCH64)
 inline JavaThreadState JavaThread::thread_state() const    {
   return (JavaThreadState) OrderAccess::load_acquire((volatile jint*)&_thread_state);
 }
@@ -73,5 +73,11 @@ inline void JavaThread::set_done_attaching_via_jni() {
   _jni_attach_state = _attached_via_jni;
   OrderAccess::fence();
 }
+
+#if INCLUDE_ALL_GCS
+char JavaThread::gc_state() const {
+  return _gc_state;
+}
+#endif
 
 #endif // SHARE_VM_RUNTIME_THREAD_INLINE_HPP

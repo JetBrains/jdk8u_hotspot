@@ -36,6 +36,8 @@
 # include "adfiles/ad_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "adfiles/ad_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "adfiles/ad_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -185,6 +187,8 @@ void PhaseCFG::implicit_null_check(Block* block, Node *proj, Node *val, int allo
     case Op_LoadRange:
     case Op_LoadD_unaligned:
     case Op_LoadL_unaligned:
+    case Op_ShenandoahReadBarrier:
+    case Op_ShenandoahWriteBarrier:
       assert(mach->in(2) == val, "should be address");
       break;
     case Op_StoreB:
@@ -402,7 +406,7 @@ void PhaseCFG::implicit_null_check(Block* block, Node *proj, Node *val, int allo
   // Should be DU safe because no edge updates.
   for (DUIterator_Fast jmax, j = best->fast_outs(jmax); j < jmax; j++) {
     Node* n = best->fast_out(j);
-    if( n->is_MachProj() ) {
+    if( n->is_MachProj() || n->Opcode() == Op_ShenandoahWBMemProj) {
       get_block_for_node(n)->find_remove(n);
       block->add_inst(n);
       map_node_to_block(n, block);
@@ -634,9 +638,12 @@ void PhaseCFG::needed_for_next_call(Block* block, Node* this_call, VectorSet& ne
 
 //------------------------------add_call_kills-------------------------------------
 // helper function that adds caller save registers to MachProjNode
-static void add_call_kills(MachProjNode *proj, RegMask& regs, const char* save_policy, bool exclude_soe) {
+static void add_call_kills(MachProjNode *proj, RegMask& regs, const char* save_policy, bool exclude_soe, bool exclude_fp) {
   // Fill in the kill mask for the call
   for( OptoReg::Name r = OptoReg::Name(0); r < _last_Mach_Reg; r=OptoReg::add(r,1) ) {
+    if (exclude_fp && (register_save_type[r] == Op_RegF || register_save_type[r] == Op_RegD)) {
+      continue;
+    }
     if( !regs.Member(r) ) {     // Not already defined by the call
       // Save-on-call register?
       if ((save_policy[r] == 'C') ||
@@ -737,7 +744,12 @@ uint PhaseCFG::sched_call(Block* block, uint node_cnt, Node_List& worklist, Grow
       proj->_rout.OR(Matcher::method_handle_invoke_SP_save_mask());
   }
 
-  add_call_kills(proj, regs, save_policy, exclude_soe);
+  if (UseShenandoahGC && mcall->entry_point() == StubRoutines::shenandoah_wb_C()) {
+    assert(op == Op_CallLeafNoFP, "shenandoah_wb_C should be called with Op_CallLeafNoFP");
+    add_call_kills(proj, regs, save_policy, exclude_soe, true);
+  } else {
+    add_call_kills(proj, regs, save_policy, exclude_soe, false);
+  }
 
   return node_cnt;
 }
@@ -926,7 +938,7 @@ bool PhaseCFG::schedule_local(Block* block, GrowableArray<int>& ready_cnt, Vecto
       map_node_to_block(proj, block);
       block->insert_node(proj, phi_cnt++);
 
-      add_call_kills(proj, regs, _matcher._c_reg_save_policy, false);
+      add_call_kills(proj, regs, _matcher._c_reg_save_policy, false, false);
     }
 
     // Children are now all ready
@@ -954,6 +966,8 @@ bool PhaseCFG::schedule_local(Block* block, GrowableArray<int>& ready_cnt, Vecto
       // If this is the first failure, the sentinel string will "stick"
       // to the Compile object, and the C2Compiler will see it and retry.
       C->record_failure(C2Compiler::retry_no_subsuming_loads());
+    } else {
+      assert(false, "graph should be schedulable");
     }
     // assert( phi_cnt == end_idx(), "did not schedule all" );
     return false;

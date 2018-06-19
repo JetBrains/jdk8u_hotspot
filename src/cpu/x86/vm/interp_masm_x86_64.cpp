@@ -300,6 +300,7 @@ void InterpreterMacroAssembler::load_resolved_reference_at_index(
   movptr(result, Address(result, ConstantPool::resolved_references_offset_in_bytes()));
   // JNIHandles::resolve(obj);
   movptr(result, Address(result, 0));
+  oopDesc::bs()->interpreter_read_barrier_not_null(this, result);
   // Add in the index
   addptr(result, tmp);
   load_heap_oop(result, Address(result, arrayOopDesc::base_offset_in_bytes(T_OBJECT)));
@@ -727,6 +728,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
     assert(lock_offset == 0,
            "displached header must be first word in BasicObjectLock");
 
+    // obj_reg has been checked a few lines up.
     if (os::is_MP()) lock();
     cmpxchgptr(lock_reg, Address(obj_reg, 0));
     if (PrintBiasedLockingStatistics) {

@@ -256,8 +256,11 @@ class Thread: public ThreadShadow {
   friend class GC_locker;
 
   ThreadLocalAllocBuffer _tlab;                 // Thread-local eden
+  ThreadLocalAllocBuffer _gclab;                // Thread-local allocation buffer for GC (e.g. evacuation)
   jlong _allocated_bytes;                       // Cumulative number of bytes allocated on
                                                 // the Java heap
+  jlong _allocated_bytes_gclab;                 // Cumulative number of bytes allocated on
+                                                // the Java heap, in GCLABs
 
   // Thread-local buffer used by MetadataOnStackMark.
   MetadataOnStackBuffer* _metadata_on_stack_buffer;
@@ -268,6 +271,8 @@ class Thread: public ThreadShadow {
 
   int   _vm_operation_started_count;            // VM_Operation support
   int   _vm_operation_completed_count;          // VM_Operation support
+
+  char _oom_during_evac;
 
   ObjectMonitor* _current_pending_monitor;      // ObjectMonitor this thread
                                                 // is waiting to lock
@@ -385,6 +390,14 @@ class Thread: public ThreadShadow {
     clear_suspend_flag(_critical_native_unlock);
   }
 
+  bool is_oom_during_evac() const;
+  void set_oom_during_evac(bool oom);
+
+#ifdef ASSERT
+  bool is_evac_allowed() const;
+  void set_evac_allowed(bool evac_allowed);
+#endif
+
   // Support for Unhandled Oop detection
 #ifdef CHECK_UNHANDLED_OOPS
  private:
@@ -434,14 +447,22 @@ class Thread: public ThreadShadow {
   ThreadLocalAllocBuffer& tlab()                 { return _tlab; }
   void initialize_tlab() {
     if (UseTLAB) {
-      tlab().initialize();
+      tlab().initialize(false);
+      gclab().initialize(true);
     }
   }
+
+  // Thread-Local GC Allocation Buffer (GCLAB) support
+  ThreadLocalAllocBuffer& gclab()                { return _gclab; }
 
   jlong allocated_bytes()               { return _allocated_bytes; }
   void set_allocated_bytes(jlong value) { _allocated_bytes = value; }
   void incr_allocated_bytes(jlong size) { _allocated_bytes += size; }
   inline jlong cooked_allocated_bytes();
+
+  jlong allocated_bytes_gclab()                { return _allocated_bytes_gclab; }
+  void set_allocated_bytes_gclab(jlong value)  { _allocated_bytes_gclab = value; }
+  void incr_allocated_bytes_gclab(jlong size)  { _allocated_bytes_gclab += size; }
 
   TRACE_DATA* trace_data()              { return &_trace_data; }
 
@@ -625,6 +646,10 @@ protected:
   TLAB_FIELD_OFFSET(slow_allocations)
 
 #undef TLAB_FIELD_OFFSET
+
+  static ByteSize gclab_start_offset()         { return byte_offset_of(Thread, _gclab) + ThreadLocalAllocBuffer::start_offset(); }
+  static ByteSize gclab_top_offset()           { return byte_offset_of(Thread, _gclab) + ThreadLocalAllocBuffer::top_offset(); }
+  static ByteSize gclab_end_offset()           { return byte_offset_of(Thread, _gclab) + ThreadLocalAllocBuffer::end_offset(); }
 
   static ByteSize allocated_bytes_offset()       { return byte_offset_of(Thread, _allocated_bytes ); }
 
@@ -965,6 +990,11 @@ class JavaThread: public Thread {
   static DirtyCardQueueSet _dirty_card_queue_set;
 
   void flush_barrier_queues();
+
+  // Support for Shenandoah barriers
+  static char _gc_state_global;
+  char _gc_state;
+
 #endif // INCLUDE_ALL_GCS
 
   friend class VMThread;
@@ -1050,7 +1080,7 @@ class JavaThread: public Thread {
   address last_Java_pc(void)                     { return _anchor.last_Java_pc(); }
 
   // Safepoint support
-#ifndef PPC64
+#if !(defined(PPC64) || defined(AARCH64))
   JavaThreadState thread_state() const           { return _thread_state; }
   void set_thread_state(JavaThreadState s)       { _thread_state = s;    }
 #else
@@ -1381,6 +1411,9 @@ class JavaThread: public Thread {
 #if INCLUDE_ALL_GCS
   static ByteSize satb_mark_queue_offset()       { return byte_offset_of(JavaThread, _satb_mark_queue); }
   static ByteSize dirty_card_queue_offset()      { return byte_offset_of(JavaThread, _dirty_card_queue); }
+
+  static ByteSize gc_state_offset()              { return byte_offset_of(JavaThread, _gc_state); }
+
 #endif // INCLUDE_ALL_GCS
 
   // Returns the jni environment for this thread
@@ -1679,6 +1712,15 @@ public:
   static DirtyCardQueueSet& dirty_card_queue_set() {
     return _dirty_card_queue_set;
   }
+
+  inline char gc_state() const;
+
+private:
+  void set_gc_state(char in_prog);
+
+public:
+  static void set_gc_state_all_threads(char in_prog);
+
 #endif // INCLUDE_ALL_GCS
 
   // This method initializes the SATB and dirty card queues before a
@@ -1707,6 +1749,9 @@ public:
   // Machine dependent stuff
 #ifdef TARGET_OS_ARCH_linux_x86
 # include "thread_linux_x86.hpp"
+#endif
+#ifdef TARGET_OS_ARCH_linux_aarch64
+# include "thread_linux_aarch64.hpp"
 #endif
 #ifdef TARGET_OS_ARCH_linux_sparc
 # include "thread_linux_sparc.hpp"
@@ -1916,6 +1961,7 @@ class Threads: AllStatic {
   static bool includes(JavaThread* p);
   static JavaThread* first()                     { return _thread_list; }
   static void threads_do(ThreadClosure* tc);
+  static void java_threads_do(ThreadClosure* tc);
 
   // Initializes the vm and creates the vm thread
   static jint create_vm(JavaVMInitArgs* args, bool* canTryAgain);

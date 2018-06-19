@@ -73,6 +73,7 @@
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.inline.hpp"
 #include "gc_implementation/parallelScavenge/psPromotionManager.inline.hpp"
 #include "gc_implementation/parallelScavenge/psScavenge.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "oops/oop.pcgc.inline.hpp"
 #endif // INCLUDE_ALL_GCS
 #ifdef COMPILER1
@@ -2628,7 +2629,7 @@ void InstanceKlass::set_source_debug_extension(char* array, int length) {
 }
 
 address InstanceKlass::static_field_addr(int offset) {
-  return (address)(offset + InstanceMirrorKlass::offset_of_static_fields() + cast_from_oop<intptr_t>(java_mirror()));
+  return (address)(offset + InstanceMirrorKlass::offset_of_static_fields() + cast_from_oop<intptr_t>(oopDesc::bs()->write_barrier(java_mirror())));
 }
 
 
@@ -2705,7 +2706,7 @@ bool InstanceKlass::is_same_class_package(oop classloader2, Symbol* classname2) 
 // and classname information is enough to determine a class's package
 bool InstanceKlass::is_same_class_package(oop class_loader1, Symbol* class_name1,
                                           oop class_loader2, Symbol* class_name2) {
-  if (class_loader1 != class_loader2) {
+  if (! oopDesc::equals(class_loader1, class_loader2)) {
     return false;
   } else if (class_name1 == class_name2) {
     return true;                // skip painful bytewise comparison
@@ -3114,6 +3115,23 @@ static void print_vtable(intptr_t* start, int len, outputStream* st) {
 void InstanceKlass::print_on(outputStream* st) const {
   assert(is_klass(), "must be klass");
   Klass::print_on(st);
+
+  st->print(BULLET"primary supers:    ");
+  for (juint i = 0; i < Klass::primary_super_limit(); i++) {
+    if (_primary_supers[i]) {
+      _primary_supers[i]->name()->print_value_on(st);
+      st->print("   ");
+    }
+  }
+  st->cr();
+
+  st->print(BULLET"secondary supers:    ");
+  int cnt = secondary_supers()->length();
+  for (int i = 0; i < cnt; i++) {
+    secondary_supers()->at(i)->print_value_on(st);
+      st->print("   ");
+  }
+  st->cr();
 
   st->print(BULLET"instance size:     %d", size_helper());                        st->cr();
   st->print(BULLET"klass size:        %d", size());                               st->cr();

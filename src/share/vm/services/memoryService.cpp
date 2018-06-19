@@ -46,6 +46,7 @@
 #include "utilities/growableArray.hpp"
 #include "utilities/macros.hpp"
 #if INCLUDE_ALL_GCS
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/concurrentMarkSweep/concurrentMarkSweepGeneration.hpp"
 #include "gc_implementation/g1/g1CollectedHeap.inline.hpp"
 #include "gc_implementation/parNew/parNewGeneration.hpp"
@@ -54,6 +55,7 @@
 #include "gc_implementation/parallelScavenge/psYoungGen.hpp"
 #include "services/g1MemoryPool.hpp"
 #include "services/psMemoryPool.hpp"
+#include "services/shenandoahMemoryPool.hpp"
 #endif // INCLUDE_ALL_GCS
 
 GrowableArray<MemoryPool*>* MemoryService::_pools_list =
@@ -96,6 +98,10 @@ void MemoryService::set_universe_heap(CollectedHeap* heap) {
       add_g1_heap_info(G1CollectedHeap::heap());
       break;
     }
+  case CollectedHeap::ShenandoahHeap : {
+    add_shenandoah_heap_info(ShenandoahHeap::heap());
+    break;
+  }
 #endif // INCLUDE_ALL_GCS
     default: {
       guarantee(false, "Unrecognized kind of heap");
@@ -189,6 +195,24 @@ void MemoryService::add_g1_heap_info(G1CollectedHeap* g1h) {
   add_g1YoungGen_memory_pool(g1h, _major_gc_manager, _minor_gc_manager);
   add_g1OldGen_memory_pool(g1h, _major_gc_manager);
 }
+
+void MemoryService::add_shenandoah_heap_info(ShenandoahHeap* heap) {
+  assert(UseShenandoahGC, "sanity");
+
+  // We reuse the "minor/major" names, even though they make little sense
+  // in Shenandoah. JDK 10+ makes this right, but not JDK 9-.
+  _major_gc_manager = MemoryManager::get_shenandoah_pauses_memory_manager();
+  _minor_gc_manager = MemoryManager::get_shenandoah_cycles_memory_manager();
+  _managers_list->append(_major_gc_manager);
+  _managers_list->append(_minor_gc_manager);
+
+  ShenandoahMemoryPool* pool = new ShenandoahMemoryPool(heap);
+  _pools_list->append(pool);
+
+  _major_gc_manager->add_pool(pool);
+  _minor_gc_manager->add_pool(pool);
+}
+
 #endif // INCLUDE_ALL_GCS
 
 MemoryPool* MemoryService::add_gen(Generation* gen,
@@ -389,6 +413,8 @@ void MemoryService::add_g1OldGen_memory_pool(G1CollectedHeap* g1h,
   mgr->add_pool(old_gen);
   _pools_list->append(old_gen);
 }
+
+
 #endif // INCLUDE_ALL_GCS
 
 void MemoryService::add_code_heap_memory_pool(CodeHeap* heap) {

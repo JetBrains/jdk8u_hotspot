@@ -34,6 +34,7 @@
 #include "opto/regmask.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/runtime.hpp"
+#include "opto/shenandoahSupport.hpp"
 #include "opto/type.hpp"
 #include "opto/vectornode.hpp"
 #include "runtime/atomic.hpp"
@@ -44,6 +45,8 @@
 # include "adfiles/ad_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "adfiles/ad_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "adfiles/ad_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "adfiles/ad_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -79,7 +82,7 @@ Matcher::Matcher()
   _register_save_type(register_save_type),
   _ruleName(ruleName),
   _allocation_started(false),
-  _states_arena(Chunk::medium_size),
+  _states_arena(Chunk::medium_size, mtCompiler),
   _visited(&_states_arena),
   _shared(&_states_arena),
   _dontcare(&_states_arena) {
@@ -1019,6 +1022,9 @@ Node *Matcher::xform( Node *n, int max_stack ) {
             m = n->is_SafePoint() ? match_sfpt(n->as_SafePoint()):match_tree(n);
             if (C->failing())  return NULL;
             if (m == NULL) { Matcher::soft_match_failure(); return NULL; }
+            if (n->is_MemBar() && UseShenandoahGC) {
+              m->as_MachMemBar()->set_adr_type(n->adr_type());
+            }
           } else {                  // Nothing the matcher cares about
             if (n->is_Proj() && n->in(0) != NULL && n->in(0)->is_Multi()) {       // Projections?
               // Convert to machine-dependent projection
@@ -1059,6 +1065,15 @@ Node *Matcher::xform( Node *n, int max_stack ) {
       for (i = oldn->req(); (uint)i < oldn->len(); i++) {
         Node *m = oldn->in(i);
         if (m == NULL) break;
+        // set -1 to call add_prec() instead of set_req() during Step1
+        mstack.push(m, Visit, n, -1);
+      }
+
+      // Handle precedence edges for interior nodes
+      for (i = n->len()-1; (uint)i >= n->req(); i--) {
+        Node *m = n->in(i);
+        if (m == NULL || C->node_arena()->contains(m)) continue;
+        n->rm_prec(i);
         // set -1 to call add_prec() instead of set_req() during Step1
         mstack.push(m, Visit, n, -1);
       }
@@ -1753,6 +1768,14 @@ MachNode *Matcher::ReduceInst( State *s, int rule, Node *&mem ) {
   return ex;
 }
 
+void Matcher::handle_precedence_edges(Node* n, MachNode *mach) {
+  for (uint i = n->req(); i < n->len(); i++) {
+    if (n->in(i) != NULL) {
+      mach->add_prec(n->in(i));
+    }
+  }
+}
+
 void Matcher::ReduceInst_Chain_Rule( State *s, int rule, Node *&mem, MachNode *mach ) {
   // 'op' is what I am expecting to receive
   int op = _leftOp[rule];
@@ -1787,6 +1810,8 @@ void Matcher::ReduceInst_Chain_Rule( State *s, int rule, Node *&mem, MachNode *m
 
 
 uint Matcher::ReduceInst_Interior( State *s, int rule, Node *&mem, MachNode *mach, uint num_opnds ) {
+  handle_precedence_edges(s->_leaf, mach);
+
   if( s->_leaf->is_Load() ) {
     Node *mem2 = s->_leaf->in(MemNode::Memory);
     assert( mem == (Node*)1 || mem == mem2, "multiple Memories being matched at once?" );
@@ -1869,6 +1894,9 @@ void Matcher::ReduceOper( State *s, int rule, Node *&mem, MachNode *mach ) {
     mem = s->_leaf->in(MemNode::Memory);
     debug_only(_mem_node = s->_leaf;)
   }
+
+  handle_precedence_edges(s->_leaf, mach);
+
   if( s->_leaf->in(0) && s->_leaf->req() > 1) {
     if( !mach->in(0) )
       mach->set_req(0,s->_leaf->in(0));
@@ -2128,6 +2156,14 @@ void Matcher::find_shared( Node *n ) {
       case Op_ClearArray:
       case Op_SafePoint:
         mem_op = true;
+        break;
+      case Op_ShenandoahReadBarrier:
+        if (n->in(ShenandoahBarrierNode::ValueIn)->is_DecodeNarrowPtr()) {
+          set_shared(n->in(ShenandoahBarrierNode::ValueIn)->in(1));
+        }
+      case Op_ShenandoahWriteBarrier:
+        mem_op = true;
+        set_shared(n);
         break;
       default:
         if( n->is_Store() ) {

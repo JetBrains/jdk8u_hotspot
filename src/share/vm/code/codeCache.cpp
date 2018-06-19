@@ -338,7 +338,7 @@ void CodeCache::blobs_do(CodeBlobClosure* f) {
 void CodeCache::scavenge_root_nmethods_do(CodeBlobClosure* f) {
   assert_locked_or_safepoint(CodeCache_lock);
 
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     return;
   }
 
@@ -368,7 +368,7 @@ void CodeCache::scavenge_root_nmethods_do(CodeBlobClosure* f) {
 void CodeCache::add_scavenge_root_nmethod(nmethod* nm) {
   assert_locked_or_safepoint(CodeCache_lock);
 
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     return;
   }
 
@@ -381,7 +381,7 @@ void CodeCache::add_scavenge_root_nmethod(nmethod* nm) {
 void CodeCache::drop_scavenge_root_nmethod(nmethod* nm) {
   assert_locked_or_safepoint(CodeCache_lock);
 
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     return;
   }
 
@@ -407,7 +407,7 @@ void CodeCache::drop_scavenge_root_nmethod(nmethod* nm) {
 void CodeCache::prune_scavenge_root_nmethods() {
   assert_locked_or_safepoint(CodeCache_lock);
 
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     return;
   }
 
@@ -443,7 +443,7 @@ void CodeCache::prune_scavenge_root_nmethods() {
 
 #ifndef PRODUCT
 void CodeCache::asserted_non_scavengable_nmethods_do(CodeBlobClosure* f) {
-  if (UseG1GC) {
+  if (UseG1GC || UseShenandoahGC) {
     return;
   }
 
@@ -973,5 +973,55 @@ void CodeCache::log_state(outputStream* st) {
             " adapters='" UINT32_FORMAT "' free_code_cache='" SIZE_FORMAT "'",
             nof_blobs(), nof_nmethods(), nof_adapters(),
             unallocated_capacity());
+}
+
+ParallelCodeCacheIterator::ParallelCodeCacheIterator() :
+        _claimed_idx(0), _finished(false) {
+};
+
+
+void ParallelCodeCacheIterator::parallel_blobs_do(CodeBlobClosure* f) {
+  assert(SafepointSynchronize::is_at_safepoint(), "Must be at safepoint");
+
+  /*
+   * Parallel code heap walk.
+   *
+   * This code makes all threads scan all code heaps, but only one thread would execute the
+   * closure on given blob. This is achieved by recording the "claimed" blocks: if a thread
+   * had claimed the block, it can process all blobs in it. Others have to fast-forward to
+   * next attempt without processing.
+   *
+   * Late threads would return immediately if iterator is finished.
+   */
+
+  if (_finished) {
+    return;
+  }
+
+  int stride = 256; // educated guess
+  int stride_mask = stride - 1;
+  assert (is_power_of_2(stride), "sanity");
+
+  int count = 0;
+  bool process_block = true;
+
+  for (CodeBlob *cb = CodeCache::first(); cb != NULL; cb = CodeCache::next(cb)) {
+    int current = count++;
+    if ((current & stride_mask) == 0) {
+      process_block = (current >= _claimed_idx) &&
+                      (Atomic::cmpxchg(current + stride, &_claimed_idx, current) == current);
+    }
+    if (process_block) {
+      if (cb->is_alive()) {
+        f->do_code_blob(cb);
+#ifdef ASSERT
+        if (cb->is_nmethod())
+          ((nmethod*)cb)->verify_scavenge_root_oops();
+#endif
+      }
+    }
+  }
+
+  _finished = true;
 }
 

@@ -64,7 +64,9 @@ public:
     PSScavenge,
     PSMarkSweep,
     G1YoungGen,
-    G1OldGen
+    G1OldGen,
+    ShenandoahCycles,
+    ShenandoahPauses
   };
 
   MemoryManager();
@@ -77,7 +79,7 @@ public:
 
   void add_pool(MemoryPool* pool);
 
-  bool is_manager(instanceHandle mh)     { return mh() == _memory_mgr_obj; }
+  bool is_manager(instanceHandle mh)     { return oopDesc::equals(mh(), _memory_mgr_obj); }
 
   virtual instanceOop get_memory_manager_instance(TRAPS);
   virtual MemoryManager::Name kind()     { return MemoryManager::Abstract; }
@@ -98,7 +100,8 @@ public:
   static GCMemoryManager* get_psMarkSweep_memory_manager();
   static GCMemoryManager* get_g1YoungGen_memory_manager();
   static GCMemoryManager* get_g1OldGen_memory_manager();
-
+  static GCMemoryManager* get_shenandoah_cycles_memory_manager();
+  static GCMemoryManager* get_shenandoah_pauses_memory_manager();
 };
 
 class CodeCacheMemoryManager : public MemoryManager {
@@ -284,4 +287,19 @@ public:
   const char* name()         { return "G1 Old Generation"; }
 };
 
+class ShenandoahCyclesMemoryManager : public GCMemoryManager {
+public:
+  ShenandoahCyclesMemoryManager() : GCMemoryManager() {}
+
+  MemoryManager::Name kind() { return MemoryManager::ShenandoahCycles; }
+  const char* name()         { return "Shenandoah Cycles"; }
+};
+
+class ShenandoahPausesMemoryManager : public GCMemoryManager {
+public:
+  ShenandoahPausesMemoryManager() : GCMemoryManager() {}
+
+  MemoryManager::Name kind() { return MemoryManager::ShenandoahPauses; }
+  const char* name()         { return "Shenandoah Pauses"; }
+};
 #endif // SHARE_VM_SERVICES_MEMORYMANAGER_HPP

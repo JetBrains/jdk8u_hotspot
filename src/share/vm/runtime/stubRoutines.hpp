@@ -34,6 +34,9 @@
 #ifdef TARGET_ARCH_x86
 # include "nativeInst_x86.hpp"
 #endif
+#ifdef TARGET_ARCH_aarch64
+# include "nativeInst_aarch64.hpp"
+#endif
 #ifdef TARGET_ARCH_sparc
 # include "nativeInst_sparc.hpp"
 #endif
@@ -105,6 +108,8 @@ class StubRoutines: AllStatic {
 # include "stubRoutines_x86_32.hpp"
 #elif defined TARGET_ARCH_MODEL_x86_64
 # include "stubRoutines_x86_64.hpp"
+#elif defined TARGET_ARCH_MODEL_aarch64
+# include "stubRoutines_aarch64.hpp"
 #elif defined TARGET_ARCH_MODEL_sparc
 # include "stubRoutines_sparc.hpp"
 #elif defined TARGET_ARCH_MODEL_zero
@@ -228,6 +233,7 @@ class StubRoutines: AllStatic {
   static double (*_intrinsic_cos)(double);
   static double (*_intrinsic_tan)(double);
 
+#ifndef BUILTIN_SIM
   // Safefetch stubs.
   static address _safefetch32_entry;
   static address _safefetch32_fault_pc;
@@ -235,6 +241,9 @@ class StubRoutines: AllStatic {
   static address _safefetchN_entry;
   static address _safefetchN_fault_pc;
   static address _safefetchN_continuation_pc;
+#endif
+
+  static address _shenandoah_wb_C;
 
  public:
   // Initialization/Testing
@@ -246,7 +255,7 @@ class StubRoutines: AllStatic {
   static bool contains(address addr) {
     return
       (_code1 != NULL && _code1->blob_contains(addr)) ||
-      (_code2 != NULL && _code2->blob_contains(addr)) ;
+      (_code2 != NULL && _code1->blob_contains(addr)) ;
   }
 
   static CodeBlob* code1() { return _code1; }
@@ -409,10 +418,10 @@ class StubRoutines: AllStatic {
     return _intrinsic_tan(d);
   }
 
+#ifndef BUILTIN_SIM
   //
   // Safefetch stub support
   //
-
   typedef int      (*SafeFetch32Stub)(int*      adr, int      errValue);
   typedef intptr_t (*SafeFetchNStub) (intptr_t* adr, intptr_t errValue);
 
@@ -436,6 +445,7 @@ class StubRoutines: AllStatic {
     ShouldNotReachHere();
     return NULL;
   }
+#endif
 
   //
   // Default versions of the above arraycopy functions for platforms which do
@@ -454,8 +464,14 @@ class StubRoutines: AllStatic {
   static void arrayof_jlong_copy     (HeapWord* src, HeapWord* dest, size_t count);
   static void arrayof_oop_copy       (HeapWord* src, HeapWord* dest, size_t count);
   static void arrayof_oop_copy_uninit(HeapWord* src, HeapWord* dest, size_t count);
+
+  static address shenandoah_wb_C()
+  {
+    return _shenandoah_wb_C;
+  }
 };
 
+#ifndef BUILTIN_SIM
 // Safefetch allows to load a value from a location that's not known
 // to be valid. If the load causes a fault, the error value is returned.
 inline int SafeFetch32(int* adr, int errValue) {
@@ -466,5 +482,6 @@ inline intptr_t SafeFetchN(intptr_t* adr, intptr_t errValue) {
   assert(StubRoutines::SafeFetchN_stub(), "stub not yet generated");
   return StubRoutines::SafeFetchN_stub()(adr, errValue);
 }
+#endif
 
 #endif // SHARE_VM_RUNTIME_STUBROUTINES_HPP

@@ -204,6 +204,7 @@ class SWNodeInfo VALUE_OBJ_CLASS_SPEC {
 // -----------------------------SuperWord---------------------------------
 // Transforms scalar operations into packed (superword) operations.
 class SuperWord : public ResourceObj {
+ friend class SWPointer;
  private:
   PhaseIdealLoop* _phase;
   Arena*          _arena;

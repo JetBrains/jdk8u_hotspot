@@ -458,7 +458,7 @@ bool klassVtable::update_inherited_vtable(InstanceKlass* klass, methodHandle tar
         // to link to the first super, and we get all the others.
           Handle super_loader(THREAD, super_klass->class_loader());
 
-          if (target_loader() != super_loader()) {
+          if (! oopDesc::equals(target_loader(), super_loader())) {
             ResourceMark rm(THREAD);
             Symbol* failed_type_symbol =
               SystemDictionary::check_signature_loaders(signature, target_loader,
@@ -1204,7 +1204,6 @@ void klassItable::initialize_itable_for_interface(int method_table_offset, Klass
   Array<Method*>* methods = InstanceKlass::cast(interf_h())->methods();
   int nof_methods = methods->length();
   HandleMark hm;
-  assert(nof_methods > 0, "at least one method must exist for interface to be in vtable");
   Handle interface_loader (THREAD, InstanceKlass::cast(interf_h())->class_loader());
 
   int ime_count = method_count_for_interface(interf_h());
@@ -1228,7 +1227,7 @@ void klassItable::initialize_itable_for_interface(int method_table_offset, Klass
       // if checkconstraints requested
       if (checkconstraints) {
         Handle method_holder_loader (THREAD, target->method_holder()->class_loader());
-        if (method_holder_loader() != interface_loader()) {
+        if (! oopDesc::equals(method_holder_loader(), interface_loader())) {
           ResourceMark rm(THREAD);
           Symbol* failed_type_symbol =
             SystemDictionary::check_signature_loaders(m->signature(),
@@ -1386,8 +1385,10 @@ void visit_all_interfaces(Array<Klass*>* transitive_intf, InterfaceVisiterClosur
       }
     }
 
-    // Only count interfaces with at least one method
-    if (method_count > 0) {
+    // Visit all interfaces which either have any methods or can participate in receiver type check.
+    // We do not bother to count methods in transitive interfaces, although that would allow us to skip
+    // this step in the rare case of a zero-method interface extending another zero-method interface.
+    if (method_count > 0 || InstanceKlass::cast(intf)->transitive_interfaces()->length() > 0) {
       blk->doit(intf, method_count);
     }
   }

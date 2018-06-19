@@ -297,14 +297,14 @@ Elliptic Curve Cryptography library:
       for JDK: $(JAVA_HOME)/jre/lib/libsunec.dylib
 
 Written Offer for ECC Source Code
-  For third party technology that you receive from Oracle in binary form 
+  For third party technology that you receive from Oracle in binary form
   which is licensed under an open source license that gives you the right
-  to receive the source code for that binary, you can obtain a copy of 
+  to receive the source code for that binary, you can obtain a copy of
   the applicable source code from this page:
      http://hg.openjdk.java.net/jdk8u/jdk8u/jdk/file/tip/src/share/native/sun/security/ec/impl
 
-  If the source code for the technology was not provided to you with the 
-  binary, you can also receive a copy of the source code on physical 
+  If the source code for the technology was not provided to you with the
+  binary, you can also receive a copy of the source code on physical
   media by submitting a written request to:
 
      Oracle America, Inc.
@@ -317,7 +317,7 @@ Written Offer for ECC Source Code
      http://www.oracle.com/goto/opensourcecode/request
 
   Your request should include:
-    - The name of the component or binary file(s) for which you are requesting 
+    - The name of the component or binary file(s) for which you are requesting
       the source code
     - The name and version number of the Oracle product containing the binary
     - The date you received the Oracle product
@@ -326,11 +326,11 @@ Written Offer for ECC Source Code
     - Your return mailing address and email and
     - A telephone number in the event we need to reach you.
 
-  We may charge you a fee to cover the cost of physical media and processing. 
-  Your request must be sent (i) within three (3) years of the date you 
-  received the Oracle product that included the component or binary 
-  file(s) that are the subject of your request, or (ii) in the case of 
-  code licensed under the GPL v3, for as long as Oracle offers spare 
+  We may charge you a fee to cover the cost of physical media and processing.
+  Your request must be sent (i) within three (3) years of the date you
+  received the Oracle product that included the component or binary
+  file(s) that are the subject of your request, or (ii) in the case of
+  code licensed under the GPL v3, for as long as Oracle offers spare
   parts or customer support for that product model.
 
 --- begin of LICENSE ---
@@ -1007,7 +1007,7 @@ SUCH DAMAGE.
 
 -------------------------------------------------------------------------------
 
-%% This notice is provided with respect to IAIK PKCS#11 Wrapper, 
+%% This notice is provided with respect to IAIK PKCS#11 Wrapper,
 which may be included with JRE 8, JDK 8, and OpenJDK 8.
 
 --- begin of LICENSE ---
@@ -1134,7 +1134,7 @@ assumed by the product vendor.
 
 --------------------------------------------------------------------------------
 
-%% This notice is provided with respect to Jing 20030619, which may 
+%% This notice is provided with respect to Jing 20030619, which may
 be included with JRE 8, JDK 8, and OpenJDK 8.
 
 --- begin of LICENSE  ---
@@ -1175,7 +1175,7 @@ SUCH DAMAGE.
 
 --------------------------------------------------------------------------------
 
-%% This notice is provided with respect to Joni v1.1.9, which may be 
+%% This notice is provided with respect to Joni v1.1.9, which may be
 included with JRE 8, JDK 8, and OpenJDK 8.
 
 --- begin of LICENSE ---
@@ -1431,7 +1431,7 @@ December 22, 2014
 
 -------------------------------------------------------------------------------
 
-%% This notice is provided with respect to GIFLIB 5.1.1 & libungif 4.1.3, 
+%% This notice is provided with respect to GIFLIB 5.1.1 & libungif 4.1.3,
 which may be included with JRE 8, JDK 8, and OpenJDK 8.
 
 --- begin of LICENSE ---
@@ -2064,8 +2064,8 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 -------------------------------------------------------------------------------
 
-%% This notice is provided with respect to Relax NG Datatype 1.0, which 
-may be included with JRE 8, JDK 8, and OpenJDK 8.  
+%% This notice is provided with respect to Relax NG Datatype 1.0, which
+may be included with JRE 8, JDK 8, and OpenJDK 8.
 
 --- begin of LICENSE  ---
 
@@ -2588,7 +2588,7 @@ included with JRE 8, JDK 8, and OpenJDK 8 on Linux and Solaris.
 
 --- begin of LICENSE ---
 
-This is the copyright for the files in src/solaris/native/sun/awt: list.h, 
+This is the copyright for the files in src/solaris/native/sun/awt: list.h,
 multiVis.h, wsutils.h, list.c, multiVis.c
 Copyright (c) 1994 Hewlett-Packard Co.
 Copyright (c) 1996 X Consortium
@@ -2618,7 +2618,7 @@ other dealings in this Software without prior written authorization
 from the X Consortium.
 ___________________________
 The files in motif/lib/Xm/util included this copyright:mkdirhier.man,
-xmkmf.man, chownxterm.c, makeg.man, mergelib.cpp, lndir.man, makestrs.man, 
+xmkmf.man, chownxterm.c, makeg.man, mergelib.cpp, lndir.man, makestrs.man,
 checktree.c, lndir.c, makestrs.c
 Copyright (c) 1993, 1994 X Consortium
 
@@ -2808,12 +2808,12 @@ SOFTWARE.
 
 -------------------------------------------------------------------------------
 
-%% This notice is provided with respect to zlib v1.2.8, which may be included 
+%% This notice is provided with respect to zlib v1.2.11, which may be included
 with JRE 8, JDK 8, and OpenJDK 8.
 
 --- begin of LICENSE ---
 
-  version 1.2.8, April 28th, 2013
+  version 1.2.11, January 15th, 2017
 
   Copyright (C) 1995-2017 Jean-loup Gailly and Mark Adler
 
@@ -2850,7 +2850,7 @@ included with JRE 8, JDK 8, and OpenJDK 8.
   Apache Santuario XML Security for Java 1.5.4
   Apache Xalan-Java 2.7.1 
   Apache Xerces Java 2.10.0 
-  Apache XML Resolver 1.1 
+  Apache XML Resolver 1.1
 
 
 --- begin of LICENSE ---
@@ -3060,4 +3060,3 @@ included with JRE 8, JDK 8, and OpenJDK 8.
 --- end of LICENSE ---
 
 -------------------------------------------------------------------------------
-

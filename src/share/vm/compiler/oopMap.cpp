@@ -414,7 +414,7 @@ void OopMapSet::all_do(const frame *fr, const RegisterMap *reg_map,
       if ( loc != NULL ) {
         if ( omv.type() == OopMapValue::oop_value ) {
           oop val = *loc;
-          if (val == (oop)NULL || Universe::is_narrow_oop_base(val)) {
+          if (val == NULL || Universe::is_narrow_oop_base(val)) {
             // Ignore NULL oops and decoded NULL narrow oops which
             // equal to Universe::narrow_oop_base when a narrow oop
             // implicit null check is used in compiled code.
@@ -621,7 +621,7 @@ void DerivedPointerTable::add(oop *derived_loc, oop *base_loc) {
   assert(Universe::heap()->is_in_or_null(*base_loc), "not an oop");
   assert(derived_loc != base_loc, "Base and derived in same location");
   if (_active) {
-    assert(*derived_loc != (oop)base_loc, "location already added");
+    assert(! oopDesc::unsafe_equals(*derived_loc, (oop)base_loc), "location already added");
     assert(_list != NULL, "list must exist");
     intptr_t offset = value_of_loc(derived_loc) - value_of_loc(base_loc);
     // This assert is invalid because derived pointers can be
