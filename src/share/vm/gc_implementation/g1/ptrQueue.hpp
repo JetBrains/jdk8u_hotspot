@@ -61,6 +61,9 @@ protected:
   // be legally locked by then.
   bool _perm;
 
+  // Number of incomplete buffer enqueueing skips.
+  size_t _enqueue_skips;
+
   // If there is a lock associated with this buffer, this is that lock.
   Mutex* _lock;
 

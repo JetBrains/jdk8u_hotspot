@@ -177,6 +177,23 @@ bool ObjPtrQueue::should_enqueue_buffer() {
   size_t retained_entries = (sz - _index) / oopSize;
   size_t perc = retained_entries * 100 / all_entries;
   bool should_enqueue = perc > (size_t) G1SATBBufferEnqueueingThresholdPercent;
+
+  if (UseShenandoahGC) {
+    if (!should_enqueue && sz != _index) {
+      // Non-empty buffer is compacted, and we decided not to enqueue it.
+      // Shenandoah still wants to know about leftover work in that buffer eventually.
+      // This avoid dealing with these leftovers during the final-mark, after the buffers
+      // are drained completely.
+      // TODO: This can be extended to handle G1 too
+      if (_enqueue_skips++ > ShenandoahSATBBufferMaxEnqueueSkips) {
+        _enqueue_skips = 0;
+        should_enqueue = true;
+      }
+    } else {
+      _enqueue_skips = 0;
+    }
+  }
+
   return should_enqueue;
 }
 
