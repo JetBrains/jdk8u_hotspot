@@ -114,6 +114,8 @@ public:
   virtual void verify_safe_oop(narrowOop p);
 #endif
 
+  void enqueue(oop obj);
+
 private:
   inline bool need_update_refs_barrier();
 
