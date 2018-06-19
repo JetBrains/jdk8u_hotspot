@@ -65,10 +65,10 @@ private:
   inline void count_liveness_humongous(oop obj);
 
   // Actual mark loop with closures set up
-  template <class T, bool CANCELLABLE, bool DRAIN_SATB>
+  template <class T, bool CANCELLABLE>
   void mark_loop_work(T* cl, jushort* live_data, uint worker_id, ParallelTaskTerminator *t);
 
-  template <bool CANCELLABLE, bool DRAIN_SATB>
+  template <bool CANCELLABLE>
   void mark_loop_prework(uint worker_id, ParallelTaskTerminator *terminator, ReferenceProcessor *rp,
                          bool class_unload, bool update_refs, bool strdedup);
 
@@ -76,20 +76,12 @@ public:
   // Mark loop entry.
   // Translates dynamic arguments to template parameters with progressive currying.
   void mark_loop(uint worker_id, ParallelTaskTerminator* terminator, ReferenceProcessor *rp,
-                 bool cancellable, bool drain_satb,
+                 bool cancellable,
                  bool class_unload, bool update_refs, bool strdedup) {
     if (cancellable) {
-      if (drain_satb) {
-        mark_loop_prework<true, true>(worker_id, terminator, rp, class_unload, update_refs, strdedup);
-      } else {
-        mark_loop_prework<true, false>(worker_id, terminator, rp, class_unload, update_refs, strdedup);
-      }
+      mark_loop_prework<true>(worker_id, terminator, rp, class_unload, update_refs, strdedup);
     } else {
-      if (drain_satb) {
-        mark_loop_prework<false, true>(worker_id, terminator, rp, class_unload, update_refs, strdedup);
-      } else {
-        mark_loop_prework<false, false>(worker_id, terminator, rp, class_unload, update_refs, strdedup);
-      }
+      mark_loop_prework<false>(worker_id, terminator, rp, class_unload, update_refs, strdedup);
     }
   }
 
@@ -125,7 +117,6 @@ public:
   ShenandoahObjToScanQueue* get_queue(uint worker_id);
   void clear_queue(ShenandoahObjToScanQueue *q);
 
-  void drain_satb_buffers(uint worker_id, bool remark = false);
   ShenandoahObjToScanQueueSet* task_queues() { return _task_queues;}
 
   jushort* get_liveness(uint worker_id);
