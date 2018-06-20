@@ -392,8 +392,8 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _phase_timings(NULL),
   _alloc_tracker(NULL)
 {
-  log_info(gc, init)("Parallel GC threads: "UINTX_FORMAT, ParallelGCThreads);
-  log_info(gc, init)("Concurrent GC threads: "UINTX_FORMAT, ConcGCThreads);
+  log_info(gc, init)("Parallel GC threads: " UINTX_FORMAT, ParallelGCThreads);
+  log_info(gc, init)("Concurrent GC threads: " UINTX_FORMAT, ConcGCThreads);
   log_info(gc, init)("Parallel reference processing enabled: %s", BOOL_TO_STR(ParallelRefProcEnabled));
 
   _scm = new ShenandoahConcurrentMark();
@@ -692,7 +692,7 @@ HeapWord* ShenandoahHeap::allocate_new_lab(size_t word_size, AllocType type) {
   if (result != NULL) {
     assert(! in_collection_set(result), "Never allocate in collection set");
 
-    log_develop_trace(gc, tlab)("allocating new tlab of size "SIZE_FORMAT" at addr "PTR_FORMAT, word_size, p2i(result));
+    log_develop_trace(gc, tlab)("allocating new tlab of size " SIZE_FORMAT " at addr " PTR_FORMAT, word_size, p2i(result));
 
   }
   return result;
@@ -761,7 +761,7 @@ HeapWord* ShenandoahHeap::allocate_memory(size_t word_size, AllocType type) {
   }
 
   if (result != NULL) {
-    log_develop_trace(gc, alloc)("allocate memory chunk of size "SIZE_FORMAT" at addr "PTR_FORMAT " by thread %d ",
+    log_develop_trace(gc, alloc)("allocate memory chunk of size " SIZE_FORMAT " at addr " PTR_FORMAT " by thread %d ",
                                  word_size, p2i(result), Thread::current()->osthread()->thread_id());
     notify_alloc(word_size, false);
   }
@@ -907,7 +907,7 @@ public:
     ShenandoahParallelEvacuateRegionObjectClosure cl(_sh);
     ShenandoahHeapRegion* r;
     while ((r =_cs->claim_next()) != NULL) {
-      log_develop_trace(gc, region)("Thread "INT32_FORMAT" claimed Heap Region "SIZE_FORMAT,
+      log_develop_trace(gc, region)("Thread " INT32_FORMAT " claimed Heap Region " SIZE_FORMAT,
                                     worker_id,
                                     r->region_number());
 
@@ -958,7 +958,7 @@ void ShenandoahHeap::trash_humongous_region_at(ShenandoahHeapRegion* start) {
   size_t index = start->region_number() + required_regions - 1;
 
   assert(!start->has_live(), "liveness must be zero");
-  log_trace(gc, humongous)("Reclaiming "SIZE_FORMAT" humongous regions for object of size: "SIZE_FORMAT" words", required_regions, size);
+  log_trace(gc, humongous)("Reclaiming " SIZE_FORMAT " humongous regions for object of size: " SIZE_FORMAT " words", required_regions, size);
 
   for(size_t i = 0; i < required_regions; i++) {
      // Reclaim from tail. Otherwise, assertion fails when printing region to trace log,
@@ -1577,7 +1577,7 @@ void ShenandoahHeap::op_evac() {
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
-    out->print_cr("Collection set ("SIZE_FORMAT" regions):", _collection_set->count());
+    out->print_cr("Collection set (" SIZE_FORMAT " regions):", _collection_set->count());
     _collection_set->print_on(out);
 
     out->print_cr("Free set:");
@@ -1590,7 +1590,7 @@ void ShenandoahHeap::op_evac() {
   if (ShenandoahLogTrace) {
     ResourceMark rm;
     outputStream* out = gclog_or_tty;
-    out->print_cr("After evacuation collection set ("SIZE_FORMAT" regions):",
+    out->print_cr("After evacuation collection set (" SIZE_FORMAT " regions):",
                   _collection_set->count());
     _collection_set->print_on(out);
 
