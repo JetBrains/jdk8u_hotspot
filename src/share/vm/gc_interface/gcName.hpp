@@ -54,6 +54,7 @@ class GCNameHelper {
       case G1New: return "G1New";
       case ConcurrentMarkSweep: return "ConcurrentMarkSweep";
       case G1Old: return "G1Old";
+      case Shenandoah: return "Shenandoah";
       default: ShouldNotReachHere(); return NULL;
     }
   }
