@@ -44,6 +44,7 @@ size_t ShenandoahHeapRegion::RegionSizeWordsMask = 0;
 size_t ShenandoahHeapRegion::HumongousThresholdBytes = 0;
 size_t ShenandoahHeapRegion::HumongousThresholdWords = 0;
 size_t ShenandoahHeapRegion::MaxTLABSizeBytes = 0;
+size_t ShenandoahHeapRegion::MaxTLABSizeWords = 0;
 
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
                                            size_t size_words, size_t index, bool committed) :
@@ -626,6 +627,9 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   guarantee(MaxTLABSizeBytes == 0, "we should only set it once");
   MaxTLABSizeBytes = MIN2(RegionSizeBytes / 8, HumongousThresholdBytes);
   assert (MaxTLABSizeBytes > MinTLABSize, "should be larger");
+
+  guarantee(MaxTLABSizeWords == 0, "we should only set it once");
+  MaxTLABSizeWords = MaxTLABSizeBytes / HeapWordSize;
 
   log_info(gc, heap)("Heap region size: " SIZE_FORMAT "M", RegionSizeBytes / M);
   log_info(gc, init)("Region size in bytes: " SIZE_FORMAT, RegionSizeBytes);
