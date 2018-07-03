@@ -306,6 +306,7 @@ Thread::Thread() {
   _oom_during_evac = 0;
 #if INCLUDE_ALL_GCS
   _gc_state = _gc_state_global;
+  _worker_id = (uint)(-1); // Actually, ShenandoahWorkerSession::INVALID_WORKER_ID, but avoid dependencies.
 #endif
 }
 

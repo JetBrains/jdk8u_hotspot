@@ -891,7 +891,7 @@ public:
     _sh(sh) {}
 
   void work(uint worker_id) {
-
+    ShenandoahWorkerSession worker_session(worker_id);
     ShenandoahEvacOOMScope oom_evac_scope;
 
     // If concurrent code cache evac is enabled, evacuate it here.
@@ -1072,6 +1072,7 @@ public:
   }
 
   void work(uint worker_id) {
+    ShenandoahWorkerSession worker_session(worker_id);
     ShenandoahEvacOOMScope oom_evac_scope;
     ShenandoahEvacuateUpdateRootsClosure cl;
 
@@ -1096,6 +1097,7 @@ public:
   }
 
   void work(uint worker_id) {
+    ShenandoahWorkerSession worker_session(worker_id);
     ShenandoahEvacOOMScope oom_evac_scope;
     ShenandoahUpdateRefsClosure cl;
     MarkingCodeBlobClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
@@ -2204,6 +2206,7 @@ public:
   }
 
   void work(uint worker_id) {
+    ShenandoahWorkerSession worker_session(worker_id);
     ShenandoahUpdateHeapRefsClosure cl;
     ShenandoahHeapRegion* r = _regions->next();
     while (r != NULL) {

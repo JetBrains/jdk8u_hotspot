@@ -267,6 +267,8 @@ protected:
 
   ThreadLocalAllocBuffer _tlab;                 // Thread-local eden
   ThreadLocalAllocBuffer _gclab;                // Thread-local allocation buffer for GC (e.g. evacuation)
+  uint _worker_id;                              // Worker ID
+
   jlong _allocated_bytes;                       // Cumulative number of bytes allocated on
                                                 // the Java heap
   jlong _allocated_bytes_gclab;                 // Cumulative number of bytes allocated on
@@ -464,6 +466,9 @@ protected:
 
   // Thread-Local GC Allocation Buffer (GCLAB) support
   ThreadLocalAllocBuffer& gclab()                { return _gclab; }
+
+  void set_worker_id(uint id)           { _worker_id = id; }
+  uint worker_id()                      { return _worker_id; }
 
   jlong allocated_bytes()               { return _allocated_bytes; }
   void set_allocated_bytes(jlong value) { _allocated_bytes = value; }
@@ -1000,7 +1005,6 @@ class JavaThread: public Thread {
   static DirtyCardQueueSet _dirty_card_queue_set;
 
   void flush_barrier_queues();
-
 #endif // INCLUDE_ALL_GCS
 
   friend class VMThread;
