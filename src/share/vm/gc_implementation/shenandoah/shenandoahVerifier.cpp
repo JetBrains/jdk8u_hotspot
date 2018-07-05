@@ -546,10 +546,28 @@ public:
   }
 };
 
+class VerifyThreadGCState : public ThreadClosure {
+private:
+  const char* _label;
+  char _expected;
+
+public:
+  VerifyThreadGCState(const char* label, char expected) : _expected(expected) {}
+  void do_thread(Thread* t) {
+    assert(t->is_Java_thread(), "sanity");
+    char actual = ((JavaThread*)t)->gc_state();
+    if (actual != _expected) {
+      fatal(err_msg("%s: Thread %s: expected gc-state %d, actual %d", _label, t->name(), _expected, actual));
+    }
+  }
+};
+
+
 void ShenandoahVerifier::verify_at_safepoint(const char *label,
                                              VerifyForwarded forwarded, VerifyMarked marked,
                                              VerifyMatrix matrix, VerifyCollectionSet cset,
-                                             VerifyLiveness liveness, VerifyRegions regions) {
+                                             VerifyLiveness liveness, VerifyRegions regions,
+                                             VerifyGCState gcstate) {
   guarantee(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "only when nothing else happens");
   guarantee(ShenandoahVerify, "only when enabled, and bitmap is initialized in ShenandoahHeap::initialize");
 
@@ -557,6 +575,38 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   ShenandoahPushWorkerScope verify_worker_scope(_heap->workers(), _heap->max_workers(), false /*bypass check*/);
 
   log_info(gc,start)("Verify %s, Level " INTX_FORMAT, label, ShenandoahVerifyLevel);
+
+  // GC state checks
+  {
+    char expected = -1;
+    bool enabled;
+    switch (gcstate) {
+      case _verify_gcstate_disable:
+        enabled = false;
+        break;
+      case _verify_gcstate_forwarded:
+        enabled = true;
+        expected = ShenandoahHeap::HAS_FORWARDED;
+        break;
+      case _verify_gcstate_stable:
+        enabled = true;
+        expected = ShenandoahHeap::STABLE;
+        break;
+      default:
+        enabled = false;
+        assert(false, "Unhandled gc-state verification");
+    }
+
+    if (enabled) {
+      char actual = _heap->gc_state();
+      if (actual != expected) {
+        fatal(err_msg("%s: Global gc-state: expected %d, actual %d", label, expected, actual));
+      }
+
+      VerifyThreadGCState vtgcs(label, expected);
+      Threads::java_threads_do(&vtgcs);
+    }
+  }
 
   // Heap size checks
   {
@@ -594,7 +644,7 @@ void ShenandoahVerifier::verify_at_safepoint(const char *label,
   ShenandoahLivenessData* ld = NEW_C_HEAP_ARRAY(ShenandoahLivenessData, _heap->num_regions(), mtGC);
   Copy::fill_to_bytes((void*)ld, _heap->num_regions()*sizeof(ShenandoahLivenessData), 0);
 
-  const VerifyOptions& options = ShenandoahVerifier::VerifyOptions(forwarded, marked, matrix, cset, liveness, regions);
+  const VerifyOptions& options = ShenandoahVerifier::VerifyOptions(forwarded, marked, matrix, cset, liveness, regions, gcstate);
 
   // Steps 1-2. Scan root set to get initial reachable set. Finish walking the reachable heap.
   // This verifies what application can see, since it only cares about reachable objects.
@@ -668,7 +718,8 @@ void ShenandoahVerifier::verify_generic(VerifyOption vo) {
           _verify_matrix_disable,      // matrix can be inconsistent here
           _verify_cset_disable,        // cset may be inconsistent
           _verify_liveness_disable,    // no reliable liveness data
-          _verify_regions_disable      // no reliable region data
+          _verify_regions_disable,     // no reliable region data
+          _verify_gcstate_disable      // no data about gcstate
   );
 }
 
@@ -681,7 +732,8 @@ void ShenandoahVerifier::verify_before_concmark() {
             _verify_matrix_disable,      // matrix is foobared
             _verify_cset_forwarded,      // allow forwarded references to cset
             _verify_liveness_disable,    // no reliable liveness data
-            _verify_regions_notrash      // no trash regions
+            _verify_regions_notrash,     // no trash regions
+            _verify_gcstate_forwarded    // there are forwarded objects
     );
   } else {
     verify_at_safepoint(
@@ -691,7 +743,8 @@ void ShenandoahVerifier::verify_before_concmark() {
             _verify_matrix_conservative, // UR should have fixed matrix
             _verify_cset_none,           // UR should have fixed this
             _verify_liveness_disable,    // no reliable liveness data
-            _verify_regions_notrash      // no trash regions
+            _verify_regions_notrash,     // no trash regions
+            _verify_gcstate_stable       // there are no forwarded objects
     );
   }
 }
@@ -704,7 +757,8 @@ void ShenandoahVerifier::verify_after_concmark() {
           _verify_matrix_disable,      // matrix might be foobared
           _verify_cset_none,           // no references to cset anymore
           _verify_liveness_complete,   // liveness data must be complete here
-          _verify_regions_disable      // trash regions not yet recycled
+          _verify_regions_disable,     // trash regions not yet recycled
+          _verify_gcstate_stable       // mark should have stabilized the heap
   );
 }
 
@@ -718,7 +772,8 @@ void ShenandoahVerifier::verify_before_evacuation() {
           _verify_matrix_disable,    // skip, verified after mark
           _verify_cset_disable,      // skip, verified after mark
           _verify_liveness_disable,  // skip, verified after mark
-          _verify_regions_disable    // trash regions not yet recycled
+          _verify_regions_disable,   // trash regions not yet recycled
+          _verify_gcstate_stable     // mark should have stabilized the heap
   );
 }
 
@@ -730,7 +785,8 @@ void ShenandoahVerifier::verify_after_evacuation() {
           _verify_matrix_disable,      // matrix is inconsistent here
           _verify_cset_forwarded,      // all cset refs are fully forwarded
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash      // trash regions have been recycled already
+          _verify_regions_notrash,     // trash regions have been recycled already
+          _verify_gcstate_forwarded    // evacuation produced some forwarded objects
   );
 }
 
@@ -742,7 +798,8 @@ void ShenandoahVerifier::verify_before_updaterefs() {
           _verify_matrix_disable,      // matrix is inconsistent here
           _verify_cset_forwarded,      // all cset refs are fully forwarded
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash      // trash regions have been recycled already
+          _verify_regions_notrash,     // trash regions have been recycled already
+          _verify_gcstate_forwarded    // evacuation should have produced some forwarded objects
   );
 }
 
@@ -754,31 +811,8 @@ void ShenandoahVerifier::verify_after_updaterefs() {
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references, all updated
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_nocset       // no cset regions, trash regions have appeared
-  );
-}
-
-void ShenandoahVerifier::verify_before_partial() {
-  verify_at_safepoint(
-          "Before Partial GC",
-          _verify_forwarded_none,      // cannot have forwarded objects
-          _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
-          _verify_matrix_conservative, // matrix is conservatively consistent
-          _verify_cset_none,           // no cset references before partial
-          _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash_nocset // no trash and no cset regions
-  );
-}
-
-void ShenandoahVerifier::verify_after_partial() {
-  verify_at_safepoint(
-          "After Partial GC",
-          _verify_forwarded_none,      // cannot have forwarded objects
-          _verify_marked_complete,     // bitmaps might be stale, but alloc-after-mark should be well
-          _verify_matrix_conservative, // matrix is conservatively consistent
-          _verify_cset_none,           // no cset references left after partial
-          _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_nocset       // no cset regions, trash regions allowed
+          _verify_regions_nocset,      // no cset regions, trash regions have appeared
+          _verify_gcstate_stable       // update refs had cleaned up forwarded objects
   );
 }
 
@@ -790,7 +824,8 @@ void ShenandoahVerifier::verify_before_fullgc() {
           _verify_matrix_disable,      // matrix might be foobared
           _verify_cset_disable,        // cset might be foobared
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_disable      // no reliable region data here
+          _verify_regions_disable,     // no reliable region data here
+          _verify_gcstate_disable      // no reliable gcstate data
   );
 }
 
@@ -802,7 +837,8 @@ void ShenandoahVerifier::verify_after_fullgc() {
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash_nocset // no trash, no cset
+          _verify_regions_notrash_nocset, // no trash, no cset
+          _verify_gcstate_stable       // degenerated refs had cleaned up forwarded objects
   );
 }
 
@@ -814,6 +850,7 @@ void ShenandoahVerifier::verify_after_degenerated() {
           _verify_matrix_conservative, // matrix is conservatively consistent
           _verify_cset_none,           // no cset references
           _verify_liveness_disable,    // no reliable liveness data anymore
-          _verify_regions_notrash_nocset // no trash, no cset
+          _verify_regions_notrash_nocset, // no trash, no cset
+          _verify_gcstate_stable       // full gc cleaned up everything
   );
 }

@@ -412,6 +412,8 @@ public:
   void set_full_gc_move_in_progress(bool in_progress);
   void set_has_forwarded_objects(bool cond);
 
+  char gc_state();
+
   void set_process_references(bool pr);
   void set_unload_classes(bool uc);
 
