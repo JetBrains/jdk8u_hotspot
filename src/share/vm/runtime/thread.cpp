@@ -307,6 +307,7 @@ Thread::Thread() {
 #if INCLUDE_ALL_GCS
   _gc_state = _gc_state_global;
   _worker_id = (uint)(-1); // Actually, ShenandoahWorkerSession::INVALID_WORKER_ID, but avoid dependencies.
+  _force_satb_flush = false;
 #endif
 }
 
@@ -2009,6 +2010,13 @@ void JavaThread::set_gc_state_all_threads(char in_prog) {
   _gc_state_global = in_prog;
   for (JavaThread* t = Threads::first(); t != NULL; t = t->next()) {
     t->set_gc_state(in_prog);
+  }
+}
+
+void JavaThread::set_force_satb_flush_all_threads(bool value) {
+  assert_locked_or_safepoint(Threads_lock);
+  for (JavaThread* t = Threads::first(); t != NULL; t = t->next()) {
+    t->set_force_satb_flush(value);
   }
 }
 #endif // INCLUDE_ALL_GCS

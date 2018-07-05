@@ -268,6 +268,7 @@ protected:
   ThreadLocalAllocBuffer _tlab;                 // Thread-local eden
   ThreadLocalAllocBuffer _gclab;                // Thread-local allocation buffer for GC (e.g. evacuation)
   uint _worker_id;                              // Worker ID
+  bool _force_satb_flush;                       // Force SATB flush
 
   jlong _allocated_bytes;                       // Cumulative number of bytes allocated on
                                                 // the Java heap
@@ -469,6 +470,9 @@ protected:
 
   void set_worker_id(uint id)           { _worker_id = id; }
   uint worker_id()                      { return _worker_id; }
+
+  void set_force_satb_flush(bool value) { _force_satb_flush = value; }
+  bool is_force_satb_flush()            { return _force_satb_flush; }
 
   jlong allocated_bytes()               { return _allocated_bytes; }
   void set_allocated_bytes(jlong value) { _allocated_bytes = value; }
@@ -1730,7 +1734,7 @@ private:
 
 public:
   static void set_gc_state_all_threads(char in_prog);
-
+  static void set_force_satb_flush_all_threads(bool value);
 #endif // INCLUDE_ALL_GCS
 
   // This method initializes the SATB and dirty card queues before a

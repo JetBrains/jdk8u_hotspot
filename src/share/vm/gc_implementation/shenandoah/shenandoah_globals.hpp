@@ -356,9 +356,9 @@
           "either Degenerated or Full GC. If this much space is not "       \
           "available, next recovery step would triggered.")                 \
                                                                             \
-  experimental(uintx, ShenandoahSATBBufferMaxEnqueueSkips, 50,              \
-          "Maximal number of times the SATB buffer is skipped from enqueue "\
-          "after compaction.")                                              \
+  experimental(uintx, ShenandoahSATBBufferFlushInterval, 100,               \
+          "Forcefully flush non-empty SATB buffers at this interval. "      \
+          "Time is in milliseconds.")                                       \
                                                                             \
   diagnostic(bool, ShenandoahAllowMixedAllocs, true,                        \
           "Allow mixing mutator and collector allocations in a single "     \

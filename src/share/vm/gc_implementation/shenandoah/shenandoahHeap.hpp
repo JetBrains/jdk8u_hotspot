@@ -429,6 +429,8 @@ public:
   bool process_references() const;
   bool unload_classes() const;
 
+  void force_satb_flush_all_threads();
+
   bool last_gc_made_progress() const;
 
   inline bool region_in_collection_set(size_t region_index) const;

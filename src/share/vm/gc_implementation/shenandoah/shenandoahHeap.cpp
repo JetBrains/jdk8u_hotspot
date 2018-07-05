@@ -1799,6 +1799,21 @@ void ShenandoahHeap::stop_concurrent_marking() {
   }
 }
 
+void ShenandoahHeap::force_satb_flush_all_threads() {
+  if (!is_concurrent_mark_in_progress()) {
+    // No need to flush SATBs
+    return;
+  }
+
+  MutexLocker ml(Threads_lock);
+  JavaThread::set_force_satb_flush_all_threads(true);
+
+  // The threads are not "acquiring" their thread-local data, but it does not
+  // hurt to "release" the updates here anyway.
+  OrderAccess::fence();
+}
+
+
 void ShenandoahHeap::set_gc_state_mask(uint mask, bool value) {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should really be Shenandoah safepoint");
   _gc_state.set_cond(mask, value);
