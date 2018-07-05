@@ -75,6 +75,9 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
       ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_prepare);
       // Full GC is supposed to recover from any GC state:
 
+      // 0. Remember if we have forwarded objects
+      bool has_forwarded_objects = heap->has_forwarded_objects();
+
       // a. Cancel concurrent mark, if in progress
       if (heap->is_concurrent_mark_in_progress()) {
         heap->concurrentMark()->cancel();
@@ -103,6 +106,9 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
       rp->disable_discovery();
       rp->abandon_partial_discovery();
       rp->verify_no_references_recorded();
+
+      // e. Set back forwarded objects bit back, in case some steps above dropped it.
+      heap->set_has_forwarded_objects(has_forwarded_objects);
     }
 
     {
@@ -110,15 +116,13 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
 
       CodeCache::gc_prologue();
 
-      // TODO: We don't necessarily need to update refs. We might want to clean
-      // up managing has_forwarded_objects when diving into degen/full-gc.
-      heap->set_has_forwarded_objects(true);
-
       OrderAccess::fence();
 
       phase1_mark_heap();
 
-      // Prevent read-barrier from kicking in while adjusting pointers in phase3.
+      // Once marking is done, which may have fixed up forwarded objects, we can drop it.
+      // Coming out of Full GC, we would not have any forwarded objects.
+      // This also prevents read barrier from kicking in while adjusting pointers in phase3.
       heap->set_has_forwarded_objects(false);
 
       heap->set_full_gc_move_in_progress(true);
