@@ -156,22 +156,6 @@ class oopDesc {
     return bs()->obj_equals(o1, o2);
   }
 
-  inline static bool safe_equals(oop o1, oop o2) {
-#ifdef ASSERT
-    bs()->verify_safe_oop(o1);
-    bs()->verify_safe_oop(o2);
-#endif
-    return unsafe_equals(o1, o2);
-  }
-
-  inline static bool safe_equals(narrowOop o1, narrowOop o2) {
-#ifdef ASSERT
-    bs()->verify_safe_oop(o1);
-    bs()->verify_safe_oop(o2);
-#endif
-    return unsafe_equals(o1, o2);
-  }
-
   inline static bool unsafe_equals(oop o1, oop o2) {
 #ifdef CHECK_UNHANDLED_OOPS
     return o1.obj() == o2.obj();

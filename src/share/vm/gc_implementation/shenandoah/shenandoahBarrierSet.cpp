@@ -328,13 +328,3 @@ void ShenandoahBarrierSet::enqueue(oop obj) {
 
   G1SATBCardTableModRefBS::enqueue(obj);
 }
-
-#ifdef ASSERT
-void ShenandoahBarrierSet::verify_safe_oop(oop p) {
-  shenandoah_assert_not_in_cset_except(NULL, p, (p == NULL) || ShenandoahHeap::heap()->cancelled_gc());
-}
-
-void ShenandoahBarrierSet::verify_safe_oop(narrowOop p) {
-  verify_safe_oop(oopDesc::decode_heap_oop(p));
-}
-#endif

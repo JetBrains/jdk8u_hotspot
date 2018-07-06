@@ -198,11 +198,6 @@ public:
 
   virtual bool obj_equals(narrowOop obj1, narrowOop obj2);
 
-#ifdef ASSERT
-  virtual void verify_safe_oop(oop p);
-  virtual void verify_safe_oop(narrowOop p);
-#endif
-
 #ifndef CC_INTERP
   virtual void interpreter_read_barrier(MacroAssembler* masm, Register dst) {
     // Default implementation does nothing.

@@ -197,13 +197,13 @@ public:
   )
 
   inline void move_to_next() {
-    if (oopDesc::safe_equals(_ref, _next)) {
+    if (oopDesc::unsafe_equals(_ref, _next)) {
       // End of the list.
       _ref = NULL;
     } else {
       _ref = _next;
     }
-    assert(! oopDesc::safe_equals(_ref, _first_seen), "cyclic ref_list found");
+    assert(! oopDesc::unsafe_equals(_ref, _first_seen), "cyclic ref_list found");
     NOT_PRODUCT(_processed++);
   }
 };
