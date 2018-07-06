@@ -231,6 +231,8 @@ public:
     conc_cleanup_recycle,
     conc_cleanup_reset_bitmaps,
 
+    conc_uncommit,
+
     // Unclassified
     pause_other,
     conc_other,

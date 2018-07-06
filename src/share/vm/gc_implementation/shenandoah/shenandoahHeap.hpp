@@ -482,8 +482,6 @@ public:
 
   void notify_alloc(size_t words, bool waste);
 
-  void handle_heap_shrinkage(double shrink_before);
-
   void reset_next_mark_bitmap();
 
   MarkBitMap* complete_mark_bit_map();
@@ -645,6 +643,7 @@ public:
   void entry_cleanup_bitmaps();
   void entry_evac();
   void entry_updaterefs();
+  void entry_uncommit(double shrink_before);
 
 private:
   // Actual work for the phases
@@ -664,6 +663,7 @@ private:
   void op_evac();
   void op_updaterefs();
   void op_cleanup_bitmaps();
+  void op_uncommit(double shrink_before);
 
 private:
   void try_inject_alloc_failure();
