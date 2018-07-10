@@ -59,7 +59,9 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
   __ ldrb(rscratch1, gc_state);
 
   // Check for heap stability
-  __ cbz(rscratch1, done);
+  __ mov(rscratch2, ShenandoahHeap::HAS_FORWARDED | ShenandoahHeap::EVACUATION);
+  __ tst(rscratch1, rscratch2);
+  __ br(Assembler::EQ, done);
 
   // Heap is unstable, need to perform the read-barrier even if WB is inactive
   if (ShenandoahWriteBarrierRB) {
@@ -67,7 +69,9 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
   }
 
   // Check for evacuation-in-progress and jump to WB slow-path if needed
-  __ tbz(rscratch1, ShenandoahHeap::EVACUATION_BITPOS, done);
+  __ mov(rscratch2, ShenandoahHeap::EVACUATION);
+  __ tst(rscratch1, rscratch2);
+  __ br(Assembler::EQ, done);
 
   __ lsr(rscratch1, dst, ShenandoahHeapRegion::region_size_bytes_shift_jint());
   __ mov(rscratch2,  ShenandoahHeap::in_cset_fast_test_addr());
