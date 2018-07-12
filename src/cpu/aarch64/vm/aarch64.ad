@@ -9659,14 +9659,14 @@ instruct compareAndSwapP(iRegINoSp res, indirect mem, iRegP oldval, iRegP newval
 
 instruct compareAndSwapP_shenandoah(iRegINoSp res, indirect mem, iRegP oldval, iRegP newval, iRegPNoSp tmp, rFlagsReg cr) %{
 
-  predicate(UseShenandoahGC && ShenandoahCASBarrier);
+  predicate(UseShenandoahGC && ShenandoahCASBarrier && n->in(3)->in(1)->bottom_type() != TypePtr::NULL_PTR);
   match(Set res (CompareAndSwapP mem (Binary oldval newval)));
-  ins_cost(3 * VOLATILE_REF_COST);
+  ins_cost(2 * VOLATILE_REF_COST);
 
   effect(TEMP tmp, KILL cr);
 
   format %{
-    "cmpxchg_oop_shenandoah $mem, $oldval, $newval\t# (ptr) if $mem == $oldval then $mem <-- $newval with temp $tmp"
+    "cmpxchg_shenandoah_oop $mem, $oldval, $newval\t# (ptr) if $mem == $oldval then $mem <-- $newval with temp $tmp"
     "cset $res, EQ\t# $res <-- (EQ ? 1 : 0)"
   %}
 
@@ -9678,7 +9678,7 @@ instruct compareAndSwapP_shenandoah(iRegINoSp res, indirect mem, iRegP oldval, i
 
 instruct compareAndSwapN(iRegINoSp res, indirect mem, iRegNNoSp oldval, iRegNNoSp newval, rFlagsReg cr) %{
 
-  predicate(!UseShenandoahGC || !ShenandoahCASBarrier);
+  predicate(!UseShenandoahGC || !ShenandoahCASBarrier || n->in(3)->in(1)->bottom_type() == TypeNarrowOop::NULL_PTR);
   match(Set res (CompareAndSwapN mem (Binary oldval newval)));
   ins_cost(2 * VOLATILE_REF_COST);
 
@@ -9697,14 +9697,14 @@ instruct compareAndSwapN(iRegINoSp res, indirect mem, iRegNNoSp oldval, iRegNNoS
 
 instruct compareAndSwapN_shenandoah(iRegINoSp res, indirect mem, iRegN oldval, iRegN newval, iRegNNoSp tmp, rFlagsReg cr) %{
 
-  predicate(UseShenandoahGC && ShenandoahCASBarrier);
+  predicate(UseShenandoahGC && ShenandoahCASBarrier && n->in(3)->in(1)->bottom_type() != TypeNarrowOop::NULL_PTR);
   match(Set res (CompareAndSwapN mem (Binary oldval newval)));
-  ins_cost(3 * VOLATILE_REF_COST);
+  ins_cost(2 * VOLATILE_REF_COST);
 
   effect(TEMP tmp, KILL cr);
 
   format %{
-    "cmpxchg_narrow_oop_shenandoah $mem, $oldval, $newval\t# (ptr) if $mem == $oldval then $mem <-- $newval with temp $tmp"
+    "cmpxchgw_shenandoah_narrow_oop $mem, $oldval, $newval\t# (ptr) if $mem == $oldval then $mem <-- $newval with temp $tmp"
     "cset $res, EQ\t# $res <-- (EQ ? 1 : 0)"
   %}
 
@@ -9779,14 +9779,14 @@ instruct compareAndSwapPAcq(iRegINoSp res, indirect mem, iRegP oldval, iRegP new
 
 instruct compareAndSwapPAcq_shenandoah(iRegINoSp res, indirect mem, iRegP oldval, iRegP newval, iRegPNoSp tmp, rFlagsReg cr) %{
 
-  predicate(needs_acquiring_load_exclusive(n) && UseShenandoahGC && ShenandoahCASBarrier);
+  predicate(needs_acquiring_load_exclusive(n) && UseShenandoahGC && ShenandoahCASBarrier && n->in(3)->in(1)->bottom_type() != TypePtr::NULL_PTR);
   match(Set res (CompareAndSwapP mem (Binary oldval newval)));
-  ins_cost(2 * VOLATILE_REF_COST);
+  ins_cost(VOLATILE_REF_COST);
 
   effect(TEMP tmp, KILL cr);
 
   format %{
-    "cmpxchg_acq_oop_shenandoah $mem, $oldval, $newval\t# (ptr) if $mem == $oldval then $mem <-- $newval with temp $tmp"
+    "cmpxchg_acq_shenandoah_oop $mem, $oldval, $newval\t# (ptr) if $mem == $oldval then $mem <-- $newval with temp $tmp"
     "cset $res, EQ\t# $res <-- (EQ ? 1 : 0)"
   %}
 
@@ -9798,7 +9798,7 @@ instruct compareAndSwapPAcq_shenandoah(iRegINoSp res, indirect mem, iRegP oldval
 
 instruct compareAndSwapNAcq(iRegINoSp res, indirect mem, iRegNNoSp oldval, iRegNNoSp newval, rFlagsReg cr) %{
 
-  predicate(needs_acquiring_load_exclusive(n) && (!UseShenandoahGC || !ShenandoahCASBarrier));
+  predicate(needs_acquiring_load_exclusive(n) && (!UseShenandoahGC || !ShenandoahCASBarrier|| n->in(3)->in(1)->bottom_type() == TypeNarrowOop::NULL_PTR));
   match(Set res (CompareAndSwapN mem (Binary oldval newval)));
   ins_cost(VOLATILE_REF_COST);
 
@@ -9817,14 +9817,14 @@ instruct compareAndSwapNAcq(iRegINoSp res, indirect mem, iRegNNoSp oldval, iRegN
 
 instruct compareAndSwapNAcq_shenandoah(iRegINoSp res, indirect mem, iRegN oldval, iRegN newval, iRegNNoSp tmp, rFlagsReg cr) %{
 
-  predicate(needs_acquiring_load_exclusive(n) && UseShenandoahGC && ShenandoahCASBarrier);
+  predicate(needs_acquiring_load_exclusive(n) && UseShenandoahGC && ShenandoahCASBarrier && n->in(3)->in(1)->bottom_type() != TypeNarrowOop::NULL_PTR);
   match(Set res (CompareAndSwapN mem (Binary oldval newval)));
-  ins_cost(3 * VOLATILE_REF_COST);
+  ins_cost(VOLATILE_REF_COST);
 
   effect(TEMP tmp, KILL cr);
 
  format %{
-    "cmpxchg_narrow_oop_shenandoah $mem, $oldval, $newval\t# (ptr) if $mem == $oldval then $mem <-- $newval with temp $tmp"
+    "cmpxchgw_acq_shenandoah_narrow_oop $mem, $oldval, $newval\t# (ptr) if $mem == $oldval then $mem <-- $newval with temp $tmp"
     "cset $res, EQ\t# $res <-- (EQ ? 1 : 0)"
  %}
 
