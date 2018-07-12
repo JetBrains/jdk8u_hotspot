@@ -100,6 +100,42 @@ bool ShenandoahTaskTerminator::offer_termination(TerminatorTerminator* terminato
   }
 }
 
+#if TASKQUEUE_STATS
+void ShenandoahObjToScanQueueSet::print_taskqueue_stats_hdr(outputStream* const st) {
+  st->print_raw_cr("GC Task Stats");
+  st->print_raw("thr "); TaskQueueStats::print_header(1, st); st->cr();
+  st->print_raw("--- "); TaskQueueStats::print_header(2, st); st->cr();
+}
+
+void ShenandoahObjToScanQueueSet::print_taskqueue_stats() {
+  if (! ShenandoahLogTrace) {
+    return;
+  }
+  ResourceMark rm;
+  outputStream* st = gclog_or_tty;
+  print_taskqueue_stats_hdr(st);
+
+  TaskQueueStats totals;
+  const uint n = size();
+  for (uint i = 0; i < n; ++i) {
+    st->print(UINT32_FORMAT_W(3), i);
+    queue(i)->stats.print(st);
+    st->cr();
+    totals += queue(i)->stats;
+  }
+  st->print("tot "); totals.print(st); st->cr();
+  DEBUG_ONLY(totals.verify());
+}
+
+void ShenandoahObjToScanQueueSet::reset_taskqueue_stats() {
+  const uint n = size();
+  for (uint i = 0; i < n; ++i) {
+    queue(i)->stats.reset();
+  }
+}
+#endif // TASKQUEUE_STATS
+
+
 bool ShenandoahTaskTerminator::do_spin_master_work(TerminatorTerminator* terminator) {
   uint yield_count = 0;
   // Number of hard spin loops done since last yield

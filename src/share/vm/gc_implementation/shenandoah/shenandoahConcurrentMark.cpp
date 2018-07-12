@@ -295,7 +295,7 @@ void ShenandoahConcurrentMark::mark_roots(ShenandoahPhaseTimings::Phase root_pha
   assert(nworkers <= task_queues()->size(), "Just check");
 
   ShenandoahRootProcessor root_proc(heap, nworkers, root_phase);
-  TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
+  TASKQUEUE_STATS_ONLY(task_queues()->reset_taskqueue_stats());
   task_queues()->reserve(nworkers);
 
   if (heap->has_forwarded_objects()) {
@@ -415,22 +415,25 @@ void ShenandoahConcurrentMark::mark_from_roots() {
 
   task_queues()->reserve(nworkers);
 
-  if (UseShenandoahOWST) {
-    ShenandoahTaskTerminator terminator(nworkers, task_queues());
-    ShenandoahConcurrentMarkingTask task(this, &terminator, update_refs);
-    workers->run_task(&task);
-  } else {
-    ParallelTaskTerminator terminator(nworkers, task_queues());
-    ShenandoahConcurrentMarkingTask task(this, &terminator, update_refs);
-    workers->run_task(&task);
+  {
+    ShenandoahTerminationTracker term(ShenandoahPhaseTimings::conc_termination);
+    if (UseShenandoahOWST) {
+      ShenandoahTaskTerminator terminator(nworkers, task_queues());
+      ShenandoahConcurrentMarkingTask task(this, &terminator, update_refs);
+      workers->run_task(&task);
+    } else {
+      ParallelTaskTerminator terminator(nworkers, task_queues());
+      ShenandoahConcurrentMarkingTask task(this, &terminator, update_refs);
+      workers->run_task(&task);
+    }
   }
 
   assert(task_queues()->is_empty() || sh->cancelled_gc(), "Should be empty when not cancelled");
   if (!sh->cancelled_gc()) {
-    TASKQUEUE_STATS_ONLY(print_taskqueue_stats());
+    TASKQUEUE_STATS_ONLY(task_queues()->print_taskqueue_stats());
   }
 
-  TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
+  TASKQUEUE_STATS_ONLY(task_queues()->reset_taskqueue_stats());
 }
 
 void ShenandoahConcurrentMark::finish_mark_from_roots() {
@@ -438,7 +441,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
 
   ShenandoahHeap* sh = ShenandoahHeap::heap();
 
-  TASKQUEUE_STATS_ONLY(reset_taskqueue_stats());
+  TASKQUEUE_STATS_ONLY(task_queues()->reset_taskqueue_stats());
 
   shared_finish_mark_from_roots(/* full_gc = */ false);
 
@@ -446,7 +449,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots() {
     update_roots(ShenandoahPhaseTimings::update_roots);
   }
 
-  TASKQUEUE_STATS_ONLY(print_taskqueue_stats());
+  TASKQUEUE_STATS_ONLY(task_queues()->print_taskqueue_stats());
 }
 
 void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
@@ -465,12 +468,16 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
   // The implementation is the same, so it's shared here.
   {
     ShenandoahGCPhase phase(full_gc ?
-                               ShenandoahPhaseTimings::full_gc_mark_finish_queues :
-                               ShenandoahPhaseTimings::finish_queues);
+                            ShenandoahPhaseTimings::full_gc_mark_finish_queues :
+                            ShenandoahPhaseTimings::finish_queues);
     task_queues()->reserve(nworkers);
 
     shenandoah_assert_rp_isalive_not_installed();
     ReferenceProcessorIsAliveMutator fix_isalive(sh->ref_processor(), sh->is_alive_closure());
+
+    ShenandoahTerminationTracker termination_tracker(full_gc ?
+                                                     ShenandoahPhaseTimings::full_gc_mark_termination :
+                                                     ShenandoahPhaseTimings::termination);
 
     SharedHeap::StrongRootsScope scope(sh, true);
     if (UseShenandoahOWST) {
@@ -498,45 +505,7 @@ void ShenandoahConcurrentMark::shared_finish_mark_from_roots(bool full_gc) {
     sh->unload_classes_and_cleanup_tables(full_gc);
   }
 
-  assert(task_queues()->is_empty(), "Should be empty");
-
 }
-
-#if TASKQUEUE_STATS
-void ShenandoahConcurrentMark::print_taskqueue_stats_hdr(outputStream* const st) {
-  st->print_raw_cr("GC Task Stats");
-  st->print_raw("thr "); TaskQueueStats::print_header(1, st); st->cr();
-  st->print_raw("--- "); TaskQueueStats::print_header(2, st); st->cr();
-}
-
-void ShenandoahConcurrentMark::print_taskqueue_stats() const {
-  if (! ShenandoahLogTrace) {
-    return;
-  }
-  ResourceMark rm;
-  outputStream* st = gclog_or_tty;
-  print_taskqueue_stats_hdr(st);
-
-  TaskQueueStats totals;
-  const uint n = _task_queues->size();
-  for (uint i = 0; i < n; ++i) {
-    st->print(UINT32_FORMAT_W(3), i);
-    _task_queues->queue(i)->stats.print(st);
-    st->cr();
-    totals += _task_queues->queue(i)->stats;
-  }
-  st->print("tot "); totals.print(st); st->cr();
-  DEBUG_ONLY(totals.verify());
-
-}
-
-void ShenandoahConcurrentMark::reset_taskqueue_stats() {
-  const uint n = task_queues()->size();
-  for (uint i = 0; i < n; ++i) {
-    task_queues()->queue(i)->stats.reset();
-  }
-}
-#endif // TASKQUEUE_STATS
 
 // Weak Reference Closures
 class ShenandoahCMDrainMarkingStackClosure: public VoidClosure {
@@ -736,6 +705,11 @@ void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
           ShenandoahPhaseTimings::full_gc_weakrefs_enqueue :
           ShenandoahPhaseTimings::weakrefs_enqueue;
 
+  ShenandoahPhaseTimings::Phase phase_process_termination =
+          full_gc ?
+          ShenandoahPhaseTimings::full_gc_weakrefs_termination :
+          ShenandoahPhaseTimings::weakrefs_termination;
+
   shenandoah_assert_rp_isalive_not_installed();
   ReferenceProcessorIsAliveMutator fix_isalive(rp, sh->is_alive_closure());
 
@@ -762,6 +736,7 @@ void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
 
   {
     ShenandoahGCPhase phase(phase_process);
+    ShenandoahTerminationTracker phase_term(phase_process_termination);
 
     if (sh->has_forwarded_objects()) {
       ShenandoahForwardedIsAliveClosure is_alive;
@@ -1025,6 +1000,7 @@ void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint wo
 
     if (work == 0) {
       // No work encountered in current stride, try to terminate.
+      ShenandoahTerminationTimingsTracker term_tracker(worker_id);
       if (terminator->offer_termination()) return;
     }
   }

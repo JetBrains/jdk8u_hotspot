@@ -32,6 +32,7 @@
 
 class ShenandoahCollectorPolicy;
 class ShenandoahWorkerTimings;
+class ShenandoahTerminationTimings;
 class outputStream;
 
 class ShenandoahPhaseTimings : public CHeapObj<mtGC> {
@@ -86,8 +87,10 @@ public:
     update_finish_queues,
 
     finish_queues,
+    termination,
     weakrefs,
     weakrefs_process,
+    weakrefs_termination,
     weakrefs_enqueue,
     purge,
     purge_class_unload,
@@ -196,8 +199,10 @@ public:
 
     full_gc_mark,
     full_gc_mark_finish_queues,
+    full_gc_mark_termination,
     full_gc_weakrefs,
     full_gc_weakrefs_process,
+    full_gc_weakrefs_termination,
     full_gc_weakrefs_enqueue,
     full_gc_purge,
     full_gc_purge_class_unload,
@@ -224,6 +229,7 @@ public:
 
     // Longer concurrent phases at the end
     conc_mark,
+    conc_termination,
     conc_preclean,
     conc_evac,
     conc_update_refs,
@@ -272,19 +278,22 @@ private:
   TimingData _timing_data[_num_phases];
   const char* _phase_names[_num_phases];
 
-  ShenandoahWorkerTimings* _worker_times;
+  ShenandoahWorkerTimings*      _worker_times;
+  ShenandoahTerminationTimings* _termination_times;
+
   ShenandoahCollectorPolicy* _policy;
 
 public:
   ShenandoahPhaseTimings();
 
-  ShenandoahWorkerTimings* worker_times() const { return _worker_times; }
+  ShenandoahWorkerTimings* const worker_times() const { return _worker_times; }
+  ShenandoahTerminationTimings* const termination_times() const { return _termination_times; }
 
   // record phase start
   void record_phase_start(Phase phase);
   // record phase end and return elapsed time in seconds for the phase
   void record_phase_end(Phase phase);
-  // record an elapsed time in seconds for the phase
+  // record an elapsed time in microseconds for the phase
   void record_phase_time(Phase phase, jint time_us);
 
   void record_workers_start(Phase phase);
@@ -321,6 +330,43 @@ class ShenandoahWorkerTimingsTracker : public StackObj {
 public:
   ShenandoahWorkerTimingsTracker(ShenandoahWorkerTimings* worker_times, ShenandoahPhaseTimings::GCParPhases phase, uint worker_id);
   ~ShenandoahWorkerTimingsTracker();
+};
+
+class ShenandoahTerminationTimings : public CHeapObj<mtGC> {
+private:
+  ShenandoahWorkerDataArray<double>* _gc_termination_phase;
+public:
+  ShenandoahTerminationTimings(uint max_gc_threads);
+
+  // record the time a phase took in seconds
+  void record_time_secs(uint worker_i, double secs);
+
+  double average() const { return _gc_termination_phase->average(); }
+  void reset() { _gc_termination_phase->reset(); }
+
+  void print() const;
+};
+
+class ShenandoahTerminationTimingsTracker : public StackObj {
+private:
+  double _start_time;
+  uint   _worker_id;
+
+public:
+  ShenandoahTerminationTimingsTracker(uint worker_id);
+  ~ShenandoahTerminationTimingsTracker();
+};
+
+
+// Tracking termination time in specific GC phase
+class ShenandoahTerminationTracker : public StackObj {
+private:
+  ShenandoahPhaseTimings::Phase _phase;
+
+  static ShenandoahPhaseTimings::Phase currentPhase;
+public:
+  ShenandoahTerminationTracker(ShenandoahPhaseTimings::Phase phase);
+  ~ShenandoahTerminationTracker();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHGCPHASETIMEINGS_HPP

@@ -361,6 +361,8 @@
           "Allow mixing mutator and collector allocations in a single "     \
           "region")                                                         \
                                                                             \
+  diagnostic(bool, ShenandoahTerminationTrace, false,                       \
+          "Tracing task termination timings")                               \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \
