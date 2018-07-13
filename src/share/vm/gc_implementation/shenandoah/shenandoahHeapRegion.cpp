@@ -624,6 +624,10 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   // the race, the regions would be at least 7/8 used, which allows relying on
   // "used" - "live" for cset selection. Otherwise, we can get the fragmented region
   // below the garbage threshold that would never be considered for collection.
+  //
+  // The whole thing would be mitigated if Elastic TLABs were enabled, but there
+  // is no support in this JDK.
+  //
   guarantee(MaxTLABSizeBytes == 0, "we should only set it once");
   MaxTLABSizeBytes = MIN2(RegionSizeBytes / 8, HumongousThresholdBytes);
   assert (MaxTLABSizeBytes > MinTLABSize, "should be larger");

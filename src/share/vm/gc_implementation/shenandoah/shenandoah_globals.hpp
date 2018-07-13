@@ -363,6 +363,9 @@
                                                                             \
   diagnostic(bool, ShenandoahTerminationTrace, false,                       \
           "Tracing task termination timings")                               \
+                                                                            \
+  diagnostic(bool, ShenandoahElasticTLAB, true,                             \
+          "Use Elastic TLABs with Shenandoah")                              \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \
