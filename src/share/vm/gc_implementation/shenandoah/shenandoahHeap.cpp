@@ -653,14 +653,17 @@ HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) 
   }
 
   // Allocate a new GCLAB...
-  HeapWord* obj = allocate_new_gclab(new_gclab_size);
+  size_t actual_size = 0;
+  size_t min_size = MAX2(size + ThreadLocalAllocBuffer::alignment_reserve(), ThreadLocalAllocBuffer::min_size());
+  HeapWord* obj = allocate_new_gclab(min_size, new_gclab_size, &actual_size);
+
   if (obj == NULL) {
     return NULL;
   }
 
   if (ZeroTLAB) {
     // ..and clear it.
-    Copy::zero_to_words(obj, new_gclab_size);
+    Copy::zero_to_words(obj, actual_size);
   } else {
     // ...and zap just allocated object.
 #ifdef ASSERT
@@ -668,10 +671,10 @@ HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) 
     // ensure that the returned space is not considered parsable by
     // any concurrent GC thread.
     size_t hdr_size = oopDesc::header_size();
-    Copy::fill_to_words(obj + hdr_size, new_gclab_size - hdr_size, badHeapWordVal);
+    Copy::fill_to_words(obj + hdr_size, actual_size - hdr_size, badHeapWordVal);
 #endif // ASSERT
   }
-  thread->gclab().fill(obj, obj + size, new_gclab_size);
+  thread->gclab().fill(obj, obj + size, actual_size);
   return obj;
 }
 
@@ -683,12 +686,20 @@ HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size) {
   return allocate_memory(req);
 }
 
-HeapWord* ShenandoahHeap::allocate_new_gclab(size_t word_size) {
+HeapWord* ShenandoahHeap::allocate_new_gclab(size_t min_size,
+                                             size_t word_size,
+                                             size_t* actual_size) {
 #ifdef ASSERT
   log_debug(gc, alloc)("Allocate new gclab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
 #endif
-  ShenandoahAllocationRequest req = ShenandoahAllocationRequest::for_gclab(word_size);
-  return allocate_memory(req);
+  ShenandoahAllocationRequest req = ShenandoahAllocationRequest::for_gclab(min_size, word_size);
+  HeapWord* res = allocate_memory(req);
+  if (res != NULL) {
+    *actual_size = req.actual_size();
+  } else {
+    *actual_size = 0;
+  }
+  return res;
 }
 
 ShenandoahHeap* ShenandoahHeap::heap() {
@@ -759,8 +770,8 @@ HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocationRequest& req) {
     size_t requested = req.size();
     size_t actual = req.actual_size();
 
-    assert (req.type() == _alloc_tlab || (requested == actual),
-            err_msg("Only TLAB allocations are elastic: %s, requested = " SIZE_FORMAT ", actual = " SIZE_FORMAT,
+    assert (req.is_lab_alloc() || (requested == actual),
+            err_msg("Only LAB allocations are elastic: %s, requested = " SIZE_FORMAT ", actual = " SIZE_FORMAT,
                     alloc_type_to_string(req.type()), requested, actual));
 
     notify_alloc(actual, false);
