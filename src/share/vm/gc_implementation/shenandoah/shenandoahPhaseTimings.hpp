@@ -103,6 +103,7 @@ public:
     purge_par_string_dedup,
     purge_cldg,
     prepare_evac,
+    complete_liveness,
     recycle_regions,
 
     // Per-thread timer block, should have "roots" counters in consistent order
