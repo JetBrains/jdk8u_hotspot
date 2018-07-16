@@ -652,14 +652,19 @@ HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) 
     return NULL;
   }
 
+  // Allocated object should fit in new GCLAB, and new_gclab_size should be larger than min
+  size_t min_size = MAX2(size + ThreadLocalAllocBuffer::alignment_reserve(), ThreadLocalAllocBuffer::min_size());
+  new_gclab_size = MAX2(new_gclab_size, min_size);
+
   // Allocate a new GCLAB...
   size_t actual_size = 0;
-  size_t min_size = MAX2(size + ThreadLocalAllocBuffer::alignment_reserve(), ThreadLocalAllocBuffer::min_size());
   HeapWord* obj = allocate_new_gclab(min_size, new_gclab_size, &actual_size);
 
   if (obj == NULL) {
     return NULL;
   }
+
+  assert (size <= actual_size, "allocation should fit");
 
   if (ZeroTLAB) {
     // ..and clear it.
