@@ -187,22 +187,20 @@ inline void ShenandoahHeap::clear_cancelled_gc() {
 }
 
 inline HeapWord* ShenandoahHeap::allocate_from_gclab(Thread* thread, size_t size) {
-  if (UseTLAB) {
-    if (!thread->gclab().is_initialized()) {
-      assert(!thread->is_Java_thread() && !thread->is_Worker_thread(),
-             err_msg("Performance: thread should have GCLAB: %s", thread->name()));
-      // No GCLABs in this thread, fallback to shared allocation
-      return NULL;
-    }
-    HeapWord* obj = thread->gclab().allocate(size);
-    if (obj != NULL) {
-      return obj;
-    }
-    // Otherwise...
-    return allocate_from_gclab_slow(thread, size);
-  } else {
+  assert(UseTLAB, "TLABs should be enabled");
+
+  if (!thread->gclab().is_initialized()) {
+    assert(!thread->is_Java_thread() && !thread->is_Worker_thread(),
+           err_msg("Performance: thread should have GCLAB: %s", thread->name()));
+    // No GCLABs in this thread, fallback to shared allocation
     return NULL;
   }
+  HeapWord *obj = thread->gclab().allocate(size);
+  if (obj != NULL) {
+    return obj;
+  }
+  // Otherwise...
+  return allocate_from_gclab_slow(thread, size);
 }
 
 inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuated) {
@@ -220,7 +218,7 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuate
   assert(!heap_region_containing(p)->is_humongous(), "never evacuate humongous objects");
 
   bool alloc_from_gclab = true;
-  HeapWord* filler;
+  HeapWord* filler = NULL;
 #ifdef ASSERT
 
   assert(thread->is_evac_allowed(), "must be enclosed in ShenandoahOOMDuringEvacHandler");
@@ -230,7 +228,9 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuate
         filler = NULL;
   } else {
 #endif
-    filler = allocate_from_gclab(thread, size_with_fwdptr);
+    if (UseTLAB) {
+      filler = allocate_from_gclab(thread, size_with_fwdptr);
+    }
     if (filler == NULL) {
       ShenandoahAllocationRequest req = ShenandoahAllocationRequest::for_shared_gc(size_with_fwdptr);
       filler = allocate_memory(req);
