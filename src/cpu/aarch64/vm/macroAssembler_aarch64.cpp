@@ -683,16 +683,20 @@ address MacroAssembler::trampoline_call(Address entry, CodeBuffer *cbuf) {
 
   unsigned int start_offset = offset();
 #ifdef COMPILER2
+  // We need a trampoline if branches are far.
   if (far_branches()) {
-    bool is_c2 = is_c2_compile(ciEnv::current()->task()->comp_level());
+    // We don't want to emit a trampoline if C2 is generating dummy
+    // code during its branch shortening phase.
+    CompileTask* task = ciEnv::current()->task();
     bool in_scratch_emit_size =
-      is_c2 && Compile::current()->in_scratch_emit_size();
+      ((task != NULL) && is_c2_compile(task->comp_level())
+       && Compile::current()->in_scratch_emit_size());
     if (! in_scratch_emit_size) {
-    address stub = emit_trampoline_stub(start_offset, entry.target());
-    if (stub == NULL) {
-      return NULL; // CodeCache is full
+      address stub = emit_trampoline_stub(start_offset, entry.target());
+      if (stub == NULL) {
+        return NULL; // CodeCache is full
+      }
     }
-  }
   }
 #endif
 
