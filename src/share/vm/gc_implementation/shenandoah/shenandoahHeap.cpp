@@ -1254,6 +1254,13 @@ CollectorPolicy* ShenandoahHeap::collector_policy() const {
   return _shenandoah_policy;
 }
 
+void ShenandoahHeap::resize_tlabs() {
+  CollectedHeap::resize_all_tlabs();
+}
+
+void ShenandoahHeap::accumulate_statistics_tlabs() {
+  CollectedHeap::accumulate_statistics_all_tlabs();
+}
 
 HeapWord* ShenandoahHeap::block_start(const void* addr) const {
   Space* sp = heap_region_containing(addr);
@@ -1503,7 +1510,7 @@ void ShenandoahHeap::op_init_mark() {
 
   {
     ShenandoahGCPhase phase(ShenandoahPhaseTimings::accumulate_stats);
-    accumulate_statistics_all_tlabs();
+    accumulate_statistics_tlabs();
   }
 
   set_concurrent_mark_in_progress(true);
@@ -1526,7 +1533,7 @@ void ShenandoahHeap::op_init_mark() {
 
   if (UseTLAB) {
     ShenandoahGCPhase phase(ShenandoahPhaseTimings::resize_tlabs);
-    resize_all_tlabs();
+    resize_tlabs();
   }
 
   if (ShenandoahPacing) {
