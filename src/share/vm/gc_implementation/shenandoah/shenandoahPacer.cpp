@@ -212,7 +212,7 @@ void ShenandoahPacer::unpace_for_alloc(intptr_t epoch, size_t words) {
 }
 
 intptr_t ShenandoahPacer::epoch() {
-  return Atomic::load(&_epoch);
+  return OrderAccess::load_acquire(&_epoch);
 }
 
 void ShenandoahPacer::pace_for_alloc(size_t words) {
