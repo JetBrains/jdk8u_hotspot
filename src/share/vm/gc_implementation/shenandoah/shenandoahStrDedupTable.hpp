@@ -201,7 +201,7 @@ class ShenandoahHeap;
 
 class ShenandoahStrDedupTableCleanupTask : public CHeapObj<mtGC> {
 private:
-  ShenandoahHeap* _heap;
+  ShenandoahMarkingContext* const _mark_context;
 
 public:
   ShenandoahStrDedupTableCleanupTask();

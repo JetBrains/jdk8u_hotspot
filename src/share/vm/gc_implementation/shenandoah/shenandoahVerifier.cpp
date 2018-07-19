@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
@@ -185,11 +186,11 @@ private:
         // skip
         break;
       case ShenandoahVerifier::_verify_marked_next:
-        verify(ShenandoahAsserts::_safe_all, obj, _heap->is_marked_next(obj),
+        verify(ShenandoahAsserts::_safe_all, obj, _heap->next_marking_context()->is_marked(obj),
                "Must be marked in next bitmap");
         break;
       case ShenandoahVerifier::_verify_marked_complete:
-        verify(ShenandoahAsserts::_safe_all, obj, _heap->is_marked_complete(obj),
+        verify(ShenandoahAsserts::_safe_all, obj, _heap->complete_marking_context()->is_marked(obj),
                "Must be marked in complete bitmap");
         break;
       default:
@@ -346,10 +347,10 @@ public:
     verify(r, r->capacity() == ShenandoahHeapRegion::region_size_bytes(),
            "Capacity should match region size");
 
-    verify(r, r->bottom() <= _heap->complete_top_at_mark_start(r->bottom()),
+    verify(r, r->bottom() <= _heap->complete_marking_context()->top_at_mark_start(r->region_number()),
            "Region top should not be less than bottom");
 
-    verify(r, _heap->complete_top_at_mark_start(r->bottom()) <= r->top(),
+    verify(r, _heap->complete_marking_context()->top_at_mark_start(r->region_number()) <= r->top(),
            "Complete TAMS should not be larger than top");
 
     verify(r, r->get_live_data_bytes() <= r->capacity(),
@@ -487,7 +488,7 @@ public:
   virtual void work_humongous(ShenandoahHeapRegion *r, ShenandoahVerifierStack& stack, ShenandoahVerifyOopClosure& cl) {
     jlong processed = 0;
     HeapWord* obj = r->bottom() + BrooksPointer::word_size();
-    if (_heap->is_marked_complete((oop)obj)) {
+    if (_heap->complete_marking_context()->is_marked((oop)obj)) {
       verify_and_follow(obj, stack, cl, &processed);
     }
     Atomic::add(processed, &_processed);
@@ -495,8 +496,8 @@ public:
 
   virtual void work_regular(ShenandoahHeapRegion *r, ShenandoahVerifierStack &stack, ShenandoahVerifyOopClosure &cl) {
     jlong processed = 0;
-    MarkBitMap* mark_bit_map = _heap->complete_mark_bit_map();
-    HeapWord* tams = _heap->complete_top_at_mark_start(r->bottom());
+    MarkBitMap* mark_bit_map = _heap->complete_marking_context()->mark_bit_map();
+    HeapWord* tams = _heap->complete_marking_context()->top_at_mark_start(r->region_number());
 
     // Bitmaps, before TAMS
     if (tams > r->bottom()) {

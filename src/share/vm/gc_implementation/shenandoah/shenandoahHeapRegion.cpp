@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
+#include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "memory/space.inline.hpp"
 #include "memory/universe.hpp"
 #include "oops/oop.inline.hpp"
@@ -411,8 +412,8 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|BTE " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12),
             p2i(bottom()), p2i(top()), p2i(end()));
   st->print("|TAMS " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12),
-            p2i(_heap->complete_top_at_mark_start(_bottom)),
-            p2i(_heap->next_top_at_mark_start(_bottom)));
+            p2i(_heap->complete_marking_context()->top_at_mark_start(region_number())),
+            p2i(_heap->next_marking_context()->top_at_mark_start(region_number())));
   st->print("|U %3d%%", (int) ((double) used() * 100 / capacity()));
   st->print("|T %3d%%", (int) ((double) get_tlab_allocs() * 100 / capacity()));
   st->print("|G %3d%%", (int) ((double) get_gclab_allocs() * 100 / capacity()));
@@ -422,30 +423,6 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
 
   st->cr();
 }
-
-
-class ShenandoahSkipUnreachableObjectToOopClosure: public ObjectClosure {
-  ExtendedOopClosure* _cl;
-  bool _skip_unreachable_objects;
-  ShenandoahHeap* _heap;
-
-public:
-  ShenandoahSkipUnreachableObjectToOopClosure(ExtendedOopClosure* cl, bool skip_unreachable_objects) :
-    _cl(cl), _skip_unreachable_objects(skip_unreachable_objects), _heap(ShenandoahHeap::heap()) {}
-
-  void do_object(oop obj) {
-
-    if ((! _skip_unreachable_objects) || _heap->is_marked_complete(obj)) {
-#ifdef ASSERT
-      if (_skip_unreachable_objects) {
-        assert(_heap->is_marked_complete(obj), "obj must be live");
-      }
-#endif
-      obj->oop_iterate(_cl);
-    }
-
-  }
-};
 
 void ShenandoahHeapRegion::fill_region() {
   if (free() > (BrooksPointer::word_size() + CollectedHeap::min_fill_size())) {
@@ -477,11 +454,14 @@ void ShenandoahHeapRegion::recycle() {
   }
   clear_live_data();
   reset_alloc_metadata();
+
+  ShenandoahMarkingContext* const compl_ctx = _heap->complete_marking_context();
+
   // Reset C-TAMS pointer to ensure size-based iteration, everything
   // in that regions is going to be new objects.
-  _heap->set_complete_top_at_mark_start(bottom(), bottom());
+  compl_ctx->set_top_at_mark_start(region_number(), bottom());
   // We can only safely reset the C-TAMS pointer if the bitmap is clear for that region.
-  assert(_heap->is_complete_bitmap_clear_range(bottom(), end()), "must be clear");
+  assert(compl_ctx->is_bitmap_clear_range(bottom(), end()), "must be clear");
 
   make_empty();
 }

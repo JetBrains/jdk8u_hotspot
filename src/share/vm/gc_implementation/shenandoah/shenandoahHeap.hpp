@@ -44,6 +44,7 @@ class ShenandoahHeapRegionClosure;
 class ShenandoahMarkCompact;
 class ShenandoahMonitoringSupport;
 class ShenandoahHeuristics;
+class ShenandoahMarkingContext;
 class ShenandoahPhaseTimings;
 class ShenandoahPacer;
 class ShenandoahVerifier;
@@ -247,17 +248,10 @@ private:
   volatile size_t _committed;
 
   MarkBitMap _verification_bit_map;
-  MarkBitMap _mark_bit_map0;
-  MarkBitMap _mark_bit_map1;
-  MarkBitMap* _complete_mark_bit_map;
-  MarkBitMap* _next_mark_bit_map;
   MarkBitMap _aux_bit_map;
 
-  HeapWord** _complete_top_at_mark_starts;
-  HeapWord** _complete_top_at_mark_starts_base;
-
-  HeapWord** _next_top_at_mark_starts;
-  HeapWord** _next_top_at_mark_starts_base;
+  ShenandoahMarkingContext* _complete_marking_context;
+  ShenandoahMarkingContext* _next_marking_context;
 
   volatile jlong _bytes_allocated_since_gc_start;
 
@@ -447,14 +441,6 @@ public:
   template <class T>
   inline bool in_collection_set(T obj) const;
 
-  inline bool allocated_after_next_mark_start(HeapWord* addr) const;
-  void set_next_top_at_mark_start(HeapWord* region_base, HeapWord* addr);
-  HeapWord* next_top_at_mark_start(HeapWord* region_base);
-
-  inline bool allocated_after_complete_mark_start(HeapWord* addr) const;
-  void set_complete_top_at_mark_start(HeapWord* region_base, HeapWord* addr);
-  HeapWord* complete_top_at_mark_start(HeapWord* region_base);
-
   // Evacuates object src. Returns the evacuated object if this thread
   // succeeded, otherwise rolls back the evacuation and returns the
   // evacuated object by the competing thread. 'succeeded' is an out
@@ -484,14 +470,13 @@ public:
 
   void reset_next_mark_bitmap();
 
-  MarkBitMap* complete_mark_bit_map();
-  MarkBitMap* next_mark_bit_map();
-  inline bool is_marked_complete(oop obj) const;
-  inline bool mark_next(oop obj) const;
-  inline bool is_marked_next(oop obj) const;
-  bool is_next_bitmap_clear();
-  bool is_next_bitmap_clear_range(HeapWord* start, HeapWord* end);
-  bool is_complete_bitmap_clear_range(HeapWord* start, HeapWord* end);
+  inline ShenandoahMarkingContext* complete_marking_context() const {
+    return _complete_marking_context;
+  }
+
+  inline ShenandoahMarkingContext* next_marking_context() const {
+    return _next_marking_context;
+  }
 
   bool commit_bitmap_slice(ShenandoahHeapRegion *r);
   bool uncommit_bitmap_slice(ShenandoahHeapRegion *r);
@@ -559,7 +544,7 @@ public:
   GCTimer* gc_timer() const;
   GCTracer* tracer();
 
-  void swap_mark_bitmaps();
+  void swap_mark_contexts();
 
   void cancel_gc(GCCause::Cause cause);
 

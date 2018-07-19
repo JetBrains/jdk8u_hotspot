@@ -45,7 +45,7 @@ void ShenandoahStrDedupQueueCleanupClosure::do_oop_work(T* p) {
   if (! oopDesc::is_null(o)) {
     oop obj = oopDesc::decode_heap_oop_not_null(o);
     assert(_heap->is_in(obj), "Must be in the heap");
-    if (!_heap->is_marked_next(obj)) {
+    if (!_mark_context->is_marked(obj)) {
       oopDesc::encode_store_heap_oop(p, oop());
     }
   }

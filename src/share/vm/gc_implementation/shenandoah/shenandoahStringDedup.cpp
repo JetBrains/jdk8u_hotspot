@@ -28,6 +28,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahStrDedupQueue.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahStrDedupTable.hpp"
 #include "gc_implementation/shenandoah/shenandoahStrDedupThread.hpp"

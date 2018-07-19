@@ -36,6 +36,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
@@ -99,7 +100,7 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
 
       // c. Reset the bitmaps for new marking
       heap->reset_next_mark_bitmap();
-      assert(heap->is_next_bitmap_clear(), "sanity");
+      assert(heap->next_marking_context()->is_bitmap_clear(), "sanity");
 
       // d. Abandon reference discovery and clear all discovered references.
       ReferenceProcessor *rp = heap->ref_processor();
@@ -177,13 +178,13 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
 
 class ShenandoahPrepareForMarkClosure: public ShenandoahHeapRegionClosure {
 private:
-  ShenandoahHeap* const _heap;
+  ShenandoahMarkingContext* const _ctx;
 
 public:
-  ShenandoahPrepareForMarkClosure() : _heap(ShenandoahHeap::heap()) {}
+  ShenandoahPrepareForMarkClosure() : _ctx(ShenandoahHeap::heap()->next_marking_context()) {}
 
   bool heap_region_do(ShenandoahHeapRegion *r) {
-    _heap->set_next_top_at_mark_start(r->bottom(), r->top());
+    _ctx->set_top_at_mark_start(r->region_number(), r->top());
     r->clear_live_data();
     r->set_concurrent_iteration_safe_limit(r->top());
     return false;
@@ -218,7 +219,7 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
   cm->mark_roots(ShenandoahPhaseTimings::full_gc_roots);
   cm->shared_finish_mark_from_roots(/* full_gc = */ true);
 
-  heap->swap_mark_bitmaps();
+  heap->swap_mark_contexts();
 }
 
 class ShenandoahPrepareForCompactionObjectClosure : public ObjectClosure {
@@ -258,8 +259,8 @@ public:
 
   void do_object(oop p) {
     assert(_from_region != NULL, "must set before work");
-    assert(_heap->is_marked_complete(p), "must be marked");
-    assert(!_heap->allocated_after_complete_mark_start((HeapWord*) p), "must be truly marked");
+    assert(_heap->complete_marking_context()->is_marked(p), "must be marked");
+    assert(!_heap->complete_marking_context()->allocated_after_mark_start((HeapWord*) p), "must be truly marked");
 
     size_t obj_size = p->size() + BrooksPointer::word_size();
     if (_compact_point + obj_size > _to_region->end()) {
@@ -429,13 +430,17 @@ public:
 class ShenandoahTrashImmediateGarbageClosure: public ShenandoahHeapRegionClosure {
 private:
   ShenandoahHeap* const _heap;
+  ShenandoahMarkingContext* const _ctx;
 
 public:
-  ShenandoahTrashImmediateGarbageClosure() : _heap(ShenandoahHeap::heap()) {}
+  ShenandoahTrashImmediateGarbageClosure() :
+    _heap(ShenandoahHeap::heap()),
+    _ctx(ShenandoahHeap::heap()->complete_marking_context()) {}
+
   bool heap_region_do(ShenandoahHeapRegion* r) {
     if (r->is_humongous_start()) {
       oop humongous_obj = oop(r->bottom() + BrooksPointer::word_size());
-      if (!_heap->is_marked_complete(humongous_obj)) {
+      if (!_ctx->is_marked(humongous_obj)) {
         assert(!r->has_live(),
                err_msg("Region " SIZE_FORMAT " is not marked, should not have live", r->region_number()));
         _heap->trash_humongous_region_at(r);
@@ -449,7 +454,7 @@ public:
              err_msg("Region " SIZE_FORMAT " should have live", r->region_number()));
     } else if (r->is_regular()) {
       if (!r->has_live()) {
-        assert(_heap->is_complete_bitmap_clear_range(r->bottom(), r->end()),
+        assert(_ctx->is_bitmap_clear_range(r->bottom(), r->end()),
                err_msg("Region " SIZE_FORMAT " should not have marks in bitmap", r->region_number()));
         r->make_trash();
       }
@@ -493,20 +498,23 @@ void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegi
 class ShenandoahAdjustPointersClosure : public MetadataAwareOopClosure {
 private:
   ShenandoahHeap* const _heap;
+  ShenandoahMarkingContext* const _ctx;
 
   template <class T>
   inline void do_oop_work(T* p) {
     T o = oopDesc::load_heap_oop(p);
     if (! oopDesc::is_null(o)) {
       oop obj = oopDesc::decode_heap_oop_not_null(o);
-      assert(_heap->is_marked_complete(obj), "must be marked");
+      assert(_ctx->is_marked(obj), "must be marked");
       oop forw = oop(BrooksPointer::get_raw(obj));
       oopDesc::encode_store_heap_oop(p, forw);
     }
   }
 
 public:
-  ShenandoahAdjustPointersClosure() : _heap(ShenandoahHeap::heap()) {}
+  ShenandoahAdjustPointersClosure() :
+    _heap(ShenandoahHeap::heap()),
+    _ctx(ShenandoahHeap::heap()->complete_marking_context()) {}
 
   void do_oop(oop* p)       { do_oop_work(p); }
   void do_oop(narrowOop* p) { do_oop_work(p); }
@@ -522,7 +530,7 @@ public:
     _heap(ShenandoahHeap::heap()) {
   }
   void do_object(oop p) {
-    assert(_heap->is_marked_complete(p), "must be marked");
+    assert(_heap->complete_marking_context()->is_marked(p), "must be marked");
     p->oop_iterate(&_cl);
   }
 };
@@ -598,7 +606,7 @@ public:
   ShenandoahCompactObjectsClosure() : _heap(ShenandoahHeap::heap()) {}
 
   void do_object(oop p) {
-    assert(_heap->is_marked_complete(p), "must be marked");
+    assert(_heap->complete_marking_context()->is_marked(p), "must be marked");
     size_t size = (size_t)p->size();
     HeapWord* compact_to = BrooksPointer::get_raw(p);
     HeapWord* compact_from = (HeapWord*) p;
@@ -657,7 +665,7 @@ public:
     // NOTE: See blurb at ShenandoahMCResetCompleteBitmapTask on why we need to skip
     // pinned regions.
     if (!r->is_pinned()) {
-      _heap->set_complete_top_at_mark_start(r->bottom(), r->bottom());
+      _heap->complete_marking_context()->set_top_at_mark_start(r->region_number(), r->bottom());
     }
 
     size_t live = r->used();
@@ -776,14 +784,15 @@ public:
   void work(uint worker_id) {
     ShenandoahHeapRegion* region = _regions.next();
     ShenandoahHeap* heap = ShenandoahHeap::heap();
+    ShenandoahMarkingContext* const ctx = heap->complete_marking_context();
     while (region != NULL) {
       if (heap->is_bitmap_slice_committed(region) && !region->is_pinned()) {
         HeapWord* bottom = region->bottom();
-        HeapWord* top = heap->complete_top_at_mark_start(region->bottom());
+        HeapWord* top = ctx->top_at_mark_start(region->region_number());
         if (top > bottom && region->has_live()) {
-          heap->complete_mark_bit_map()->clear_range_large(MemRegion(bottom, top));
+          ctx->clear_bitmap(bottom, top);
         }
-        assert(heap->is_complete_bitmap_clear_range(bottom, region->end()), "must be clear");
+        assert(ctx->is_bitmap_clear_range(bottom, region->end()), "must be clear");
       }
       region = _regions.next();
     }
