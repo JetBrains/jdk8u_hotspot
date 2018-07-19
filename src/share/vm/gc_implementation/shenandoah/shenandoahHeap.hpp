@@ -112,23 +112,17 @@ public:
 
 class ShenandoahForwardedIsAliveClosure: public BoolObjectClosure {
 private:
-  ShenandoahHeap* _heap;
+  ShenandoahMarkingContext* const _mark_context;
 public:
   ShenandoahForwardedIsAliveClosure();
-  void init(ShenandoahHeap* heap) {
-    _heap = heap;
-  }
   bool do_object_b(oop obj);
 };
 
 class ShenandoahIsAliveClosure: public BoolObjectClosure {
 private:
-  ShenandoahHeap* _heap;
+  ShenandoahMarkingContext* const _mark_context;
 public:
   ShenandoahIsAliveClosure();
-  void init(ShenandoahHeap* heap) {
-    _heap = heap;
-  }
   bool do_object_b(oop obj);
 };
 
@@ -269,9 +263,6 @@ private:
   ShenandoahSharedFlag _cancelled_gc;
 
   ReferenceProcessor* _ref_processor;
-
-  ShenandoahForwardedIsAliveClosure _forwarded_is_alive;
-  ShenandoahIsAliveClosure _is_alive;
 
   ConcurrentGCTimer* _gc_timer;
 
@@ -513,8 +504,6 @@ public:
   void unload_classes_and_cleanup_tables(bool full_gc);
 
   inline size_t num_regions() const { return _num_regions; }
-
-  BoolObjectClosure* is_alive_closure();
 
   // Call before starting evacuation.
   void enter_evacuation();
@@ -761,5 +750,14 @@ private:
   void try_inject_alloc_failure();
   bool should_inject_alloc_failure();
 };
+
+class ShenandoahIsAliveSelector : public StackObj {
+private:
+  ShenandoahIsAliveClosure _alive_cl;
+  ShenandoahForwardedIsAliveClosure _fwd_alive_cl;
+public:
+  BoolObjectClosure* is_alive_closure();
+};
+
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP

@@ -1841,11 +1841,11 @@ uint ShenandoahHeap::oop_extra_words() {
 }
 
 ShenandoahForwardedIsAliveClosure::ShenandoahForwardedIsAliveClosure() :
-  _heap(ShenandoahHeap::heap_no_check()) {
+  _mark_context(ShenandoahHeap::heap()->next_marking_context()) {
 }
 
 ShenandoahIsAliveClosure::ShenandoahIsAliveClosure() :
-  _heap(ShenandoahHeap::heap_no_check()) {
+  _mark_context(ShenandoahHeap::heap()->next_marking_context()) {
 }
 
 bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
@@ -1853,8 +1853,8 @@ bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
     return false;
   }
   obj = ShenandoahBarrierSet::resolve_forwarded_not_null(obj);
-  shenandoah_assert_not_forwarded_if(NULL, obj, _heap->is_concurrent_mark_in_progress())
-  return _heap->next_marking_context()->is_marked(obj);
+  shenandoah_assert_not_forwarded_if(NULL, obj, ShenandoahHeap::heap()->is_concurrent_mark_in_progress());
+  return _mark_context->is_marked(obj);
 }
 
 bool ShenandoahIsAliveClosure::do_object_b(oop obj) {
@@ -1862,20 +1862,12 @@ bool ShenandoahIsAliveClosure::do_object_b(oop obj) {
     return false;
   }
   shenandoah_assert_not_forwarded(NULL, obj);
-  return _heap->next_marking_context()->is_marked(obj);
-}
-
-BoolObjectClosure* ShenandoahHeap::is_alive_closure() {
-  return has_forwarded_objects() ?
-         (BoolObjectClosure*) &_forwarded_is_alive :
-         (BoolObjectClosure*) &_is_alive;
+  return _mark_context->is_marked(obj);
 }
 
 void ShenandoahHeap::ref_processing_init() {
   MemRegion mr = reserved_region();
 
-  _forwarded_is_alive.init(this);
-  _is_alive.init(this);
   assert(_max_workers > 0, "Sanity");
 
   _ref_processor =
@@ -1986,7 +1978,8 @@ void ShenandoahHeap::unload_classes_and_cleanup_tables(bool full_gc) {
 
   ShenandoahGCPhase root_phase(phase_root);
 
-  BoolObjectClosure* is_alive = is_alive_closure();
+  ShenandoahIsAliveSelector alive;
+  BoolObjectClosure* is_alive = alive.is_alive_closure();
 
   bool purged_class;
 
@@ -2698,4 +2691,9 @@ void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure& cl) const 
 
 char ShenandoahHeap::gc_state() {
   return _gc_state.raw_value();
+}
+
+BoolObjectClosure* ShenandoahIsAliveSelector::is_alive_closure() {
+  return ShenandoahHeap::heap()->has_forwarded_objects() ? reinterpret_cast<BoolObjectClosure*>(&_fwd_alive_cl)
+                                                         : reinterpret_cast<BoolObjectClosure*>(&_alive_cl);
 }
