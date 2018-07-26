@@ -3658,8 +3658,14 @@ void PhaseIdealLoop::shenandoah_evacuation_in_progress(Node* c, Node* val, Node*
   shenandoah_evacuation_in_progress_null_check(c, val, evacuation_iff, unc, unc_ctrl, unc_region, uses);
 
   IdealLoopTree *loop = get_loop(c);
-  Node* rbtrue = new (C) ShenandoahReadBarrierNode(c, wb_mem, val);
-  register_new_node(rbtrue, c);
+
+  Node* rbtrue;
+  if (ShenandoahWriteBarrierRB) {
+    rbtrue = new (C) ShenandoahReadBarrierNode(c, wb_mem, val);
+    register_new_node(rbtrue, c);
+  } else {
+    rbtrue = val;
+  }
 
   Node* in_cset_fast_test_failure = NULL;
   shenandoah_in_cset_fast_test(c, rbtrue, raw_mem, wb_mem, region, val_phi, mem_phi, raw_mem_phi);
