@@ -151,9 +151,16 @@ hotspot_tier2_gc_shenandoah = \
   gc/metaspace/TestMetaspacePerfCounters.java \
   gc/startup_warnings/TestShenandoah.java \
   gc/shenandoah/
+  -gc/shenandoah/ShenandoahStrDedupStress.java \
+  -gc/shenandoah/CriticalNativeStress.java
+
+hotspot_shenandoah_stress = \
+  gc/shenandoah/ShenandoahStrDedupStress.java \
+  gc/shenandoah/CriticalNativeStress.java
 
 hotspot_tier3_gc_shenandoah = \
-  :hotspot_tier2_gc_shenandoah
+  :hotspot_tier2_gc_shenandoah \
+  :hotspot_shenandoah_stress
 
 hotspot_runtime = \
   sanity/ExecuteInternalVMTests.java
