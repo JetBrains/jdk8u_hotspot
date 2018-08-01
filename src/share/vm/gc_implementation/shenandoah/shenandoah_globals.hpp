@@ -363,6 +363,9 @@
                                                                             \
   diagnostic(bool, ShenandoahElasticTLAB, true,                             \
           "Use Elastic TLABs with Shenandoah")                              \
+                                                                            \
+  diagnostic(bool, ShenandoahCompileCheck, false,                           \
+          "Assert that methods are successfully compilable")                \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \
