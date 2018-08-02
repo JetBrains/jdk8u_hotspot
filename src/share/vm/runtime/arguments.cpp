@@ -2202,25 +2202,6 @@ void check_gclog_consistency() {
   }
 
 #if INCLUDE_ALL_GCS
-  if (ShenandoahConcurrentEvacCodeRoots) {
-    if (!ShenandoahBarriersForConst) {
-      if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
-        warning("Concurrent code cache evacuation is enabled, enabling barriers for constants.");
-        FLAG_SET_DEFAULT(ShenandoahBarriersForConst, true);
-      } else {
-        warning("Concurrent code cache evacuation is enabled, but barriers for constants are disabled. "
-                "This may lead to surprising crashes.");
-      }
-    }
-  } else {
-    if (ShenandoahBarriersForConst) {
-      if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
-        warning("Concurrent code cache evacuation is disabled, disabling barriers for constants.");
-        FLAG_SET_DEFAULT(ShenandoahBarriersForConst, false);
-      }
-    }
-  }
-
   if (AlwaysPreTouch || ShenandoahAlwaysPreTouch) {
     if (!FLAG_IS_DEFAULT(ShenandoahUncommitDelay)) {
       warning("AlwaysPreTouch is enabled, disabling ShenandoahUncommitDelay");

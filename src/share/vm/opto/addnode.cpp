@@ -689,7 +689,7 @@ const Type *AddPNode::bottom_type() const {
   if (tx->is_con()) {   // Left input is an add of a constant?
     txoffset = tx->get_con();
   }
-  return ShenandoahBarrierNode::fix_addp_type(tp->add_offset(txoffset), in(Base));
+  return tp->add_offset(txoffset);
 }
 
 //------------------------------Value------------------------------------------
@@ -709,7 +709,7 @@ const Type *AddPNode::Value( PhaseTransform *phase ) const {
   if (p2->is_con()) {   // Left input is an add of a constant?
     p2offset = p2->get_con();
   }
-  return ShenandoahBarrierNode::fix_addp_type(p1->add_offset(p2offset), in(Base));
+  return p1->add_offset(p2offset);
 }
 
 //------------------------Ideal_base_and_offset--------------------------------
