@@ -56,6 +56,7 @@ ShenandoahControlThread::ShenandoahControlThread() :
 {
   create_and_start();
   _periodic_task.enroll();
+  _periodic_satb_flush_task.enroll();
 }
 
 ShenandoahControlThread::~ShenandoahControlThread() {
@@ -65,6 +66,10 @@ ShenandoahControlThread::~ShenandoahControlThread() {
 void ShenandoahPeriodicTask::task() {
   _thread->handle_force_counters_update();
   _thread->handle_counters_update();
+}
+
+void ShenandoahPeriodicSATBFlushTask::task() {
+  ShenandoahHeap::heap()->force_satb_flush_all_threads();
 }
 
 void ShenandoahControlThread::run() {
@@ -188,9 +193,6 @@ void ShenandoahControlThread::run() {
       // If this was the explicit GC cycle, notify waiters about it
       if (explicit_gc_requested) {
         notify_explicit_gc_waiters();
-
-        // Explicit GC tries to uncommit everything
-        heap->handle_heap_shrinkage(os::elapsedTime());
       }
 
       // If this was the allocation failure GC cycle, notify waiters about it
@@ -223,9 +225,13 @@ void ShenandoahControlThread::run() {
 
     double current = os::elapsedTime();
 
-    // Try to uncommit stale regions
-    if (current - last_shrink_time > shrink_period) {
-      heap->handle_heap_shrinkage(current - (ShenandoahUncommitDelay / 1000.0));
+    if (ShenandoahUncommit && (current - last_shrink_time > shrink_period)) {
+      // Try to uncommit enough stale regions. Explicit GC tries to uncommit everything.
+      // Regular paths uncommit only occasionally.
+      double shrink_before = explicit_gc_requested ?
+                             current :
+                             current - (ShenandoahUncommitDelay / 1000.0);
+      service_uncommit(shrink_before);
       last_shrink_time = current;
     }
 
@@ -426,6 +432,27 @@ void ShenandoahControlThread::service_stw_degenerated_cycle(GCCause::Cause cause
   gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
+void ShenandoahControlThread::service_uncommit(double shrink_before) {
+  ShenandoahHeap* heap = ShenandoahHeap::heap();
+
+  // Scan through the heap and determine if there is work to do. This avoids taking
+  // heap lock if there is no work available, avoids spamming logs with superfluous
+  // logging messages, and minimises the amount of work while locks are taken.
+
+  bool has_work = false;
+  for (size_t i = 0; i < heap->num_regions(); i++) {
+    ShenandoahHeapRegion *r = heap->get_region(i);
+    if (r->is_empty_committed() && (r->empty_time() < shrink_before)) {
+      has_work = true;
+      break;
+    }
+  }
+
+  if (has_work) {
+    heap->entry_uncommit(shrink_before);
+  }
+}
+
 void ShenandoahControlThread::handle_explicit_gc(GCCause::Cause cause) {
   assert(GCCause::is_user_requested_gc(cause) ||
          GCCause::is_serviceability_requested_gc(cause) ||
@@ -450,7 +477,8 @@ void ShenandoahControlThread::handle_alloc_failure(size_t words) {
 
   if (try_set_alloc_failure_gc()) {
     // Only report the first allocation failure
-    log_info(gc)("Failed to allocate " SIZE_FORMAT "K", words * HeapWordSize / K);
+    log_info(gc)("Failed to allocate " SIZE_FORMAT "%s",
+                 byte_size_in_proper_unit(words * HeapWordSize), proper_unit_for_byte_size(words * HeapWordSize));
 
     // Now that alloc failure GC is scheduled, we can abort everything else
     heap->cancel_gc(GCCause::_allocation_failure);
@@ -460,7 +488,6 @@ void ShenandoahControlThread::handle_alloc_failure(size_t words) {
   while (is_alloc_failure_gc()) {
     ml.wait();
   }
-  assert(!is_alloc_failure_gc(), "expect alloc failure GC to have completed");
 }
 
 void ShenandoahControlThread::handle_alloc_failure_evac(size_t words) {
@@ -474,7 +501,8 @@ void ShenandoahControlThread::handle_alloc_failure_evac(size_t words) {
 
   if (try_set_alloc_failure_gc()) {
     // Only report the first allocation failure
-    log_info(gc)("Failed to allocate " SIZE_FORMAT "K for evacuation", words * HeapWordSize / K);
+    log_info(gc)("Failed to allocate " SIZE_FORMAT "%s for evacuation",
+                 byte_size_in_proper_unit(words * HeapWordSize), proper_unit_for_byte_size(words * HeapWordSize));
   }
 
   heap->cancel_gc(GCCause::_shenandoah_allocation_failure_evac);

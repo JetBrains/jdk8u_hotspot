@@ -90,4 +90,18 @@ public:
   }
 };
 
+class ShenandoahWorkerSession : public StackObj {
+  static const uint INVALID_WORKER_ID = uint(-1);
+public:
+  ShenandoahWorkerSession(uint worker_id);
+  ~ShenandoahWorkerSession();
+
+  static inline uint worker_id() {
+    Thread* thr = Thread::current();
+    uint id = thr->worker_id();
+    assert(id != INVALID_WORKER_ID, "Worker session has not been created");
+    return id;
+  }
+};
+
 #endif // SHARE_VM_GC_SHENANDOAHUTILS_HPP

@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
+#include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "memory/space.inline.hpp"
 #include "memory/universe.hpp"
 #include "oops/oop.inline.hpp"
@@ -44,6 +45,7 @@ size_t ShenandoahHeapRegion::RegionSizeWordsMask = 0;
 size_t ShenandoahHeapRegion::HumongousThresholdBytes = 0;
 size_t ShenandoahHeapRegion::HumongousThresholdWords = 0;
 size_t ShenandoahHeapRegion::MaxTLABSizeBytes = 0;
+size_t ShenandoahHeapRegion::MaxTLABSizeWords = 0;
 
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
                                            size_t size_words, size_t index, bool committed) :
@@ -410,8 +412,8 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|BTE " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12),
             p2i(bottom()), p2i(top()), p2i(end()));
   st->print("|TAMS " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12),
-            p2i(_heap->complete_top_at_mark_start(_bottom)),
-            p2i(_heap->next_top_at_mark_start(_bottom)));
+            p2i(_heap->complete_marking_context()->top_at_mark_start(region_number())),
+            p2i(_heap->next_marking_context()->top_at_mark_start(region_number())));
   st->print("|U %3d%%", (int) ((double) used() * 100 / capacity()));
   st->print("|T %3d%%", (int) ((double) get_tlab_allocs() * 100 / capacity()));
   st->print("|G %3d%%", (int) ((double) get_gclab_allocs() * 100 / capacity()));
@@ -421,30 +423,6 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
 
   st->cr();
 }
-
-
-class ShenandoahSkipUnreachableObjectToOopClosure: public ObjectClosure {
-  ExtendedOopClosure* _cl;
-  bool _skip_unreachable_objects;
-  ShenandoahHeap* _heap;
-
-public:
-  ShenandoahSkipUnreachableObjectToOopClosure(ExtendedOopClosure* cl, bool skip_unreachable_objects) :
-    _cl(cl), _skip_unreachable_objects(skip_unreachable_objects), _heap(ShenandoahHeap::heap()) {}
-
-  void do_object(oop obj) {
-
-    if ((! _skip_unreachable_objects) || _heap->is_marked_complete(obj)) {
-#ifdef ASSERT
-      if (_skip_unreachable_objects) {
-        assert(_heap->is_marked_complete(obj), "obj must be live");
-      }
-#endif
-      obj->oop_iterate(_cl);
-    }
-
-  }
-};
 
 void ShenandoahHeapRegion::fill_region() {
   if (free() > (BrooksPointer::word_size() + CollectedHeap::min_fill_size())) {
@@ -476,11 +454,14 @@ void ShenandoahHeapRegion::recycle() {
   }
   clear_live_data();
   reset_alloc_metadata();
+
+  ShenandoahMarkingContext* const compl_ctx = _heap->complete_marking_context();
+
   // Reset C-TAMS pointer to ensure size-based iteration, everything
   // in that regions is going to be new objects.
-  _heap->set_complete_top_at_mark_start(bottom(), bottom());
+  compl_ctx->set_top_at_mark_start(region_number(), bottom());
   // We can only safely reset the C-TAMS pointer if the bitmap is clear for that region.
-  assert(_heap->is_complete_bitmap_clear_range(bottom(), end()), "must be clear");
+  assert(compl_ctx->is_bitmap_clear_range(bottom(), end()), "must be clear");
 
   make_empty();
 }
@@ -537,9 +518,10 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
                       ShenandoahMinRegionSize/K, ShenandoahMaxRegionSize/K);
       vm_exit_during_initialization("Invalid -XX:ShenandoahMinRegionSize or -XX:ShenandoahMaxRegionSize", message);
     }
-    size_t average_heap_size = (initial_heap_size + max_heap_size) / 2;
-    region_size = MAX2(average_heap_size / ShenandoahTargetNumRegions,
-                       ShenandoahMinRegionSize);
+
+    // We rapidly expand to max_heap_size in most scenarios, so that is the measure
+    // for usual heap sizes. Do not depend on initial_heap_size here.
+    region_size = max_heap_size / ShenandoahTargetNumRegions;
 
     // Now make sure that we don't go over or under our limits.
     region_size = MAX2(ShenandoahMinRegionSize, region_size);
@@ -623,16 +605,23 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   // the race, the regions would be at least 7/8 used, which allows relying on
   // "used" - "live" for cset selection. Otherwise, we can get the fragmented region
   // below the garbage threshold that would never be considered for collection.
+  //
+  // The whole thing would be mitigated if Elastic TLABs were enabled, but there
+  // is no support in this JDK.
+  //
   guarantee(MaxTLABSizeBytes == 0, "we should only set it once");
   MaxTLABSizeBytes = MIN2(RegionSizeBytes / 8, HumongousThresholdBytes);
   assert (MaxTLABSizeBytes > MinTLABSize, "should be larger");
 
+  guarantee(MaxTLABSizeWords == 0, "we should only set it once");
+  MaxTLABSizeWords = MaxTLABSizeBytes / HeapWordSize;
+
   log_info(gc, heap)("Heap region size: " SIZE_FORMAT "M", RegionSizeBytes / M);
-  log_info(gc, init)("Region size in bytes: "SIZE_FORMAT, RegionSizeBytes);
-  log_info(gc, init)("Region size byte shift: "SIZE_FORMAT, RegionSizeBytesShift);
-  log_info(gc, init)("Humongous threshold in bytes: "SIZE_FORMAT, HumongousThresholdBytes);
-  log_info(gc, init)("Max TLAB size in bytes: "SIZE_FORMAT, MaxTLABSizeBytes);
-  log_info(gc, init)("Number of regions: "SIZE_FORMAT, max_heap_size / RegionSizeBytes);
+  log_info(gc, init)("Region size in bytes: " SIZE_FORMAT, RegionSizeBytes);
+  log_info(gc, init)("Region size byte shift: " SIZE_FORMAT, RegionSizeBytesShift);
+  log_info(gc, init)("Humongous threshold in bytes: " SIZE_FORMAT, HumongousThresholdBytes);
+  log_info(gc, init)("Max TLAB size in bytes: " SIZE_FORMAT, MaxTLABSizeBytes);
+  log_info(gc, init)("Number of regions: " SIZE_FORMAT, max_heap_size / RegionSizeBytes);
 }
 
 void ShenandoahHeapRegion::do_commit() {

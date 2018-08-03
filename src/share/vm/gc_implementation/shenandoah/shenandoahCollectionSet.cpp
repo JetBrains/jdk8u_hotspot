@@ -32,14 +32,14 @@
 #include "utilities/copy.hpp"
 
 ShenandoahCollectionSet::ShenandoahCollectionSet(ShenandoahHeap* heap, HeapWord* heap_base) :
-        _garbage(0), _live_data(0), _heap(heap), _region_count(0),
-        _map_size(heap->num_regions()), _current_index(0) {
+  _garbage(0), _live_data(0), _heap(heap), _region_count(0),
+  _map_size(heap->num_regions()), _current_index(0),
+  _region_size_bytes_shift(ShenandoahHeapRegion::region_size_bytes_shift()),
+  _cset_map(NEW_C_HEAP_ARRAY(jbyte, _map_size, mtGC)),
+  _biased_cset_map(_cset_map - ((uintx)heap_base >> _region_size_bytes_shift))
+{
   // Use 1-byte data type
   STATIC_ASSERT(sizeof(jbyte) == 1);
-
-  _cset_map = NEW_C_HEAP_ARRAY(jbyte, _map_size, mtGC);
-  // Bias cset map's base address for fast test if an oop is in cset
-  _biased_cset_map = _cset_map - ((uintx)heap_base >> ShenandoahHeapRegion::region_size_bytes_shift());
 
   // Initialize cset map
   Copy::zero_to_bytes(_cset_map, _map_size);
@@ -53,6 +53,7 @@ void ShenandoahCollectionSet::add_region(ShenandoahHeapRegion* r) {
   _region_count ++;
   _garbage += r->garbage();
   _live_data += r->get_live_data_bytes();
+  _used += r->used();
 }
 
 void ShenandoahCollectionSet::remove_region(ShenandoahHeapRegion* r) {
@@ -86,6 +87,7 @@ void ShenandoahCollectionSet::clear() {
 
   _garbage = 0;
   _live_data = 0;
+  _used = 0;
 
   _region_count = 0;
   _current_index = 0;

@@ -27,6 +27,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeuristics.hpp"
+#include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
 
 int ShenandoahHeuristics::compare_by_garbage(RegionData a, RegionData b) {
   if (a._garbage > b._garbage)
@@ -143,6 +144,8 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
   size_t free = 0;
   size_t free_regions = 0;
 
+  ShenandoahMarkingContext* const ctx = heap->complete_marking_context();
+
   for (size_t i = 0; i < num_regions; i++) {
     ShenandoahHeapRegion* region = heap->get_region(i);
 
@@ -168,7 +171,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
       // Reclaim humongous regions here, and count them as the immediate garbage
 #ifdef ASSERT
       bool reg_live = region->has_live();
-      bool bm_live = heap->is_marked_complete(oop(region->bottom() + BrooksPointer::word_size()));
+      bool bm_live = ctx->is_marked(oop(region->bottom() + BrooksPointer::word_size()));
       assert(reg_live == bm_live,
              err_msg("Humongous liveness and marks should agree. Region live: %s; Bitmap live: %s; Region Live Words: " SIZE_FORMAT,
                      BOOL_TO_STR(reg_live), BOOL_TO_STR(bm_live), region->get_live_data_words()));
@@ -201,12 +204,12 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
     collection_set->update_region_status();
 
     size_t cset_percent = total_garbage == 0 ? 0 : (collection_set->garbage() * 100 / total_garbage);
-    log_info(gc, ergo)("Collectable Garbage: "SIZE_FORMAT"M ("SIZE_FORMAT"%% of total), "SIZE_FORMAT"M CSet, "SIZE_FORMAT" CSet regions",
+    log_info(gc, ergo)("Collectable Garbage: " SIZE_FORMAT "M (" SIZE_FORMAT "%% of total), " SIZE_FORMAT "M CSet, " SIZE_FORMAT " CSet regions",
                        collection_set->garbage() / M, cset_percent, collection_set->live_data() / M, collection_set->count());
   }
   end_choose_collection_set();
 
-  log_info(gc, ergo)("Immediate Garbage: "SIZE_FORMAT"M ("SIZE_FORMAT"%% of total), "SIZE_FORMAT" regions",
+  log_info(gc, ergo)("Immediate Garbage: " SIZE_FORMAT "M (" SIZE_FORMAT "%% of total), " SIZE_FORMAT " regions",
                      immediate_garbage / M, immediate_percent, immediate_regions);
 }
 
@@ -235,10 +238,6 @@ void ShenandoahHeuristics::print_thresholds() {
 }
 
 bool ShenandoahHeuristics::should_start_update_refs() {
-  return _update_refs_early;
-}
-
-bool ShenandoahHeuristics::update_refs() const {
   return _update_refs_early;
 }
 
@@ -292,4 +291,14 @@ bool ShenandoahHeuristics::should_unload_classes() {
 
 void ShenandoahHeuristics::initialize() {
   // Nothing to do by default.
+}
+
+bool ShenandoahHeuristics::should_start_normal_gc() const {
+  double last_time_ms = (os::elapsedTime() - _last_cycle_end) * 1000;
+  bool periodic_gc = (last_time_ms > ShenandoahGuaranteedGCInterval);
+  if (periodic_gc) {
+    log_info(gc,ergo)("Periodic GC triggered. Time since last GC: %.0f ms, Guaranteed Interval: " UINTX_FORMAT " ms",
+                      last_time_ms, ShenandoahGuaranteedGCInterval);
+  }
+  return periodic_gc;
 }

@@ -57,12 +57,21 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
 
   Address gc_state(rthread, in_bytes(JavaThread::gc_state_offset()));
   __ ldrb(rscratch1, gc_state);
-  __ membar(Assembler::LoadLoad);
 
-  // Now check if evacuation is in progress.
-  interpreter_read_barrier_not_null(masm, dst);
+  // Check for heap stability
+  __ mov(rscratch2, ShenandoahHeap::HAS_FORWARDED | ShenandoahHeap::EVACUATION);
+  __ tst(rscratch1, rscratch2);
+  __ br(Assembler::EQ, done);
 
-  __ tbz(rscratch1, ShenandoahHeap::EVACUATION_BITPOS, done);
+  // Heap is unstable, need to perform the read-barrier even if WB is inactive
+  if (ShenandoahWriteBarrierRB) {
+    __ ldr(dst, Address(dst, BrooksPointer::byte_offset()));
+  }
+
+  // Check for evacuation-in-progress and jump to WB slow-path if needed
+  __ mov(rscratch2, ShenandoahHeap::EVACUATION);
+  __ tst(rscratch1, rscratch2);
+  __ br(Assembler::EQ, done);
 
   __ lsr(rscratch1, dst, ShenandoahHeapRegion::region_size_bytes_shift_jint());
   __ mov(rscratch2,  ShenandoahHeap::in_cset_fast_test_addr());

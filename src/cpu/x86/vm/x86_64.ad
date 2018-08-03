@@ -6478,22 +6478,6 @@ instruct shenandoahRBNarrowShift(rRegP dst, rRegN src) %{
   ins_pipe(ialu_reg_mem);
 %}
 
-instruct shenandoahWB(rRegP dst, rRegP src, rFlagsReg cr) %{
-  match(Set dst (ShenandoahWriteBarrier src));
-  effect(DEF dst, USE src, KILL cr);
-  ins_cost(300); // XXX
-  format %{ "shenandoah_wb $dst,$src" %}
-  ins_encode %{
-    Register s = $src$$Register;
-    Register d = $dst$$Register;
-    // We need that first read barrier in order to trigger a SEGV/NPE on incoming NULL.
-    // Also, it brings s into d in preparation for the call to shenandoah_write_barrier().
-    __ movptr(d, Address(s, BrooksPointer::byte_offset()));
-    __ shenandoah_write_barrier(d);
-  %}
-  ins_pipe(pipe_slow);
-%}
-
 // Convert oop pointer into compressed form
 instruct encodeHeapOop(rRegN dst, rRegP src, rFlagsReg cr) %{
   predicate(n->bottom_type()->make_ptr()->ptr() != TypePtr::NotNull);
@@ -7368,7 +7352,7 @@ instruct compareAndSwapP_shenandoah(rRegI res,
                                     rax_RegP oldval, rRegP newval,
                                     rFlagsReg cr)
 %{
-  predicate(VM_Version::supports_cx8() && UseShenandoahGC && ShenandoahCASBarrier);
+  predicate(VM_Version::supports_cx8() && UseShenandoahGC && ShenandoahCASBarrier && n->in(3)->in(1)->bottom_type() != TypePtr::NULL_PTR);
   match(Set res (CompareAndSwapP mem_ptr (Binary oldval newval)));
   effect(TEMP tmp1, TEMP tmp2, KILL cr, KILL oldval);
 
@@ -7435,7 +7419,7 @@ instruct compareAndSwapN(rRegI res,
                           memory mem_ptr,
                           rax_RegN oldval, rRegN newval,
                           rFlagsReg cr) %{
-  predicate(!UseShenandoahGC || !ShenandoahCASBarrier);
+  predicate(!UseShenandoahGC || !ShenandoahCASBarrier || n->in(3)->in(1)->bottom_type() == TypeNarrowOop::NULL_PTR);
   match(Set res (CompareAndSwapN mem_ptr (Binary oldval newval)));
   effect(KILL cr, KILL oldval);
 
@@ -7459,7 +7443,7 @@ instruct compareAndSwapN_shenandoah(rRegI res,
                                     rRegP tmp1, rRegP tmp2,
                                     rax_RegN oldval, rRegN newval,
                                     rFlagsReg cr) %{
-  predicate(UseShenandoahGC && ShenandoahCASBarrier);
+  predicate(UseShenandoahGC && ShenandoahCASBarrier && n->in(3)->in(1)->bottom_type() != TypeNarrowOop::NULL_PTR);
   match(Set res (CompareAndSwapN mem_ptr (Binary oldval newval)));
   effect(TEMP tmp1, TEMP tmp2, KILL cr, KILL oldval);
 

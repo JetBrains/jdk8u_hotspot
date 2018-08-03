@@ -111,3 +111,18 @@ ShenandoahAllocTrace::~ShenandoahAllocTrace() {
     }
   }
 }
+
+ShenandoahWorkerSession::ShenandoahWorkerSession(uint worker_id) {
+  Thread* thr = Thread::current();
+  assert(thr->worker_id() == INVALID_WORKER_ID, "Already set");
+  thr->set_worker_id(worker_id);
+}
+
+ShenandoahWorkerSession::~ShenandoahWorkerSession() {
+#ifdef ASSERT
+  Thread* thr = Thread::current();
+  assert(thr->worker_id() != INVALID_WORKER_ID, "Must be set");
+  thr->set_worker_id(INVALID_WORKER_ID);
+#endif
+}
+

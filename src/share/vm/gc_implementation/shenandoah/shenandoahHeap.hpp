@@ -44,6 +44,7 @@ class ShenandoahHeapRegionClosure;
 class ShenandoahMarkCompact;
 class ShenandoahMonitoringSupport;
 class ShenandoahHeuristics;
+class ShenandoahMarkingContext;
 class ShenandoahPhaseTimings;
 class ShenandoahPacer;
 class ShenandoahVerifier;
@@ -111,23 +112,17 @@ public:
 
 class ShenandoahForwardedIsAliveClosure: public BoolObjectClosure {
 private:
-  ShenandoahHeap* _heap;
+  ShenandoahMarkingContext* const _mark_context;
 public:
   ShenandoahForwardedIsAliveClosure();
-  void init(ShenandoahHeap* heap) {
-    _heap = heap;
-  }
   bool do_object_b(oop obj);
 };
 
 class ShenandoahIsAliveClosure: public BoolObjectClosure {
 private:
-  ShenandoahHeap* _heap;
+  ShenandoahMarkingContext* const _mark_context;
 public:
   ShenandoahIsAliveClosure();
-  void init(ShenandoahHeap* heap) {
-    _heap = heap;
-  }
   bool do_object_b(oop obj);
 };
 
@@ -247,17 +242,10 @@ private:
   volatile size_t _committed;
 
   MarkBitMap _verification_bit_map;
-  MarkBitMap _mark_bit_map0;
-  MarkBitMap _mark_bit_map1;
-  MarkBitMap* _complete_mark_bit_map;
-  MarkBitMap* _next_mark_bit_map;
   MarkBitMap _aux_bit_map;
 
-  HeapWord** _complete_top_at_mark_starts;
-  HeapWord** _complete_top_at_mark_starts_base;
-
-  HeapWord** _next_top_at_mark_starts;
-  HeapWord** _next_top_at_mark_starts_base;
+  ShenandoahMarkingContext* _complete_marking_context;
+  ShenandoahMarkingContext* _next_marking_context;
 
   volatile jlong _bytes_allocated_since_gc_start;
 
@@ -275,9 +263,6 @@ private:
   ShenandoahSharedFlag _cancelled_gc;
 
   ReferenceProcessor* _ref_processor;
-
-  ShenandoahForwardedIsAliveClosure _forwarded_is_alive;
-  ShenandoahIsAliveClosure _is_alive;
 
   ConcurrentGCTimer* _gc_timer;
 
@@ -412,6 +397,8 @@ public:
   void set_full_gc_move_in_progress(bool in_progress);
   void set_has_forwarded_objects(bool cond);
 
+  char gc_state();
+
   void set_process_references(bool pr);
   void set_unload_classes(bool uc);
 
@@ -429,6 +416,8 @@ public:
   bool process_references() const;
   bool unload_classes() const;
 
+  void force_satb_flush_all_threads();
+
   bool last_gc_made_progress() const;
 
   inline bool region_in_collection_set(size_t region_index) const;
@@ -442,14 +431,6 @@ public:
 
   template <class T>
   inline bool in_collection_set(T obj) const;
-
-  inline bool allocated_after_next_mark_start(HeapWord* addr) const;
-  void set_next_top_at_mark_start(HeapWord* region_base, HeapWord* addr);
-  HeapWord* next_top_at_mark_start(HeapWord* region_base);
-
-  inline bool allocated_after_complete_mark_start(HeapWord* addr) const;
-  void set_complete_top_at_mark_start(HeapWord* region_base, HeapWord* addr);
-  HeapWord* complete_top_at_mark_start(HeapWord* region_base);
 
   // Evacuates object src. Returns the evacuated object if this thread
   // succeeded, otherwise rolls back the evacuation and returns the
@@ -478,18 +459,15 @@ public:
 
   void notify_alloc(size_t words, bool waste);
 
-  void handle_heap_shrinkage(double shrink_before);
-
   void reset_next_mark_bitmap();
 
-  MarkBitMap* complete_mark_bit_map();
-  MarkBitMap* next_mark_bit_map();
-  inline bool is_marked_complete(oop obj) const;
-  inline bool mark_next(oop obj) const;
-  inline bool is_marked_next(oop obj) const;
-  bool is_next_bitmap_clear();
-  bool is_next_bitmap_clear_range(HeapWord* start, HeapWord* end);
-  bool is_complete_bitmap_clear_range(HeapWord* start, HeapWord* end);
+  inline ShenandoahMarkingContext* complete_marking_context() const {
+    return _complete_marking_context;
+  }
+
+  inline ShenandoahMarkingContext* next_marking_context() const {
+    return _next_marking_context;
+  }
 
   bool commit_bitmap_slice(ShenandoahHeapRegion *r);
   bool uncommit_bitmap_slice(ShenandoahHeapRegion *r);
@@ -527,8 +505,6 @@ public:
 
   inline size_t num_regions() const { return _num_regions; }
 
-  BoolObjectClosure* is_alive_closure();
-
   // Call before starting evacuation.
   void enter_evacuation();
   // Call after finished with evacuation.
@@ -557,7 +533,7 @@ public:
   GCTimer* gc_timer() const;
   GCTracer* tracer();
 
-  void swap_mark_bitmaps();
+  void swap_mark_contexts();
 
   void cancel_gc(GCCause::Cause cause);
 
@@ -590,14 +566,119 @@ public:
         return "";
     }
   }
+
+  class ShenandoahAllocationRequest : StackObj {
+  private:
+    size_t _min_size;
+    size_t _requested_size;
+    size_t _actual_size;
+    AllocType _alloc_type;
+#ifdef ASSERT
+    bool _actual_size_set;
+#endif
+
+    ShenandoahAllocationRequest(size_t _min_size, size_t _requested_size, AllocType _alloc_type) :
+#ifdef ASSERT
+            _actual_size_set(false),
+#endif
+            _min_size(_min_size), _requested_size(_requested_size),
+            _actual_size(0), _alloc_type(_alloc_type) {}
+
+  public:
+    static inline ShenandoahAllocationRequest for_tlab(size_t requested_size) {
+      return ShenandoahAllocationRequest(requested_size, requested_size, ShenandoahHeap::_alloc_tlab);
+    }
+
+    static inline ShenandoahAllocationRequest for_gclab(size_t min_size, size_t requested_size) {
+      return ShenandoahAllocationRequest(min_size, requested_size, ShenandoahHeap::_alloc_gclab);
+    }
+
+    static inline ShenandoahAllocationRequest for_shared_gc(size_t requested_size) {
+      return ShenandoahAllocationRequest(0, requested_size, ShenandoahHeap::_alloc_shared_gc);
+    }
+
+    static inline ShenandoahAllocationRequest for_shared(size_t requested_size) {
+      return ShenandoahAllocationRequest(0, requested_size, ShenandoahHeap::_alloc_shared);
+    }
+
+    inline size_t size() {
+      return _requested_size;
+    }
+
+    inline AllocType type() {
+      return _alloc_type;
+    }
+
+    inline size_t min_size() {
+      assert (is_lab_alloc(), "Only access for LAB allocs");
+      return _min_size;
+    }
+
+    inline size_t actual_size() {
+      assert (_actual_size_set, "Should be set");
+      return _actual_size;
+    }
+
+    inline void set_actual_size(size_t v) {
+#ifdef ASSERT
+      assert (!_actual_size_set, "Should not be set");
+      _actual_size_set = true;
+#endif
+      _actual_size = v;
+    }
+
+    inline bool is_mutator_alloc() {
+      switch (_alloc_type) {
+        case _alloc_tlab:
+        case _alloc_shared:
+          return true;
+        case _alloc_gclab:
+        case _alloc_shared_gc:
+          return false;
+        default:
+          ShouldNotReachHere();
+          return false;
+      }
+    }
+
+    inline bool is_gc_alloc() {
+      switch (_alloc_type) {
+        case _alloc_tlab:
+        case _alloc_shared:
+          return false;
+        case _alloc_gclab:
+        case _alloc_shared_gc:
+          return true;
+        default:
+          ShouldNotReachHere();
+          return false;
+      }
+    }
+
+    inline bool is_lab_alloc() {
+      switch (_alloc_type) {
+        case _alloc_tlab:
+        case _alloc_gclab:
+          return true;
+        case _alloc_shared:
+        case _alloc_shared_gc:
+          return false;
+        default:
+          ShouldNotReachHere();
+          return false;
+      }
+    }
+  };
+
+
 private:
-  HeapWord* allocate_new_lab(size_t word_size, AllocType type);
-  HeapWord* allocate_memory_under_lock(size_t word_size, AllocType type, bool &new_region);
-  HeapWord* allocate_memory(size_t word_size, AllocType type);
+  HeapWord* allocate_memory_under_lock(ShenandoahAllocationRequest& request, bool& in_new_region);
+  HeapWord* allocate_memory(ShenandoahAllocationRequest& request);
+
   // Shenandoah functionality.
   inline HeapWord* allocate_from_gclab(Thread* thread, size_t size);
   HeapWord* allocate_from_gclab_slow(Thread* thread, size_t size);
-  HeapWord* allocate_new_gclab(size_t word_size);
+  HeapWord* allocate_new_gclab(size_t min_size, size_t word_size, size_t* actual_size);
 
   template<class T>
   inline void do_object_marked_complete(T* cl, oop obj);
@@ -610,7 +691,9 @@ private:
   void ref_processing_init();
 
 public:
-  void make_tlabs_parsable(bool retire_tlabs) /* override */;
+  void make_parsable(bool retire_tlabs);
+  void accumulate_statistics_tlabs();
+  void resize_tlabs();
 
 public:
   // Entry points to STW GC operations, these cause a related safepoint, that then
@@ -641,6 +724,7 @@ public:
   void entry_cleanup_bitmaps();
   void entry_evac();
   void entry_updaterefs();
+  void entry_uncommit(double shrink_before);
 
 private:
   // Actual work for the phases
@@ -660,10 +744,20 @@ private:
   void op_evac();
   void op_updaterefs();
   void op_cleanup_bitmaps();
+  void op_uncommit(double shrink_before);
 
 private:
   void try_inject_alloc_failure();
   bool should_inject_alloc_failure();
 };
+
+class ShenandoahIsAliveSelector : public StackObj {
+private:
+  ShenandoahIsAliveClosure _alive_cl;
+  ShenandoahForwardedIsAliveClosure _fwd_alive_cl;
+public:
+  BoolObjectClosure* is_alive_closure();
+};
+
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP

@@ -45,6 +45,13 @@ public:
   virtual void task();
 };
 
+// Periodic task to flush SATB buffers periodically.
+class ShenandoahPeriodicSATBFlushTask : public PeriodicTask {
+public:
+  ShenandoahPeriodicSATBFlushTask() : PeriodicTask(ShenandoahSATBBufferFlushInterval) {}
+  virtual void task();
+};
+
 class ShenandoahControlThread: public ConcurrentGCThread {
   friend class VMStructs;
 
@@ -62,6 +69,7 @@ private:
   Monitor _alloc_failure_waiters_lock;
   Monitor _explicit_gc_waiters_lock;
   ShenandoahPeriodicTask _periodic_task;
+  ShenandoahPeriodicSATBFlushTask _periodic_satb_flush_task;
 
  private:
   static SurrogateLockerThread* _slt;
@@ -85,6 +93,7 @@ private:
   void service_concurrent_normal_cycle(GCCause::Cause cause);
   void service_stw_full_cycle(GCCause::Cause cause);
   void service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahHeap::ShenandoahDegenPoint point);
+  void service_uncommit(double shrink_before);
 
   bool try_set_alloc_failure_gc();
   void notify_alloc_failure_waiters();

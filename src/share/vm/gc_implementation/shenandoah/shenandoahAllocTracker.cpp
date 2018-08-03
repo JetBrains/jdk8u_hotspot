@@ -32,14 +32,14 @@ void ShenandoahAllocTracker::print_on(outputStream* out) const {
   out->print_cr("  In-TLAB/GCLAB allocations happen orders of magnitude more frequently, and without delays.");
   out->cr();
 
-  out->print("%18s", "");
+  out->print("%22s", "");
   for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
     out->print("%12s", ShenandoahHeap::alloc_type_to_string(ShenandoahHeap::AllocType(t)));
   }
   out->cr();
 
   out->print_cr("Counts:");
-  out->print("%18s", "#");
+  out->print("%22s", "#");
   for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
     out->print(SIZE_FORMAT_W(12), _alloc_size[t].num());
   }
@@ -58,9 +58,25 @@ void ShenandoahAllocTracker::print_on(outputStream* out) const {
     size_max_level = MAX2(size_max_level, _alloc_size[t].max_level());
   }
 
-  out->print_cr("Latencies (in microseconds):");
+  out->print_cr("Latency summary:");
+  out->print("%22s", "sum, ms:");
+  for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
+    out->print(SIZE_FORMAT_W(12), _alloc_latency[t].sum() / K);
+  }
+  out->cr();
+  out->cr();
+
+  out->print_cr("Sizes summary:");
+  out->print("%22s", "sum, M:");
+  for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
+    out->print(SIZE_FORMAT_W(12), _alloc_size[t].sum() * HeapWordSize / M);
+  }
+  out->cr();
+  out->cr();
+
+  out->print_cr("Latency histogram (time in microseconds):");
   for (int c = lat_min_level; c <= lat_max_level; c++) {
-    out->print("%7d - %7d:", (c == 0) ? 0 : 1 << (c - 1), 1 << c);
+    out->print("%9d - %9d:", (c == 0) ? 0 : 1 << (c - 1), 1 << c);
     for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
       out->print(SIZE_FORMAT_W(12), _alloc_latency[t].level(c));
     }
@@ -68,9 +84,11 @@ void ShenandoahAllocTracker::print_on(outputStream* out) const {
   }
   out->cr();
 
-  out->print_cr("Sizes (in bytes):");
+  out->print_cr("Sizes histogram (size in bytes):");
   for (int c = size_min_level; c <= size_max_level; c++) {
-    out->print("%7d - %7d:", (c == 0) ? 0 : 1 << (c - 1), 1 << c);
+    int l = (c == 0) ? 0 : 1 << (c - 1);
+    int r = 1 << c;
+    out->print("%9d - %9d:", l * HeapWordSize, r * HeapWordSize);
     for (size_t t = 0; t < ShenandoahHeap::_ALLOC_LIMIT; t++) {
       out->print(SIZE_FORMAT_W(12), _alloc_size[t].level(c));
     }

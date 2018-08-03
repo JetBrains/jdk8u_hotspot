@@ -51,10 +51,8 @@
 #include "gc_implementation/g1/dirtyCardQueue.hpp"
 #include "gc_implementation/g1/satbQueue.hpp"
 #endif // INCLUDE_ALL_GCS
-#ifdef ZERO
 #ifdef TARGET_ARCH_zero
 # include "stack_zero.hpp"
-#endif
 #endif
 
 class ThreadSafepointState;
@@ -103,6 +101,16 @@ class WorkerThread;
 
 class Thread: public ThreadShadow {
   friend class VMStructs;
+
+#if INCLUDE_ALL_GCS
+protected:
+  // Support for Shenandoah barriers. This is only accessible from JavaThread,
+  // but we really want to keep this field at lower Thread offset (below first
+  // 128 bytes), because that makes barrier fastpaths optimally encoded.
+  char _gc_state;
+  static char _gc_state_global;
+#endif
+
  private:
   // Exception handling
   // (Note: _pending_exception and friends are in ThreadShadow)
@@ -257,6 +265,9 @@ class Thread: public ThreadShadow {
 
   ThreadLocalAllocBuffer _tlab;                 // Thread-local eden
   ThreadLocalAllocBuffer _gclab;                // Thread-local allocation buffer for GC (e.g. evacuation)
+  uint _worker_id;                              // Worker ID
+  bool _force_satb_flush;                       // Force SATB flush
+
   jlong _allocated_bytes;                       // Cumulative number of bytes allocated on
                                                 // the Java heap
   jlong _allocated_bytes_gclab;                 // Cumulative number of bytes allocated on
@@ -454,6 +465,12 @@ class Thread: public ThreadShadow {
 
   // Thread-Local GC Allocation Buffer (GCLAB) support
   ThreadLocalAllocBuffer& gclab()                { return _gclab; }
+
+  void set_worker_id(uint id)           { _worker_id = id; }
+  uint worker_id()                      { return _worker_id; }
+
+  void set_force_satb_flush(bool value) { _force_satb_flush = value; }
+  bool is_force_satb_flush()            { return _force_satb_flush; }
 
   jlong allocated_bytes()               { return _allocated_bytes; }
   void set_allocated_bytes(jlong value) { _allocated_bytes = value; }
@@ -990,11 +1007,6 @@ class JavaThread: public Thread {
   static DirtyCardQueueSet _dirty_card_queue_set;
 
   void flush_barrier_queues();
-
-  // Support for Shenandoah barriers
-  static char _gc_state_global;
-  char _gc_state;
-
 #endif // INCLUDE_ALL_GCS
 
   friend class VMThread;
@@ -1720,7 +1732,7 @@ private:
 
 public:
   static void set_gc_state_all_threads(char in_prog);
-
+  static void set_force_satb_flush_all_threads(bool value);
 #endif // INCLUDE_ALL_GCS
 
   // This method initializes the SATB and dirty card queues before a

@@ -689,10 +689,19 @@ address MacroAssembler::trampoline_call(Address entry, CodeBuffer *cbuf) {
 
   unsigned int start_offset = offset();
 #ifdef COMPILER2
-  if (far_branches() && !Compile::current()->in_scratch_emit_size()) {
-    address stub = emit_trampoline_stub(start_offset, entry.target());
-    if (stub == NULL) {
-      return NULL; // CodeCache is full
+  // We need a trampoline if branches are far.
+  if (far_branches()) {
+    // We don't want to emit a trampoline if C2 is generating dummy
+    // code during its branch shortening phase.
+    CompileTask* task = ciEnv::current()->task();
+    bool in_scratch_emit_size =
+      ((task != NULL) && is_c2_compile(task->comp_level())
+       && Compile::current()->in_scratch_emit_size());
+    if (! in_scratch_emit_size) {
+      address stub = emit_trampoline_stub(start_offset, entry.target());
+      if (stub == NULL) {
+        return NULL; // CodeCache is full
+      }
     }
   }
 #endif
@@ -3799,7 +3808,9 @@ void MacroAssembler::shenandoah_write_barrier(Register dst) {
   ldrb(rscratch1, gc_state);
 
   // Check for heap stability
-  cbz(rscratch1, done);
+  mov(rscratch2, ShenandoahHeap::HAS_FORWARDED | ShenandoahHeap::EVACUATION);
+  tst(rscratch1, rscratch2);
+  br(Assembler::EQ, done);
 
   // Heap is unstable, need to perform the read-barrier even if WB is inactive
   if (ShenandoahWriteBarrierRB) {

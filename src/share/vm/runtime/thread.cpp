@@ -304,6 +304,11 @@ Thread::Thread() {
 #endif /* ASSERT */
 
   _oom_during_evac = 0;
+#if INCLUDE_ALL_GCS
+  _gc_state = _gc_state_global;
+  _worker_id = (uint)(-1); // Actually, ShenandoahWorkerSession::INVALID_WORKER_ID, but avoid dependencies.
+  _force_satb_flush = false;
+#endif
 }
 
 void Thread::set_oom_during_evac(bool oom) {
@@ -1536,15 +1541,14 @@ void JavaThread::initialize() {
 #if INCLUDE_ALL_GCS
 SATBMarkQueueSet JavaThread::_satb_mark_queue_set;
 DirtyCardQueueSet JavaThread::_dirty_card_queue_set;
-char JavaThread::_gc_state_global = 0;
+char Thread::_gc_state_global = 0;
 #endif // INCLUDE_ALL_GCS
 
 JavaThread::JavaThread(bool is_attaching_via_jni) :
   Thread()
 #if INCLUDE_ALL_GCS
   , _satb_mark_queue(&_satb_mark_queue_set),
-    _dirty_card_queue(&_dirty_card_queue_set),
-    _gc_state(_gc_state_global)
+    _dirty_card_queue(&_dirty_card_queue_set)
 #endif // INCLUDE_ALL_GCS
 {
   initialize();
@@ -1601,8 +1605,7 @@ JavaThread::JavaThread(ThreadFunction entry_point, size_t stack_sz) :
   Thread()
 #if INCLUDE_ALL_GCS
   , _satb_mark_queue(&_satb_mark_queue_set),
-    _dirty_card_queue(&_dirty_card_queue_set),
-    _gc_state(_gc_state_global)
+    _dirty_card_queue(&_dirty_card_queue_set)
 #endif // INCLUDE_ALL_GCS
 {
   if (TraceThreadEvents) {
@@ -2007,6 +2010,13 @@ void JavaThread::set_gc_state_all_threads(char in_prog) {
   _gc_state_global = in_prog;
   for (JavaThread* t = Threads::first(); t != NULL; t = t->next()) {
     t->set_gc_state(in_prog);
+  }
+}
+
+void JavaThread::set_force_satb_flush_all_threads(bool value) {
+  assert_locked_or_safepoint(Threads_lock);
+  for (JavaThread* t = Threads::first(); t != NULL; t = t->next()) {
+    t->set_force_satb_flush(value);
   }
 }
 #endif // INCLUDE_ALL_GCS

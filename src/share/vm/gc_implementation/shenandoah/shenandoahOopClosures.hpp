@@ -28,6 +28,7 @@
 
 class ShenandoahHeap;
 class ShenandoahStrDedupQueue;
+class ShenandoahMarkingContext;
 
 enum UpdateRefsMode {
   NONE,       // No reference updating
@@ -41,6 +42,8 @@ private:
   ShenandoahObjToScanQueue* _queue;
   ShenandoahStrDedupQueue*  _dedup_queue;
   ShenandoahHeap* _heap;
+  ShenandoahMarkingContext* const _mark_context;
+
 public:
   ShenandoahMarkRefsSuperClosure(ShenandoahObjToScanQueue* q, ReferenceProcessor* rp);
   ShenandoahMarkRefsSuperClosure(ShenandoahObjToScanQueue* q, ShenandoahStrDedupQueue* dq, ReferenceProcessor* rp);

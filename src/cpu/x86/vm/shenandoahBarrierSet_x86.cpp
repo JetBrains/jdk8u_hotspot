@@ -61,11 +61,15 @@ void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Regis
   Label done;
 
   Address gc_state(r15_thread, in_bytes(JavaThread::gc_state_offset()));
-  __ testb(gc_state, ShenandoahHeap::EVACUATION);
 
   // Now check if evacuation is in progress.
+  __ testb(gc_state, ShenandoahHeap::HAS_FORWARDED | ShenandoahHeap::EVACUATION);
+  __ jcc(Assembler::zero, done);
+
+  // Heap is unstable, need to perform the read-barrier even if WB is inactive
   interpreter_read_barrier_not_null(masm, dst);
 
+  __ testb(gc_state, ShenandoahHeap::EVACUATION);
   __ jcc(Assembler::zero, done);
   __ push(rscratch1);
   __ push(rscratch2);

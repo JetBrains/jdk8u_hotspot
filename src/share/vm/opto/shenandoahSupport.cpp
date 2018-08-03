@@ -3628,7 +3628,7 @@ void PhaseIdealLoop::shenandoah_in_cset_fast_test(Node*& c, Node* rbtrue, Node* 
     uint in_cset_fast_test_idx = Compile::AliasIdxRaw;
     const TypePtr* in_cset_fast_test_adr_type = NULL; // debug-mode-only argument
     debug_only(in_cset_fast_test_adr_type = C->get_adr_type(in_cset_fast_test_idx));
-    Node* in_cset_fast_test_load = new (C) LoadUBNode(c, raw_mem, in_cset_fast_test_adr, in_cset_fast_test_adr_type, TypeInt::BOOL, MemNode::unordered);
+    Node* in_cset_fast_test_load = new (C) LoadBNode(c, raw_mem, in_cset_fast_test_adr, in_cset_fast_test_adr_type, TypeInt::BOOL, MemNode::unordered);
     register_new_node(in_cset_fast_test_load, c);
     Node* in_cset_fast_test_cmp = new (C) CmpINode(in_cset_fast_test_load, _igvn.zerocon(T_INT));
     register_new_node(in_cset_fast_test_cmp, c);
@@ -3658,8 +3658,14 @@ void PhaseIdealLoop::shenandoah_evacuation_in_progress(Node* c, Node* val, Node*
   shenandoah_evacuation_in_progress_null_check(c, val, evacuation_iff, unc, unc_ctrl, unc_region, uses);
 
   IdealLoopTree *loop = get_loop(c);
-  Node* rbtrue = new (C) ShenandoahReadBarrierNode(c, wb_mem, val);
-  register_new_node(rbtrue, c);
+
+  Node* rbtrue;
+  if (ShenandoahWriteBarrierRB) {
+    rbtrue = new (C) ShenandoahReadBarrierNode(c, wb_mem, val);
+    register_new_node(rbtrue, c);
+  } else {
+    rbtrue = val;
+  }
 
   Node* in_cset_fast_test_failure = NULL;
   shenandoah_in_cset_fast_test(c, rbtrue, raw_mem, wb_mem, region, val_phi, mem_phi, raw_mem_phi);

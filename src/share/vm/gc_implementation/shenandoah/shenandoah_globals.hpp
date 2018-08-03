@@ -208,9 +208,6 @@
           "Common 2 WriteBarriers or WriteBarrier and a ReadBarrier only "  \
           "if the resulting WriteBarrier isn't executed more frequently")   \
                                                                             \
-  experimental(bool, ShenandoahWriteBarrierToIR, true,                      \
-          "Convert write barrier to IR instead of using assembly blob")     \
-                                                                            \
   experimental(bool, ShenandoahWriteBarrierCsetTestInIR, true,              \
           "Perform cset test in IR rather than in the stub")                \
                                                                             \
@@ -243,9 +240,6 @@
               "The time period for one step in control loop interval "      \
               "adjustment. Lower values make adjustments faster, at the "   \
               "expense of higher perf overhead. Time is in milliseconds.")  \
-                                                                            \
-  diagnostic(bool, ShenandoahAllocImplicitLive, true,                       \
-              "Treat (non-evac) allocations implicitely live")              \
                                                                             \
   diagnostic(bool, ShenandoahSATBBarrier, true,                             \
           "Turn on/off SATB barriers in Shenandoah")                        \
@@ -356,10 +350,19 @@
           "either Degenerated or Full GC. If this much space is not "       \
           "available, next recovery step would triggered.")                 \
                                                                             \
+  experimental(uintx, ShenandoahSATBBufferFlushInterval, 100,               \
+          "Forcefully flush non-empty SATB buffers at this interval. "      \
+          "Time is in milliseconds.")                                       \
+                                                                            \
   diagnostic(bool, ShenandoahAllowMixedAllocs, true,                        \
           "Allow mixing mutator and collector allocations in a single "     \
           "region")                                                         \
                                                                             \
+  diagnostic(bool, ShenandoahTerminationTrace, false,                       \
+          "Tracing task termination timings")                               \
+                                                                            \
+  diagnostic(bool, ShenandoahElasticTLAB, true,                             \
+          "Use Elastic TLABs with Shenandoah")                              \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \

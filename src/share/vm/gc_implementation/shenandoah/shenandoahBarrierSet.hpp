@@ -109,13 +109,10 @@ public:
   bool obj_equals(oop obj1, oop obj2);
   bool obj_equals(narrowOop obj1, narrowOop obj2);
 
-#ifdef ASSERT
-  virtual void verify_safe_oop(oop p);
-  virtual void verify_safe_oop(narrowOop p);
-#endif
+  void enqueue(oop obj);
 
 private:
-  bool need_update_refs_barrier();
+  inline bool need_update_refs_barrier();
 
   template <class T>
   void write_ref_array_loop(HeapWord* start, size_t count);
