@@ -292,14 +292,28 @@ bool ShenandoahBarrierSet::obj_equals(narrowOop obj1, narrowOop obj2) {
 }
 
 JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_JRT(oopDesc* src))
-  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier(src);
+  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier_mutator(src);
   return (oopDesc*) result;
 JRT_END
 
 IRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_IRT(oopDesc* src))
-  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier(src);
+  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier_mutator(src);
   return (oopDesc*) result;
 IRT_END
+
+oop ShenandoahBarrierSet::write_barrier_mutator(oop obj) {
+  assert(UseShenandoahGC && ShenandoahWriteBarrier, "should be enabled");
+  assert(_heap->is_gc_in_progress_mask(ShenandoahHeap::EVACUATION), "evac should be in progress");
+  assert(_heap->in_collection_set(obj), "should be in collection set");
+
+  oop fwd = resolve_forwarded_not_null(obj);
+  if (oopDesc::unsafe_equals(obj, fwd)) {
+    ShenandoahEvacOOMScope oom_evac_scope;
+    bool evac;
+    return _heap->evacuate_object(obj, Thread::current(), evac);
+  }
+  return fwd;
+}
 
 oop ShenandoahBarrierSet::write_barrier(oop obj) {
   if (ShenandoahWriteBarrier) {
@@ -309,9 +323,14 @@ oop ShenandoahBarrierSet::write_barrier(oop obj) {
       if (evac_in_progress &&
           _heap->in_collection_set(obj) &&
           oopDesc::unsafe_equals(obj, fwd)) {
-        ShenandoahEvacOOMScope oom_evac_scope;
+        Thread *t = Thread::current();
         bool evac;
-        return _heap->evacuate_object(obj, Thread::current(), evac);
+        if (t->is_Worker_thread()) {
+          return _heap->evacuate_object(obj, t, evac);
+        } else {
+          ShenandoahEvacOOMScope oom_evac_scope;
+          return _heap->evacuate_object(obj, t, evac);
+        }
       } else {
         return fwd;
       }
