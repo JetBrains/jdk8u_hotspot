@@ -1385,7 +1385,6 @@ Node* PhaseStringOpts::copy_string(GraphKit& kit, Node* str, Node* char_array, N
   value = kit.shenandoah_read_barrier(value);
 
   // copy the contents
-  assert(!(ShenandoahBarrierNode::skip_through_barrier(value)->is_Con() && !value->is_Con()), "barrier prevents optimization");
   if (offset->is_Con() && count->is_Con() && value->is_Con() && count->get_int() < unroll_string_copy_length) {
     // For small constant strings just emit individual stores.
     // A length of 6 seems like a good space/speed tradeof.
