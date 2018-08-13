@@ -46,6 +46,7 @@
 #include "trace/tracing.hpp"
 #include "utilities/dtrace.hpp"
 #include "utilities/events.hpp"
+#include "utilities/macros.hpp"
 #ifdef COMPILER1
 #include "c1/c1_Compiler.hpp"
 #endif
@@ -2022,10 +2023,12 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
         task->print_compilation(tty, msg);
       }
 
+#if INCLUDE_ALL_GCS
      guarantee(!UseShenandoahGC || !ShenandoahCompileCheck || !target_compilable || (compilable != ciEnv::MethodCompilable_not_at_tier),
                err_msg("Not compilable on level %d due to: %s", task_level, ci_env.failure_reason()));
      guarantee(!UseShenandoahGC || !ShenandoahCompileCheck || !target_compilable ||(compilable != ciEnv::MethodCompilable_never || !target_compilable),
                err_msg("Never compilable due to: %s", ci_env.failure_reason()));
+#endif
 
     } else {
       task->mark_success();
