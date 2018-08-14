@@ -339,6 +339,12 @@
           "beginning of the GC cycle. Lower value makes the pacing less "   \
           "uniform during the cycle.")                                      \
                                                                             \
+  experimental(double, ShenandoahPacingSurcharge, 1.1,                      \
+          "Additional pacing tax surcharge to help unclutter the heap. "    \
+          "Larger values makes the pacing more aggressive. Lower values "   \
+          "risk GC cycles finish with less memory than were available at "  \
+          "the beginning of it.")                                           \
+                                                                            \
   experimental(uintx, ShenandoahCriticalFreeThreshold, 1,                   \
           "Percent of heap that needs to be free after recovery cycles, "   \
           "either Degenerated or Full GC. If this much space is not "       \
