@@ -96,10 +96,10 @@ public:
   ShenandoahPretouchTask(char* bitmap0_base, char* bitmap1_base, size_t bitmap_size,
                          size_t page_size) :
     AbstractGangTask("Shenandoah PreTouch"),
-    _bitmap0_base(bitmap0_base),
-    _bitmap1_base(bitmap1_base),
     _bitmap_size(bitmap_size),
-    _page_size(page_size) {}
+    _page_size(page_size),
+    _bitmap0_base(bitmap0_base),
+    _bitmap1_base(bitmap1_base) {}
 
   virtual void work(uint worker_id) {
     ShenandoahHeapRegion* r = _regions.next();
@@ -870,8 +870,8 @@ public:
   ShenandoahParallelEvacuationTask(ShenandoahHeap* sh,
                          ShenandoahCollectionSet* cs) :
     AbstractGangTask("Parallel Evacuation Task"),
-    _cs(cs),
-    _sh(sh) {}
+    _sh(sh),
+    _cs(cs) {}
 
   void work(uint worker_id) {
     ShenandoahWorkerSession worker_session(worker_id);
