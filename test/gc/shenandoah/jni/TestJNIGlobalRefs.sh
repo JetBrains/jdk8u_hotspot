@@ -26,7 +26,7 @@
 ##
 ## @test
 ## @summary Test JNI Global Refs with Shenandoah
-## @run shell/timeout=480 TestJNIGlobalRefs.sh
+## @run shell/timeout=720 TestJNIGlobalRefs.sh
 ##
 
 if [ "${TESTSRC}" = "" ]
@@ -76,6 +76,30 @@ then
 fi
 
 cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive \
+    -Djava.library.path=${THIS_DIR}${FS} TestJNIGlobalRefs"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=passive -XX:+ShenandoahVerify \
+    -Djava.library.path=${THIS_DIR}${FS} TestJNIGlobalRefs"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=passive \
     -Djava.library.path=${THIS_DIR}${FS} TestJNIGlobalRefs"
 
 echo "$cmd"
