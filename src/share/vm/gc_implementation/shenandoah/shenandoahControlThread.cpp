@@ -311,9 +311,6 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
 
   gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
 
-  // Capture peak occupancy right after starting the cycle
-  heap->heuristics()->record_peak_occupancy();
-
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
   // Start initial mark under STW
