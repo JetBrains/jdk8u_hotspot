@@ -36,23 +36,11 @@ void ShenandoahBarrierSet::interpreter_read_barrier(MacroAssembler* masm, Regist
   Unimplemented();
 }
 
-void ShenandoahBarrierSet::interpreter_read_barrier_impl(MacroAssembler* masm, Register dst) {
-  Unimplemented();
-}
-
 void ShenandoahBarrierSet::interpreter_read_barrier_not_null(MacroAssembler* masm, Register dst) {
   Unimplemented();
 }
 
-void ShenandoahBarrierSet::interpreter_read_barrier_not_null_impl(MacroAssembler* masm, Register dst) {
-  Unimplemented();
-}
-
 void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Register dst) {
-  Unimplemented();
-}
-
-void ShenandoahBarrierSet::interpreter_storeval_barrier(MacroAssembler* masm, Register dst, Register tmp) {
   Unimplemented();
 }
 
