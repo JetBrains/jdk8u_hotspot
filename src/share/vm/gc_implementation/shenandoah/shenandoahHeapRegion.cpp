@@ -491,7 +491,7 @@ void ShenandoahHeapRegion::setup_sizes(size_t initial_heap_size, size_t max_heap
   static const size_t MIN_REGION_SIZE = 256*K;
   static const size_t MIN_NUM_REGIONS = 10;
 
-  uintx region_size;
+  size_t region_size;
   if (FLAG_IS_DEFAULT(ShenandoahHeapRegionSize)) {
     if (ShenandoahMinRegionSize > initial_heap_size / MIN_NUM_REGIONS) {
       err_msg message("Initial heap size (" SIZE_FORMAT "K) is too low to afford the minimum number "
@@ -563,7 +563,7 @@ void ShenandoahHeapRegion::setup_sizes(size_t initial_heap_size, size_t max_heap
   // Recalculate the region size to make sure it's a power of
   // 2. This means that region_size is the largest power of 2 that's
   // <= what we've calculated so far.
-  region_size = ((uintx)1 << region_size_log);
+  region_size = (1u << region_size_log);
 
   // Now, set up the globals.
   guarantee(RegionSizeBytesShift == 0, "we should only set it once");
@@ -573,7 +573,7 @@ void ShenandoahHeapRegion::setup_sizes(size_t initial_heap_size, size_t max_heap
   RegionSizeWordsShift = RegionSizeBytesShift - LogHeapWordSize;
 
   guarantee(RegionSizeBytes == 0, "we should only set it once");
-  RegionSizeBytes = (size_t)region_size;
+  RegionSizeBytes = region_size;
   RegionSizeWords = RegionSizeBytes >> LogHeapWordSize;
   assert (RegionSizeWords*HeapWordSize == RegionSizeBytes, "sanity");
 
