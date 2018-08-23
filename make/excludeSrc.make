@@ -121,6 +121,7 @@ ifeq ($(INCLUDE_ALL_GCS), false)
       Src_Files_EXCLUDE +=                                              \
         shenandoahBarrierSet_x86.cpp                                    \
         shenandoahBarrierSet_aarch64.cpp                                \
+        shenandoahBarrierSet_ppc.cpp                                    \
         shenandoahBarrierSet_sparc.cpp                                  \
         shenandoahBarrierSet_zero.cpp
 endif
