@@ -66,7 +66,7 @@ private:
       oop obj1 = oopDesc::decode_heap_oop_not_null(o);
       oop obj2 = oopDesc::bs()->write_barrier(obj1);
       if (! oopDesc::unsafe_equals(obj1, obj2)) {
-        assert (!ShenandoahHeap::heap()->in_collection_set(obj2), "sanity");
+        shenandoah_assert_not_in_cset(NULL, obj2);
         oopDesc::encode_store_heap_oop(p, obj2);
       }
     }
