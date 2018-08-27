@@ -747,6 +747,13 @@ private:
   void op_cleanup_bitmaps();
   void op_uncommit(double shrink_before);
 
+  // Messages for GC trace event, they have to be immortal for
+  // passing around the logging/tracing systems
+  const char* init_mark_event_message() const;
+  const char* final_mark_event_message() const;
+  const char* conc_mark_event_message() const;
+  const char* degen_event_message(ShenandoahDegenPoint point) const;
+
 private:
   void try_inject_alloc_failure();
   bool should_inject_alloc_failure();
