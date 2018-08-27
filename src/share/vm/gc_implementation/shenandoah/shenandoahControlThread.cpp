@@ -304,12 +304,7 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
 
   if (check_cancellation_or_degen(ShenandoahHeap::_degenerated_outside_cycle)) return;
 
-  ShenandoahGCSession session;
-
-  GCTimer* gc_timer = heap->gc_timer();
-  GCTracer* gc_tracer = heap->tracer();
-
-  gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
+  ShenandoahGCSession session(cause);
 
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
@@ -358,8 +353,6 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   // Cycle is complete
   heap->heuristics()->record_success_concurrent();
   heap->shenandoahPolicy()->record_success_concurrent();
-
-  gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
 bool ShenandoahControlThread::check_cancellation_or_degen(ShenandoahHeap::ShenandoahDegenPoint point) {
@@ -397,41 +390,23 @@ void ShenandoahControlThread::stop() {
 
 void ShenandoahControlThread::service_stw_full_cycle(GCCause::Cause cause) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahGCSession session;
-
-  GCTimer* gc_timer = heap->gc_timer();
-  GCTracer* gc_tracer = heap->tracer();
-  if (gc_tracer->has_reported_gc_start()) {
-    gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
-  }
-  gc_tracer->report_gc_start(cause, gc_timer->gc_start());
+  ShenandoahGCSession session(cause);
 
   heap->vmop_entry_full(cause);
 
   heap->heuristics()->record_success_full();
   heap->shenandoahPolicy()->record_success_full();
-
-  gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
 void ShenandoahControlThread::service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahHeap::ShenandoahDegenPoint point) {
   assert (point != ShenandoahHeap::_degenerated_unset, "Degenerated point should be set");
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahGCSession session;
-
-  GCTimer* gc_timer = heap->gc_timer();
-  GCTracer* gc_tracer = heap->tracer();
-  if (gc_tracer->has_reported_gc_start()) {
-    gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
-  }
-  gc_tracer->report_gc_start(cause, gc_timer->gc_start());
+  ShenandoahGCSession session(cause);
 
   heap->vmop_degenerated(point);
 
   heap->heuristics()->record_success_degenerated();
   heap->shenandoahPolicy()->record_success_degenerated();
-  
-  gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
 void ShenandoahControlThread::service_uncommit(double shrink_before) {
