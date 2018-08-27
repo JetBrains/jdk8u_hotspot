@@ -104,20 +104,13 @@ public:
   virtual void work(uint worker_id) {
     ShenandoahHeapRegion* r = _regions.next();
     while (r != NULL) {
-      log_trace(gc, heap)("Pretouch region " SIZE_FORMAT ": " PTR_FORMAT " -> " PTR_FORMAT,
-                          r->region_number(), p2i(r->bottom()), p2i(r->end()));
       os::pretouch_memory((char*) r->bottom(), (char*) r->end());
 
       size_t start = r->region_number()       * ShenandoahHeapRegion::region_size_bytes() / MarkBitMap::heap_map_factor();
       size_t end   = (r->region_number() + 1) * ShenandoahHeapRegion::region_size_bytes() / MarkBitMap::heap_map_factor();
       assert (end <= _bitmap_size, err_msg("end is sane: " SIZE_FORMAT " < " SIZE_FORMAT, end, _bitmap_size));
 
-      log_trace(gc, heap)("Pretouch bitmap under region " SIZE_FORMAT ": " PTR_FORMAT " -> " PTR_FORMAT,
-                          r->region_number(), p2i(_bitmap0_base + start), p2i(_bitmap0_base + end));
       os::pretouch_memory(_bitmap0_base + start, _bitmap0_base + end);
-
-      log_trace(gc, heap)("Pretouch bitmap under region " SIZE_FORMAT ": " PTR_FORMAT " -> " PTR_FORMAT,
-                          r->region_number(), p2i(_bitmap1_base + start), p2i(_bitmap1_base + end));
       os::pretouch_memory(_bitmap1_base + start, _bitmap1_base + end);
 
       r = _regions.next();
@@ -640,9 +633,6 @@ HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) 
 }
 
 HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size) {
-#ifdef ASSERT
-  log_debug(gc, alloc)("Allocate new tlab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
-#endif
   ShenandoahAllocationRequest req = ShenandoahAllocationRequest::for_tlab(word_size);
   return allocate_memory(req);
 }
@@ -650,9 +640,6 @@ HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size) {
 HeapWord* ShenandoahHeap::allocate_new_gclab(size_t min_size,
                                              size_t word_size,
                                              size_t* actual_size) {
-#ifdef ASSERT
-  log_debug(gc, alloc)("Allocate new gclab, requested size = " SIZE_FORMAT " bytes", word_size * HeapWordSize);
-#endif
   ShenandoahAllocationRequest req = ShenandoahAllocationRequest::for_gclab(min_size, word_size);
   HeapWord* res = allocate_memory(req);
   if (res != NULL) {
@@ -876,10 +863,6 @@ public:
     ShenandoahParallelEvacuateRegionObjectClosure cl(_sh);
     ShenandoahHeapRegion* r;
     while ((r =_cs->claim_next()) != NULL) {
-      log_develop_trace(gc, region)("Thread " INT32_FORMAT " claimed Heap Region " SIZE_FORMAT,
-                                    worker_id,
-                                    r->region_number());
-
       assert(r->has_live(), "all-garbage regions are reclaimed early");
       _sh->marked_object_iterate(r, &cl);
 
@@ -888,7 +871,6 @@ public:
       }
 
       if (_sh->cancelled_gc()) {
-        log_develop_trace(gc, region)("Cancelled concgc while evacuating region " SIZE_FORMAT, r->region_number());
         break;
       }
     }
@@ -927,18 +909,11 @@ void ShenandoahHeap::trash_humongous_region_at(ShenandoahHeapRegion* start) {
   size_t index = start->region_number() + required_regions - 1;
 
   assert(!start->has_live(), "liveness must be zero");
-  log_trace(gc, humongous)("Reclaiming " SIZE_FORMAT " humongous regions for object of size: " SIZE_FORMAT " words", required_regions, size);
 
   for(size_t i = 0; i < required_regions; i++) {
      // Reclaim from tail. Otherwise, assertion fails when printing region to trace log,
      // as it expects that every region belongs to a humongous region starting with a humongous start region.
      ShenandoahHeapRegion* region = get_region(index --);
-
-    if (ShenandoahLogDebug) {
-      ResourceMark rm;
-      outputStream* out = gclog_or_tty;
-      region->print_on(out);
-    }
 
     assert(region->is_humongous(), "expect correct humongous start or continuation");
     assert(!in_collection_set(region), "Humongous region should not be in collection set");
@@ -957,8 +932,6 @@ class ShenandoahCheckCollectionSetClosure: public ShenandoahHeapRegionClosure {
 #endif
 
 void ShenandoahHeap::prepare_for_concurrent_evacuation() {
-  log_develop_trace(gc)("Thread %d started prepare_for_concurrent_evacuation", Thread::current()->osthread()->thread_id());
-
   if (!cancelled_gc()) {
     make_parsable(true);
 
@@ -1554,43 +1527,8 @@ void ShenandoahHeap::op_final_evac() {
 }
 
 void ShenandoahHeap::op_evac() {
-  if (ShenandoahLogTrace) {
-    ResourceMark rm;
-    outputStream* out = gclog_or_tty;
-    out->print_cr("All available regions:");
-    print_heap_regions_on(out);
-  }
-
-  if (ShenandoahLogTrace) {
-    ResourceMark rm;
-    outputStream* out = gclog_or_tty;
-    out->print_cr("Collection set (" SIZE_FORMAT " regions):", _collection_set->count());
-    _collection_set->print_on(out);
-
-    out->print_cr("Free set:");
-    _free_set->print_on(out);
-  }
-
   ShenandoahParallelEvacuationTask task(this, _collection_set);
   workers()->run_task(&task);
-
-  if (ShenandoahLogTrace) {
-    ResourceMark rm;
-    outputStream* out = gclog_or_tty;
-    out->print_cr("After evacuation collection set (" SIZE_FORMAT " regions):",
-                  _collection_set->count());
-    _collection_set->print_on(out);
-
-    out->print_cr("After evacuation free set:");
-    _free_set->print_on(out);
-  }
-
-  if (ShenandoahLogTrace) {
-    ResourceMark rm;
-    outputStream* out = gclog_or_tty;
-    out->print_cr("All regions after evacuation:");
-    print_heap_regions_on(out);
-  }
 }
 
 void ShenandoahHeap::op_updaterefs() {
@@ -1748,13 +1686,6 @@ void ShenandoahHeap::stop_concurrent_marking() {
     swap_mark_contexts();
   }
   set_concurrent_mark_in_progress(false);
-
-  if (ShenandoahLogTrace) {
-    ResourceMark rm;
-    outputStream* out = gclog_or_tty;
-    out->print_cr("Regions at stopping the concurrent mark:");
-    print_heap_regions_on(out);
-  }
 }
 
 void ShenandoahHeap::force_satb_flush_all_threads() {

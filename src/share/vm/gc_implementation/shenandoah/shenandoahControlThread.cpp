@@ -470,9 +470,6 @@ void ShenandoahControlThread::handle_alloc_failure(size_t words) {
 void ShenandoahControlThread::handle_alloc_failure_evac(size_t words) {
   Thread* t = Thread::current();
 
-  log_develop_trace(gc)("Out of memory during evacuation, cancel evacuation, schedule full GC by thread %d",
-                        t->osthread()->thread_id());
-
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   heap->collector_policy()->set_should_clear_all_soft_refs(true);
 
