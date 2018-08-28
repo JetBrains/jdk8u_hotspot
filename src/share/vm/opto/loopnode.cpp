@@ -3542,7 +3542,6 @@ void PhaseIdealLoop::build_loop_late_post( Node *n ) {
     case Op_AryEq:
     case Op_ShenandoahReadBarrier:
     case Op_ShenandoahWriteBarrier:
-    case Op_ShenandoahWBMemProj:
       pinned = false;
     }
     if( pinned ) {

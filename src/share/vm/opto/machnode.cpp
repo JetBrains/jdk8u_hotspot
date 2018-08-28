@@ -329,7 +329,7 @@ const class TypePtr *MachNode::adr_type() const {
   Node *base = get_base_and_disp(offset, adr_type);
 
   if( adr_type != TYPE_PTR_SENTINAL ) {
-    return ShenandoahBarrierNode::fix_addp_type(adr_type, base);      // get_base_and_disp has the answer
+    return adr_type;      // get_base_and_disp has the answer
   }
 
   // Direct addressing modes have no base node, simply an indirect
@@ -381,7 +381,7 @@ const class TypePtr *MachNode::adr_type() const {
   }
   assert(tp->base() != Type::AnyPtr, "not a bare pointer");
 
-  return ShenandoahBarrierNode::fix_addp_type(tp->add_offset(offset), base);
+  return tp->add_offset(offset);
 }
 
 

@@ -106,6 +106,8 @@ public:
   static oopDesc* write_barrier_IRT(oopDesc* src);
   static oopDesc* write_barrier_JRT(oopDesc* src);
 
+  oop write_barrier_mutator(oop obj);
+
   bool obj_equals(oop obj1, oop obj2);
   bool obj_equals(narrowOop obj1, narrowOop obj2);
 

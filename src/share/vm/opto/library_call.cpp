@@ -2694,18 +2694,6 @@ bool LibraryCallKit::inline_unsafe_access(bool is_native_ptr, bool is_store, Bas
 
   const TypePtr *adr_type = _gvn.type(adr)->isa_ptr();
 
-  if (UseShenandoahGC && adr->is_AddP() &&
-      adr->in(AddPNode::Base) == adr->in(AddPNode::Address)) {
-    Node* base = ShenandoahBarrierNode::skip_through_barrier(adr->in(AddPNode::Base));
-    const TypeInstPtr* base_t = _gvn.type(base)->isa_instptr();
-    if (base_t != NULL &&
-        base_t->const_oop() != NULL &&
-        base_t->klass() == ciEnv::current()->Class_klass() &&
-        adr_type->is_instptr()->offset() >= base_t->klass()->as_instance_klass()->size_helper() * wordSize) {
-      adr_type = base_t->add_offset(adr_type->is_instptr()->offset());
-    }
-  }
-
   // Try to categorize the address.
   Compile::AliasType* alias_type = C->alias_type(adr_type);
   assert(alias_type->index() != Compile::AliasIdxBot, "no bare pointers here");
@@ -7074,7 +7062,6 @@ bool LibraryCallKit::inline_profileBoolean() {
   Node* counts = argument(1);
   const TypeAryPtr* ary = NULL;
   ciArray* aobj = NULL;
-  assert(!(ShenandoahBarrierNode::skip_through_barrier(counts)->is_Con() && !counts->is_Con()), "barrier prevents optimization");
   if (counts->is_Con()
       && (ary = counts->bottom_type()->isa_aryptr()) != NULL
       && (aobj = ary->const_oop()->as_array()) != NULL

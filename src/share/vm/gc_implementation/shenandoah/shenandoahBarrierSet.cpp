@@ -292,14 +292,59 @@ bool ShenandoahBarrierSet::obj_equals(narrowOop obj1, narrowOop obj2) {
 }
 
 JRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_JRT(oopDesc* src))
-  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier(src);
+  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier_mutator(src);
   return (oopDesc*) result;
 JRT_END
 
 IRT_LEAF(oopDesc*, ShenandoahBarrierSet::write_barrier_IRT(oopDesc* src))
-  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier(src);
+  oop result = ShenandoahBarrierSet::barrier_set()->write_barrier_mutator(src);
   return (oopDesc*) result;
 IRT_END
+
+oop ShenandoahBarrierSet::write_barrier_mutator(oop obj) {
+  assert(UseShenandoahGC && ShenandoahWriteBarrier, "should be enabled");
+  assert(_heap->is_gc_in_progress_mask(ShenandoahHeap::EVACUATION), "evac should be in progress");
+  assert(_heap->in_collection_set(obj), "should be in collection set");
+
+  oop fwd = resolve_forwarded_not_null(obj);
+  if (oopDesc::unsafe_equals(obj, fwd)) {
+    ShenandoahEvacOOMScope oom_evac_scope;
+    bool evac;
+
+    Thread* thread = Thread::current();
+    oop res_oop = _heap->evacuate_object(obj, thread, evac);
+
+    // Since we are already here and paid the price of getting through runtime call adapters
+    // and acquiring oom-scope, it makes sense to try and evacuate more adjacent objects,
+    // thus amortizing the overhead. For sparsely live heaps, scan costs easily dominate
+    // total assist costs, and can introduce a lot of evacuation latency. This is why we
+    // only scan for _nearest_ N objects, regardless if they are eligible for evac or not.
+    // The scan itself should also avoid touching the non-marked objects below TAMS, because
+    // their metadata (notably, klasses) may be incorrect already.
+
+    size_t max = ShenandoahEvacAssist;
+    if (max > 0) {
+      ShenandoahMarkingContext* ctx = _heap->complete_marking_context();
+
+      ShenandoahHeapRegion* r = _heap->heap_region_containing(obj);
+      assert(r->is_cset(), "sanity");
+
+      HeapWord* cur = (HeapWord*)obj + obj->size() + BrooksPointer::word_size();
+
+      size_t count = 0;
+      while ((cur < r->top()) && ctx->is_marked(oop(cur)) && (count++ < max)) {
+        oop cur_oop = oop(cur);
+        if (oopDesc::unsafe_equals(cur_oop, resolve_forwarded_not_null(cur_oop))) {
+          _heap->evacuate_object(cur_oop, thread, evac);
+        }
+        cur = cur + cur_oop->size() + BrooksPointer::word_size();
+      }
+    }
+
+    return res_oop;
+  }
+  return fwd;
+}
 
 oop ShenandoahBarrierSet::write_barrier(oop obj) {
   if (ShenandoahWriteBarrier) {
@@ -309,9 +354,14 @@ oop ShenandoahBarrierSet::write_barrier(oop obj) {
       if (evac_in_progress &&
           _heap->in_collection_set(obj) &&
           oopDesc::unsafe_equals(obj, fwd)) {
-        ShenandoahEvacOOMScope oom_evac_scope;
+        Thread *t = Thread::current();
         bool evac;
-        return _heap->evacuate_object(obj, Thread::current(), evac);
+        if (t->is_Worker_thread()) {
+          return _heap->evacuate_object(obj, t, evac);
+        } else {
+          ShenandoahEvacOOMScope oom_evac_scope;
+          return _heap->evacuate_object(obj, t, evac);
+        }
       } else {
         return fwd;
       }

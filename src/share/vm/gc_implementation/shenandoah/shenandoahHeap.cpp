@@ -96,10 +96,10 @@ public:
   ShenandoahPretouchTask(char* bitmap0_base, char* bitmap1_base, size_t bitmap_size,
                          size_t page_size) :
     AbstractGangTask("Shenandoah PreTouch"),
-    _bitmap0_base(bitmap0_base),
-    _bitmap1_base(bitmap1_base),
     _bitmap_size(bitmap_size),
-    _page_size(page_size) {}
+    _page_size(page_size),
+    _bitmap0_base(bitmap0_base),
+    _bitmap1_base(bitmap1_base) {}
 
   virtual void work(uint worker_id) {
     ShenandoahHeapRegion* r = _regions.next();
@@ -158,7 +158,7 @@ jint ShenandoahHeap::initialize() {
   set_barrier_set(new ShenandoahBarrierSet(this));
   ReservedSpace pgc_rs = heap_rs.first_part(max_byte_size);
 
-  _num_regions = max_byte_size / ShenandoahHeapRegion::region_size_bytes();
+  _num_regions = ShenandoahHeapRegion::region_count();
   size_t num_committed_regions = init_byte_size / ShenandoahHeapRegion::region_size_bytes();
   _initial_size = num_committed_regions * ShenandoahHeapRegion::region_size_bytes();
   _committed = _initial_size;
@@ -342,7 +342,6 @@ void ShenandoahHeap::initialize_heuristics() {
     }
     log_info(gc, init)("Shenandoah heuristics: %s",
                        _heuristics->name());
-    _heuristics->print_thresholds();
   } else {
     ShouldNotReachHere();
   }
@@ -370,9 +369,8 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _phase_timings(NULL),
   _alloc_tracker(NULL)
 {
-  log_info(gc, init)("Parallel GC threads: " UINTX_FORMAT, ParallelGCThreads);
-  log_info(gc, init)("Concurrent GC threads: " UINTX_FORMAT, ConcGCThreads);
-  log_info(gc, init)("Parallel reference processing enabled: %s", BOOL_TO_STR(ParallelRefProcEnabled));
+  log_info(gc, init)("GC threads: " UINTX_FORMAT " parallel, " UINTX_FORMAT " concurrent", ParallelGCThreads, ConcGCThreads);
+  log_info(gc, init)("Reference processing: %s", ParallelRefProcEnabled ? "parallel" : "serial");
 
   _scm = new ShenandoahConcurrentMark();
   _full_gc = new ShenandoahMarkCompact();
@@ -523,7 +521,7 @@ void ShenandoahHeap::increase_allocated(size_t bytes) {
   Atomic::add(bytes, &_bytes_allocated_since_gc_start);
 }
 
-void ShenandoahHeap::notify_alloc(size_t words, bool waste) {
+void ShenandoahHeap::notify_alloc_words(size_t words, bool waste) {
   size_t bytes = words * HeapWordSize;
   if (!waste) {
     increase_used(bytes);
@@ -590,9 +588,6 @@ void ShenandoahHeap::op_uncommit(double shrink_before) {
                  count * ShenandoahHeapRegion::region_size_bytes() / M, capacity() / M, committed() / M, used() / M);
     _control_thread->notify_heap_changed();
   }
-
-  // Allocations happen during uncommits, record peak after the phase:
-  heuristics()->record_peak_occupancy();
 }
 
 HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) {
@@ -740,7 +735,7 @@ HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocationRequest& req) {
             err_msg("Only LAB allocations are elastic: %s, requested = " SIZE_FORMAT ", actual = " SIZE_FORMAT,
                     alloc_type_to_string(req.type()), requested, actual));
 
-    notify_alloc(actual, false);
+    notify_alloc_words(actual, false);
 
     // If we requested more than we were granted, give the rest back to pacer.
     // This only matters if we are in the same pacing epoch: do not try to unpace
@@ -866,28 +861,17 @@ class ShenandoahParallelEvacuationTask : public AbstractGangTask {
 private:
   ShenandoahHeap* const _sh;
   ShenandoahCollectionSet* const _cs;
-  ShenandoahSharedFlag _claimed_codecache;
 
 public:
   ShenandoahParallelEvacuationTask(ShenandoahHeap* sh,
                          ShenandoahCollectionSet* cs) :
     AbstractGangTask("Parallel Evacuation Task"),
-    _cs(cs),
-    _sh(sh) {}
+    _sh(sh),
+    _cs(cs) {}
 
   void work(uint worker_id) {
     ShenandoahWorkerSession worker_session(worker_id);
     ShenandoahEvacOOMScope oom_evac_scope;
-
-    // If concurrent code cache evac is enabled, evacuate it here.
-    // Note we cannot update the roots here, because we risk non-atomic stores to the alive
-    // nmethods. The update would be handled elsewhere.
-    if (ShenandoahConcurrentEvacCodeRoots && _claimed_codecache.try_set()) {
-      ShenandoahEvacuateRootsClosure cl;
-      MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
-      CodeBlobToOopClosure blobs(&cl, !CodeBlobToOopClosure::FixRelocations);
-      CodeCache::blobs_do(&blobs);
-    }
 
     ShenandoahParallelEvacuateRegionObjectClosure cl(_sh);
     ShenandoahHeapRegion* r;
@@ -976,9 +960,6 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
   log_develop_trace(gc)("Thread %d started prepare_for_concurrent_evacuation", Thread::current()->osthread()->thread_id());
 
   if (!cancelled_gc()) {
-    // Allocations might have happened before we STWed here, record peak:
-    heuristics()->record_peak_occupancy();
-
     make_parsable(true);
 
     if (ShenandoahVerify) {
@@ -1061,12 +1042,8 @@ public:
     ShenandoahEvacOOMScope oom_evac_scope;
     ShenandoahEvacuateUpdateRootsClosure cl;
 
-    if (ShenandoahConcurrentEvacCodeRoots) {
-      _rp->process_evacuate_roots(&cl, NULL, worker_id);
-    } else {
-      MarkingCodeBlobClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
-      _rp->process_evacuate_roots(&cl, &blobsCl, worker_id);
-    }
+    MarkingCodeBlobClosure blobsCl(&cl, CodeBlobToOopClosure::FixRelocations);
+    _rp->process_evacuate_roots(&cl, &blobsCl, worker_id);
   }
 };
 
@@ -1504,9 +1481,6 @@ void ShenandoahHeap::op_init_mark() {
 
 void ShenandoahHeap::op_mark() {
   concurrentMark()->mark_from_roots();
-
-  // Allocations happen during concurrent mark, record peak after the phase:
-  heuristics()->record_peak_occupancy();
 }
 
 void ShenandoahHeap::op_final_mark() {
@@ -1617,24 +1591,15 @@ void ShenandoahHeap::op_evac() {
     out->print_cr("All regions after evacuation:");
     print_heap_regions_on(out);
   }
-
-  // Allocations happen during evacuation, record peak after the phase:
-  heuristics()->record_peak_occupancy();
 }
 
 void ShenandoahHeap::op_updaterefs() {
   update_heap_references(true);
-
-  // Allocations happen during update-refs, record peak after the phase:
-  heuristics()->record_peak_occupancy();
 }
 
 void ShenandoahHeap::op_cleanup() {
   ShenandoahGCPhase phase_recycle(ShenandoahPhaseTimings::conc_cleanup_recycle);
   free_set()->recycle_trash();
-
-  // Allocations happen during cleanup, record peak after the phase:
-  heuristics()->record_peak_occupancy();
 }
 
 void ShenandoahHeap::op_cleanup_bitmaps() {
@@ -1642,16 +1607,10 @@ void ShenandoahHeap::op_cleanup_bitmaps() {
 
   ShenandoahGCPhase phase_reset(ShenandoahPhaseTimings::conc_cleanup_reset_bitmaps);
   reset_next_mark_bitmap();
-
-  // Allocations happen during bitmap cleanup, record peak after the phase:
-  heuristics()->record_peak_occupancy();
 }
 
 void ShenandoahHeap::op_preclean() {
   concurrentMark()->preclean_weak_refs();
-
-  // Allocations happen during concurrent preclean, record peak after the phase:
-  heuristics()->record_peak_occupancy();
 }
 
 void ShenandoahHeap::op_full(GCCause::Cause cause) {
@@ -2263,9 +2222,6 @@ void ShenandoahHeap::op_final_updaterefs() {
   assert(!cancelled_gc(), "Should have been done right before");
 
   concurrentMark()->update_roots(ShenandoahPhaseTimings::final_update_refs_roots);
-
-  // Allocations might have happened before we STWed here, record peak:
-  heuristics()->record_peak_occupancy();
 
   ShenandoahGCPhase final_update_refs(ShenandoahPhaseTimings::final_update_refs_recycle);
 

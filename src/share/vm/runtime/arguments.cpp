@@ -1861,6 +1861,25 @@ void Arguments::set_shenandoah_gc_flags() {
   if (FLAG_IS_DEFAULT(TLABAllocationWeight)) {
     FLAG_SET_DEFAULT(TLABAllocationWeight, 90);
   }
+
+  // Shenandoah needs more space in generated code to put barriers in.
+  // TODO: NMethodSizeLimit should not be develop.
+#ifdef COMPILER1
+#ifdef ASSERT
+  if (FLAG_IS_DEFAULT(NMethodSizeLimit)) {
+    FLAG_SET_DEFAULT(NMethodSizeLimit, NMethodSizeLimit * 3);
+  }
+#endif
+#endif
+
+  // Shenandoah needs more C2 nodes to compile some methods with lots of barriers.
+  // NodeLimitFudgeFactor needs to stay the same relative to MaxNodeLimit.
+#ifdef COMPILER2
+  if (FLAG_IS_DEFAULT(MaxNodeLimit)) {
+    FLAG_SET_DEFAULT(MaxNodeLimit, MaxNodeLimit * 3);
+    FLAG_SET_DEFAULT(NodeLimitFudgeFactor, NodeLimitFudgeFactor * 3);
+  }
+#endif
 #endif
 }
 
@@ -2185,25 +2204,6 @@ void check_gclog_consistency() {
   }
 
 #if INCLUDE_ALL_GCS
-  if (ShenandoahConcurrentEvacCodeRoots) {
-    if (!ShenandoahBarriersForConst) {
-      if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
-        warning("Concurrent code cache evacuation is enabled, enabling barriers for constants.");
-        FLAG_SET_DEFAULT(ShenandoahBarriersForConst, true);
-      } else {
-        warning("Concurrent code cache evacuation is enabled, but barriers for constants are disabled. "
-                "This may lead to surprising crashes.");
-      }
-    }
-  } else {
-    if (ShenandoahBarriersForConst) {
-      if (FLAG_IS_DEFAULT(ShenandoahBarriersForConst)) {
-        warning("Concurrent code cache evacuation is disabled, disabling barriers for constants.");
-        FLAG_SET_DEFAULT(ShenandoahBarriersForConst, false);
-      }
-    }
-  }
-
   if (AlwaysPreTouch || ShenandoahAlwaysPreTouch) {
     if (!FLAG_IS_DEFAULT(ShenandoahUncommitDelay)) {
       warning("AlwaysPreTouch is enabled, disabling ShenandoahUncommitDelay");

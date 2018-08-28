@@ -36,6 +36,7 @@
 #include "runtime/os.hpp"
 #include "runtime/safepoint.hpp"
 
+size_t ShenandoahHeapRegion::RegionCount = 0;
 size_t ShenandoahHeapRegion::RegionSizeBytes = 0;
 size_t ShenandoahHeapRegion::RegionSizeWords = 0;
 size_t ShenandoahHeapRegion::RegionSizeBytesShift = 0;
@@ -50,17 +51,17 @@ size_t ShenandoahHeapRegion::MaxTLABSizeWords = 0;
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
                                            size_t size_words, size_t index, bool committed) :
   _heap(heap),
-  _pacer(ShenandoahPacing ? heap->pacer() : NULL),
   _region_number(index),
   _live_data(0),
+  _reserved(MemRegion(start, size_words)),
   _tlab_allocs(0),
   _gclab_allocs(0),
   _shared_allocs(0),
-  _reserved(MemRegion(start, size_words)),
   _new_top(NULL),
+  _critical_pins(0),
   _state(committed ? _empty_committed : _empty_uncommitted),
   _empty_time(os::elapsedTime()),
-  _critical_pins(0) {
+  _pacer(ShenandoahPacing ? heap->pacer() : NULL) {
 
   ContiguousSpace::initialize(_reserved, true, committed);
 }
@@ -414,11 +415,11 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|TAMS " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12),
             p2i(_heap->complete_marking_context()->top_at_mark_start(region_number())),
             p2i(_heap->next_marking_context()->top_at_mark_start(region_number())));
-  st->print("|U %3d%%", (int) ((double) used() * 100 / capacity()));
-  st->print("|T %3d%%", (int) ((double) get_tlab_allocs() * 100 / capacity()));
-  st->print("|G %3d%%", (int) ((double) get_gclab_allocs() * 100 / capacity()));
-  st->print("|S %3d%%", (int) ((double) get_shared_allocs() * 100 / capacity()));
-  st->print("|L %3d%%", (int) ((double) get_live_data_bytes() * 100 / capacity()));
+  st->print("|U " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(used()),                proper_unit_for_byte_size(used()));
+  st->print("|T " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(get_tlab_allocs()),     proper_unit_for_byte_size(get_tlab_allocs()));
+  st->print("|G " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(get_gclab_allocs()),    proper_unit_for_byte_size(get_gclab_allocs()));
+  st->print("|S " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(get_shared_allocs()),   proper_unit_for_byte_size(get_shared_allocs()));
+  st->print("|L " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(get_live_data_bytes()), proper_unit_for_byte_size(get_live_data_bytes()));
   st->print("|CP " SIZE_FORMAT_W(3), _critical_pins);
 
   st->cr();
@@ -485,12 +486,12 @@ HeapWord* ShenandoahHeapRegion::block_start_const(const void* p) const {
   }
 }
 
-void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size_t max_heap_size) {
+void ShenandoahHeapRegion::setup_sizes(size_t initial_heap_size, size_t max_heap_size) {
   // Absolute minimums we should not ever break:
   static const size_t MIN_REGION_SIZE = 256*K;
   static const size_t MIN_NUM_REGIONS = 10;
 
-  uintx region_size;
+  size_t region_size;
   if (FLAG_IS_DEFAULT(ShenandoahHeapRegionSize)) {
     if (ShenandoahMinRegionSize > initial_heap_size / MIN_NUM_REGIONS) {
       err_msg message("Initial heap size (" SIZE_FORMAT "K) is too low to afford the minimum number "
@@ -562,7 +563,7 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   // Recalculate the region size to make sure it's a power of
   // 2. This means that region_size is the largest power of 2 that's
   // <= what we've calculated so far.
-  region_size = ((uintx)1 << region_size_log);
+  region_size = (1u << region_size_log);
 
   // Now, set up the globals.
   guarantee(RegionSizeBytesShift == 0, "we should only set it once");
@@ -572,7 +573,7 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   RegionSizeWordsShift = RegionSizeBytesShift - LogHeapWordSize;
 
   guarantee(RegionSizeBytes == 0, "we should only set it once");
-  RegionSizeBytes = (size_t)region_size;
+  RegionSizeBytes = region_size;
   RegionSizeWords = RegionSizeBytes >> LogHeapWordSize;
   assert (RegionSizeWords*HeapWordSize == RegionSizeBytes, "sanity");
 
@@ -581,6 +582,9 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
 
   guarantee(RegionSizeBytesMask == 0, "we should only set it once");
   RegionSizeBytesMask = RegionSizeBytes - 1;
+
+  guarantee(RegionCount == 0, "we should only set it once");
+  RegionCount = max_heap_size / RegionSizeBytes;
 
   guarantee(HumongousThresholdWords == 0, "we should only set it once");
   HumongousThresholdWords = RegionSizeWords * ShenandoahHumongousThreshold / 100;
@@ -616,12 +620,12 @@ void ShenandoahHeapRegion::setup_heap_region_size(size_t initial_heap_size, size
   guarantee(MaxTLABSizeWords == 0, "we should only set it once");
   MaxTLABSizeWords = MaxTLABSizeBytes / HeapWordSize;
 
-  log_info(gc, heap)("Heap region size: " SIZE_FORMAT "M", RegionSizeBytes / M);
-  log_info(gc, init)("Region size in bytes: " SIZE_FORMAT, RegionSizeBytes);
-  log_info(gc, init)("Region size byte shift: " SIZE_FORMAT, RegionSizeBytesShift);
-  log_info(gc, init)("Humongous threshold in bytes: " SIZE_FORMAT, HumongousThresholdBytes);
-  log_info(gc, init)("Max TLAB size in bytes: " SIZE_FORMAT, MaxTLABSizeBytes);
-  log_info(gc, init)("Number of regions: " SIZE_FORMAT, max_heap_size / RegionSizeBytes);
+  log_info(gc, init)("Regions: " SIZE_FORMAT " x " SIZE_FORMAT "%s",
+                     RegionCount, byte_size_in_proper_unit(RegionSizeBytes), proper_unit_for_byte_size(RegionSizeBytes));
+  log_info(gc, init)("Humongous object threshold: " SIZE_FORMAT "%s",
+                     byte_size_in_proper_unit(HumongousThresholdBytes), proper_unit_for_byte_size(HumongousThresholdBytes));
+  log_info(gc, init)("Max TLAB size: " SIZE_FORMAT "%s",
+                     byte_size_in_proper_unit(MaxTLABSizeBytes), proper_unit_for_byte_size(MaxTLABSizeBytes));
 }
 
 void ShenandoahHeapRegion::do_commit() {

@@ -50,10 +50,10 @@ ShenandoahControlThread::ShenandoahControlThread() :
   _alloc_failure_waiters_lock(Mutex::leaf, "ShenandoahAllocFailureGC_lock", true),
   _explicit_gc_waiters_lock(Mutex::leaf, "ShenandoahExplicitGC_lock", true),
   _periodic_task(this),
+  _allocs_seen(0),
   _explicit_gc_cause(GCCause::_no_cause_specified),
-  _degen_point(ShenandoahHeap::_degenerated_outside_cycle),
-  _allocs_seen(0)
-{
+  _degen_point(ShenandoahHeap::_degenerated_outside_cycle) {
+
   create_and_start();
   _periodic_task.enroll();
   _periodic_satb_flush_task.enroll();
@@ -116,6 +116,8 @@ void ShenandoahControlThread::run() {
 
     if (alloc_failure_pending) {
       // Allocation failure takes precedence: we have to deal with it first thing
+      log_info(gc)("Trigger: Handle Allocation Failure");
+
       cause = GCCause::_allocation_failure;
 
       // Consume the degen point, and seed it with default value
@@ -134,6 +136,10 @@ void ShenandoahControlThread::run() {
 
     } else if (explicit_gc_requested) {
       // Honor explicit GC requests
+      log_info(gc)("Trigger: Explicit GC request");
+
+      cause = _explicit_gc_cause;
+
       if (ExplicitGCInvokesConcurrent) {
         heuristics->record_explicit_gc();
         policy->record_explicit_to_concurrent();
@@ -143,7 +149,6 @@ void ShenandoahControlThread::run() {
         policy->record_explicit_to_full();
         mode = stw_full;
       }
-      cause = _explicit_gc_cause;
     } else {
       // Potential normal cycle: ask heuristics if it wants to act
       if (heuristics->should_start_normal_gc()) {
@@ -225,7 +230,7 @@ void ShenandoahControlThread::run() {
 
     double current = os::elapsedTime();
 
-    if (ShenandoahUncommit && (current - last_shrink_time > shrink_period)) {
+    if (ShenandoahUncommit && (explicit_gc_requested || (current - last_shrink_time > shrink_period))) {
       // Try to uncommit enough stale regions. Explicit GC tries to uncommit everything.
       // Regular paths uncommit only occasionally.
       double shrink_before = explicit_gc_requested ?
@@ -305,9 +310,6 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   GCTracer* gc_tracer = heap->tracer();
 
   gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
-
-  // Capture peak occupancy right after starting the cycle
-  heap->heuristics()->record_peak_occupancy();
 
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
