@@ -38,6 +38,7 @@ class ShenandoahCollectionSet;
 class ShenandoahCollectorPolicy;
 class ShenandoahConcurrentMark;
 class ShenandoahControlThread;
+class ShenandoahGCSession;
 class ShenandoahFreeSet;
 class ShenandoahHeapRegion;
 class ShenandoahHeapRegionClosure;
@@ -140,6 +141,7 @@ class VMStructs;
 class ShenandoahHeap : public SharedHeap {
   friend class ShenandoahAsserts;
   friend class VMStructs;
+  friend class ShenandoahGCSession;
 public:
   // GC state describes the important parts of collector state, that may be
   // used to make barrier selection decisions in the native and generated code.

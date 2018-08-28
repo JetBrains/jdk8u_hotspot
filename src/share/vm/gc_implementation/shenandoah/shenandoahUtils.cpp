@@ -32,6 +32,7 @@
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 #include "gc_interface/gcCause.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
+#include "gc_implementation/shared/gcWhen.hpp"
 #include "gc_implementation/shared/gcTrace.hpp"
 
 
@@ -42,6 +43,7 @@ ShenandoahGCSession::ShenandoahGCSession(GCCause::Cause cause) :
 
   _timer->register_gc_start();
   _tracer->report_gc_start(cause, _timer->gc_start());
+  sh->trace_heap(GCWhen::BeforeGC, _tracer);
 
   sh->shenandoahPolicy()->record_cycle_start();
   sh->heuristics()->record_cycle_start();
