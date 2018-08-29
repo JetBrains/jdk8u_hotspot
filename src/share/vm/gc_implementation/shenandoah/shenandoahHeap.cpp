@@ -1591,6 +1591,17 @@ void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
     // degenerated.
 
     case _degenerated_outside_cycle:
+      // We have degenerated from outside the cycle, which means something is bad with
+      // the heap, most probably heavy humongous fragmentation, or we are very low on free
+      // space. It makes little sense to wait for Full GC to reclaim as much as it can, when
+      // we can do the most aggressive degen cycle, which includes processing references and
+      // class unloading, unless those features are explicitly disabled.
+      //
+      // Note that we can only do this for "outside-cycle" degens, otherwise we would risk
+      // changing the cycle parameters mid-cycle during concurrent -> degenerated handover.
+      set_process_references(ShenandoahRefProcFrequency != 0);
+      set_unload_classes(ClassUnloading);
+
       op_init_mark();
       if (cancelled_gc()) {
         op_degenerated_fail();
