@@ -456,7 +456,9 @@ void ShenandoahHeap::print_on(outputStream* st) const {
 class ShenandoahInitGCLABClosure : public ThreadClosure {
 public:
   void do_thread(Thread* thread) {
-    thread->gclab().initialize(true);
+    if (thread != NULL && (thread->is_Java_thread() || thread->is_Worker_thread())) {
+      thread->gclab().initialize(true);
+    }
   }
 };
 
@@ -466,7 +468,7 @@ void ShenandoahHeap::post_initialize() {
 
     ShenandoahInitGCLABClosure init_gclabs;
     Threads::java_threads_do(&init_gclabs);
-    gc_threads_do(&init_gclabs);
+    _workers->threads_do(&init_gclabs);
   }
 
   _scm->initialize(_max_workers);
@@ -977,12 +979,11 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
 }
 
 
-class ShenandoahRetireTLABClosure : public ThreadClosure {
+class ShenandoahRetireGCLABClosure : public ThreadClosure {
 private:
   bool _retire;
-
 public:
-  ShenandoahRetireTLABClosure(bool retire) : _retire(retire) {}
+  ShenandoahRetireGCLABClosure(bool retire) : _retire(retire) {};
 
   void do_thread(Thread* thread) {
     assert(thread->gclab().is_initialized(), err_msg("GCLAB should be initialized for %s", thread->name()));
@@ -993,9 +994,9 @@ public:
 void ShenandoahHeap::make_parsable(bool retire_tlabs) {
   if (UseTLAB) {
     CollectedHeap::ensure_parsability(retire_tlabs);
-    ShenandoahRetireTLABClosure cl(retire_tlabs);
+    ShenandoahRetireGCLABClosure cl(retire_tlabs);
     Threads::java_threads_do(&cl);
-    gc_threads_do(&cl);
+    _workers->threads_do(&cl);
   }
 }
 
@@ -1108,7 +1109,7 @@ void ShenandoahHeap::resize_all_tlabs() {
 
   ShenandoahResizeGCLABClosure cl;
   Threads::java_threads_do(&cl);
-  gc_threads_do(&cl);
+  _workers->threads_do(&cl);
 }
 
 class ShenandoahAccumulateStatisticsGCLABClosure : public ThreadClosure {
@@ -1123,7 +1124,7 @@ public:
 void ShenandoahHeap::accumulate_statistics_all_gclabs() {
   ShenandoahAccumulateStatisticsGCLABClosure cl;
   Threads::java_threads_do(&cl);
-  gc_threads_do(&cl);
+  _workers->threads_do(&cl);
 }
 
 bool  ShenandoahHeap::can_elide_tlab_store_barriers() const {

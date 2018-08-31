@@ -459,12 +459,19 @@ protected:
   void initialize_tlab() {
     if (UseTLAB) {
       tlab().initialize(false);
-      gclab().initialize(true);
+      if (UseShenandoahGC && (is_Java_thread() || is_Worker_thread())) {
+        gclab().initialize(true);
+      }
     }
   }
 
   // Thread-Local GC Allocation Buffer (GCLAB) support
-  ThreadLocalAllocBuffer& gclab()                { return _gclab; }
+  ThreadLocalAllocBuffer& gclab()                {
+    assert (UseShenandoahGC, "Only for Shenandoah");
+    assert (!_gclab.is_initialized() || (is_Java_thread() || is_Worker_thread()),
+            "Only Java and GC worker threads are allowed to get GCLABs");
+    return _gclab;
+  }
 
   void set_worker_id(uint id)           { _worker_id = id; }
   uint worker_id()                      { return _worker_id; }
