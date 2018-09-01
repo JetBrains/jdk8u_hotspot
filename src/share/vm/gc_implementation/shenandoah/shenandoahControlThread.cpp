@@ -174,7 +174,7 @@ void ShenandoahControlThread::run() {
       // If GC was requested, we better dump freeset data for performance debugging
       {
         ShenandoahHeapLocker locker(heap->lock());
-        heap->free_set()->log_status_verbose();
+        heap->free_set()->log_status();
       }
     }
 
@@ -209,7 +209,7 @@ void ShenandoahControlThread::run() {
       // it is a normal completion, or the abort.
       {
         ShenandoahHeapLocker locker(heap->lock());
-        heap->free_set()->log_status_verbose();
+        heap->free_set()->log_status();
       }
 
       // Disable forced counters update, and update counters one more time
@@ -326,8 +326,13 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   // If so, evac_in_progress would be unset by collection set preparation code.
   if (heap->is_evacuation_in_progress()) {
     // Final mark had reclaimed some immediate garbage, kick cleanup to reclaim the space
-    // for the rest of the cycle.
+    // for the rest of the cycle, and report current state of free set.
     heap->entry_cleanup();
+
+    {
+      ShenandoahHeapLocker locker(heap->lock());
+      heap->free_set()->log_status();
+    }
 
     // Concurrently evacuate
     heap->entry_evac();
