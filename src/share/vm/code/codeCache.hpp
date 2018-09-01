@@ -30,7 +30,6 @@
 #include "memory/heap.hpp"
 #include "oops/instanceKlass.hpp"
 #include "oops/oopsHierarchy.hpp"
-#include "runtime/safepoint.hpp"
 
 // The CodeCache implements the code cache for various pieces of generated
 // code, e.g., compiled java methods, runtime stubs, transition frames, etc.
@@ -43,19 +42,11 @@
 
 class OopClosure;
 class DepChange;
-
-class ParallelCodeCacheIterator VALUE_OBJ_CLASS_SPEC {
-  friend class CodeCache;
-private:
-  volatile int  _claimed_idx;
-  volatile bool _finished;
-public:
-  ParallelCodeCacheIterator();
-  void parallel_blobs_do(CodeBlobClosure* f);
-};
+class ShenandoahParallelCodeCacheIterator;
 
 class CodeCache : AllStatic {
   friend class VMStructs;
+  friend class ShenandoahParallelCodeCacheIterator;
  private:
   // CodeHeap is malloc()'ed at startup and never deleted during shutdown,
   // so that the generated assembly code is always there when it's needed.
@@ -141,13 +132,6 @@ class CodeCache : AllStatic {
   static void gc_epilogue();
   static void gc_prologue();
   static void verify_oops();
-
-  // Parallel GC support
-  static ParallelCodeCacheIterator parallel_iterator() {
-    assert(SafepointSynchronize::is_at_safepoint(), "Must be at safepoint");
-    return ParallelCodeCacheIterator();
-  }
-
   // If "unloading_occurred" is true, then unloads (i.e., breaks root links
   // to) any unmarked codeBlobs in the cache.  Sets "marked_for_unloading"
   // to "true" iff some code got unloaded.
