@@ -392,6 +392,9 @@
                                                                             \
   diagnostic(bool, ShenandoahCompileCheck, false,                           \
           "Assert that methods are successfully compilable")                \
+                                                                            \
+  experimental(bool, ShenandoahAlwaysClearSoftRefs, false,                  \
+          "Clear soft references unconditionally")                          \
 
 SHENANDOAH_FLAGS(DECLARE_DEVELOPER_FLAG, \
                  DECLARE_PD_DEVELOPER_FLAG,     \
