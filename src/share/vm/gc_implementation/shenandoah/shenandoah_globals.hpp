@@ -178,12 +178,11 @@
                "against allocation failures, at expense of smaller csets "  \
                "on each cycle.")                                            \
                                                                             \
-  experimental(bool, ShenandoahEvacReserveOverflow, false,                  \
+  experimental(bool, ShenandoahEvacReserveOverflow, true,                   \
                "Allow evacuations to overflow the reserved space. "         \
                "Enabling it will make evacuations more resilient when "     \
                "evacuation reserve/waste is incorrect, at the risk that "   \
-               "application allocations run out of memory too early. "      \
-               "This is safe to enable when pacing is disabled.")           \
+               "application allocations run out of memory too early.")      \
                                                                             \
   experimental(uintx, ShenandoahImmediateThreshold, 90,                     \
                "If mark identifies more than this much immediate garbage "  \
