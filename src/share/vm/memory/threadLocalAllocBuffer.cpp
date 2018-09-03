@@ -236,7 +236,9 @@ void ThreadLocalAllocBuffer::startup_initialization() {
   // before the heap is initialized.  So reinitialize it now.
   guarantee(Thread::current()->is_Java_thread(), "tlab initialization thread not Java thread");
   Thread::current()->tlab().initialize(false);
-  Thread::current()->gclab().initialize(true);
+  if (UseShenandoahGC) {
+    Thread::current()->gclab().initialize(true);
+  }
 
   if (PrintTLAB && Verbose) {
     gclog_or_tty->print("TLAB min: " SIZE_FORMAT " initial: " SIZE_FORMAT " max: " SIZE_FORMAT "\n",

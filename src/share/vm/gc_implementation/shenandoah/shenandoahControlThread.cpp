@@ -174,7 +174,7 @@ void ShenandoahControlThread::run() {
       // If GC was requested, we better dump freeset data for performance debugging
       {
         ShenandoahHeapLocker locker(heap->lock());
-        heap->free_set()->log_status_verbose();
+        heap->free_set()->log_status();
       }
     }
 
@@ -209,7 +209,7 @@ void ShenandoahControlThread::run() {
       // it is a normal completion, or the abort.
       {
         ShenandoahHeapLocker locker(heap->lock());
-        heap->free_set()->log_status_verbose();
+        heap->free_set()->log_status();
       }
 
       // Disable forced counters update, and update counters one more time
@@ -304,12 +304,7 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
 
   if (check_cancellation_or_degen(ShenandoahHeap::_degenerated_outside_cycle)) return;
 
-  ShenandoahGCSession session;
-
-  GCTimer* gc_timer = heap->gc_timer();
-  GCTracer* gc_tracer = heap->tracer();
-
-  gc_tracer->report_gc_start(GCCause::_no_cause_specified, gc_timer->gc_start());
+  ShenandoahGCSession session(cause);
 
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
@@ -331,8 +326,13 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   // If so, evac_in_progress would be unset by collection set preparation code.
   if (heap->is_evacuation_in_progress()) {
     // Final mark had reclaimed some immediate garbage, kick cleanup to reclaim the space
-    // for the rest of the cycle.
+    // for the rest of the cycle, and report current state of free set.
     heap->entry_cleanup();
+
+    {
+      ShenandoahHeapLocker locker(heap->lock());
+      heap->free_set()->log_status();
+    }
 
     // Concurrently evacuate
     heap->entry_evac();
@@ -358,8 +358,6 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   // Cycle is complete
   heap->heuristics()->record_success_concurrent();
   heap->shenandoahPolicy()->record_success_concurrent();
-
-  gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
 bool ShenandoahControlThread::check_cancellation_or_degen(ShenandoahHeap::ShenandoahDegenPoint point) {
@@ -397,41 +395,23 @@ void ShenandoahControlThread::stop() {
 
 void ShenandoahControlThread::service_stw_full_cycle(GCCause::Cause cause) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahGCSession session;
-
-  GCTimer* gc_timer = heap->gc_timer();
-  GCTracer* gc_tracer = heap->tracer();
-  if (gc_tracer->has_reported_gc_start()) {
-    gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
-  }
-  gc_tracer->report_gc_start(cause, gc_timer->gc_start());
+  ShenandoahGCSession session(cause);
 
   heap->vmop_entry_full(cause);
 
   heap->heuristics()->record_success_full();
   heap->shenandoahPolicy()->record_success_full();
-
-  gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
 void ShenandoahControlThread::service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahHeap::ShenandoahDegenPoint point) {
   assert (point != ShenandoahHeap::_degenerated_unset, "Degenerated point should be set");
   ShenandoahHeap* heap = ShenandoahHeap::heap();
-  ShenandoahGCSession session;
-
-  GCTimer* gc_timer = heap->gc_timer();
-  GCTracer* gc_tracer = heap->tracer();
-  if (gc_tracer->has_reported_gc_start()) {
-    gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
-  }
-  gc_tracer->report_gc_start(cause, gc_timer->gc_start());
+  ShenandoahGCSession session(cause);
 
   heap->vmop_degenerated(point);
 
   heap->heuristics()->record_success_degenerated();
   heap->shenandoahPolicy()->record_success_degenerated();
-  
-  gc_tracer->report_gc_end(gc_timer->gc_end(), gc_timer->time_partitions());
 }
 
 void ShenandoahControlThread::service_uncommit(double shrink_before) {
@@ -494,9 +474,6 @@ void ShenandoahControlThread::handle_alloc_failure(size_t words) {
 
 void ShenandoahControlThread::handle_alloc_failure_evac(size_t words) {
   Thread* t = Thread::current();
-
-  log_develop_trace(gc)("Out of memory during evacuation, cancel evacuation, schedule full GC by thread %d",
-                        t->osthread()->thread_id());
 
   ShenandoahHeap* heap = ShenandoahHeap::heap();
   heap->collector_policy()->set_should_clear_all_soft_refs(true);

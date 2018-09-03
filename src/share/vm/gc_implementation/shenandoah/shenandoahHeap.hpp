@@ -38,6 +38,7 @@ class ShenandoahCollectionSet;
 class ShenandoahCollectorPolicy;
 class ShenandoahConcurrentMark;
 class ShenandoahControlThread;
+class ShenandoahGCSession;
 class ShenandoahFreeSet;
 class ShenandoahHeapRegion;
 class ShenandoahHeapRegionClosure;
@@ -140,6 +141,7 @@ class VMStructs;
 class ShenandoahHeap : public SharedHeap {
   friend class ShenandoahAsserts;
   friend class VMStructs;
+  friend class ShenandoahGCSession;
 public:
   // GC state describes the important parts of collector state, that may be
   // used to make barrier selection decisions in the native and generated code.
@@ -457,7 +459,7 @@ public:
 
   void increase_allocated(size_t bytes);
 
-  void notify_alloc_words(size_t words, bool waste);
+  void notify_mutator_alloc_words(size_t words, bool waste);
 
   void reset_next_mark_bitmap();
 
@@ -746,6 +748,13 @@ private:
   void op_updaterefs();
   void op_cleanup_bitmaps();
   void op_uncommit(double shrink_before);
+
+  // Messages for GC trace event, they have to be immortal for
+  // passing around the logging/tracing systems
+  const char* init_mark_event_message() const;
+  const char* final_mark_event_message() const;
+  const char* conc_mark_event_message() const;
+  const char* degen_event_message(ShenandoahDegenPoint point) const;
 
 private:
   void try_inject_alloc_failure();

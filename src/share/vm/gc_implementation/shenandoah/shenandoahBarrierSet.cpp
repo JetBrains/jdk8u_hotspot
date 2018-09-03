@@ -259,7 +259,7 @@ void ShenandoahBarrierSet::write_region_work(MemRegion mr) {
 
   ShenandoahEvacOOMScope oom_evac_scope;
   oop obj = oop(mr.start());
-  assert(obj->is_oop(), "must be an oop");
+  shenandoah_assert_correct(NULL, obj);
   ShenandoahUpdateRefsForOopClosure cl;
   obj->oop_iterate(&cl);
 }
@@ -304,7 +304,7 @@ IRT_END
 oop ShenandoahBarrierSet::write_barrier_mutator(oop obj) {
   assert(UseShenandoahGC && ShenandoahWriteBarrier, "should be enabled");
   assert(_heap->is_gc_in_progress_mask(ShenandoahHeap::EVACUATION), "evac should be in progress");
-  assert(_heap->in_collection_set(obj), "should be in collection set");
+  shenandoah_assert_in_cset(NULL, obj);
 
   oop fwd = resolve_forwarded_not_null(obj);
   if (oopDesc::unsafe_equals(obj, fwd)) {
