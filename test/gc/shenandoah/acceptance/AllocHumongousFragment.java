@@ -34,6 +34,11 @@
  * @run main/othervm -verbose:gc -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g -XX:ShenandoahTargetNumRegions=2048 -XX:ShenandoahGCHeuristics=passive      AllocHumongousFragment
  * @run main/othervm -verbose:gc -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g -XX:ShenandoahTargetNumRegions=2048 -XX:ShenandoahGCHeuristics=adaptive     AllocHumongousFragment
  * @run main/othervm -verbose:gc -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g -XX:ShenandoahTargetNumRegions=2048 -XX:ShenandoahGCHeuristics=static       AllocHumongousFragment
+ *
+ * @run main/othervm/timeout=240 -verbose:gc -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g -XX:ShenandoahTargetNumRegions=2048 -XX:ShenandoahGCHeuristics=aggressive -XX:+ShenandoahOOMDuringEvacALot -XX:+ShenandoahVerify AllocHumongousFragment
+ * @run main/othervm/timeout=240 -verbose:gc -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g -XX:ShenandoahTargetNumRegions=2048 -XX:ShenandoahGCHeuristics=aggressive -XX:+ShenandoahAllocFailureALot  -XX:+ShenandoahVerify AllocHumongousFragment
+ * @run main/othervm/timeout=240 -verbose:gc -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g -XX:ShenandoahTargetNumRegions=2048 -XX:ShenandoahGCHeuristics=aggressive -XX:+ShenandoahOOMDuringEvacALot                       AllocHumongousFragment
+ * @run main/othervm/timeout=240 -verbose:gc -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -Xmx1g -Xms1g -XX:ShenandoahTargetNumRegions=2048 -XX:ShenandoahGCHeuristics=aggressive -XX:+ShenandoahAllocFailureALot                        AllocHumongousFragment
  */
 
 import java.util.*;
