@@ -974,8 +974,6 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
       _collection_set->print_on(tty);
     }
 
-    Universe::update_heap_info_at_gc();
-
     if (ShenandoahVerify) {
       verifier()->verify_before_evacuation();
     }
