@@ -31,7 +31,7 @@
 #include "utilities/ostream.hpp"
 
 ShenandoahPhaseTimings::ShenandoahPhaseTimings() : _policy(NULL) {
-  uint max_workers = MAX2(ConcGCThreads, ParallelGCThreads);
+  uint max_workers = (uint)MAX2(ConcGCThreads, ParallelGCThreads);
   _worker_times = new ShenandoahWorkerTimings(max_workers);
   _termination_times = new ShenandoahTerminationTimings(max_workers);
   _policy = ShenandoahHeap::heap()->shenandoahPolicy();
