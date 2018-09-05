@@ -26,10 +26,7 @@ package sun.jvm.hotspot.jdi;
 
 import com.sun.jdi.*;
 
-// FIXME: This class should implement com.sun.jdi.MonitorInfo.
-//        So fix this when hotspot is started to build with
-//        jdk1.6.
-public class MonitorInfoImpl extends MirrorImpl {
+public class MonitorInfoImpl extends MirrorImpl implements MonitorInfo {
 
     /* Once false, monitorInfo should not be used.
      * access synchronized on (vm.state())
