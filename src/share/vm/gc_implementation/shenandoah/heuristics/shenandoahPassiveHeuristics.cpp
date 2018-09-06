@@ -28,15 +28,17 @@
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 
-ShenandoahPassiveHeuristics::ShenandoahPassiveHeuristics() : ShenandoahHeuristics() {
+ShenandoahPassiveHeuristics::ShenandoahPassiveHeuristics() : ShenandoahAdaptiveHeuristics() {
   // Do not allow concurrent cycles.
   FLAG_SET_DEFAULT(ExplicitGCInvokesConcurrent, false);
 
   // Passive runs with max speed, reacts on allocation failure.
   FLAG_SET_DEFAULT(ShenandoahPacing, false);
 
-  // Passive does not need evacuation reserve
-  SHENANDOAH_ERGO_OVERRIDE_DEFAULT(ShenandoahEvacReserve, 0);
+  // No need for evacuation reserve with Full GC, only for Degenerated GC.
+  if (!ShenandoahDegeneratedGC) {
+    SHENANDOAH_ERGO_OVERRIDE_DEFAULT(ShenandoahEvacReserve, 0);
+  }
 
   // Disable known barriers by default.
   SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahSATBBarrier);
@@ -45,17 +47,6 @@ ShenandoahPassiveHeuristics::ShenandoahPassiveHeuristics() : ShenandoahHeuristic
   SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahCASBarrier);
   SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahAcmpBarrier);
   SHENANDOAH_ERGO_DISABLE_FLAG(ShenandoahCloneBarrier);
-}
-
-void ShenandoahPassiveHeuristics::choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
-                                                                        RegionData* data, size_t size,
-                                                                        size_t free) {
-  for (size_t idx = 0; idx < size; idx++) {
-    ShenandoahHeapRegion* r = data[idx]._region;
-    if (r->garbage() > 0) {
-      cset->add_region(r);
-    }
-  }
 }
 
 bool ShenandoahPassiveHeuristics::should_start_normal_gc() const {
@@ -76,8 +67,8 @@ bool ShenandoahPassiveHeuristics::should_unload_classes() {
 }
 
 bool ShenandoahPassiveHeuristics::should_degenerate_cycle() {
-  // Always fail to Full GC
-  return false;
+  // Always fail to Degenerated GC, if enabled
+  return ShenandoahDegeneratedGC;
 }
 
 const char* ShenandoahPassiveHeuristics::name() {

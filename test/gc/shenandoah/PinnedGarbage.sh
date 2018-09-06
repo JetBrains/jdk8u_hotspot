@@ -87,7 +87,19 @@ then
     exit 1
 fi
 
-cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify -XX:ShenandoahGCHeuristics=passive \
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify -XX:+ShenandoahDegeneratedGC -XX:ShenandoahGCHeuristics=passive \
+    -Djava.library.path=${THIS_DIR}${FS} PinnedGarbage"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify -XX:-ShenandoahDegeneratedGC -XX:ShenandoahGCHeuristics=passive \
     -Djava.library.path=${THIS_DIR}${FS} PinnedGarbage"
 
 echo "$cmd"
