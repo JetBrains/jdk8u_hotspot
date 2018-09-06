@@ -63,30 +63,6 @@ $gcc_cmd -O1 -DLINUX -fPIC -shared \
     ${TESTSRC}${FS}libPinnedGarbage.c
 
 # run the java test in the background
-cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify \
-    -Djava.library.path=${THIS_DIR}${FS} PinnedGarbage"
-
-echo "$cmd"
-eval $cmd
-
-if [ $? -ne 0 ]
-then
-    echo "Test Failed"
-    exit 1
-fi
-
-cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive \
-    -Djava.library.path=${THIS_DIR}${FS} PinnedGarbage"
-
-echo "$cmd"
-eval $cmd
-
-if [ $? -ne 0 ]
-then
-    echo "Test Failed"
-    exit 1
-fi
-
 cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify -XX:+ShenandoahDegeneratedGC -XX:ShenandoahGCHeuristics=passive \
     -Djava.library.path=${THIS_DIR}${FS} PinnedGarbage"
 
@@ -100,6 +76,30 @@ then
 fi
 
 cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify -XX:-ShenandoahDegeneratedGC -XX:ShenandoahGCHeuristics=passive \
+    -Djava.library.path=${THIS_DIR}${FS} PinnedGarbage"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:+ShenandoahVerify \
+    -Djava.library.path=${THIS_DIR}${FS} PinnedGarbage"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xmx512m -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive \
     -Djava.library.path=${THIS_DIR}${FS} PinnedGarbage"
 
 echo "$cmd"

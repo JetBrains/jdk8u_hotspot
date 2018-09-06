@@ -64,17 +64,6 @@ $gcc_cmd -O1 -DLINUX -fPIC -shared \
     ${TESTSRC}${FS}libCriticalNative.c
 
 # run the java test in the background
-cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xcomp -Xmx256M -XX:+CriticalJNINatives \
-    -Djava.library.path=${THIS_DIR}${FS} CriticalNativeStress"
-
-echo "$cmd"
-eval $cmd
-
-if [ $? -ne 0 ]
-then
-    echo "Test Failed"
-    exit 1
-fi
 
 cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=passive -XX:+ShenandoahDegeneratedGC -Xcomp -Xmx512M -XX:+CriticalJNINatives \
     -Djava.library.path=${THIS_DIR}${FS} CriticalNativeStress"
@@ -89,6 +78,18 @@ then
 fi
 
 cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=passive -XX:-ShenandoahDegeneratedGC -Xcomp -Xmx512M -XX:+CriticalJNINatives \
+    -Djava.library.path=${THIS_DIR}${FS} CriticalNativeStress"
+
+echo "$cmd"
+eval $cmd
+
+if [ $? -ne 0 ]
+then
+    echo "Test Failed"
+    exit 1
+fi
+
+cmd="${TESTJAVA}${FS}bin${FS}java -XX:+UseShenandoahGC -Xcomp -Xmx256M -XX:+CriticalJNINatives \
     -Djava.library.path=${THIS_DIR}${FS} CriticalNativeStress"
 
 echo "$cmd"
