@@ -64,7 +64,7 @@ $gcc_cmd -O1 -DLINUX -fPIC -shared \
     ${TESTSRC}${FS}libTestHeapDump.c
 
 # run the java test in the background
-cmd="${TESTJAVA}${FS}bin${FS}java -agentpath:./libTestHeapDump.so -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive \
+cmd="${TESTJAVA}${FS}bin${FS}java -agentpath:./libTestHeapDump.so -Xmx128m -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive \
     -XX:+UseCompressedOops -Djava.library.path=${THIS_DIR}${FS} TestHeapDump"
 
 echo "$cmd"
@@ -76,7 +76,7 @@ then
     exit 1
 fi
 
-cmd="${TESTJAVA}${FS}bin${FS}java -agentpath:./libTestHeapDump.so -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive \
+cmd="${TESTJAVA}${FS}bin${FS}java -agentpath:./libTestHeapDump.so -Xmx128m -XX:+UseShenandoahGC -XX:+UnlockDiagnosticVMOptions -XX:ShenandoahGCHeuristics=aggressive \
     -XX:-UseCompressedOops -Djava.library.path=${THIS_DIR}${FS} TestHeapDump"
 
 echo "$cmd"
