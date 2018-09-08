@@ -80,6 +80,10 @@ class oopDesc {
     p->_mark = m;
   }
 
+  void set_mark_raw(volatile markOop m) {
+    _mark = m;
+  }
+
   void    release_set_mark(markOop m);
   markOop cas_set_mark(markOop new_mark, markOop old_mark);
 
@@ -237,6 +241,7 @@ class oopDesc {
 
   jint int_field(int offset) const;
   void int_field_put(int offset, jint contents);
+  void int_field_put_raw(int offset, jint contents);
 
   jshort short_field(int offset) const;
   void short_field_put(int offset, jshort contents);
