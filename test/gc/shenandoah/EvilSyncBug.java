@@ -39,7 +39,7 @@ import com.oracle.java.testlibrary.*;
 
 public class EvilSyncBug {
 
-    private static final int NUM_RUNS = 100;
+    private static final int NUM_RUNS = 20;
 
     static Thread[] hooks = new MyHook[10000];
 
