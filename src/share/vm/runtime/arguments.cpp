@@ -1862,16 +1862,6 @@ void Arguments::set_shenandoah_gc_flags() {
     FLAG_SET_DEFAULT(TLABAllocationWeight, 90);
   }
 
-  // Shenandoah needs more space in generated code to put barriers in.
-  // TODO: NMethodSizeLimit should not be develop.
-#ifdef COMPILER1
-#ifdef ASSERT
-  if (FLAG_IS_DEFAULT(NMethodSizeLimit)) {
-    FLAG_SET_DEFAULT(NMethodSizeLimit, NMethodSizeLimit * 3);
-  }
-#endif
-#endif
-
   // Shenandoah needs more C2 nodes to compile some methods with lots of barriers.
   // NodeLimitFudgeFactor needs to stay the same relative to MaxNodeLimit.
 #ifdef COMPILER2
