@@ -31,7 +31,6 @@
 
 ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _success_concurrent_gcs(0),
-  _success_partial_gcs(0),
   _success_degenerated_gcs(0),
   _success_full_gcs(0),
   _alloc_failure_degenerated(0),
@@ -99,10 +98,6 @@ void ShenandoahCollectorPolicy::record_success_concurrent() {
   _success_concurrent_gcs++;
 }
 
-void ShenandoahCollectorPolicy::record_success_partial() {
-  _success_partial_gcs++;
-}
-
 void ShenandoahCollectorPolicy::record_success_degenerated() {
   _success_degenerated_gcs++;
 }
@@ -132,9 +127,6 @@ void ShenandoahCollectorPolicy::print_gc_stats(outputStream* out) const {
   out->print_cr("under stop-the-world pause or result in stop-the-world Full GC. Increase heap size,");
   out->print_cr("tune GC heuristics, set more aggressive pacing delay, or lower allocation rate");
   out->print_cr("to avoid Degenerated and Full GC cycles.");
-  out->cr();
-
-  out->print_cr(SIZE_FORMAT_W(5) " successful partial concurrent GCs", _success_partial_gcs);
   out->cr();
 
   out->print_cr(SIZE_FORMAT_W(5) " successful concurrent GCs",         _success_concurrent_gcs);

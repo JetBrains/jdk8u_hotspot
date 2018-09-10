@@ -111,7 +111,6 @@ void ShenandoahAsserts::print_failure(SafeLevel level, oop obj, void* interior_l
   ResourceMark rm;
 
   bool loc_in_heap = (loc != NULL && heap->is_in(loc));
-  bool interior_loc_in_heap = (interior_loc != NULL && heap->is_in(interior_loc));
 
   ShenandoahMessageBuffer msg("%s; %s\n\n", phase, label);
 

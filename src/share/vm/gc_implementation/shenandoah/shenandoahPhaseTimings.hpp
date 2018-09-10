@@ -152,27 +152,6 @@ public:
 
     final_update_refs_recycle,
 
-    partial_gc_gross,
-    partial_gc,
-    partial_gc_prepare,
-
-    // Per-thread timer block, should have "roots" counters in consistent order
-    partial_gc_work,
-    partial_gc_thread_roots,
-    partial_gc_code_roots,
-    partial_gc_string_table_roots,
-    partial_gc_universe_roots,
-    partial_gc_jni_roots,
-    partial_gc_jni_weak_roots,
-    partial_gc_synchronizer_roots,
-    partial_gc_flat_profiler_roots,
-    partial_gc_management_roots,
-    partial_gc_system_dict_roots,
-    partial_gc_cldg_roots,
-    partial_gc_jvmti_roots,
-    partial_gc_update_str_dedup_table,
-    partial_gc_recycle,
-
     degen_gc_gross,
     degen_gc,
 
@@ -249,7 +228,7 @@ public:
 
 
   // These are the subphases of GC phases (scan_roots, update_roots,
-  // init_evac, final_update_refs_roots, partial_gc_work and full_gc_roots).
+  // init_evac, final_update_refs_roots, and full_gc_roots).
   // Make sure they are following this order.
   enum GCParPhases {
     ThreadRoots,

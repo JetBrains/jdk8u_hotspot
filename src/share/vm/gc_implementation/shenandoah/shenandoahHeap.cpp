@@ -970,10 +970,6 @@ void ShenandoahHeap::prepare_for_concurrent_evacuation() {
       _free_set->rebuild();
     }
 
-    if (UseShenandoahMatrix) {
-      _collection_set->print_on(tty);
-    }
-
     if (ShenandoahVerify) {
       verifier()->verify_before_evacuation();
     }

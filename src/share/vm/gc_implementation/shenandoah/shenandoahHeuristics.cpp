@@ -49,21 +49,11 @@ int ShenandoahHeuristics::compare_by_alloc_seq_descending(RegionData a, RegionDa
   return -compare_by_alloc_seq_ascending(a, b);
 }
 
-int ShenandoahHeuristics::compare_by_connects(RegionConnections a, RegionConnections b) {
-  if (a._connections == b._connections)
-    return 0;
-  else if (a._connections < b._connections)
-    return -1;
-  else return 1;
-}
-
 ShenandoahHeuristics::ShenandoahHeuristics() :
   _update_refs_early(false),
   _update_refs_adaptive(false),
   _region_data(NULL),
   _region_data_size(0),
-  _region_connects(NULL),
-  _region_connects_size(0),
   _degenerated_cycles_in_a_row(0),
   _successful_cycles_in_a_row(0),
   _bytes_in_cset(0),
@@ -108,20 +98,6 @@ ShenandoahHeuristics::RegionData* ShenandoahHeuristics::get_region_data_cache(si
     res = REALLOC_C_HEAP_ARRAY(RegionData, _region_data, num, mtGC);
     _region_data = res;
     _region_data_size = num;
-  }
-  return res;
-}
-
-ShenandoahHeuristics::RegionConnections* ShenandoahHeuristics::get_region_connects_cache(size_t num) {
-  RegionConnections* res = _region_connects;
-  if (res == NULL) {
-    res = NEW_C_HEAP_ARRAY(RegionConnections, num, mtGC);
-    _region_connects = res;
-    _region_connects_size = num;
-  } else if (_region_connects_size < num) {
-    res = REALLOC_C_HEAP_ARRAY(RegionConnections, _region_connects, num, mtGC);
-    _region_connects = res;
-    _region_connects_size = num;
   }
   return res;
 }

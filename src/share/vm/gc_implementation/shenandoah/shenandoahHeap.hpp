@@ -161,9 +161,6 @@ public:
 
     // Heap is under updating: needs SVRB/SVWB barriers.
     UPDATEREFS_BITPOS = 3,
-
-    // Heap is under partial collection (reserved for future work)
-    PARTIAL_BITPOS    = 4,
   };
 
   enum GCState {

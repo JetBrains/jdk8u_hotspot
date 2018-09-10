@@ -71,9 +71,6 @@
           "regions, based on ShenandoahMinRegionSize and "                  \
           "ShenandoahMaxRegionSizeSize. ")                                  \
                                                                             \
-  product(bool, UseShenandoahMatrix, false,                                 \
-          "Keep a connection matrix and use this to drive collection sets") \
-                                                                            \
   product(ccstr, ShenandoahGCHeuristics, "adaptive",                        \
           "The heuristics to use in Shenandoah GC. Possible values: "       \
           "adaptive (adapt to maintain the given amount of free memory), "  \

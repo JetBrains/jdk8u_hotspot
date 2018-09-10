@@ -41,7 +41,6 @@ class outputStream;
 
 class ShenandoahCollectorPolicy: public CollectorPolicy {
 private:
-  size_t _success_partial_gcs;
   size_t _success_concurrent_gcs;
   size_t _success_degenerated_gcs;
   size_t _success_full_gcs;
@@ -78,7 +77,6 @@ public:
   // These two encompass the entire cycle.
   void record_cycle_start();
 
-  void record_success_partial();
   void record_success_concurrent();
   void record_success_degenerated();
   void record_success_full();

@@ -75,7 +75,6 @@ void ShenandoahPhaseTimings::record_workers_end(Phase phase) {
   guarantee(phase == init_evac ||
             phase == scan_roots ||
             phase == update_roots ||
-            phase == partial_gc_work ||
             phase == final_update_refs_roots ||
             phase == full_gc_roots ||
             phase == _num_phases,
@@ -253,26 +252,6 @@ void ShenandoahPhaseTimings::init_phase_names() {
   _phase_names[full_gc_copy_objects_rebuild]     = "    Rebuild Region Sets";
   _phase_names[full_gc_update_str_dedup_table]  = "  Update String Dedup Table";
   _phase_names[full_gc_resize_tlabs]            = "  Resize TLABs";
-
-  _phase_names[partial_gc_gross]                = "Pause Partial GC (G)";
-  _phase_names[partial_gc]                      = "Pause Partial GC (N)";
-  _phase_names[partial_gc_prepare]              = "  Prepare";
-  _phase_names[partial_gc_work]                 = "  Work";
-  _phase_names[partial_gc_thread_roots]         = "    P: Thread Roots";
-  _phase_names[partial_gc_code_roots]           = "    P: Code Cache Roots";
-  _phase_names[partial_gc_string_table_roots]   = "    P: String Table Roots";
-  _phase_names[partial_gc_universe_roots]       = "    P: Universe Roots";
-  _phase_names[partial_gc_jni_roots]            = "    P: JNI Roots";
-  _phase_names[partial_gc_jni_weak_roots]       = "    P: JNI Weak Roots";
-  _phase_names[partial_gc_synchronizer_roots]   = "    P: Synchronizer Roots";
-  _phase_names[partial_gc_flat_profiler_roots]  = "    P: Flat Profiler Roots";
-  _phase_names[partial_gc_management_roots]     = "    P: Management Roots";
-  _phase_names[partial_gc_system_dict_roots]    = "    P: System Dict Roots";
-  _phase_names[partial_gc_cldg_roots]           = "    P: CLDG Roots";
-  _phase_names[partial_gc_jvmti_roots]          = "    P: JVMTI Roots";
-  _phase_names[partial_gc_update_str_dedup_table]
-                                                = "  Update String Dedup Table";
-  _phase_names[partial_gc_recycle]              = "  Recycle";
 
   _phase_names[pause_other]                     = "Pause Other";
 
