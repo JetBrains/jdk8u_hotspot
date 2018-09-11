@@ -3755,7 +3755,7 @@ void PhaseIdealLoop::shenandoah_pin_and_expand_barriers() {
         Node* c = old_c;
         if (c != ctrl ||
             ShenandoahBarrierNode::is_dominator_same_ctrl(old_c, wb, u, this) ||
-            u->is_g1_marking_load()) {
+            u->is_shenandoah_state_load()) {
           _igvn.rehash_node_delayed(u);
           int nb = u->replace_edge(ctrl, region);
           if (u->is_CFG()) {
