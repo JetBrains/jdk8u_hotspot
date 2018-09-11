@@ -65,6 +65,7 @@
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #endif // INCLUDE_ALL_GCS
 
 // Note: This is a special bug reporting site for the JVM
@@ -1772,6 +1773,12 @@ void Arguments::set_shenandoah_gc_flags() {
     vm_exit(1);
   }
 #endif
+
+  if (UseLargePages && (MaxHeapSize / os::large_page_size()) < ShenandoahHeapRegion::MIN_NUM_REGIONS) {
+    warning("Large pages size (" SIZE_FORMAT "K) is too large to afford page-sized regions, disabling uncommit",
+            os::large_page_size() / K);
+    FLAG_SET_DEFAULT(ShenandoahUncommit, false);
+  }
 
   FLAG_SET_DEFAULT(ParallelGCThreads,
                    Abstract_VM_Version::parallel_worker_threads());

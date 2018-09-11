@@ -1983,7 +1983,11 @@ address ShenandoahHeap::gc_state_addr() {
 }
 
 size_t ShenandoahHeap::conservative_max_heap_alignment() {
-  return ShenandoahMaxRegionSize;
+  size_t align = ShenandoahMaxRegionSize;
+  if (UseLargePages) {
+    align = MAX2(align, os::large_page_size());
+  }
+  return align;
 }
 
 size_t ShenandoahHeap::bytes_allocated_since_gc_start() {
