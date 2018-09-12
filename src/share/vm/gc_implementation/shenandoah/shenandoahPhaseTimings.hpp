@@ -155,6 +155,23 @@ public:
     degen_gc_gross,
     degen_gc,
 
+    // Per-thread timer block, should have "roots" counters in consistent order
+    degen_gc_update_roots,
+    degen_gc_update_thread_roots,
+    degen_gc_update_code_roots,
+    degen_gc_update_string_table_roots,
+    degen_gc_update_universe_roots,
+    degen_gc_update_jni_roots,
+    degen_gc_update_jni_weak_roots,
+    degen_gc_update_synchronizer_roots,
+    degen_gc_update_flat_profiler_roots,
+    degen_gc_update_management_roots,
+    degen_gc_update_system_dict_roots,
+    degen_gc_update_cldg_roots,
+    degen_gc_update_jvmti_roots,
+    degen_gc_update_string_dedup_roots,
+    degen_gc_update_finish_queues,
+
     full_gc_gross,
     full_gc,
     full_gc_heapdumps,
