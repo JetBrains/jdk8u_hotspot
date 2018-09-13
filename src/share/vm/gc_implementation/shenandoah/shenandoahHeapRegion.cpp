@@ -265,6 +265,14 @@ void ShenandoahHeapRegion::make_trash() {
   }
 }
 
+void ShenandoahHeapRegion::make_trash_immediate() {
+  make_trash();
+
+  // On this path, we know there are no marked objects in the region,
+  // tell marking context about it to bypass bitmap resets.
+  _heap->complete_marking_context()->reset_top_bitmap(this);
+}
+
 void ShenandoahHeapRegion::make_empty() {
   _heap->assert_heaplock_owned_by_current_thread();
   switch (_state) {
@@ -413,7 +421,7 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|BTE " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12) ", " INTPTR_FORMAT_W(12),
             p2i(bottom()), p2i(top()), p2i(end()));
   st->print("|TAMS " INTPTR_FORMAT_W(12),
-            p2i(_heap->marking_context()->top_at_mark_start(region_number())));
+            p2i(_heap->marking_context()->top_at_mark_start(const_cast<ShenandoahHeapRegion*>(this))));
   st->print("|U " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(used()),                proper_unit_for_byte_size(used()));
   st->print("|T " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(get_tlab_allocs()),     proper_unit_for_byte_size(get_tlab_allocs()));
   st->print("|G " SIZE_FORMAT_W(5) "%1s", byte_size_in_proper_unit(get_gclab_allocs()),    proper_unit_for_byte_size(get_gclab_allocs()));
@@ -455,13 +463,7 @@ void ShenandoahHeapRegion::recycle() {
   clear_live_data();
   reset_alloc_metadata();
 
-  ShenandoahMarkingContext* const compl_ctx = _heap->complete_marking_context();
-
-  // Reset C-TAMS pointer to ensure size-based iteration, everything
-  // in that regions is going to be new objects.
-  compl_ctx->set_top_at_mark_start(region_number(), bottom());
-  // We can only safely reset the C-TAMS pointer if the bitmap is clear for that region.
-  assert(compl_ctx->is_bitmap_clear_range(bottom(), end()), "must be clear");
+  _heap->marking_context()->reset_top_at_mark_start(this);
 
   make_empty();
 }
