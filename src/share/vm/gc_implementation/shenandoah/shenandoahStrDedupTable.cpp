@@ -261,7 +261,7 @@ void ShenandoahStrDedupTable::verify() {
   for (size_t index = 0; index < size(); index ++) {
     ShenandoahStrDedupEntry* volatile head = bucket(index);
     while (head != NULL) {
-      assert(heap->next_marking_context()->is_marked(head->obj()), "Must be marked");
+      assert(heap->marking_context()->is_marked(head->obj()), "Must be marked");
 
       if (use_java_hash()) {
         assert(head->hash() == java_hash_code(head->obj()), "Wrong hash code");
@@ -280,7 +280,7 @@ void ShenandoahStrDedupTable::verify() {
 #endif
 
 ShenandoahStrDedupTableCleanupTask::ShenandoahStrDedupTableCleanupTask() :
-        _mark_context(ShenandoahHeap::heap()->next_marking_context()) {
+        _mark_context(ShenandoahHeap::heap()->marking_context()) {
 }
 
 bool ShenandoahStrDedupTableCleanupTask::is_alive(oop obj) const {

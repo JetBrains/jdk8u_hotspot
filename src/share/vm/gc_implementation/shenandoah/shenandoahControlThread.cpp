@@ -319,6 +319,9 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
 
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
 
+  // Reset for upcoming marking
+  heap->entry_reset();
+
   // Start initial mark under STW
   heap->vmop_entry_init_mark();
 
@@ -363,8 +366,8 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
     }
   }
 
-  // Reclaim space and prepare for the next normal cycle:
-  heap->entry_cleanup_bitmaps();
+  // Reclaim space after cycle
+  heap->entry_cleanup();
 
   // Cycle is complete
   heap->heuristics()->record_success_concurrent();

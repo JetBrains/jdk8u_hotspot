@@ -264,7 +264,7 @@ inline oop ShenandoahHeap::evacuate_object(oop p, Thread* thread, bool& evacuate
 }
 
 inline bool ShenandoahHeap::requires_marking(const void* entry) const {
-  return ! _next_marking_context->is_marked(oop(entry));
+  return !_marking_context->is_marked(oop(entry));
 }
 
 bool ShenandoahHeap::region_in_collection_set(size_t region_index) const {
@@ -336,6 +336,8 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
   assert(BrooksPointer::word_offset() < 0, "skip_delta calculation below assumes the forwarding ptr is before obj");
 
   ShenandoahMarkingContext* const ctx = complete_marking_context();
+  assert(ctx->is_complete(), "sanity");
+
   MarkBitMap* mark_bit_map = ctx->mark_bit_map();
   HeapWord* tams = ctx->top_at_mark_start(region->region_number());
 
@@ -418,7 +420,7 @@ template<class T>
 inline void ShenandoahHeap::do_object_marked_complete(T* cl, oop obj) {
   assert(!oopDesc::is_null(obj), "sanity");
   assert(obj->is_oop(), "sanity");
-  assert(_complete_marking_context->is_marked(obj), "object expected to be marked");
+  assert(_marking_context->is_marked(obj), "object expected to be marked");
   cl->do_object(obj);
 }
 
@@ -477,6 +479,23 @@ inline ShenandoahHeapRegion* const ShenandoahHeap::get_region(size_t region_idx)
   } else {
     return _regions[region_idx];
   }
+}
+
+inline void ShenandoahHeap::mark_complete_marking_context() {
+  _marking_context->mark_complete();
+}
+
+inline void ShenandoahHeap::mark_incomplete_marking_context() {
+  _marking_context->mark_incomplete();
+}
+
+inline ShenandoahMarkingContext* ShenandoahHeap::complete_marking_context() const {
+  assert (_marking_context->is_complete()," sanity");
+  return _marking_context;
+}
+
+inline ShenandoahMarkingContext* ShenandoahHeap::marking_context() const {
+  return _marking_context;
 }
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_INLINE_HPP

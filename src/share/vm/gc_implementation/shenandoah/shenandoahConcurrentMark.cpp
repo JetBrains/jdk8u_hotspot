@@ -58,7 +58,7 @@ public:
   ShenandoahInitMarkRootsClosure(ShenandoahObjToScanQueue* q) :
     _queue(q),
     _heap(ShenandoahHeap::heap()),
-    _mark_context(_heap->next_marking_context()) {};
+    _mark_context(_heap->marking_context()) {};
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
   void do_oop(oop* p)       { do_oop_nv(p); }
@@ -69,7 +69,7 @@ ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(ShenandoahObjToSc
   _queue(q),
   _dedup_queue(NULL),
   _heap(ShenandoahHeap::heap()),
-  _mark_context(_heap->next_marking_context())
+  _mark_context(_heap->marking_context())
 { }
 
 
@@ -78,7 +78,7 @@ ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(ShenandoahObjToSc
   _queue(q),
   _dedup_queue(dq),
   _heap(ShenandoahHeap::heap()),
-  _mark_context(_heap->next_marking_context())
+  _mark_context(_heap->marking_context())
 { }
 
 
@@ -568,7 +568,7 @@ public:
   ShenandoahCMKeepAliveClosure(ShenandoahObjToScanQueue* q) :
     _queue(q),
     _heap(ShenandoahHeap::heap()),
-    _mark_context(_heap->next_marking_context()) {}
+    _mark_context(_heap->marking_context()) {}
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
   void do_oop(oop* p)       { do_oop_nv(p); }
@@ -589,7 +589,7 @@ public:
   ShenandoahCMKeepAliveUpdateClosure(ShenandoahObjToScanQueue* q) :
     _queue(q),
     _heap(ShenandoahHeap::heap()),
-    _mark_context(_heap->next_marking_context()) {}
+    _mark_context(_heap->marking_context()) {}
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
   void do_oop(oop* p)       { do_oop_nv(p); }
@@ -817,7 +817,7 @@ public:
   ShenandoahPrecleanKeepAliveUpdateClosure(ShenandoahObjToScanQueue* q) :
     _queue(q),
     _heap(ShenandoahHeap::heap()),
-    _mark_context(_heap->next_marking_context()) {}
+    _mark_context(_heap->marking_context()) {}
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
   void do_oop(oop* p)       { do_oop_nv(p); }

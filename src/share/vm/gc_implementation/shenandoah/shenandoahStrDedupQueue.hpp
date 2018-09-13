@@ -149,7 +149,7 @@ private:
   inline void do_oop_work(T* p);
 public:
   ShenandoahStrDedupQueueCleanupClosure() : _heap(ShenandoahHeap::heap()),
-                                            _mark_context(ShenandoahHeap::heap()->next_marking_context()) {
+                                            _mark_context(ShenandoahHeap::heap()->marking_context()) {
   }
 
   inline void do_oop(oop* p)        { do_oop_work(p); }

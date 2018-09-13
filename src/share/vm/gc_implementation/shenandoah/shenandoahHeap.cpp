@@ -90,16 +90,13 @@ private:
   ShenandoahRegionIterator _regions;
   const size_t _bitmap_size;
   const size_t _page_size;
-  char* _bitmap0_base;
-  char* _bitmap1_base;
+  char* _bitmap_base;
 public:
-  ShenandoahPretouchTask(char* bitmap0_base, char* bitmap1_base, size_t bitmap_size,
-                         size_t page_size) :
+  ShenandoahPretouchTask(char* bitmap_base, size_t bitmap_size, size_t page_size) :
     AbstractGangTask("Shenandoah PreTouch"),
     _bitmap_size(bitmap_size),
     _page_size(page_size),
-    _bitmap0_base(bitmap0_base),
-    _bitmap1_base(bitmap1_base) {}
+    _bitmap_base(bitmap_base) {}
 
   virtual void work(uint worker_id) {
     ShenandoahHeapRegion* r = _regions.next();
@@ -110,8 +107,7 @@ public:
       size_t end   = (r->region_number() + 1) * ShenandoahHeapRegion::region_size_bytes() / MarkBitMap::heap_map_factor();
       assert (end <= _bitmap_size, err_msg("end is sane: " SIZE_FORMAT " < " SIZE_FORMAT, end, _bitmap_size));
 
-      os::pretouch_memory(_bitmap0_base + start, _bitmap0_base + end);
-      os::pretouch_memory(_bitmap1_base + start, _bitmap1_base + end);
+      os::pretouch_memory(_bitmap_base + start, _bitmap_base + end);
 
       r = _regions.next();
     }
@@ -217,18 +213,12 @@ jint ShenandoahHeap::initialize() {
 
   ReservedSpace bitmap0(_bitmap_size, bitmap_page_size);
   MemTracker::record_virtual_memory_type(bitmap0.base(), mtGC);
-  _bitmap0_region = MemRegion((HeapWord*) bitmap0.base(), bitmap0.size() / HeapWordSize);
-
-  ReservedSpace bitmap1(_bitmap_size, bitmap_page_size);
-  MemTracker::record_virtual_memory_type(bitmap1.base(), mtGC);
-  _bitmap1_region = MemRegion((HeapWord*) bitmap1.base(), bitmap1.size() / HeapWordSize);
+  _bitmap_region = MemRegion((HeapWord*) bitmap0.base(), bitmap0.size() / HeapWordSize);
 
   size_t bitmap_init_commit = _bitmap_bytes_per_slice *
                               align_size_up(num_committed_regions, _bitmap_regions_per_slice) / _bitmap_regions_per_slice;
   bitmap_init_commit = MIN2(_bitmap_size, bitmap_init_commit);
-  os::commit_memory_or_exit((char *) (_bitmap0_region.start()), bitmap_init_commit, false,
-                            "couldn't allocate initial bitmap");
-  os::commit_memory_or_exit((char *) (_bitmap1_region.start()), bitmap_init_commit, false,
+  os::commit_memory_or_exit((char *) (_bitmap_region.start()), bitmap_init_commit, false,
                             "couldn't allocate initial bitmap");
 
   size_t page_size = UseLargePages ? (size_t)os::large_page_size() : (size_t)os::vm_page_size();
@@ -243,8 +233,7 @@ jint ShenandoahHeap::initialize() {
     _verifier = new ShenandoahVerifier(this, &_verification_bit_map);
   }
 
-  _complete_marking_context = new ShenandoahMarkingContext(_heap_region, _bitmap0_region, _num_regions);
-  _next_marking_context = new ShenandoahMarkingContext(_heap_region, _bitmap1_region, _num_regions);
+  _marking_context = new ShenandoahMarkingContext(_heap_region, _bitmap_region, _num_regions);
 
   {
     ShenandoahHeapLocker locker(lock());
@@ -255,11 +244,13 @@ jint ShenandoahHeap::initialize() {
                                                          i,
                                                          i < num_committed_regions);
 
-      _complete_marking_context->set_top_at_mark_start(i, r->bottom());
-      _next_marking_context->set_top_at_mark_start(i, r->bottom());
+      _marking_context->set_top_at_mark_start(i, r->bottom());
       _regions[i] = r;
       assert(!collection_set()->is_in(i), "New region should not be in collection set");
     }
+
+    // Initialize to complete
+    _marking_context->mark_complete();
 
     _free_set->rebuild();
   }
@@ -274,7 +265,7 @@ jint ShenandoahHeap::initialize() {
 
     log_info(gc, heap)("Parallel pretouch " SIZE_FORMAT " regions with " SIZE_FORMAT " byte pages",
                        _num_regions, page_size);
-    ShenandoahPretouchTask cl(bitmap0.base(), bitmap1.base(), _bitmap_size, page_size);
+    ShenandoahPretouchTask cl(bitmap0.base(), _bitmap_size, page_size);
     _workers->run_task(&cl);
   }
 
@@ -350,8 +341,7 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _bytes_allocated_since_gc_start(0),
   _max_workers((uint)MAX2(ConcGCThreads, ParallelGCThreads)),
   _ref_processor(NULL),
-  _complete_marking_context(NULL),
-  _next_marking_context(NULL),
+  _marking_context(NULL),
   _aux_bit_map(),
   _verifier(NULL),
   _pacer(NULL),
@@ -384,18 +374,18 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
 #pragma warning( pop )
 #endif
 
-class ShenandoahResetNextBitmapTask : public AbstractGangTask {
+class ShenandoahResetBitmapTask : public AbstractGangTask {
 private:
   ShenandoahRegionIterator _regions;
 
 public:
-  ShenandoahResetNextBitmapTask() :
+  ShenandoahResetBitmapTask() :
     AbstractGangTask("Parallel Reset Bitmap Task") {}
 
   void work(uint worker_id) {
     ShenandoahHeapRegion* region = _regions.next();
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    ShenandoahMarkingContext* const ctx = heap->next_marking_context();
+    ShenandoahMarkingContext* const ctx = heap->marking_context();
     while (region != NULL) {
       if (heap->is_bitmap_slice_committed(region)) {
         HeapWord* bottom = region->bottom();
@@ -410,10 +400,10 @@ public:
   }
 };
 
-void ShenandoahHeap::reset_next_mark_bitmap() {
+void ShenandoahHeap::reset_mark_bitmap() {
   assert_gc_workers(_workers->active_workers());
 
-  ShenandoahResetNextBitmapTask task;
+  ShenandoahResetBitmapTask task;
   _workers->run_task(&task);
 }
 
@@ -779,7 +769,7 @@ private:
     if (! oopDesc::is_null(o)) {
       oop obj = oopDesc::decode_heap_oop_not_null(o);
       if (_heap->in_collection_set(obj)) {
-        shenandoah_assert_marked_complete(p, obj);
+        shenandoah_assert_marked(p, obj);
         oop resolved = ShenandoahBarrierSet::resolve_forwarded_not_null(obj);
         if (oopDesc::unsafe_equals(resolved, obj)) {
           bool evac;
@@ -842,7 +832,7 @@ public:
     _heap(heap), _thread(Thread::current()) {}
 
   void do_object(oop p) {
-    shenandoah_assert_marked_complete(NULL, p);
+    shenandoah_assert_marked(NULL, p);
     if (oopDesc::unsafe_equals(p, ShenandoahBarrierSet::resolve_forwarded_not_null(p))) {
       bool evac;
       _heap->evacuate_object(p, _thread, evac);
@@ -1403,7 +1393,7 @@ public:
 
   bool heap_region_do(ShenandoahHeapRegion* r) {
     r->clear_live_data();
-    sh->next_marking_context()->set_top_at_mark_start(r->region_number(), r->top());
+    sh->marking_context()->set_top_at_mark_start(r->region_number(), r->top());
     return false;
   }
 };
@@ -1412,7 +1402,7 @@ public:
 void ShenandoahHeap::op_init_mark() {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should be at safepoint");
 
-  assert(next_marking_context()->is_bitmap_clear(), "need clear marking bitmap");
+  assert(marking_context()->is_bitmap_clear(), "need clear marking bitmap");
 
   if (ShenandoahVerify) {
     verifier()->verify_before_concmark();
@@ -1535,15 +1525,11 @@ void ShenandoahHeap::op_updaterefs() {
 }
 
 void ShenandoahHeap::op_cleanup() {
-  ShenandoahGCPhase phase_recycle(ShenandoahPhaseTimings::conc_cleanup_recycle);
   free_set()->recycle_trash();
 }
 
-void ShenandoahHeap::op_cleanup_bitmaps() {
-  op_cleanup();
-
-  ShenandoahGCPhase phase_reset(ShenandoahPhaseTimings::conc_cleanup_reset_bitmaps);
-  reset_next_mark_bitmap();
+void ShenandoahHeap::op_reset() {
+  reset_mark_bitmap();
 }
 
 void ShenandoahHeap::op_preclean() {
@@ -1594,6 +1580,8 @@ void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
       // changing the cycle parameters mid-cycle during concurrent -> degenerated handover.
       set_process_references(ShenandoahRefProcFrequency != 0);
       set_unload_classes(ClassUnloading);
+
+      op_reset();
 
       op_init_mark();
       if (cancelled_gc()) {
@@ -1649,7 +1637,7 @@ void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
         }
       }
 
-      op_cleanup_bitmaps();
+      op_cleanup();
       break;
 
     default:
@@ -1685,19 +1673,13 @@ void ShenandoahHeap::op_degenerated_futile() {
   op_full(GCCause::_shenandoah_upgrade_to_full_gc);
 }
 
-void ShenandoahHeap::swap_mark_contexts() {
-  ShenandoahMarkingContext* tmp = _complete_marking_context;
-  _complete_marking_context = _next_marking_context;
-  _next_marking_context = tmp;
-}
-
 void ShenandoahHeap::stop_concurrent_marking() {
   assert(is_concurrent_mark_in_progress(), "How else could we get here?");
   if (!cancelled_gc()) {
     // If we needed to update refs, and concurrent marking has been cancelled,
     // we need to finish updating references.
     set_has_forwarded_objects(false);
-    swap_mark_contexts();
+    mark_complete_marking_context();
   }
   set_concurrent_mark_in_progress(false);
 }
@@ -1745,11 +1727,11 @@ uint ShenandoahHeap::oop_extra_words() {
 }
 
 ShenandoahForwardedIsAliveClosure::ShenandoahForwardedIsAliveClosure() :
-  _mark_context(ShenandoahHeap::heap()->next_marking_context()) {
+  _mark_context(ShenandoahHeap::heap()->marking_context()) {
 }
 
 ShenandoahIsAliveClosure::ShenandoahIsAliveClosure() :
-  _mark_context(ShenandoahHeap::heap()->next_marking_context()) {
+  _mark_context(ShenandoahHeap::heap()->marking_context()) {
 }
 
 bool ShenandoahForwardedIsAliveClosure::do_object_b(oop obj) {
@@ -2237,10 +2219,7 @@ bool ShenandoahHeap::commit_bitmap_slice(ShenandoahHeapRegion* r) {
   size_t slice = r->region_number() / _bitmap_regions_per_slice;
   size_t off = _bitmap_bytes_per_slice * slice;
   size_t len = _bitmap_bytes_per_slice;
-  if (!os::commit_memory((char*)_bitmap0_region.start() + off, len, false)) {
-    return false;
-  }
-  if (!os::commit_memory((char*)_bitmap1_region.start() + off, len, false)) {
+  if (!os::commit_memory((char*)_bitmap_region.start() + off, len, false)) {
     return false;
   }
   return true;
@@ -2259,10 +2238,7 @@ bool ShenandoahHeap::uncommit_bitmap_slice(ShenandoahHeapRegion *r) {
   size_t slice = r->region_number() / _bitmap_regions_per_slice;
   size_t off = _bitmap_bytes_per_slice * slice;
   size_t len = _bitmap_bytes_per_slice;
-  if (!os::uncommit_memory((char*)_bitmap0_region.start() + off, len)) {
-    return false;
-  }
-  if (!os::uncommit_memory((char*)_bitmap1_region.start() + off, len)) {
+  if (!os::uncommit_memory((char*)_bitmap_region.start() + off, len)) {
     return false;
   }
   return true;
@@ -2483,6 +2459,7 @@ void ShenandoahHeap::entry_updaterefs() {
   try_inject_alloc_failure();
   op_updaterefs();
 }
+
 void ShenandoahHeap::entry_cleanup() {
   ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_cleanup);
 
@@ -2496,19 +2473,19 @@ void ShenandoahHeap::entry_cleanup() {
   op_cleanup();
 }
 
-void ShenandoahHeap::entry_cleanup_bitmaps() {
-  ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_cleanup);
+void ShenandoahHeap::entry_reset() {
+  ShenandoahGCPhase phase(ShenandoahPhaseTimings::conc_reset);
 
-  static const char* msg = "Concurrent cleanup";
+  static const char* msg = "Concurrent reset";
   GCTraceTime time(msg, PrintGC, NULL, tracer()->gc_id(), true);
   EventMark em("%s", msg);
 
   ShenandoahWorkerScope scope(workers(),
-                              ShenandoahWorkerPolicy::calc_workers_for_conc_cleanup(),
-                              "concurrent cleanup");
+                              ShenandoahWorkerPolicy::calc_workers_for_conc_reset(),
+                              "concurrent reset");
 
   try_inject_alloc_failure();
-  op_cleanup_bitmaps();
+  op_reset();
 }
 
 void ShenandoahHeap::entry_preclean() {
