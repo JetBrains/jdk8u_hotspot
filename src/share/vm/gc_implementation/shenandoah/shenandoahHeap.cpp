@@ -1302,6 +1302,9 @@ void ShenandoahHeap::object_iterate(ObjectClosure* cl) {
     return;
   }
 
+  // Reset bitmap
+  _aux_bit_map.clear();
+
   Stack<oop,mtGC> oop_stack;
 
   // First, we process all GC roots. This populates the work stack with initial objects.

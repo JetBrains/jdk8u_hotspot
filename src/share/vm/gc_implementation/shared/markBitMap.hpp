@@ -35,6 +35,7 @@
 
 class MarkBitMapRO VALUE_OBJ_CLASS_SPEC {
  protected:
+  MemRegion _covered;      // The heap area covered by this bitmap.
   HeapWord* _bmStartWord;  // base address of range covered by map
   size_t    _bmWordSize;   // map size (in #HeapWords covered)
   const int _shifter;      // map to char or bit
@@ -106,6 +107,7 @@ class MarkBitMap : public MarkBitMapRO {
   inline bool parMark(HeapWord* addr);
 
   // Clear range. For larger regions, use *_large.
+  void clear();
   void clear_range(MemRegion mr);
   void clear_range_large(MemRegion mr);
 };
