@@ -40,20 +40,20 @@ public:
 
   TASKQUEUE_STATS_ONLY(using taskqueue_t::stats;)
 
-  // Push task t onto:
-  //   - first, try buffer;
-  //   - then, try the queue;
-  //   - then, overflow stack.
-  // Return true.
+  // Push task t into the queue. Returns true on success.
   inline bool push(E t);
 
-  // Attempt to pop from the buffer; return true if anything was popped.
-  inline bool pop_buffer(E &t);
+  // Attempt to pop from the queue. Returns true on success.
+  inline bool pop(E &t);
 
-  inline void clear_buffer()  { _buf_empty = true; }
-  inline bool buffer_empty()  const { return _buf_empty; }
+  inline void clear()  {
+    _buf_empty = true;
+    taskqueue_t::set_empty();
+    taskqueue_t::overflow_stack()->clear();
+  }
+
   inline bool is_empty()        const {
-    return taskqueue_t::is_empty() && buffer_empty();
+    return _buf_empty && taskqueue_t::is_empty();
   }
 
 private:

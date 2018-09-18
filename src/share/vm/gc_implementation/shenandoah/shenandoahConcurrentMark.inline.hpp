@@ -194,12 +194,6 @@ inline void ShenandoahConcurrentMark::do_chunked_array(ShenandoahObjToScanQueue*
   array->oop_iterate_range(cl, from, to);
 }
 
-inline bool ShenandoahConcurrentMark::try_queue(ShenandoahObjToScanQueue* q, ShenandoahMarkTask &task) {
-  return (q->pop_buffer(task) ||
-          q->pop_local(task) ||
-          q->pop_overflow(task));
-}
-
 class ShenandoahSATBBufferClosure : public SATBBufferClosure {
 private:
   ShenandoahObjToScanQueue* _queue;

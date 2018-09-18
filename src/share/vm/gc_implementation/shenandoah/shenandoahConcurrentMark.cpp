@@ -35,12 +35,12 @@
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "memory/referenceProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
 #include "code/codeCache.hpp"
 #include "classfile/symbolTable.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "memory/iterator.inline.hpp"
 #include "oops/oop.inline.hpp"
-#include "utilities/taskqueue.hpp"
 
 template<UpdateRefsMode UPDATE_REFS>
 class ShenandoahInitMarkRootsClosure : public OopClosure {
@@ -880,12 +880,6 @@ ShenandoahObjToScanQueue* ShenandoahConcurrentMark::get_queue(uint worker_id) {
   return _task_queues->queue(worker_id);
 }
 
-void ShenandoahConcurrentMark::clear_queue(ShenandoahObjToScanQueue *q) {
-  q->set_empty();
-  q->overflow_stack()->clear();
-  q->clear_buffer();
-}
-
 template <bool CANCELLABLE>
 void ShenandoahConcurrentMark::mark_loop_prework(uint w, ParallelTaskTerminator *t, ReferenceProcessor *rp,
                                                  bool class_unload, bool update_refs, bool strdedup) {
@@ -976,7 +970,7 @@ void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint wo
     }
 
     for (uint i = 0; i < stride; i++) {
-      if (try_queue(q, t)) {
+      if (q->pop(t)) {
         do_task<T>(q, cl, live_data, &t);
       } else {
         assert(q->is_empty(), "Must be empty");
@@ -1007,7 +1001,7 @@ void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint wo
 
     uint work = 0;
     for (uint i = 0; i < stride; i++) {
-      if (try_queue(q, t) ||
+      if (q->pop(t) ||
           queues->steal(worker_id, &seed, t)) {
         do_task<T>(q, cl, live_data, &t);
         work++;

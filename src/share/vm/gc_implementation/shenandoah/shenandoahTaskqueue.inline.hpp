@@ -25,12 +25,19 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHTASKQUEUE_INLINE_HPP
 
 template <class E, MEMFLAGS F, unsigned int N>
-bool BufferedOverflowTaskQueue<E, F, N>::pop_buffer(E &t)
+bool BufferedOverflowTaskQueue<E, F, N>::pop(E &t)
 {
-  if (_buf_empty) return false;
-  t = _elem;
-  _buf_empty = true;
-  return true;
+  if (!_buf_empty) {
+    t = _elem;
+    _buf_empty = true;
+    return true;
+  }
+
+  if (taskqueue_t::pop_local(t)) {
+    return true;
+  }
+
+  return taskqueue_t::pop_overflow(t);
 }
 
 template <class E, MEMFLAGS F, unsigned int N>
