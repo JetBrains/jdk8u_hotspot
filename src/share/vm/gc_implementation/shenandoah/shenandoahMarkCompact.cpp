@@ -57,123 +57,117 @@ void ShenandoahMarkCompact::initialize(GCTimer* gc_timer) {
 void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
+  if (ShenandoahVerify) {
+    heap->verifier()->verify_before_fullgc();
+  }
+
+  heap->set_full_gc_in_progress(true);
+
+  assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "must be at a safepoint");
+  assert(Thread::current()->is_VM_thread(), "Do full GC only while world is stopped");
+
   {
-    if (ShenandoahVerify) {
-      heap->verifier()->verify_before_fullgc();
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
+    heap->pre_full_gc_dump(_gc_timer);
+  }
+
+  {
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_prepare);
+    // Full GC is supposed to recover from any GC state:
+
+    // 0. Remember if we have forwarded objects
+    bool has_forwarded_objects = heap->has_forwarded_objects();
+
+    // a. Cancel concurrent mark, if in progress
+    if (heap->is_concurrent_mark_in_progress()) {
+      heap->concurrentMark()->cancel();
+      heap->stop_concurrent_marking();
     }
+    assert(!heap->is_concurrent_mark_in_progress(), "sanity");
 
-    heap->set_full_gc_in_progress(true);
-
-    assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "must be at a safepoint");
-    assert(Thread::current()->is_VM_thread(), "Do full GC only while world is stopped");
-
-    {
-      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
-      heap->pre_full_gc_dump(_gc_timer);
+    // b1. Cancel evacuation, if in progress
+    if (heap->is_evacuation_in_progress()) {
+      heap->set_evacuation_in_progress(false);
     }
+    assert(!heap->is_evacuation_in_progress(), "sanity");
 
-    {
-      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_prepare);
-      // Full GC is supposed to recover from any GC state:
-
-      // 0. Remember if we have forwarded objects
-      bool has_forwarded_objects = heap->has_forwarded_objects();
-
-      // a. Cancel concurrent mark, if in progress
-      if (heap->is_concurrent_mark_in_progress()) {
-        heap->concurrentMark()->cancel();
-        heap->stop_concurrent_marking();
-      }
-      assert(!heap->is_concurrent_mark_in_progress(), "sanity");
-
-      // b1. Cancel evacuation, if in progress
-      if (heap->is_evacuation_in_progress()) {
-        heap->set_evacuation_in_progress(false);
-      }
-      assert(!heap->is_evacuation_in_progress(), "sanity");
-
-      // b2. Cancel update-refs, if in progress
-      if (heap->is_update_refs_in_progress()) {
-        heap->set_update_refs_in_progress(false);
-      }
-      assert(!heap->is_update_refs_in_progress(), "sanity");
-
-      // c. Reset the bitmaps for new marking
-      heap->reset_mark_bitmap();
-      assert(heap->marking_context()->is_bitmap_clear(), "sanity");
-      assert(!heap->marking_context()->is_complete(), "sanity");
-
-      // d. Abandon reference discovery and clear all discovered references.
-      ReferenceProcessor *rp = heap->ref_processor();
-      rp->disable_discovery();
-      rp->abandon_partial_discovery();
-      rp->verify_no_references_recorded();
-
-      // e. Set back forwarded objects bit back, in case some steps above dropped it.
-      heap->set_has_forwarded_objects(has_forwarded_objects);
+    // b2. Cancel update-refs, if in progress
+    if (heap->is_update_refs_in_progress()) {
+      heap->set_update_refs_in_progress(false);
     }
+    assert(!heap->is_update_refs_in_progress(), "sanity");
 
-    {
-      heap->make_parsable(true);
+    // c. Reset the bitmaps for new marking
+    heap->reset_mark_bitmap();
+    assert(heap->marking_context()->is_bitmap_clear(), "sanity");
+    assert(!heap->marking_context()->is_complete(), "sanity");
 
-      CodeCache::gc_prologue();
+    // d. Abandon reference discovery and clear all discovered references.
+    ReferenceProcessor *rp = heap->ref_processor();
+    rp->disable_discovery();
+    rp->abandon_partial_discovery();
+    rp->verify_no_references_recorded();
 
-      OrderAccess::fence();
+    // e. Set back forwarded objects bit back, in case some steps above dropped it.
+    heap->set_has_forwarded_objects(has_forwarded_objects);
+  }
 
-      phase1_mark_heap();
+  heap->make_parsable(true);
 
-      // Once marking is done, which may have fixed up forwarded objects, we can drop it.
-      // Coming out of Full GC, we would not have any forwarded objects.
-      // This also prevents read barrier from kicking in while adjusting pointers in phase3.
-      heap->set_has_forwarded_objects(false);
+  CodeCache::gc_prologue();
 
-      heap->set_full_gc_move_in_progress(true);
+  OrderAccess::fence();
 
-      // Setup workers for the rest
-      {
-        OrderAccess::fence();
+  phase1_mark_heap();
 
-        // Initialize worker slices
-        ShenandoahHeapRegionSet** worker_slices = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, heap->max_workers(), mtGC);
-        for (uint i = 0; i < heap->max_workers(); i++) {
-          worker_slices[i] = new ShenandoahHeapRegionSet();
-        }
+  // Once marking is done, which may have fixed up forwarded objects, we can drop it.
+  // Coming out of Full GC, we would not have any forwarded objects.
+  // This also prevents read barrier from kicking in while adjusting pointers in phase3.
+  heap->set_has_forwarded_objects(false);
 
-        phase2_calculate_target_addresses(worker_slices);
+  heap->set_full_gc_move_in_progress(true);
 
-        OrderAccess::fence();
+  // Setup workers for the rest
+  OrderAccess::fence();
 
-        phase3_update_references();
+  // Initialize worker slices
+  ShenandoahHeapRegionSet** worker_slices = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, heap->max_workers(), mtGC);
+  for (uint i = 0; i < heap->max_workers(); i++) {
+    worker_slices[i] = new ShenandoahHeapRegionSet();
+  }
 
-        phase4_compact_objects(worker_slices);
+  phase2_calculate_target_addresses(worker_slices);
 
-        // Free worker slices
-        for (uint i = 0; i < heap->max_workers(); i++) {
-          delete worker_slices[i];
-        }
-        FREE_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, worker_slices, mtGC);
+  OrderAccess::fence();
 
-        CodeCache::gc_epilogue();
-        JvmtiExport::gc_epilogue();
-      }
+  phase3_update_references();
 
-      heap->set_full_gc_move_in_progress(false);
-      heap->set_full_gc_in_progress(false);
+  phase4_compact_objects(worker_slices);
 
-      if (ShenandoahVerify) {
-        heap->verifier()->verify_after_fullgc();
-      }
-    }
+  // Free worker slices
+  for (uint i = 0; i < heap->max_workers(); i++) {
+    delete worker_slices[i];
+  }
+  FREE_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, worker_slices, mtGC);
 
-    {
-      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
-      heap->post_full_gc_dump(_gc_timer);
-    }
+  CodeCache::gc_epilogue();
+  JvmtiExport::gc_epilogue();
 
-    if (UseTLAB) {
-      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_resize_tlabs);
-      heap->resize_all_tlabs();
-    }
+  heap->set_full_gc_move_in_progress(false);
+  heap->set_full_gc_in_progress(false);
+
+  if (ShenandoahVerify) {
+    heap->verifier()->verify_after_fullgc();
+  }
+
+  {
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
+    heap->post_full_gc_dump(_gc_timer);
+  }
+
+  if (UseTLAB) {
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_resize_tlabs);
+    heap->resize_all_tlabs();
   }
 }
 
