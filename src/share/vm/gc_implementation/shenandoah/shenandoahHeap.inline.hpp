@@ -327,11 +327,6 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
 }
 
 template<class T>
-inline void ShenandoahHeap::marked_object_safe_iterate(ShenandoahHeapRegion* region, T* cl) {
-  marked_object_iterate(region, cl, region->concurrent_iteration_safe_limit());
-}
-
-template<class T>
 inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, T* cl, HeapWord* limit) {
   assert(BrooksPointer::word_offset() < 0, "skip_delta calculation below assumes the forwarding ptr is before obj");
 
@@ -461,16 +456,6 @@ inline void ShenandoahHeap::marked_object_oop_iterate(ShenandoahHeapRegion* regi
     ShenandoahObjectToOopClosure<T> objs(cl);
     marked_object_iterate(region, &objs, top);
   }
-}
-
-template<class T>
-inline void ShenandoahHeap::marked_object_oop_iterate(ShenandoahHeapRegion* region, T* cl) {
-  marked_object_oop_iterate(region, cl, region->top());
-}
-
-template<class T>
-inline void ShenandoahHeap::marked_object_oop_safe_iterate(ShenandoahHeapRegion* region, T* cl) {
-  marked_object_oop_iterate(region, cl, region->concurrent_iteration_safe_limit());
 }
 
 inline ShenandoahHeapRegion* const ShenandoahHeap::get_region(size_t region_idx) const {
