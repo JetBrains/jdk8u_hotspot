@@ -377,7 +377,6 @@ public:
 
   void stop_concurrent_marking();
 
-  void prepare_for_concurrent_evacuation();
   void evacuate_and_update_roots();
 
   void update_heap_references(bool concurrent);
