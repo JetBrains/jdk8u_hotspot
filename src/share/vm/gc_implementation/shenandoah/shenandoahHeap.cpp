@@ -345,9 +345,6 @@ ShenandoahHeap::ShenandoahHeap(ShenandoahCollectorPolicy* policy) :
   _aux_bit_map(),
   _verifier(NULL),
   _pacer(NULL),
-#ifdef ASSERT
-  _heap_expansion_count(0),
-#endif
   _gc_timer(new (ResourceObj::C_HEAP, mtGC) ConcurrentGCTimer()),
   _phase_timings(NULL),
   _alloc_tracker(NULL)
