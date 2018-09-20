@@ -25,6 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHBARRIERSET_HPP
 
 #include "memory/barrierSet.hpp"
+#include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
 
 class ShenandoahHeap;
 
@@ -59,21 +60,21 @@ public:
   bool has_write_ref_pre_barrier();
   bool has_write_region_opt();
   bool is_aligned(HeapWord* hw);
-  void read_prim_array(MemRegion mr);
-  void read_prim_field(HeapWord* hw, size_t s);
+  void read_prim_array(MemRegion mr)            shenandoah_not_implemented;
+  void read_prim_field(HeapWord* hw, size_t s)  shenandoah_not_implemented;
   bool read_prim_needs_barrier(HeapWord* hw, size_t s);
-  void read_ref_array(MemRegion mr);
+  void read_ref_array(MemRegion mr)             shenandoah_not_implemented;
 
   void read_ref_field(void* v);
 
-  bool read_ref_needs_barrier(void* v);
-  void read_region(MemRegion mr);
-  void resize_covered_region(MemRegion mr);
-  void write_prim_array(MemRegion mr);
-  void write_prim_field(HeapWord* hw, size_t s , juint x, juint y);
-  bool write_prim_needs_barrier(HeapWord* hw, size_t s, juint x, juint y);
+  bool read_ref_needs_barrier(void* v)          shenandoah_not_implemented_return(false);
+  void read_region(MemRegion mr)                shenandoah_not_implemented;
+  void resize_covered_region(MemRegion mr)      shenandoah_not_implemented;
+  void write_prim_array(MemRegion mr)           shenandoah_not_implemented;
+  void write_prim_field(HeapWord* hw, size_t s , juint x, juint y) shenandoah_not_implemented;
+  bool write_prim_needs_barrier(HeapWord* hw, size_t s, juint x, juint y) shenandoah_not_implemented_return(false);
   void write_ref_array(HeapWord* start, size_t count);
-  void write_ref_array_work(MemRegion r);
+  void write_ref_array_work(MemRegion r)        shenandoah_not_implemented;
 
   template <class T> void
   write_ref_array_pre_work(T* dst, size_t count);
@@ -92,7 +93,7 @@ public:
   // These are the more general virtual versions.
   void write_ref_field_pre_work(oop* field, oop new_val);
   void write_ref_field_pre_work(narrowOop* field, oop new_val);
-  void write_ref_field_pre_work(void* field, oop new_val);
+  void write_ref_field_pre_work(void* field, oop new_val) shenandoah_not_implemented;
 
   void write_ref_field_work(void* v, oop o, bool release = false);
   void write_region_work(MemRegion mr);

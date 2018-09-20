@@ -310,15 +310,8 @@ public:
 
   // Allocation (return NULL if full)
   inline HeapWord* allocate(size_t word_size, ShenandoahHeap::AllocType type);
-  HeapWord* allocate(size_t word_size) {
-    // ContiguousSpace wants us to have this method. But it is an error to call this with Shenandoah.
-    ShouldNotCallThis();
-    return NULL;
-  }
 
-  // Roll back the previous allocation of an object with specified size.
-  // Returns TRUE when successful, FALSE if not successful or not supported.
-  bool rollback_allocation(uint size);
+  HeapWord* allocate(size_t word_size) shenandoah_not_implemented_return(NULL)
 
   void clear_live_data();
   void set_live_data(size_t s);
@@ -339,14 +332,10 @@ public:
 
   void recycle();
 
-  void oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects);
-
-  HeapWord* object_iterate_careful(ObjectClosureCareful* cl);
+  void oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects) shenandoah_not_implemented;
+  HeapWord* object_iterate_careful(ObjectClosureCareful* cl) shenandoah_not_implemented_return(NULL);
 
   HeapWord* block_start_const(const void* p) const;
-
-  // Just before GC we need to fill the current region.
-  void fill_region();
 
   bool in_collection_set() const;
 

@@ -25,6 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAP_HPP
 
 #include "gc_implementation/shared/markBitMap.hpp"
+#include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapLock.hpp"
 #include "gc_implementation/shenandoah/shenandoahEvacOOMHandler.hpp"
 #include "gc_implementation/shenandoah/shenandoahSharedVariables.hpp"
@@ -288,7 +289,7 @@ public:
   size_t capacity() const /* override */;
   size_t used() const /* override */;
   size_t committed() const;
-  bool is_maximal_no_gc() const /* override */;
+  bool is_maximal_no_gc() const shenandoah_not_implemented_return(false);
   size_t max_capacity() const /* override */;
   size_t initial_capacity() const /* override */;
   bool is_in(const void* p) const /* override */;
@@ -300,7 +301,7 @@ public:
   bool card_mark_must_follow_store() const /* override */;
   void collect(GCCause::Cause cause) /* override */;
   void do_full_collection(bool clear_all_soft_refs) /* override */;
-  AdaptiveSizePolicy* size_policy() /* override */;
+  AdaptiveSizePolicy* size_policy() shenandoah_not_implemented_return(NULL);
   CollectorPolicy* collector_policy() const /* override */;
   void ensure_parsability(bool retire_tlabs) /* override */;
   HeapWord* block_start(const void* addr) const /* override */;
@@ -487,8 +488,6 @@ public:
   uint max_workers();
 
   void assert_gc_workers(uint nworker) PRODUCT_RETURN;
-
-  ShenandoahHeapRegion* next_compaction_region(const ShenandoahHeapRegion* r);
 
   void heap_region_iterate(ShenandoahHeapRegionClosure* blk, bool skip_cset_regions = false, bool skip_humongous_continuation = false) const;
 

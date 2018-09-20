@@ -520,11 +520,6 @@ size_t ShenandoahHeap::capacity() const {
   return num_regions() * ShenandoahHeapRegion::region_size_bytes();
 }
 
-bool ShenandoahHeap::is_maximal_no_gc() const {
-  Unimplemented();
-  return true;
-}
-
 size_t ShenandoahHeap::max_capacity() const {
   return _num_regions * ShenandoahHeapRegion::region_size_bytes();
 }
@@ -1138,12 +1133,6 @@ void ShenandoahHeap::collect(GCCause::Cause cause) {
 
 void ShenandoahHeap::do_full_collection(bool clear_all_soft_refs) {
   //assert(false, "Shouldn't need to do full collections");
-}
-
-AdaptiveSizePolicy* ShenandoahHeap::size_policy() {
-  Unimplemented();
-  return NULL;
-
 }
 
 CollectorPolicy* ShenandoahHeap::collector_policy() const {
@@ -1886,19 +1875,6 @@ bool ShenandoahHeap::process_references() const {
 
 bool ShenandoahHeap::unload_classes() const {
   return _unload_classes.is_set();
-}
-
-//fixme this should be in heapregionset
-ShenandoahHeapRegion* ShenandoahHeap::next_compaction_region(const ShenandoahHeapRegion* r) {
-  size_t region_idx = r->region_number() + 1;
-  ShenandoahHeapRegion* next = get_region(region_idx);
-  guarantee(next->region_number() == region_idx, "region number must match");
-  while (next->is_humongous()) {
-    region_idx = next->region_number() + 1;
-    next = get_region(region_idx);
-    guarantee(next->region_number() == region_idx, "region number must match");
-  }
-  return next;
 }
 
 ShenandoahMonitoringSupport* ShenandoahHeap::monitoring_support() {

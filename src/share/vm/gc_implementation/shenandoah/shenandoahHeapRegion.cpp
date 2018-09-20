@@ -311,11 +311,6 @@ void ShenandoahHeapRegion::make_committed_bypass() {
   }
 }
 
-bool ShenandoahHeapRegion::rollback_allocation(uint size) {
-  set_top(top() - size);
-  return true;
-}
-
 void ShenandoahHeapRegion::clear_live_data() {
   OrderAccess::release_store_fence((volatile jint*)&_live_data, 0);
 }
@@ -430,15 +425,6 @@ void ShenandoahHeapRegion::print_on(outputStream* st) const {
   st->print("|CP " SIZE_FORMAT_W(3), _critical_pins);
 
   st->cr();
-}
-
-void ShenandoahHeapRegion::fill_region() {
-  if (free() > (BrooksPointer::word_size() + CollectedHeap::min_fill_size())) {
-    HeapWord* filler = allocate(BrooksPointer::word_size(), ShenandoahHeap::_alloc_shared);
-    HeapWord* obj = allocate(end() - top(), ShenandoahHeap::_alloc_shared);
-    _heap->fill_with_object(obj, end() - obj);
-    BrooksPointer::initialize(oop(obj));
-  }
 }
 
 ShenandoahHeapRegion* ShenandoahHeapRegion::humongous_start_region() const {
