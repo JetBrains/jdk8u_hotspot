@@ -2444,17 +2444,6 @@ bool ShenandoahRegionIterator::has_next() const {
   return _index < (jint)_heap->num_regions();
 }
 
-void ShenandoahHeap::heap_region_iterate(ShenandoahHeapRegionClosure& cl) const {
-  ShenandoahRegionIterator regions;
-  ShenandoahHeapRegion* r = regions.next();
-  while (r != NULL) {
-    if (cl.heap_region_do(r)) {
-      break;
-    }
-    r = regions.next();
-  }
-}
-
 char ShenandoahHeap::gc_state() {
   return _gc_state.raw_value();
 }
