@@ -290,7 +290,7 @@ public:
   size_t max_capacity() const /* override */;
   size_t initial_capacity() const /* override */;
   bool is_in(const void* p) const /* override */;
-  bool is_scavengable(const void* addr) /* override */;
+  bool is_scavengable(const void* addr) { return true; }
   HeapWord* mem_allocate(size_t size, bool* what) /* override */;
   bool can_elide_tlab_store_barriers() const /* override */;
   oop new_store_pre_barrier(JavaThread* thread, oop new_obj) /* override */;
@@ -310,7 +310,7 @@ public:
   void gc_threads_do(ThreadClosure* tcl) const /* override */;
   void print_tracing_info() const /* override */;
   void verify(bool silent, VerifyOption vo) /* override */;
-  bool supports_tlab_allocation() const /* override */;
+  bool supports_tlab_allocation() const { return true; }
   size_t tlab_capacity(Thread *thr) const /* override */;
   void object_iterate(ObjectClosure* cl) /* override */;
   void safe_object_iterate(ObjectClosure* cl) /* override */;
@@ -412,8 +412,6 @@ public:
 
   void force_satb_flush_all_threads();
 
-  bool last_gc_made_progress() const;
-
   void acquire_pending_refs_lock();
   void release_pending_refs_lock();
 
@@ -470,8 +468,8 @@ public:
   ShenandoahMonitoringSupport* monitoring_support();
   ShenandoahConcurrentMark* concurrent_mark() { return _scm; }
   ShenandoahMarkCompact* full_gc() { return _full_gc; }
-  ShenandoahVerifier* verifier();
-  ShenandoahPacer* pacer() const;
+  ShenandoahVerifier* verifier() { return _verifier; }
+  ShenandoahPacer* pacer() const { return _pacer; }
 
   ReferenceProcessor* ref_processor() { return _ref_processor;}
 

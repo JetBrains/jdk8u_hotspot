@@ -81,10 +81,6 @@ void ShenandoahAssertToSpaceClosure::do_oop(narrowOop* p) { do_oop_nv(p); }
 void ShenandoahAssertToSpaceClosure::do_oop(oop* p)       { do_oop_nv(p); }
 #endif
 
-const char* ShenandoahHeap::name() const {
-  return "Shenandoah";
-}
-
 class ShenandoahPretouchTask : public AbstractGangTask {
 private:
   ShenandoahRegionIterator _regions;
@@ -536,10 +532,6 @@ bool ShenandoahHeap::is_in_partial_collection(const void* p ) {
   return false;
 }
 
-bool ShenandoahHeap::is_scavengable(const void* p) {
-  return true;
-}
-
 void ShenandoahHeap::op_uncommit(double shrink_before) {
   assert (ShenandoahUncommit, "should be enabled");
 
@@ -671,7 +663,7 @@ HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocRequest& req) {
 
     size_t tries = 0;
 
-    while (result == NULL && last_gc_made_progress()) {
+    while (result == NULL && _progress_last_gc.is_set()) {
       tries++;
       control_thread()->handle_alloc_failure(req.size());
       result = allocate_memory_under_lock(req, in_new_region);
@@ -1007,10 +999,6 @@ void ShenandoahHeap::roots_iterate(OopClosure* cl) {
 
   ShenandoahRootProcessor rp(this, 1, ShenandoahPhaseTimings::_num_phases);
   rp.process_all_roots(cl, NULL, &cldCl, &blobsCl, NULL, 0);
-}
-
-bool ShenandoahHeap::supports_tlab_allocation() const {
-  return true;
 }
 
 size_t  ShenandoahHeap::unsafe_max_tlab_alloc(Thread *thread) const {
@@ -1825,10 +1813,6 @@ void ShenandoahHeap::set_has_forwarded_objects(bool cond) {
   set_gc_state_mask(HAS_FORWARDED, cond);
 }
 
-bool ShenandoahHeap::last_gc_made_progress() const {
-  return _progress_last_gc.is_set();
-}
-
 void ShenandoahHeap::set_process_references(bool pr) {
   _process_references.set_cond(pr);
 }
@@ -1877,11 +1861,6 @@ size_t ShenandoahHeap::bytes_allocated_since_gc_start() {
 
 void ShenandoahHeap::reset_bytes_allocated_since_gc_start() {
   OrderAccess::release_store_fence(&_bytes_allocated_since_gc_start, (size_t)0);
-}
-
-ShenandoahPacer* ShenandoahHeap::pacer() const {
-  assert (_pacer != NULL, "sanity");
-  return _pacer;
 }
 
 void ShenandoahHeap::set_degenerated_gc_in_progress(bool in_progress) {
@@ -1952,12 +1931,6 @@ void ShenandoahHeap::assert_gc_workers(uint nworkers) {
 
 ShenandoahUpdateHeapRefsClosure::ShenandoahUpdateHeapRefsClosure() :
   _heap(ShenandoahHeap::heap()) {}
-
-ShenandoahVerifier* ShenandoahHeap::verifier() {
-  guarantee(ShenandoahVerify, "Should be enabled");
-  assert (_verifier != NULL, "sanity");
-  return _verifier;
-}
 
 class ShenandoahUpdateHeapRefsTask : public AbstractGangTask {
 private:
