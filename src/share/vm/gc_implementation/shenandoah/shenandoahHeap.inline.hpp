@@ -372,7 +372,10 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
         assert (slots[c] < tams,  err_msg("only objects below TAMS here: "  PTR_FORMAT " (" PTR_FORMAT ")", p2i(slots[c]), p2i(tams)));
         assert (slots[c] < limit, err_msg("only objects below limit here: " PTR_FORMAT " (" PTR_FORMAT ")", p2i(slots[c]), p2i(limit)));
         oop obj = oop(slots[c]);
-        do_object_marked_complete(cl, obj);
+        assert(!oopDesc::is_null(obj), "sanity");
+        assert(obj->is_oop(), "sanity");
+        assert(_marking_context->is_marked(obj), "object expected to be marked");
+        cl->do_object(obj);
       }
     } while (avail > 0);
   } else {
@@ -380,7 +383,10 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
       assert (cb < tams,  err_msg("only objects below TAMS here: "  PTR_FORMAT " (" PTR_FORMAT ")", p2i(cb), p2i(tams)));
       assert (cb < limit, err_msg("only objects below limit here: " PTR_FORMAT " (" PTR_FORMAT ")", p2i(cb), p2i(limit)));
       oop obj = oop(cb);
-      do_object_marked_complete(cl, obj);
+      assert(!oopDesc::is_null(obj), "sanity");
+      assert(obj->is_oop(), "sanity");
+      assert(_marking_context->is_marked(obj), "object expected to be marked");
+      cl->do_object(obj);
       cb += skip_bitmap_delta;
       if (cb < limit_bitmap) {
         cb = mark_bit_map->getNextMarkedWordAddress(cb, limit_bitmap);
@@ -397,17 +403,12 @@ inline void ShenandoahHeap::marked_object_iterate(ShenandoahHeapRegion* region, 
     assert (cs < limit, err_msg("only objects below limit here: " PTR_FORMAT " (" PTR_FORMAT ")", p2i(cs), p2i(limit)));
     oop obj = oop(cs);
     int size = obj->size();
-    do_object_marked_complete(cl, obj);
+    assert(!oopDesc::is_null(obj), "sanity");
+    assert(obj->is_oop(), "sanity");
+    assert(_marking_context->is_marked(obj), "object expected to be marked");
+    cl->do_object(obj);
     cs += size + skip_objsize_delta;
   }
-}
-
-template<class T>
-inline void ShenandoahHeap::do_object_marked_complete(T* cl, oop obj) {
-  assert(!oopDesc::is_null(obj), "sanity");
-  assert(obj->is_oop(), "sanity");
-  assert(_marking_context->is_marked(obj), "object expected to be marked");
-  cl->do_object(obj);
 }
 
 template <class T>
