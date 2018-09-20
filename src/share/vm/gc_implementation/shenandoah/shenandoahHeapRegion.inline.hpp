@@ -29,7 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahPacer.inline.hpp"
 #include "runtime/atomic.hpp"
 
-HeapWord* ShenandoahHeapRegion::allocate(size_t size, ShenandoahHeap::AllocType type) {
+HeapWord* ShenandoahHeapRegion::allocate(size_t size, ShenandoahAllocRequest::Type type) {
   _heap->assert_heaplock_or_safepoint();
 
   HeapWord* obj = top();
@@ -47,16 +47,16 @@ HeapWord* ShenandoahHeapRegion::allocate(size_t size, ShenandoahHeap::AllocType 
   }
 }
 
-inline void ShenandoahHeapRegion::adjust_alloc_metadata(ShenandoahHeap::AllocType type, size_t size) {
+inline void ShenandoahHeapRegion::adjust_alloc_metadata(ShenandoahAllocRequest::Type type, size_t size) {
   switch (type) {
-    case ShenandoahHeap::_alloc_shared:
-    case ShenandoahHeap::_alloc_shared_gc:
+    case ShenandoahAllocRequest::_alloc_shared:
+    case ShenandoahAllocRequest::_alloc_shared_gc:
       _shared_allocs += size;
       break;
-    case ShenandoahHeap::_alloc_tlab:
+    case ShenandoahAllocRequest::_alloc_tlab:
       _tlab_allocs += size;
       break;
-    case ShenandoahHeap::_alloc_gclab:
+    case ShenandoahAllocRequest::_alloc_gclab:
       _gclab_allocs += size;
       break;
     default:

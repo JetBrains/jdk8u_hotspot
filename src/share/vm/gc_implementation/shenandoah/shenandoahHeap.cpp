@@ -616,14 +616,14 @@ HeapWord* ShenandoahHeap::allocate_from_gclab_slow(Thread* thread, size_t size) 
 }
 
 HeapWord* ShenandoahHeap::allocate_new_tlab(size_t word_size) {
-  ShenandoahAllocationRequest req = ShenandoahAllocationRequest::for_tlab(word_size);
+  ShenandoahAllocRequest req = ShenandoahAllocRequest::for_tlab(word_size);
   return allocate_memory(req);
 }
 
 HeapWord* ShenandoahHeap::allocate_new_gclab(size_t min_size,
                                              size_t word_size,
                                              size_t* actual_size) {
-  ShenandoahAllocationRequest req = ShenandoahAllocationRequest::for_gclab(min_size, word_size);
+  ShenandoahAllocRequest req = ShenandoahAllocRequest::for_gclab(min_size, word_size);
   HeapWord* res = allocate_memory(req);
   if (res != NULL) {
     *actual_size = req.actual_size();
@@ -645,7 +645,7 @@ ShenandoahHeap* ShenandoahHeap::heap_no_check() {
   return (ShenandoahHeap*) heap;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocationRequest& req) {
+HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocRequest& req) {
   ShenandoahAllocTrace trace_alloc(req.size(), req.type());
 
   intptr_t pacer_epoch = 0;
@@ -703,7 +703,7 @@ HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocationRequest& req) {
 
     assert (req.is_lab_alloc() || (requested == actual),
             err_msg("Only LAB allocations are elastic: %s, requested = " SIZE_FORMAT ", actual = " SIZE_FORMAT,
-                    alloc_type_to_string(req.type()), requested, actual));
+                    ShenandoahAllocRequest::alloc_type_to_string(req.type()), requested, actual));
 
     if (req.is_mutator_alloc()) {
       notify_mutator_alloc_words(actual, false);
@@ -722,14 +722,14 @@ HeapWord* ShenandoahHeap::allocate_memory(ShenandoahAllocationRequest& req) {
   return result;
 }
 
-HeapWord* ShenandoahHeap::allocate_memory_under_lock(ShenandoahAllocationRequest& req, bool& in_new_region) {
+HeapWord* ShenandoahHeap::allocate_memory_under_lock(ShenandoahAllocRequest& req, bool& in_new_region) {
   ShenandoahHeapLocker locker(lock());
   return _free_set->allocate(req, in_new_region);
 }
 
 HeapWord*  ShenandoahHeap::mem_allocate(size_t size,
                                         bool*  gc_overhead_limit_was_exceeded) {
-  ShenandoahAllocationRequest req = ShenandoahAllocationRequest::for_shared(size + BrooksPointer::word_size());
+  ShenandoahAllocRequest req = ShenandoahAllocRequest::for_shared(size + BrooksPointer::word_size());
   HeapWord* filler = allocate_memory(req);
   HeapWord* result = filler + BrooksPointer::word_size();
   if (filler != NULL) {
