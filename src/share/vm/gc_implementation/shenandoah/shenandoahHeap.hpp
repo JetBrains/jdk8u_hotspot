@@ -465,7 +465,7 @@ public:
 
   void trash_humongous_region_at(ShenandoahHeapRegion *r);
 
-  ShenandoahMonitoringSupport* monitoring_support();
+  ShenandoahMonitoringSupport* monitoring_support() { return _monitoring_support; }
   ShenandoahConcurrentMark* concurrent_mark() { return _scm; }
   ShenandoahMarkCompact* full_gc() { return _full_gc; }
   ShenandoahVerifier* verifier() { return _verifier; }
