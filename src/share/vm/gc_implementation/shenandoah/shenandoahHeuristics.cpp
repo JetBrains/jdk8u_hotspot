@@ -57,7 +57,7 @@ ShenandoahHeuristics::ShenandoahHeuristics() :
   _degenerated_cycles_in_a_row(0),
   _successful_cycles_in_a_row(0),
   _bytes_in_cset(0),
-  _cycle_start(0),
+  _cycle_start(os::elapsedTime()),
   _last_cycle_end(0),
   _gc_times_learned(0),
   _gc_time_penalties(0),
@@ -225,8 +225,7 @@ void ShenandoahHeuristics::record_success_concurrent() {
   _degenerated_cycles_in_a_row = 0;
   _successful_cycles_in_a_row++;
 
-  double duration = (os::elapsedTime() - _cycle_start);
-  _gc_time_history->add(duration);
+  _gc_time_history->add(time_since_last_gc());
   _gc_times_learned++;
   _gc_time_penalties -= MIN2<size_t>(_gc_time_penalties, Concurrent_Adjust);
 }
@@ -274,6 +273,10 @@ bool ShenandoahHeuristics::should_unload_classes() {
 
 void ShenandoahHeuristics::initialize() {
   // Nothing to do by default.
+}
+
+double ShenandoahHeuristics::time_since_last_gc() const {
+  return os::elapsedTime() - _cycle_start;
 }
 
 bool ShenandoahHeuristics::should_start_normal_gc() const {
