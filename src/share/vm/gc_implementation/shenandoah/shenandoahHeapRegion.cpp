@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+
 #include "memory/allocation.hpp"
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
@@ -29,6 +30,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "memory/space.inline.hpp"
+#include "memory/resourceArea.hpp"
 #include "memory/universe.hpp"
 #include "oops/oop.inline.hpp"
 #include "runtime/java.hpp"

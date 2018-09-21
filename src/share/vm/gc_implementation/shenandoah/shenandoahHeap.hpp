@@ -30,12 +30,10 @@
 #include "gc_implementation/shenandoah/shenandoahHeapLock.hpp"
 #include "gc_implementation/shenandoah/shenandoahEvacOOMHandler.hpp"
 #include "gc_implementation/shenandoah/shenandoahSharedVariables.hpp"
-#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 
 class ConcurrentGCTimer;
 
 class ShenandoahAllocTracker;
-class ShenandoahAsserts;
 class ShenandoahCollectionSet;
 class ShenandoahCollectorPolicy;
 class ShenandoahConcurrentMark;
@@ -223,7 +221,7 @@ public:
   uint max_workers();
   void assert_gc_workers(uint nworker) PRODUCT_RETURN;
 
-  ShenandoahWorkGang* workers() const { return _workers;}
+  ShenandoahWorkGang* workers() const;
 
   void gc_threads_do(ThreadClosure* tcl) const;
 

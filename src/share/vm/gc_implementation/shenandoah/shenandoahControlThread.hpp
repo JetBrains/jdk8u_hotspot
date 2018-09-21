@@ -24,12 +24,12 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTTHREAD_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTTHREAD_HPP
 
+#include "gc_interface/gcCause.hpp"
 #include "gc_implementation/shared/concurrentGCThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahSharedVariables.hpp"
-#include "gc_interface/gcCause.hpp"
-#include "memory/resourceArea.hpp"
 #include "runtime/task.hpp"
+#include "utilities/ostream.hpp"
 
 class ShenandoahControlThread;
 

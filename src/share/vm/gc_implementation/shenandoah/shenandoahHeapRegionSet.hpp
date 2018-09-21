@@ -25,9 +25,9 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGIONSET_HPP
 
 #include "memory/allocation.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 
-class ShenandoahHeap;
-class ShenandoahHeapRegion;
 class ShenandoahHeapRegionSet;
 
 class ShenandoahHeapRegionSetIterator : public StackObj {

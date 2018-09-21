@@ -25,7 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTMARK_HPP
 
 #include "utilities/taskqueue.hpp"
-#include "utilities/workgroup.hpp"
+#include "gc_implementation/shenandoah/shenandoahOopClosures.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 

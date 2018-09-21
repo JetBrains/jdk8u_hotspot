@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+
 #include "gc_implementation/shenandoah/heuristics/shenandoahAdaptiveHeuristics.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"

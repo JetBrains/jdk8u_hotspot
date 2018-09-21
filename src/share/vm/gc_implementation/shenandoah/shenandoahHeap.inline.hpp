@@ -66,6 +66,10 @@ inline bool ShenandoahHeap::has_forwarded_objects() const {
   return _gc_state.is_set(HAS_FORWARDED);
 }
 
+inline ShenandoahWorkGang* ShenandoahHeap::workers() const {
+  return _workers;
+}
+
 inline size_t ShenandoahHeap::heap_region_index_containing(const void* addr) const {
   uintptr_t region_start = ((uintptr_t) addr);
   uintptr_t index = (region_start - (uintptr_t) base()) >> ShenandoahHeapRegion::region_size_bytes_shift();

@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"

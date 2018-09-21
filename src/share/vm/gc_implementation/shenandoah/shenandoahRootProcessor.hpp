@@ -24,24 +24,13 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHROOTPROCESSOR_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHROOTPROCESSOR_HPP
 
-#include "classfile/classLoaderData.hpp"
 #include "code/codeCache.hpp"
-#include "memory/sharedHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahCodeRoots.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "memory/allocation.hpp"
-#include "runtime/mutex.hpp"
-
-class CLDClosure;
-class CodeBlobClosure;
-class G1CollectedHeap;
-class G1GCPhaseTimes;
-class G1ParPushHeapRSClosure;
-class Monitor;
-class OopClosure;
-class SubTasksDone;
+#include "utilities/workgroup.hpp"
 
 class ParallelCLDRootIterator VALUE_OBJ_CLASS_SPEC {
 public:

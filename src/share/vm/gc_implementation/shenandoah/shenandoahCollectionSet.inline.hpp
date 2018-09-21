@@ -25,6 +25,7 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_INLINE_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_INLINE_HPP
 
+#include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 

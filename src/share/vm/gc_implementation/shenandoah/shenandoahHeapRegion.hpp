@@ -25,6 +25,10 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
 
 #include "memory/space.hpp"
+#include "gc_implementation/shenandoah/shenandoahAllocRequest.hpp"
+#include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahPacer.hpp"
 
 class VMStructs;
 

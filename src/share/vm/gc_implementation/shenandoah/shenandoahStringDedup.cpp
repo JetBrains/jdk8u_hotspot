@@ -33,6 +33,7 @@
 #include "gc_implementation/shenandoah/shenandoahStrDedupTable.hpp"
 #include "gc_implementation/shenandoah/shenandoahStrDedupThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahStringDedup.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "runtime/os.hpp"
 #include "utilities/workgroup.hpp"

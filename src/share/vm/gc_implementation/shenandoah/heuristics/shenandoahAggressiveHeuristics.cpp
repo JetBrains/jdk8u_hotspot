@@ -22,10 +22,12 @@
  */
 
 #include "precompiled.hpp"
+
 #include "gc_implementation/shenandoah/heuristics/shenandoahAggressiveHeuristics.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
+#include "runtime/os.hpp"
 
 ShenandoahAggressiveHeuristics::ShenandoahAggressiveHeuristics() : ShenandoahHeuristics() {
   // Do not shortcut evacuation

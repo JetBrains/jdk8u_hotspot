@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
@@ -37,7 +38,6 @@
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "memory/iterator.hpp"
 #include "memory/universe.hpp"
-#include "runtime/vmThread.hpp"
 
 #ifdef _WINDOWS
 #pragma warning(disable : 4355)

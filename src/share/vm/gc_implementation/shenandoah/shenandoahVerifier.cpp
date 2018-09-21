@@ -23,14 +23,15 @@
 
 #include "precompiled.hpp"
 
-#include "memory/allocation.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
-#include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
-#include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
-#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
+#include "memory/allocation.hpp"
+#include "memory/resourceArea.hpp"
 
 // Avoid name collision on verify_oop (defined in macroAssembler_arm.hpp)
 #ifdef verify_oop

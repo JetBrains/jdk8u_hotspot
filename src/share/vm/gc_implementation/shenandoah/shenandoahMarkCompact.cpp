@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+
 #include "code/codeCache.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
@@ -32,7 +33,6 @@
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
-#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
@@ -42,10 +42,10 @@
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkerPolicy.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "oops/oop.inline.hpp"
-#include "runtime/biasedLocking.hpp"
 #include "runtime/thread.hpp"
 #include "utilities/copy.hpp"
 #include "utilities/growableArray.hpp"

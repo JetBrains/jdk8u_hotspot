@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 

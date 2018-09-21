@@ -22,7 +22,8 @@
  */
 
 #include "precompiled.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+
+#include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 

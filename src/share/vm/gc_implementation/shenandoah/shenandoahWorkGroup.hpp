@@ -23,7 +23,8 @@
 
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAH_WORKGROUP_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAH_WORKGROUP_HPP
- 
+
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "utilities/workgroup.hpp"
 #include "memory/allocation.hpp"
 

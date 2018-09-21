@@ -23,20 +23,20 @@
 
 #include "precompiled.hpp"
 
-#include "classfile/javaClasses.hpp"
+#include "classfile/classLoaderData.hpp"
 #include "classfile/systemDictionary.hpp"
 #include "code/codeCache.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
-#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahStringDedup.hpp"
 #include "memory/allocation.inline.hpp"
 #include "runtime/fprofiler.hpp"
-#include "runtime/mutex.hpp"
+#include "memory/resourceArea.hpp"
+#include "runtime/thread.hpp"
 #include "services/management.hpp"
 
 ShenandoahRootProcessor::ShenandoahRootProcessor(ShenandoahHeap* heap, uint n_workers,

@@ -22,24 +22,27 @@
  */
 
 #include "precompiled.hpp"
+
+#include "classfile/symbolTable.hpp"
+#include "classfile/systemDictionary.hpp"
+#include "code/codeCache.hpp"
+
 #include "gc_implementation/shared/parallelCleaning.hpp"
+#include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahBarrierSet.inline.hpp"
-#include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
-#include "gc_implementation/shenandoah/shenandoah_specialized_oop_closures.hpp"
-#include "gc_implementation/shenandoah/shenandoahOopClosures.inline.hpp"
-#include "gc_implementation/shenandoah/brooksPointer.hpp"
-#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
-#include "memory/referenceProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
-#include "code/codeCache.hpp"
-#include "classfile/symbolTable.hpp"
-#include "classfile/systemDictionary.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
+#include "gc_implementation/shenandoah/shenandoah_specialized_oop_closures.hpp"
+
+#include "memory/referenceProcessor.hpp"
 #include "memory/iterator.inline.hpp"
+#include "memory/resourceArea.hpp"
 #include "oops/oop.inline.hpp"
 
 template<UpdateRefsMode UPDATE_REFS>

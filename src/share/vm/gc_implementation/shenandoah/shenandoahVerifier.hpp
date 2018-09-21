@@ -24,14 +24,12 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFIER_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHVERIFIER_HPP
 
-#include "memory/allocation.hpp"
 #include "gc_implementation/shared/markBitMap.hpp"
+#include "oops/oopsHierarchy.hpp"
+#include "memory/allocation.hpp"
 #include "utilities/stack.hpp"
 
-class Thread;
-class ShenandoahHeapRegionSet;
 class ShenandoahHeap;
-class ShenandoahVerifyOopClosure;
 
 class ShenandoahVerifierTask {
 public:
