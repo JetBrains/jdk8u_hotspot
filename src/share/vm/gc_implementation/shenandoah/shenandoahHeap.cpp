@@ -1101,7 +1101,7 @@ void ShenandoahHeap::print_tracing_info() const {
     out->cr();
     out->cr();
 
-    shenandoahPolicy()->print_gc_stats(out);
+    shenandoah_policy()->print_gc_stats(out);
 
     out->cr();
     out->cr();
@@ -1575,12 +1575,12 @@ void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
 
 void ShenandoahHeap::op_degenerated_fail() {
   log_info(gc)("Cannot finish degeneration, upgrading to Full GC");
-  shenandoahPolicy()->record_degenerated_upgrade_to_full();
+  shenandoah_policy()->record_degenerated_upgrade_to_full();
   op_full(GCCause::_shenandoah_upgrade_to_full_gc);
 }
 
 void ShenandoahHeap::op_degenerated_futile() {
-  shenandoahPolicy()->record_degenerated_upgrade_to_full();
+  shenandoah_policy()->record_degenerated_upgrade_to_full();
   op_full(GCCause::_shenandoah_upgrade_to_full_gc);
 }
 
@@ -1688,7 +1688,7 @@ void ShenandoahHeap::release_pending_refs_lock() {
 }
 
 GCTracer* ShenandoahHeap::tracer() {
-  return shenandoahPolicy()->tracer();
+  return shenandoah_policy()->tracer();
 }
 
 size_t ShenandoahHeap::tlab_used(Thread* thread) const {

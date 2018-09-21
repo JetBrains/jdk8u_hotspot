@@ -757,13 +757,13 @@ void ShenandoahConcurrentMark::weak_refs_work_doit(bool full_gc) {
       ShenandoahCMKeepAliveUpdateClosure keep_alive(get_queue(serial_worker_id));
       rp->process_discovered_references(&is_alive, &keep_alive,
                                         &complete_gc, &executor,
-                                        NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+                                        NULL, sh->shenandoah_policy()->tracer()->gc_id());
     } else {
       ShenandoahIsAliveClosure is_alive;
       ShenandoahCMKeepAliveClosure keep_alive(get_queue(serial_worker_id));
       rp->process_discovered_references(&is_alive, &keep_alive,
                                         &complete_gc, &executor,
-                                        NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+                                        NULL, sh->shenandoah_policy()->tracer()->gc_id());
     }
 
     assert(task_queues()->is_empty(), "Should be empty");
@@ -853,14 +853,14 @@ void ShenandoahConcurrentMark::preclean_weak_refs() {
     ResourceMark rm;
     rp->preclean_discovered_references(&is_alive, &keep_alive,
                                        &complete_gc, &yield,
-                                       NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+                                       NULL, sh->shenandoah_policy()->tracer()->gc_id());
   } else {
     ShenandoahIsAliveClosure is_alive;
     ShenandoahCMKeepAliveClosure keep_alive(get_queue(0));
     ResourceMark rm;
     rp->preclean_discovered_references(&is_alive, &keep_alive,
                                        &complete_gc, &yield,
-                                       NULL, sh->shenandoahPolicy()->tracer()->gc_id());
+                                       NULL, sh->shenandoah_policy()->tracer()->gc_id());
   }
 
   assert(task_queues()->is_empty(), "Should be empty");
