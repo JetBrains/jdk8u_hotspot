@@ -527,11 +527,6 @@ bool ShenandoahHeap::is_in(const void* p) const {
   return p >= heap_base && p < last_region_end;
 }
 
-bool ShenandoahHeap::is_in_partial_collection(const void* p ) {
-  Unimplemented();
-  return false;
-}
-
 void ShenandoahHeap::op_uncommit(double shrink_before) {
   assert (ShenandoahUncommit, "should be enabled");
 
@@ -1006,27 +1001,6 @@ void ShenandoahHeap::accumulate_statistics_all_gclabs() {
   ShenandoahAccumulateStatisticsGCLABClosure cl;
   Threads::java_threads_do(&cl);
   _workers->threads_do(&cl);
-}
-
-bool  ShenandoahHeap::can_elide_tlab_store_barriers() const {
-  return true;
-}
-
-oop ShenandoahHeap::new_store_pre_barrier(JavaThread* thread, oop new_obj) {
-  // Overridden to do nothing.
-  return new_obj;
-}
-
-bool  ShenandoahHeap::can_elide_initializing_store_barrier(oop new_obj) {
-  return true;
-}
-
-bool ShenandoahHeap::card_mark_must_follow_store() const {
-  return false;
-}
-
-bool ShenandoahHeap::supports_heap_inspection() const {
-  return false;
 }
 
 void ShenandoahHeap::collect(GCCause::Cause cause) {
@@ -1890,6 +1864,12 @@ void ShenandoahHeap::assert_gc_workers(uint nworkers) {
   }
 }
 #endif
+
+ShenandoahVerifier* ShenandoahHeap::verifier() {
+  guarantee(ShenandoahVerify, "Should be enabled");
+  assert (_verifier != NULL, "sanity");
+  return _verifier;
+}
 
 ShenandoahUpdateHeapRefsClosure::ShenandoahUpdateHeapRefsClosure() :
   _heap(ShenandoahHeap::heap()) {}
