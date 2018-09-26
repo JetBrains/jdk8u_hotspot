@@ -535,17 +535,6 @@ public:
     msr(0b011, 0b0100, 0b0100, 0b001, zr);
   }
 
-  // Macro instructions for accessing and updating the condition flags
-  inline void get_nzcv(Register reg)
-  {
-    mrs(0b011, 0b0100, 0b0010, 0b000, reg);
-  }
-
-  inline void set_nzcv(Register reg)
-  {
-    msr(0b011, 0b0100, 0b0010, 0b000, reg);
-  }
-
   // DCZID_EL0: op1 == 011
   //            CRn == 0000
   //            CRm == 0000
