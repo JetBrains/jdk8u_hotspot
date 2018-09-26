@@ -304,7 +304,7 @@
           "larger than this threshold would be reported as warnings. "      \
           "Time is in microseconds.")                                       \
                                                                             \
-  develop(bool, VerifyStrictOopOperations, false,                           \
+  develop(bool, VerifyObjectEquals, false,                                  \
           "Verify that == and != are not used on oops. Only in fastdebug")  \
                                                                             \
   develop(bool, ShenandoahVerifyOptoBarriers, false,                        \
