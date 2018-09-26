@@ -55,6 +55,7 @@ public class TestExplicitGCNoConcurrent {
 
         for (String opt : opts) {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
+                                    "-XX:+UnlockExperimentalVMOptions",
                                     "-XX:+UseShenandoahGC",
                                     "-verbose:gc",
                                     "-XX:+UnlockDiagnosticVMOptions",

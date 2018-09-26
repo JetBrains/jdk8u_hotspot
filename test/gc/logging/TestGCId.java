@@ -64,17 +64,17 @@ public class TestGCId {
   private static void testGCId(String gcFlag, String logFlag) throws Exception {
     // GCID logging enabled
     ProcessBuilder pb_enabled =
-      ProcessTools.createJavaProcessBuilder("-XX:+" + gcFlag, "-XX:+" + logFlag, "-Xmx10M", "-XX:+PrintGCID", GCTest.class.getName());
+      ProcessTools.createJavaProcessBuilder("-XX:+UnlockExperimentalVMOptions", "-XX:+" + gcFlag, "-XX:+" + logFlag, "-Xmx10M", "-XX:+PrintGCID", GCTest.class.getName());
     verifyContainsGCIDs(new OutputAnalyzer(pb_enabled.start()));
 
     // GCID logging disabled
     ProcessBuilder pb_disabled =
-      ProcessTools.createJavaProcessBuilder("-XX:+" + gcFlag, "-XX:+" + logFlag, "-Xmx10M", "-XX:-PrintGCID", GCTest.class.getName());
+      ProcessTools.createJavaProcessBuilder("-XX:+UnlockExperimentalVMOptions", "-XX:+" + gcFlag, "-XX:+" + logFlag, "-Xmx10M", "-XX:-PrintGCID", GCTest.class.getName());
     verifyContainsNoGCIDs(new OutputAnalyzer(pb_disabled.start()));
 
     // GCID logging default
     ProcessBuilder pb_default =
-      ProcessTools.createJavaProcessBuilder("-XX:+" + gcFlag, "-XX:+" + logFlag, "-Xmx10M", GCTest.class.getName());
+      ProcessTools.createJavaProcessBuilder("-XX:+UnlockExperimentalVMOptions", "-XX:+" + gcFlag, "-XX:+" + logFlag, "-Xmx10M", GCTest.class.getName());
     verifyContainsNoGCIDs(new OutputAnalyzer(pb_default.start()));
   }
 

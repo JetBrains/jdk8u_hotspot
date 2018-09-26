@@ -57,6 +57,7 @@ public class TestExplicitGC {
 
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
+                                    "-XX:+UnlockExperimentalVMOptions",
                                     "-XX:+UseShenandoahGC",
                                     "-verbose:gc",
                                     TestExplicitGC.class.getName(),
@@ -72,6 +73,7 @@ public class TestExplicitGC {
 
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
+                                    "-XX:+UnlockExperimentalVMOptions",
                                     "-XX:+UseShenandoahGC",
                                     "-verbose:gc",
                                     "-XX:+DisableExplicitGC",
@@ -88,6 +90,7 @@ public class TestExplicitGC {
 
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
+                                    "-XX:+UnlockExperimentalVMOptions",
                                     "-XX:+UseShenandoahGC",
                                     "-verbose:gc",
                                     "-XX:+ExplicitGCInvokesConcurrent",
@@ -104,6 +107,7 @@ public class TestExplicitGC {
 
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
+                                    "-XX:+UnlockExperimentalVMOptions",
                                     "-XX:+UseShenandoahGC",
                                     "-verbose:gc",
                                     "-XX:-ExplicitGCInvokesConcurrent",

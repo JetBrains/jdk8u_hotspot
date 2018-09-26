@@ -24,10 +24,10 @@
  /*
  * @test TestShenandoahWithLogLevel.java
  * @summary Test Shenandoah with different log levels
- * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogWarning TestShenandoahWithLogLevel
- * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogInfo    TestShenandoahWithLogLevel
- * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogDebug   TestShenandoahWithLogLevel
- * @run main/othervm -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogTrace   TestShenandoahWithLogLevel
+ * @run main/othervm -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogWarning TestShenandoahWithLogLevel
+ * @run main/othervm -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogInfo    TestShenandoahWithLogLevel
+ * @run main/othervm -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogDebug   TestShenandoahWithLogLevel
+ * @run main/othervm -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC -Xms256M -Xmx1G -XX:+ShenandoahLogTrace   TestShenandoahWithLogLevel
  */
 
 

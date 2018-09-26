@@ -72,9 +72,9 @@ public class TestPeriodicGC {
             testWith("Short period with " + h,
                 true,
                 "-verbose:gc",
-                "-XX:+UseShenandoahGC",
                 "-XX:+UnlockDiagnosticVMOptions",
                 "-XX:+UnlockExperimentalVMOptions",
+                "-XX:+UseShenandoahGC",
                 "-XX:ShenandoahGCHeuristics=" + h,
                 "-XX:ShenandoahGuaranteedGCInterval=1000"
             );
@@ -82,9 +82,9 @@ public class TestPeriodicGC {
             testWith("Long period with " + h,
                 false,
                 "-verbose:gc",
-                "-XX:+UseShenandoahGC",
                 "-XX:+UnlockDiagnosticVMOptions",
                 "-XX:+UnlockExperimentalVMOptions",
+                "-XX:+UseShenandoahGC",
                 "-XX:ShenandoahGCHeuristics=" + h,
                 "-XX:ShenandoahGuaranteedGCInterval=100000" // deliberately too long
             );
@@ -94,9 +94,9 @@ public class TestPeriodicGC {
             testWith("Short period with " + h,
                 false,
                 "-verbose:gc",
-                "-XX:+UseShenandoahGC",
                 "-XX:+UnlockDiagnosticVMOptions",
                 "-XX:+UnlockExperimentalVMOptions",
+                "-XX:+UseShenandoahGC",
                 "-XX:ShenandoahGCHeuristics=" + h,
                 "-XX:ShenandoahGuaranteedGCInterval=1000"
             );
