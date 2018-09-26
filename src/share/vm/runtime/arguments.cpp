@@ -1775,11 +1775,13 @@ void Arguments::set_shenandoah_gc_flags() {
   }
 #endif
 
+#if INCLUDE_ALL_GCS
   if (UseLargePages && (MaxHeapSize / os::large_page_size()) < ShenandoahHeapRegion::MIN_NUM_REGIONS) {
     warning("Large pages size (" SIZE_FORMAT "K) is too large to afford page-sized regions, disabling uncommit",
             os::large_page_size() / K);
     FLAG_SET_DEFAULT(ShenandoahUncommit, false);
   }
+#endif
 
   FLAG_SET_DEFAULT(ParallelGCThreads,
                    Abstract_VM_Version::parallel_worker_threads());
