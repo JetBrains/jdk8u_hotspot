@@ -121,178 +121,10 @@ void ShenandoahPhaseTimings::print_summary_sd(outputStream* out, const char* str
 }
 
 void ShenandoahPhaseTimings::init_phase_names() {
-  _phase_names[total_pause]                     = "Total Pauses (N)";
-  _phase_names[total_pause_gross]               = "Total Pauses (G)";
-  _phase_names[init_mark]                       = "Pause Init Mark (N)";
-  _phase_names[init_mark_gross]                 = "Pause Init Mark (G)";
-  _phase_names[final_mark]                      = "Pause Final Mark (N)";
-  _phase_names[final_mark_gross]                = "Pause Final Mark (G)";
-  _phase_names[final_evac]                      = "Pause Final Evac (N)";
-  _phase_names[final_evac_gross]                = "Pause Final Evac (G)";
-  _phase_names[accumulate_stats]                = "  Accumulate Stats";
-  _phase_names[make_parsable]                   = "  Make Parsable";
-  _phase_names[clear_liveness]                  = "  Clear Liveness";
-  _phase_names[resize_tlabs]                    = "  Resize TLABs";
-  _phase_names[finish_queues]                   = "  Finish Queues";
-  _phase_names[termination]                     = "    Termination";
-  _phase_names[weakrefs]                        = "  Weak References";
-  _phase_names[weakrefs_process]                = "    Process";
-  _phase_names[weakrefs_termination]            = "      Termination";
-  _phase_names[weakrefs_enqueue]                = "    Enqueue";
-  _phase_names[purge]                           = "  System Purge";
-  _phase_names[purge_class_unload]              = "    Unload Classes";
-  _phase_names[purge_par]                       = "    Parallel Cleanup";
-  _phase_names[purge_string_dedup]              = "    String Dedup";
-  _phase_names[purge_cldg]                      = "    CLDG";
-  _phase_names[complete_liveness]               = "  Complete Liveness";
-  _phase_names[prepare_evac]                    = "  Prepare Evacuation";
-
-  _phase_names[scan_roots]                      = "  Scan Roots";
-  _phase_names[scan_thread_roots]               = "    S: Thread Roots";
-  _phase_names[scan_code_roots]                 = "    S: Code Cache Roots";
-  _phase_names[scan_string_table_roots]         = "    S: String Table Roots";
-  _phase_names[scan_universe_roots]             = "    S: Universe Roots";
-  _phase_names[scan_jni_roots]                  = "    S: JNI Roots";
-  _phase_names[scan_jni_weak_roots]             = "    S: JNI Weak Roots";
-  _phase_names[scan_synchronizer_roots]         = "    S: Synchronizer Roots";
-  _phase_names[scan_flat_profiler_roots]        = "    S: Flat Profiler Roots";
-  _phase_names[scan_management_roots]           = "    S: Management Roots";
-  _phase_names[scan_system_dictionary_roots]    = "    S: System Dict Roots";
-  _phase_names[scan_cldg_roots]                 = "    S: CLDG Roots";
-  _phase_names[scan_jvmti_roots]                = "    S: JVMTI Roots";
-  _phase_names[scan_string_dedup_roots]         = "    S: String Dedup Roots";
-  _phase_names[scan_finish_queues]              = "    S: Finish Queues";
-
-  _phase_names[update_roots]                    = "  Update Roots";
-  _phase_names[update_thread_roots]             = "    U: Thread Roots";
-  _phase_names[update_code_roots]               = "    U: Code Cache Roots";
-  _phase_names[update_string_table_roots]       = "    U: String Table Roots";
-  _phase_names[update_universe_roots]           = "    U: Universe Roots";
-  _phase_names[update_jni_roots]                = "    U: JNI Roots";
-  _phase_names[update_jni_weak_roots]           = "    U: JNI Weak Roots";
-  _phase_names[update_synchronizer_roots]       = "    U: Synchronizer Roots";
-  _phase_names[update_flat_profiler_roots]      = "    U: Flat Profiler Roots";
-  _phase_names[update_management_roots]         = "    U: Management Roots";
-  _phase_names[update_system_dictionary_roots]  = "    U: System Dict Roots";
-  _phase_names[update_cldg_roots]               = "    U: CLDG Roots";
-  _phase_names[update_jvmti_roots]              = "    U: JVMTI Roots";
-  _phase_names[update_string_dedup_roots]       = "    U: String Dedup Roots";
-  _phase_names[update_finish_queues]            = "    U: Finish Queues";
-
-  _phase_names[init_evac]                       = "  Initial Evacuation";
-  _phase_names[evac_thread_roots]               = "    E: Thread Roots";
-  _phase_names[evac_code_roots]                 = "    E: Code Cache Roots";
-  _phase_names[evac_string_table_roots]         = "    E: String Table Roots";
-  _phase_names[evac_universe_roots]             = "    E: Universe Roots";
-  _phase_names[evac_jni_roots]                  = "    E: JNI Roots";
-  _phase_names[evac_jni_weak_roots]             = "    E: JNI Weak Roots";
-  _phase_names[evac_synchronizer_roots]         = "    E: Synchronizer Roots";
-  _phase_names[evac_flat_profiler_roots]        = "    E: Flat Profiler Roots";
-  _phase_names[evac_management_roots]           = "    E: Management Roots";
-  _phase_names[evac_system_dictionary_roots]    = "    E: System Dict Roots";
-  _phase_names[evac_cldg_roots]                 = "    E: CLDG Roots";
-  _phase_names[evac_jvmti_roots]                = "    E: JVMTI Roots";
-  _phase_names[evac_string_dedup_roots]         = "    E: String Dedup Roots";
-  _phase_names[evac_finish_queues]              = "    E: Finish Queues";
-
-  _phase_names[recycle_regions]                 = "  Recycle regions";
-
-  _phase_names[degen_gc_gross]                  = "Pause Degenerated GC (G)";
-  _phase_names[degen_gc]                        = "Pause Degenerated GC (N)";
-  _phase_names[degen_gc_update_roots]           = "  Degen Update Roots";
-  _phase_names[degen_gc_update_thread_roots]        = "    DU: Thread Roots";
-  _phase_names[degen_gc_update_code_roots]          = "    DU: Code Cache Roots";
-  _phase_names[degen_gc_update_string_table_roots]  = "    DU: String Table Roots";
-  _phase_names[degen_gc_update_universe_roots]      = "    DU: Universe Roots";
-  _phase_names[degen_gc_update_jni_roots]           = "    DU: JNI Roots";
-  _phase_names[degen_gc_update_jni_weak_roots]      = "    DU: JNI Weak Roots";
-  _phase_names[degen_gc_update_synchronizer_roots]  = "    DU: Synchronizer Roots";
-  _phase_names[degen_gc_update_flat_profiler_roots] = "    DU: Flat Profiler Roots";
-  _phase_names[degen_gc_update_management_roots]    = "    DU: Management Roots";
-  _phase_names[degen_gc_update_system_dict_roots]   = "    DU: System Dict Roots";
-  _phase_names[degen_gc_update_cldg_roots]          = "    DU: CLDG Roots";
-  _phase_names[degen_gc_update_jvmti_roots]         = "    DU: JVMTI Roots";
-  _phase_names[evac_string_dedup_roots]             = "    DU: String Dedup Roots";
-  _phase_names[degen_gc_update_finish_queues]       = "    DU: Finish Queues";
-
-  _phase_names[full_gc_gross]                   = "Pause Full GC (G)";
-  _phase_names[full_gc]                         = "Pause Full GC (N)";
-  _phase_names[full_gc_heapdumps]               = "  Heap Dumps";
-  _phase_names[full_gc_prepare]                 = "  Prepare";
-  _phase_names[full_gc_roots]                   = "  Roots";
-  _phase_names[full_gc_thread_roots]            = "    F: Thread Roots";
-  _phase_names[full_gc_code_roots]              = "    F: Code Cache Roots";
-  _phase_names[full_gc_string_table_roots]      = "    F: String Table Roots";
-  _phase_names[full_gc_universe_roots]          = "    F: Universe Roots";
-  _phase_names[full_gc_jni_roots]               = "    F: JNI Roots";
-  _phase_names[full_gc_jni_weak_roots]          = "    F: JNI Weak Roots";
-  _phase_names[full_gc_synchronizer_roots]      = "    F: Synchronizer Roots";
-  _phase_names[full_gc_flat_profiler_roots]     = "    F: Flat Profiler Roots";
-  _phase_names[full_gc_management_roots]        = "    F: Management Roots";
-  _phase_names[full_gc_system_dictionary_roots] = "    F: System Dict Roots";
-  _phase_names[full_gc_cldg_roots]              = "    F: CLDG Roots";
-  _phase_names[full_gc_jvmti_roots]             = "    F: JVMTI Roots";
-  _phase_names[full_gc_string_dedup_roots]      = "    F: String Dedup Roots";
-  _phase_names[full_gc_finish_queues]           = "    F: Finish Queues";
-  _phase_names[full_gc_mark]                    = "  Mark";
-  _phase_names[full_gc_mark_finish_queues]      = "    Finish Queues";
-  _phase_names[full_gc_mark_termination]        = "      Termination";
-  _phase_names[full_gc_weakrefs]                = "    Weak References";
-  _phase_names[full_gc_weakrefs_process]        = "      Process";
-  _phase_names[full_gc_weakrefs_termination]    = "        Termination";
-  _phase_names[full_gc_weakrefs_enqueue]        = "      Enqueue";
-  _phase_names[full_gc_purge]                   = "    System Purge";
-  _phase_names[full_gc_purge_class_unload]      = "      Unload Classes";
-  _phase_names[full_gc_purge_par]               = "      Parallel Cleanup";
-  _phase_names[full_gc_purge_cldg]              = "      CLDG";
-  _phase_names[full_gc_purge_string_dedup]      = "      Purge String Dedup";
-  _phase_names[full_gc_calculate_addresses]     = "  Calculate Addresses";
-  _phase_names[full_gc_calculate_addresses_regular] = "    Regular Objects";
-  _phase_names[full_gc_calculate_addresses_humong]  = "    Humongous Objects";
-  _phase_names[full_gc_adjust_pointers]         = "  Adjust Pointers";
-  _phase_names[full_gc_copy_objects]            = "  Copy Objects";
-  _phase_names[full_gc_copy_objects_regular]    = "    Regular Objects";
-  _phase_names[full_gc_copy_objects_humong]     = "    Humongous Objects";
-  _phase_names[full_gc_copy_objects_reset_complete] = "    Reset Complete Bitmap";
-  _phase_names[full_gc_copy_objects_rebuild]     = "    Rebuild Region Sets";
-  _phase_names[full_gc_update_str_dedup_table]  = "  Update String Dedup Table";
-  _phase_names[full_gc_resize_tlabs]            = "  Resize TLABs";
-
-  _phase_names[pause_other]                     = "Pause Other";
-
-  _phase_names[conc_reset]                      = "Concurrent Reset";
-  _phase_names[conc_mark]                       = "Concurrent Marking";
-  _phase_names[conc_termination]                = "  Termination";
-  _phase_names[conc_preclean]                   = "Concurrent Precleaning";
-  _phase_names[conc_evac]                       = "Concurrent Evacuation";
-  _phase_names[conc_cleanup]                    = "Concurrent Cleanup";
-  _phase_names[conc_other]                      = "Concurrent Other";
-
-  _phase_names[conc_uncommit]                   = "Concurrent Uncommit";
-
-  _phase_names[init_update_refs_gross]          = "Pause Init  Update Refs (G)";
-  _phase_names[init_update_refs]                = "Pause Init  Update Refs (N)";
-  _phase_names[conc_update_refs]                = "Concurrent Update Refs";
-  _phase_names[final_update_refs_gross]         = "Pause Final Update Refs (G)";
-  _phase_names[final_update_refs]               = "Pause Final Update Refs (N)";
-
-  _phase_names[final_update_refs_finish_work]          = "  Finish Work";
-  _phase_names[final_update_refs_roots]                = "  Update Roots";
-  _phase_names[final_update_refs_thread_roots]         = "    UR: Thread Roots";
-  _phase_names[final_update_refs_code_roots]           = "    UR: Code Cache Roots";
-  _phase_names[final_update_refs_string_table_roots]   = "    UR: String Table Roots";
-  _phase_names[final_update_refs_universe_roots]       = "    UR: Universe Roots";
-  _phase_names[final_update_refs_jni_roots]            = "    UR: JNI Roots";
-  _phase_names[final_update_refs_jni_weak_roots]       = "    UR: JNI Weak Roots";
-  _phase_names[final_update_refs_synchronizer_roots]   = "    UR: Synchronizer Roots";
-  _phase_names[final_update_refs_flat_profiler_roots]  = "    UR: Flat Profiler Roots";
-  _phase_names[final_update_refs_management_roots]     = "    UR: Management Roots";
-  _phase_names[final_update_refs_system_dict_roots]    = "    UR: System Dict Roots";
-  _phase_names[final_update_refs_cldg_roots]           = "    UR: CLDG Roots";
-  _phase_names[final_update_refs_jvmti_roots]          = "    UR: JVMTI Roots";
-  _phase_names[final_update_refs_string_dedup_roots]   = "    UR: String Dedup Roots";
-  _phase_names[final_update_refs_finish_queues]        = "    UR: Finish Queues";
-  _phase_names[final_update_refs_recycle]              = "  Recycle";
+#define GC_PHASE_DECLARE_NAME(type, title) \
+  _phase_names[type] = title;
+  SHENANDOAH_GC_PHASE_DO(GC_PHASE_DECLARE_NAME)
+#undef GC_PHASE_DECLARE_NAME
 }
 
 ShenandoahWorkerTimings::ShenandoahWorkerTimings(uint max_gc_threads) :
@@ -300,21 +132,11 @@ ShenandoahWorkerTimings::ShenandoahWorkerTimings(uint max_gc_threads) :
 {
   assert(max_gc_threads > 0, "Must have some GC threads");
 
+#define GC_PAR_PHASE_DECLARE_WORKER_DATA(type, title) \
+  _gc_par_phases[ShenandoahPhaseTimings::type] = new ShenandoahWorkerDataArray<double>(max_gc_threads, title);
   // Root scanning phases
-  _gc_par_phases[ShenandoahPhaseTimings::ThreadRoots]             = new ShenandoahWorkerDataArray<double>(max_gc_threads, "Thread Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::CodeCacheRoots]          = new ShenandoahWorkerDataArray<double>(max_gc_threads, "CodeCache Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::StringTableRoots]        = new ShenandoahWorkerDataArray<double>(max_gc_threads, "StringTable Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::UniverseRoots]           = new ShenandoahWorkerDataArray<double>(max_gc_threads, "Universe Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::JNIRoots]                = new ShenandoahWorkerDataArray<double>(max_gc_threads, "JNI Handles Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::JNIWeakRoots]            = new ShenandoahWorkerDataArray<double>(max_gc_threads, "JNI Weak Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::ObjectSynchronizerRoots] = new ShenandoahWorkerDataArray<double>(max_gc_threads, "ObjectSynchronizer Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::FlatProfilerRoots]       = new ShenandoahWorkerDataArray<double>(max_gc_threads, "FlatProfiler Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::ManagementRoots]         = new ShenandoahWorkerDataArray<double>(max_gc_threads, "Management Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::SystemDictionaryRoots]   = new ShenandoahWorkerDataArray<double>(max_gc_threads, "SystemDictionary Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::CLDGRoots]               = new ShenandoahWorkerDataArray<double>(max_gc_threads, "CLDG Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::JVMTIRoots]              = new ShenandoahWorkerDataArray<double>(max_gc_threads, "JVMTI Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::StringDedupRoots]        = new ShenandoahWorkerDataArray<double>(max_gc_threads, "String Dedup Roots (ms):");
-  _gc_par_phases[ShenandoahPhaseTimings::FinishQueues]            = new ShenandoahWorkerDataArray<double>(max_gc_threads, "Finish Queues (ms):");
+  SHENANDOAH_GC_PAR_PHASE_DO(GC_PAR_PHASE_DECLARE_WORKER_DATA)
+#undef GC_PAR_PHASE_DECLARE_WORKER_DATA
 }
 
 // record the time a phase took in seconds
