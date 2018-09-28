@@ -934,7 +934,7 @@ public:
   void verify_FPU(int stack_depth, const char* s = "illegal FPU state");
 
   // prints msg, dumps registers and stops execution
-  void stop(const char* msg, Label *l = NULL);
+  void stop(const char* msg);
 
   // prints msg and continues
   void warn(const char* msg);

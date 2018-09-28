@@ -2011,19 +2011,11 @@ void MacroAssembler::verify_heapbase(const char* msg) {
 }
 #endif
 
-void MacroAssembler::stop(const char* msg, Label *l) {
+void MacroAssembler::stop(const char* msg) {
   address ip = pc();
   pusha();
-  // We use movptr rather than mov here because we need code size not
-  // to depend on the pointer value of msg otherwise C2 can observe
-  // the same node with different sizes when emitted in a scratch
-  // buffer and later when emitted for good.
-  movptr(c_rarg0, (uintptr_t)msg);
-  if (! l) {
-    adr(c_rarg1, (address)ip);
-  } else {
-    adr(c_rarg1, *l);
-  }
+  mov(c_rarg0, (address)msg);
+  mov(c_rarg1, (address)ip);
   mov(c_rarg2, sp);
   mov(c_rarg3, CAST_FROM_FN_PTR(address, MacroAssembler::debug64));
   // call(c_rarg3);

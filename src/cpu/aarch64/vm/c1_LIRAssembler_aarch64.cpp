@@ -2055,12 +2055,6 @@ void LIR_Assembler::comp_op(LIR_Condition condition, LIR_Opr opr1, LIR_Opr opr2,
         break;
       }
 
-      if (opr2->type() == T_OBJECT || opr2->type() == T_ARRAY) {
-        jobject2reg(opr2->as_constant_ptr()->as_jobject(), rscratch1);
-        __ cmpoops(reg1, rscratch1);
-        return;
-      }
-
       if (Assembler::operand_valid_for_add_sub_immediate(imm)) {
         if (is_32bit)
           __ cmpw(reg1, imm);
