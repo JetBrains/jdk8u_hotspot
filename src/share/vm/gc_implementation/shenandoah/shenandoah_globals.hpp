@@ -228,9 +228,6 @@
   experimental(bool, ShenandoahWriteBarrierCsetTestInIR, true,              \
           "Perform cset test in IR rather than in the stub")                \
                                                                             \
-  experimental(bool, UseShenandoahOWST, true,                               \
-          "Use Shenandoah work stealing termination protocol")              \
-                                                                            \
   experimental(size_t, ShenandoahSATBBufferSize, 1 * K,                     \
           "Number of entries in an SATB log buffer.")                       \
                                                                             \
