@@ -1591,12 +1591,22 @@ void ShenandoahHeap::force_satb_flush_all_threads() {
     return;
   }
 
-  MutexLocker ml(Threads_lock);
-  JavaThread::set_force_satb_flush_all_threads(true);
+  // Do not block if Threads lock is busy. This avoids the potential deadlock
+  // when this code is called from the periodic task, and something else is
+  // expecting the periodic task to complete without blocking. On the off-chance
+  // Threads lock is busy momentarily, try to acquire several times.
+  for (int t = 0; t < 10; t++) {
+    if (Threads_lock->try_lock()) {
+      JavaThread::set_force_satb_flush_all_threads(true);
+      Threads_lock->unlock();
 
-  // The threads are not "acquiring" their thread-local data, but it does not
-  // hurt to "release" the updates here anyway.
-  OrderAccess::fence();
+      // The threads are not "acquiring" their thread-local data, but it does not
+      // hurt to "release" the updates here anyway.
+      OrderAccess::fence();
+      break;
+    }
+    os::naked_short_sleep(1);
+  }
 }
 
 
