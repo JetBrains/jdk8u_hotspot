@@ -197,11 +197,13 @@ inline void ShenandoahConcurrentMark::do_chunked_array(ShenandoahObjToScanQueue*
 class ShenandoahSATBBufferClosure : public SATBBufferClosure {
 private:
   ShenandoahObjToScanQueue* _queue;
+  ShenandoahStrDedupQueue* _dedup_queue;
   ShenandoahHeap* _heap;
   ShenandoahMarkingContext* const _mark_context;
 public:
-  ShenandoahSATBBufferClosure(ShenandoahObjToScanQueue* q) :
+  ShenandoahSATBBufferClosure(ShenandoahObjToScanQueue* q, ShenandoahStrDedupQueue* dq) :
     _queue(q),
+    _dedup_queue(dq),
     _heap(ShenandoahHeap::heap()),
     _mark_context(_heap->marking_context())
   {
@@ -209,17 +211,25 @@ public:
 
   void do_buffer(void **buffer, size_t size) {
     if (_heap->has_forwarded_objects()) {
-      do_buffer_impl<RESOLVE>(buffer, size);
+      if (ShenandoahStringDedup::is_enabled()) {
+        do_buffer_impl<RESOLVE, ENQUEUE_DEDUP>(buffer, size);
+      } else {
+        do_buffer_impl<RESOLVE, NO_DEDUP>(buffer, size);
+      }
     } else {
-      do_buffer_impl<NONE>(buffer, size);
+      if (ShenandoahStringDedup::is_enabled()) {
+        do_buffer_impl<NONE, ENQUEUE_DEDUP>(buffer, size);
+      } else {
+        do_buffer_impl<NONE, NO_DEDUP>(buffer, size);
+      }
     }
   }
 
-  template<UpdateRefsMode UPDATE_REFS>
+  template<UpdateRefsMode UPDATE_REFS, StringDedupMode STRING_DEDUP>
   void do_buffer_impl(void **buffer, size_t size) {
     for (size_t i = 0; i < size; ++i) {
       oop *p = (oop *) &buffer[i];
-      ShenandoahConcurrentMark::mark_through_ref<oop, UPDATE_REFS, NO_DEDUP>(p, _heap, _queue, _mark_context);
+      ShenandoahConcurrentMark::mark_through_ref<oop, UPDATE_REFS, STRING_DEDUP>(p, _heap, _queue, _mark_context, _dedup_queue);
     }
   }
 };

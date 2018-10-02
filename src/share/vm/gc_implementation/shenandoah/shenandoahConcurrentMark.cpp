@@ -45,22 +45,24 @@
 #include "memory/resourceArea.hpp"
 #include "oops/oop.inline.hpp"
 
-template<UpdateRefsMode UPDATE_REFS>
+template<UpdateRefsMode UPDATE_REFS, StringDedupMode STRING_DEDUP>
 class ShenandoahInitMarkRootsClosure : public OopClosure {
 private:
   ShenandoahObjToScanQueue* _queue;
   ShenandoahHeap* _heap;
+  ShenandoahStrDedupQueue*  _dedup_queue;
   ShenandoahMarkingContext* const _mark_context;
 
   template <class T>
   inline void do_oop_nv(T* p) {
-    ShenandoahConcurrentMark::mark_through_ref<T, UPDATE_REFS, NO_DEDUP>(p, _heap, _queue, _mark_context);
+    ShenandoahConcurrentMark::mark_through_ref<T, UPDATE_REFS, STRING_DEDUP>(p, _heap, _queue, _mark_context, _dedup_queue);
   }
 
 public:
-  ShenandoahInitMarkRootsClosure(ShenandoahObjToScanQueue* q) :
+  ShenandoahInitMarkRootsClosure(ShenandoahObjToScanQueue* q, ShenandoahStrDedupQueue* dq) :
     _queue(q),
     _heap(ShenandoahHeap::heap()),
+    _dedup_queue(dq),
     _mark_context(_heap->marking_context()) {};
 
   void do_oop(narrowOop* p) { do_oop_nv(p); }
@@ -106,10 +108,18 @@ public:
     assert(queues->get_reserved() > worker_id, err_msg("Queue has not been reserved for worker id: %d", worker_id));
 
     ShenandoahObjToScanQueue* q = queues->queue(worker_id);
-    ShenandoahInitMarkRootsClosure<UPDATE_REFS> mark_cl(q);
-    CLDToOopClosure cldCl(&mark_cl);
-    MarkingCodeBlobClosure blobsCl(&mark_cl, ! CodeBlobToOopClosure::FixRelocations);
+    if (ShenandoahStringDedup::is_enabled()) {
+      ShenandoahStrDedupQueue *dq = ShenandoahStringDedup::queue(worker_id);
+      ShenandoahInitMarkRootsClosure<UPDATE_REFS, ENQUEUE_DEDUP> mark_cl(q, dq);
+      do_work(heap, &mark_cl, worker_id);
+    } else {
+      ShenandoahInitMarkRootsClosure<UPDATE_REFS, NO_DEDUP> mark_cl(q, NULL);
+      do_work(heap, &mark_cl, worker_id);
+    }
+  }
 
+private:
+  void do_work(ShenandoahHeap* heap, OopClosure* oops, uint worker_id) {
     // The rationale for selecting the roots to scan is as follows:
     //   a. With unload_classes = true, we only want to scan the actual strong roots from the
     //      code cache. This will allow us to identify the dead classes, unload them, *and*
@@ -123,9 +133,13 @@ public:
     //      and instead do that in concurrent phase under the relevant lock. This saves init mark
     //      pause time.
 
+    CLDToOopClosure clds_cl(oops);
+    MarkingCodeBlobClosure blobs_cl(oops, ! CodeBlobToOopClosure::FixRelocations);
+    OopClosure* weak_oops = _process_refs ? NULL : oops;
+
     ResourceMark m;
     if (heap->unload_classes()) {
-      _rp->process_strong_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, NULL, &blobsCl, NULL, worker_id);
+      _rp->process_strong_roots(oops, weak_oops, &clds_cl, NULL, &blobs_cl, NULL, worker_id);
     } else {
       if (ShenandoahConcurrentScanCodeRoots) {
         CodeBlobClosure* code_blobs = NULL;
@@ -138,9 +152,9 @@ public:
           code_blobs = &assert_to_space;
         }
 #endif
-        _rp->process_all_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, code_blobs, NULL, worker_id);
+        _rp->process_all_roots(oops, weak_oops, &clds_cl, code_blobs, NULL, worker_id);
       } else {
-        _rp->process_all_roots(&mark_cl, _process_refs ? NULL : &mark_cl, &cldCl, &blobsCl, NULL, worker_id);
+        _rp->process_all_roots(oops, weak_oops, &clds_cl, &blobs_cl, NULL, worker_id);
       }
     }
   }
@@ -255,7 +269,11 @@ public:
     // full-gc.
     {
       ShenandoahObjToScanQueue* q = _cm->get_queue(worker_id);
-      ShenandoahSATBBufferClosure cl(q);
+      ShenandoahStrDedupQueue *dq = NULL;
+      if (ShenandoahStringDedup::is_enabled()) {
+         dq = ShenandoahStringDedup::queue(worker_id);
+      }
+      ShenandoahSATBBufferClosure cl(q, dq);
       SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
       while (satb_mq_set.apply_closure_to_completed_buffer(&cl));
       ShenandoahSATBThreadsClosure tc(&cl);
@@ -366,6 +384,8 @@ void ShenandoahConcurrentMark::concurrent_scan_code_roots(uint worker_id, Refere
     ShenandoahObjToScanQueue* q = task_queues()->queue(worker_id);
     if (!_heap->unload_classes()) {
       MutexLockerEx mu(CodeCache_lock, Mutex::_no_safepoint_check_flag);
+      // TODO: We can not honor StringDeduplication here, due to lock ranking
+      // inversion. So, we may miss some deduplication candidates.
       if (_heap->has_forwarded_objects()) {
         ShenandoahMarkResolveRefsClosure cl(q, rp);
         CodeBlobToOopClosure blobs(&cl, !CodeBlobToOopClosure::FixRelocations);
@@ -446,7 +466,7 @@ void ShenandoahConcurrentMark::finish_mark_from_roots(bool full_gc) {
 
     SharedHeap::StrongRootsScope scope(sh, true);
     ShenandoahTaskTerminator terminator(nworkers, task_queues());
-    ShenandoahFinalMarkingTask task(this, &terminator, full_gc && ShenandoahStringDedup::is_enabled());
+    ShenandoahFinalMarkingTask task(this, &terminator, ShenandoahStringDedup::is_enabled());
     sh->workers()->run_task(&task);
   }
 
@@ -917,7 +937,12 @@ void ShenandoahConcurrentMark::mark_loop_work(T* cl, jushort* live_data, uint wo
 
   q = get_queue(worker_id);
 
-  ShenandoahSATBBufferClosure drain_satb(q);
+  ShenandoahStrDedupQueue *dq = NULL;
+  if (ShenandoahStringDedup::is_enabled()) {
+    dq = ShenandoahStringDedup::queue(worker_id);
+  }
+
+  ShenandoahSATBBufferClosure drain_satb(q, dq);
   SATBMarkQueueSet& satb_mq_set = JavaThread::satb_mark_queue_set();
 
   /*
