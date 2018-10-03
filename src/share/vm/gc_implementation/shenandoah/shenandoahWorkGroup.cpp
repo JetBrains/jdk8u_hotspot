@@ -27,14 +27,16 @@
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 
-ShenandoahWorkerScope::ShenandoahWorkerScope(ShenandoahWorkGang* workers, uint nworkers, const char* msg) :
+ShenandoahWorkerScope::ShenandoahWorkerScope(ShenandoahWorkGang* workers, uint nworkers, const char* msg, bool check) :
   _n_workers(nworkers),
   _workers(workers) {
   assert(msg != NULL, "Missing message");
   log_info(gc, task)("Using %u of %u workers for %s",
                      nworkers, ShenandoahHeap::heap()->max_workers(), msg);
 
-  ShenandoahHeap::heap()->assert_gc_workers(nworkers);
+  if (check) {
+    ShenandoahHeap::heap()->assert_gc_workers(nworkers);
+  }
   _workers->set_active_workers(nworkers);
 }
 

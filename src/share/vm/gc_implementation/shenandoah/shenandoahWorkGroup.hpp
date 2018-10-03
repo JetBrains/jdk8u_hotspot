@@ -35,7 +35,7 @@ private:
   uint      _n_workers;
   ShenandoahWorkGang* _workers;
 public:
-  ShenandoahWorkerScope(ShenandoahWorkGang* workers, uint nworkers, const char* msg);
+  ShenandoahWorkerScope(ShenandoahWorkGang* workers, uint nworkers, const char* msg, bool do_check = true);
   ~ShenandoahWorkerScope();
 };
 

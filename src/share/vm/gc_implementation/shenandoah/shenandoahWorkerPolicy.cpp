@@ -112,7 +112,8 @@ uint ShenandoahWorkerPolicy::calc_workers_for_stw_degenerated() {
 }
 
 uint ShenandoahWorkerPolicy::calc_workers_for_conc_preclean() {
-  return _prev_conc_marking;
+  // Precleaning is single-threaded
+  return 1;
 }
 
 uint ShenandoahWorkerPolicy::calc_workers_for_conc_cleanup() {
