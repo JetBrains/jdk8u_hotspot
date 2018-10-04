@@ -37,17 +37,17 @@
 
 
 ShenandoahGCSession::ShenandoahGCSession(GCCause::Cause cause) :
+  _heap(ShenandoahHeap::heap()),
   _timer(ShenandoahHeap::heap()->gc_timer()),
   _tracer(ShenandoahHeap::heap()->tracer()) {
-  ShenandoahHeap* sh = ShenandoahHeap::heap();
 
   _timer->register_gc_start();
   _tracer->report_gc_start(cause, _timer->gc_start());
-  sh->trace_heap(GCWhen::BeforeGC, _tracer);
+  _heap->trace_heap(GCWhen::BeforeGC, _tracer);
 
-  sh->shenandoah_policy()->record_cycle_start();
-  sh->heuristics()->record_cycle_start();
-  _trace_cycle.initialize(false, sh->gc_cause(),
+  _heap->shenandoah_policy()->record_cycle_start();
+  _heap->heuristics()->record_cycle_start();
+  _trace_cycle.initialize(false, _heap->gc_cause(),
           /* recordGCBeginTime = */       true,
           /* recordPreGCUsage = */        true,
           /* recordPeakUsage = */         true,
@@ -65,13 +65,11 @@ ShenandoahGCSession::~ShenandoahGCSession() {
 }
 
 ShenandoahGCPauseMark::ShenandoahGCPauseMark(SvcGCMarker::reason_type type) :
-        _svc_gc_mark(type), _is_gc_active_mark() {
-  ShenandoahHeap* sh = ShenandoahHeap::heap();
-
+        _heap(ShenandoahHeap::heap()), _svc_gc_mark(type), _is_gc_active_mark() {
   // FIXME: It seems that JMC throws away level 0 events, which are the Shenandoah
   // pause events. Create this pseudo level 0 event to push real events to level 1.
-  sh->gc_timer()->register_gc_phase_start("Shenandoah", Ticks::now());
-  _trace_pause.initialize(true, sh->gc_cause(),
+  _heap->gc_timer()->register_gc_phase_start("Shenandoah", Ticks::now());
+  _trace_pause.initialize(true, _heap->gc_cause(),
           /* recordGCBeginTime = */       true,
           /* recordPreGCUsage = */        false,
           /* recordPeakUsage = */         false,
@@ -81,22 +79,21 @@ ShenandoahGCPauseMark::ShenandoahGCPauseMark(SvcGCMarker::reason_type type) :
           /* countCollection = */         true
   );
 
-  sh->heuristics()->record_gc_start();
+  _heap->heuristics()->record_gc_start();
 }
 
 ShenandoahGCPauseMark::~ShenandoahGCPauseMark() {
-  ShenandoahHeap* sh = ShenandoahHeap::heap();
-  sh->gc_timer()->register_gc_phase_end(Ticks::now());
-  sh->heuristics()->record_gc_end();
+  _heap->gc_timer()->register_gc_phase_end(Ticks::now());
+  _heap->heuristics()->record_gc_end();
 }
 
 ShenandoahGCPhase::ShenandoahGCPhase(const ShenandoahPhaseTimings::Phase phase) :
-  _phase(phase) {
-  ShenandoahHeap::heap()->phase_timings()->record_phase_start(_phase);
+  _heap(ShenandoahHeap::heap()), _phase(phase) {
+  _heap->phase_timings()->record_phase_start(_phase);
 }
 
 ShenandoahGCPhase::~ShenandoahGCPhase() {
-  ShenandoahHeap::heap()->phase_timings()->record_phase_end(_phase);
+  _heap->phase_timings()->record_phase_end(_phase);
 }
 
 ShenandoahAllocTrace::ShenandoahAllocTrace(size_t words_size, ShenandoahAllocRequest::Type alloc_type) {
