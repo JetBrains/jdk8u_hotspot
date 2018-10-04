@@ -49,7 +49,6 @@ private:
 
   size_t _cycle_counter;
 
-
 public:
   ShenandoahCollectorPolicy();
 
@@ -87,6 +86,5 @@ public:
 
   void print_gc_stats(outputStream* out) const;
 };
-
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP

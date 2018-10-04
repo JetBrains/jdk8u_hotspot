@@ -277,7 +277,6 @@ public:
   debug_only(uint get_reserved() const { return (uint)_reserved; })
 };
 
-
 template <class T, MEMFLAGS F>
 T* ParallelClaimableQueueSet<T, F>::claim_next() {
   jint size = (jint)GenericTaskQueueSet<T, F>::size();
@@ -296,10 +295,8 @@ T* ParallelClaimableQueueSet<T, F>::claim_next() {
 }
 
 class ShenandoahObjToScanQueueSet: public ParallelClaimableQueueSet<ShenandoahObjToScanQueue, mtGC> {
-
 public:
-  ShenandoahObjToScanQueueSet(int n) : ParallelClaimableQueueSet<ShenandoahObjToScanQueue, mtGC>(n) {
-  }
+  ShenandoahObjToScanQueueSet(int n) : ParallelClaimableQueueSet<ShenandoahObjToScanQueue, mtGC>(n) {}
 
   bool is_empty();
   void clear();
@@ -334,7 +331,6 @@ private:
   Monitor*    _blocker;
   Thread*     _spin_master;
 
-
 public:
   ShenandoahTaskTerminator(uint n_threads, TaskQueueSetSuper* queue_set) :
     ParallelTaskTerminator(n_threads, queue_set), _spin_master(NULL) {
@@ -357,7 +353,6 @@ private:
 
 private:
   size_t tasks_in_queue_set() { return _queue_set->tasks(); }
-
 
   /*
    * Perform spin-master task.

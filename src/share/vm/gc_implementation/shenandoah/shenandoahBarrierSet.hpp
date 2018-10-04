@@ -31,11 +31,9 @@ class ShenandoahHeap;
 
 class ShenandoahBarrierSet: public BarrierSet {
 private:
-
   ShenandoahHeap* _heap;
 
 public:
-
   ShenandoahBarrierSet(ShenandoahHeap* heap);
 
   inline static ShenandoahBarrierSet* barrier_set() {
@@ -82,7 +80,6 @@ public:
   void write_ref_array_pre(oop* dst, int count, bool dest_uninitialized);
 
   void write_ref_array_pre(narrowOop* dst, int count, bool dest_uninitialized);
-
 
   template <class T> static void write_ref_field_pre_static(T* field, oop newVal);
 

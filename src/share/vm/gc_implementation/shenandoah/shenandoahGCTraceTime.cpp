@@ -35,7 +35,6 @@
 #include "utilities/ostream.hpp"
 #include "utilities/ticks.inline.hpp"
 
-
 ShenandoahGCTraceTime::ShenandoahGCTraceTime(const char* title, bool doit, GCTimer* timer, GCId gc_id, bool print_heap) :
     _title(title), _doit(doit), _timer(timer), _start_counter(), _heap(ShenandoahHeap::heap()), _print_heap(print_heap) {
   if (_doit || _timer != NULL) {

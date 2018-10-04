@@ -757,7 +757,6 @@ void ShenandoahMarkCompact::compact_humongous_objects() {
   }
 }
 
-
 // This is slightly different to ShHeap::reset_next_mark_bitmap:
 // we need to remain able to walk pinned regions.
 // Since pinned region do not move and don't get compacted, we will get holes with

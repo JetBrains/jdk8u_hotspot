@@ -39,7 +39,6 @@ public:
   ~ShenandoahWorkerScope();
 };
 
-
 class ShenandoahPushWorkerScope : StackObj {
 private:
   uint      _n_workers;
@@ -50,7 +49,6 @@ public:
   ShenandoahPushWorkerScope(ShenandoahWorkGang* workers, uint nworkers, bool do_check = true);
   ~ShenandoahPushWorkerScope();
 };
-
 
 class ShenandoahWorkGang : public FlexibleWorkGang {
 public:

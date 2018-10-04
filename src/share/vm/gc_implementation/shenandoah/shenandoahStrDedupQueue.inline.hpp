@@ -38,7 +38,6 @@ void ShenandoahStrDedupQueue::push(oop java_string) {
   _current_list->push(java_string);
 }
 
-
 template <class T>
 void ShenandoahStrDedupQueueCleanupClosure::do_oop_work(T* p) {
   T o = oopDesc::load_heap_oop(p);

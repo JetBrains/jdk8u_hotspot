@@ -77,7 +77,6 @@ ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(ShenandoahObjToSc
   _mark_context(_heap->marking_context())
 { }
 
-
 ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(ShenandoahObjToScanQueue* q, ShenandoahStrDedupQueue* dq, ReferenceProcessor* rp) :
   MetadataAwareOopClosure(rp),
   _queue(q),
@@ -85,7 +84,6 @@ ShenandoahMarkRefsSuperClosure::ShenandoahMarkRefsSuperClosure(ShenandoahObjToSc
   _heap(ShenandoahHeap::heap()),
   _mark_context(_heap->marking_context())
 { }
-
 
 template<UpdateRefsMode UPDATE_REFS>
 class ShenandoahInitMarkRootsTask : public AbstractGangTask {
@@ -226,10 +224,11 @@ public:
 };
 
 class ShenandoahSATBThreadsClosure : public ThreadClosure {
+private:
   ShenandoahSATBBufferClosure* _satb_cl;
   int _thread_parity;
 
- public:
+public:
   ShenandoahSATBThreadsClosure(ShenandoahSATBBufferClosure* satb_cl) :
     _satb_cl(satb_cl),
     _thread_parity(SharedHeap::heap()->strong_roots_parity()) {}
@@ -515,7 +514,6 @@ public:
   }
 };
 
-
 class ShenandoahCMKeepAliveClosure : public OopClosure {
 private:
   ShenandoahObjToScanQueue* _queue;
@@ -559,12 +557,11 @@ public:
 };
 
 class ShenandoahRefProcTaskProxy : public AbstractGangTask {
-
 private:
   AbstractRefProcTaskExecutor::ProcessTask& _proc_task;
   ShenandoahTaskTerminator* _terminator;
-public:
 
+public:
   ShenandoahRefProcTaskProxy(AbstractRefProcTaskExecutor::ProcessTask& proc_task,
                              ShenandoahTaskTerminator* t) :
     AbstractGangTask("Process reference objects in parallel"),
@@ -589,12 +586,10 @@ public:
 };
 
 class ShenandoahRefEnqueueTaskProxy : public AbstractGangTask {
-
 private:
   AbstractRefProcTaskExecutor::EnqueueTask& _enqueue_task;
 
 public:
-
   ShenandoahRefEnqueueTaskProxy(AbstractRefProcTaskExecutor::EnqueueTask& enqueue_task) :
     AbstractGangTask("Enqueue reference objects in parallel"),
     _enqueue_task(enqueue_task) {
@@ -606,12 +601,10 @@ public:
 };
 
 class ShenandoahRefProcTaskExecutor : public AbstractRefProcTaskExecutor {
-
 private:
   WorkGang* _workers;
 
 public:
-
   ShenandoahRefProcTaskExecutor(WorkGang* workers) :
     _workers(workers) {
   }
@@ -642,7 +635,6 @@ public:
     _workers->run_task(&enqueue_task_proxy);
   }
 };
-
 
 void ShenandoahConcurrentMark::weak_refs_work(bool full_gc) {
   assert(_heap->process_references(), "sanity");
@@ -839,7 +831,6 @@ void ShenandoahConcurrentMark::preclean_weak_refs() {
   uint nworkers = workers->active_workers();
   assert(nworkers == 1, "This code uses only a single worker");
   task_queues()->reserve(nworkers);
-
 
   ShenandoahPrecleanTask task(rp);
   workers->run_task(&task);

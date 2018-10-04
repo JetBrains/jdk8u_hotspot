@@ -243,7 +243,6 @@ private:
   }
 
 public:
-
   /**
    * Verify object with known interior reference.
    * @param p interior reference where the object is referenced from; can be off-heap
@@ -277,7 +276,6 @@ public:
     obj->oop_iterate(this);
     _loc = NULL;
   }
-
 
   void do_oop(oop* p) { do_oop_work(p); }
   void do_oop(narrowOop* p) { do_oop_work(p); }
@@ -584,7 +582,6 @@ public:
   }
 };
 
-
 void ShenandoahVerifier::verify_at_safepoint(const char *label,
                                              VerifyForwarded forwarded, VerifyMarked marked,
                                              VerifyCollectionSet cset,
@@ -853,7 +850,6 @@ void ShenandoahVerifier::verify_after_fullgc() {
           _verify_gcstate_stable       // degenerated refs had cleaned up forwarded objects
   );
 }
-
 void ShenandoahVerifier::verify_after_degenerated() {
   verify_at_safepoint(
           "After Degenerated GC",

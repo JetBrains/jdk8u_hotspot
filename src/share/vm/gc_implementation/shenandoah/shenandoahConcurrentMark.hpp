@@ -32,7 +32,6 @@
 class ShenandoahStrDedupQueue;
 
 class ShenandoahConcurrentMark: public CHeapObj<mtGC> {
-
 private:
   ShenandoahHeap* _heap;
   ShenandoahObjToScanQueueSet* _task_queues;

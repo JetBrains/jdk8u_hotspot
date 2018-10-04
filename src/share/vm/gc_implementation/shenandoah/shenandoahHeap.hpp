@@ -584,7 +584,6 @@ public:
   void make_parsable(bool retire_tlabs);
   void ensure_parsability(bool retire_tlabs);
 
-
 // ---------- Marking support
 //
 private:
@@ -649,7 +648,6 @@ private:
 public:
   static address in_cset_fast_test_addr();
 
-
   ShenandoahCollectionSet* collection_set() const { return _collection_set; }
 
   template <class T>
@@ -669,7 +667,6 @@ public:
 // ---------- Helper functions
 //
 public:
-
   template <class T>
   inline oop maybe_update_with_forwarded(T* p);
 

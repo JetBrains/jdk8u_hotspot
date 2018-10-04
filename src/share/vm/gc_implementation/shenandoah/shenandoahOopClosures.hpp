@@ -200,5 +200,4 @@ public:
   virtual void do_oop(oop* p)       { do_oop_nv(p); }
 };
 
-
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHOOPCLOSURES_HPP

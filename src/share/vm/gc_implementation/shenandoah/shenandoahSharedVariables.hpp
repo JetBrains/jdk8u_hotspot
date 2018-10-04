@@ -198,7 +198,6 @@ private:
 
 } ShenandoahSharedBitmap;
 
-
 template<class T>
 struct ShenandoahSharedEnumFlag {
   char _pad_0[128];
@@ -243,6 +242,5 @@ private:
   bool operator<=(ShenandoahSharedEnumFlag& other) { fatal("Use get() instead"); return false; }
 
 };
-
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHSHAREDFLAG_HPP

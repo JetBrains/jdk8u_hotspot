@@ -110,7 +110,6 @@ void ShenandoahStringDedup::parallel_oops_do(OopClosure* cl) {
   _thread->parallel_oops_do(cl);
 }
 
-
 void ShenandoahStringDedup::oops_do_slow(OopClosure* cl) {
   _queues->oops_do_slow(cl);
   _table->oops_do_slow(cl);

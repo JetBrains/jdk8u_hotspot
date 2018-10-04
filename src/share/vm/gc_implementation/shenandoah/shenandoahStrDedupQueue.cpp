@@ -90,7 +90,6 @@ ShenandoahStrDedupQueueSet::~ShenandoahStrDedupQueueSet() {
   delete _lock;
 }
 
-
 size_t ShenandoahStrDedupQueueSet::claim() {
   size_t index = (size_t)Atomic::add(1, (volatile jint*)&_claimed) - 1;
   return index;

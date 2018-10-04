@@ -265,7 +265,6 @@ jint ShenandoahHeap::initialize() {
     _workers->run_task(&cl);
   }
 
-
   // Reserve aux bitmap for use in object_iterate(). We don't commit it here.
   ReservedSpace aux_bitmap(_bitmap_size, bitmap_page_size);
   MemTracker::record_virtual_memory_type(aux_bitmap.base(), mtGC);
@@ -887,15 +886,13 @@ void ShenandoahHeap::make_parsable(bool retire_tlabs) {
 }
 
 class ShenandoahEvacuateUpdateRootsTask : public AbstractGangTask {
+private:
   ShenandoahRootEvacuator* _rp;
-public:
 
+public:
   ShenandoahEvacuateUpdateRootsTask(ShenandoahRootEvacuator* rp) :
     AbstractGangTask("Shenandoah evacuate and update roots"),
-    _rp(rp)
-  {
-    // Nothing else to do.
-  }
+    _rp(rp) {}
 
   void work(uint worker_id) {
     ShenandoahWorkerSession worker_session(worker_id);
@@ -908,15 +905,13 @@ public:
 };
 
 class ShenandoahFixRootsTask : public AbstractGangTask {
+private:
   ShenandoahRootEvacuator* _rp;
-public:
 
+public:
   ShenandoahFixRootsTask(ShenandoahRootEvacuator* rp) :
     AbstractGangTask("Shenandoah update roots"),
-    _rp(rp)
-  {
-    // Nothing else to do.
-  }
+    _rp(rp) {}
 
   void work(uint worker_id) {
     ShenandoahWorkerSession worker_session(worker_id);
@@ -928,7 +923,6 @@ public:
   }
 };
 void ShenandoahHeap::evacuate_and_update_roots() {
-
   COMPILER2_PRESENT(DerivedPointerTable::clear());
 
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Only iterate roots while world is stopped");
@@ -956,7 +950,6 @@ void ShenandoahHeap::evacuate_and_update_roots() {
     COMPILER2_PRESENT(DerivedPointerTable::update_pointers());
   }
 }
-
 
 void ShenandoahHeap::roots_iterate(OopClosure* cl) {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Only iterate roots while world is stopped");
@@ -1267,7 +1260,6 @@ public:
     return false;
   }
 };
-
 
 void ShenandoahHeap::op_init_mark() {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should be at safepoint");
@@ -1608,7 +1600,6 @@ void ShenandoahHeap::force_satb_flush_all_threads() {
     os::naked_short_sleep(1);
   }
 }
-
 
 void ShenandoahHeap::set_gc_state_mask(uint mask, bool value) {
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Should really be Shenandoah safepoint");

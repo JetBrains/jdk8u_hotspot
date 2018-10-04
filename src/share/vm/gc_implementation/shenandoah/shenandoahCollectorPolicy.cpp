@@ -65,7 +65,6 @@ HeapWord* ShenandoahCollectorPolicy::satisfy_failed_allocation(size_t size, bool
 }
 
 void ShenandoahCollectorPolicy::initialize_alignments() {
-
   // This is expected by our algorithm for ShenandoahHeap::heap_region_containing().
   size_t align = ShenandoahHeapRegion::region_size_bytes();
   if (UseLargePages) {

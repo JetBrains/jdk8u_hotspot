@@ -581,8 +581,6 @@ void ShenandoahFreeSet::assert_heaplock_owned_by_current_thread() const {
   _heap->assert_heaplock_owned_by_current_thread();
 }
 
-
-
 void ShenandoahFreeSet::assert_heaplock_not_owned_by_current_thread() const {
   _heap->assert_heaplock_not_owned_by_current_thread();
 }

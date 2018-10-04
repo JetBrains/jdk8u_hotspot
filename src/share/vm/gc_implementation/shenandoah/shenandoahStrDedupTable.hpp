@@ -70,7 +70,6 @@ public:
     _obj = obj;
   }
 
-
   bool equals(typeArrayOop value, unsigned int hash) const {
     return (hash == this->hash() &&
             equals(value, obj()));
@@ -138,7 +137,6 @@ public:
   bool need_expand() const  { return _entries >= _grow_threshold && size() < max_size(); }
   bool need_shrink() const  { return _entries <= _shrink_threshold && size() > min_size(); }
 
-
   // parallel scanning the table
   void clear_claimed();
   size_t claim();
@@ -158,8 +156,8 @@ public:
   static size_t min_size() { return _min_size; }
   static size_t max_size() { return _max_size; }
 
-
   void verify() PRODUCT_RETURN;
+
 private:
   inline bool use_java_hash() {
     return _hash_seed == 0;
@@ -235,7 +233,6 @@ protected:
   ShenandoahStrDedupTable* const src_table()  const { return _src_table; }
   ShenandoahStrDedupTable* const dest_table() const { return _dest_table; }
 };
-
 
 // The task rehashes live entries from source table to destination table.
 // Source and destination tables are not necessary the same size.

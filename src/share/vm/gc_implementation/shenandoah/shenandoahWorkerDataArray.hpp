@@ -67,7 +67,6 @@ class ShenandoahWorkerDataArray  : public CHeapObj<mtGC> {
   void reset();
   void set_all(T value);
 
-
  private:
   class WDAPrinter {
   public:

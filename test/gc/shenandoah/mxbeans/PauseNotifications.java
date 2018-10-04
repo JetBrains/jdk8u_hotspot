@@ -122,5 +122,3 @@ public class PauseNotifications {
     }
   }
 }
-
-

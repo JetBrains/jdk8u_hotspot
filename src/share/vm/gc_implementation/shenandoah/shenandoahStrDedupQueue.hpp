@@ -64,7 +64,6 @@ class ShenandoahStrDedupQueueSet;
 
 typedef ShenandoahStrDedupChunkedList<64> QueueChunkedList;
 
-
 class ShenandoahStrDedupQueue : public CHeapObj<mtGC> {
 private:
   ShenandoahStrDedupQueueSet* _queue_set;
@@ -138,7 +137,6 @@ private:
 
   size_t claim();
 };
-
 
 class ShenandoahStrDedupQueueCleanupClosure : public OopClosure {
 private:

@@ -35,7 +35,6 @@
 #include "gc_implementation/shared/gcWhen.hpp"
 #include "gc_implementation/shared/gcTrace.hpp"
 
-
 ShenandoahGCSession::ShenandoahGCSession(GCCause::Cause cause) :
   _heap(ShenandoahHeap::heap()),
   _timer(ShenandoahHeap::heap()->gc_timer()),
@@ -136,4 +135,3 @@ ShenandoahWorkerSession::~ShenandoahWorkerSession() {
   thr->set_worker_id(INVALID_WORKER_ID);
 #endif
 }
-

@@ -351,7 +351,6 @@ public:
   ~ShenandoahTerminationTimingsTracker();
 };
 
-
 // Tracking termination time in specific GC phase
 class ShenandoahTerminationTracker : public StackObj {
 private:
