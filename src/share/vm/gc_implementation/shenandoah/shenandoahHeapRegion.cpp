@@ -367,7 +367,7 @@ bool ShenandoahHeapRegion::has_live() const {
 }
 
 size_t ShenandoahHeapRegion::garbage() const {
-  assert(used() >= get_live_data_bytes(), err_msg("Live Data must be a subset of used() live: "SIZE_FORMAT" used: "SIZE_FORMAT,
+  assert(used() >= get_live_data_bytes(), err_msg("Live Data must be a subset of used() live: " SIZE_FORMAT " used: " SIZE_FORMAT,
          get_live_data_bytes(), used()));
   size_t result = used() - get_live_data_bytes();
   return result;
@@ -454,8 +454,8 @@ void ShenandoahHeapRegion::recycle() {
 
 HeapWord* ShenandoahHeapRegion::block_start_const(const void* p) const {
   assert(MemRegion(bottom(), end()).contains(p),
-         err_msg("p ("PTR_FORMAT") not in space ["PTR_FORMAT", "PTR_FORMAT")",
-		 p2i(p), p2i(bottom()), p2i(end())));
+         err_msg("p (" PTR_FORMAT ") not in space [" PTR_FORMAT ", " PTR_FORMAT ")",
+                 p2i(p), p2i(bottom()), p2i(end())));
   if (p >= top()) {
     return top();
   } else {
