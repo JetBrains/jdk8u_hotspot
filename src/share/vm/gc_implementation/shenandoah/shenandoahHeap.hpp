@@ -403,7 +403,8 @@ private:
   void op_mark();
   void op_preclean();
   void op_cleanup();
-  void op_evac();
+  void op_conc_evac();
+  void op_stw_evac();
   void op_updaterefs();
   void op_uncommit(double shrink_before);
 
