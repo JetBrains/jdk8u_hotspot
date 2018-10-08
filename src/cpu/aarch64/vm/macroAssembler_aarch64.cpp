@@ -1,4 +1,3 @@
-
 /*
 /*
  * Copyright (c) 2013, Red Hat Inc.
@@ -1425,7 +1424,6 @@ void MacroAssembler::null_check(Register reg, int offset) {
     // provoke OS NULL exception if reg = NULL by
     // accessing M[reg] w/o changing any registers
     // NOTE: this is plenty to provoke a segv
-
     ldr(zr, Address(reg));
   } else {
     // nothing to do, (later) access of M[reg + offset]
@@ -2377,7 +2375,6 @@ void MacroAssembler::debug64(char* msg, int64_t pc, int64_t regs[])
       BytecodeCounter::print();
     }
 #endif
-
     if (os::message_box(msg, "Execution stopped, print registers?")) {
       ttyLocker ttyl;
       tty->print_cr(" pc = 0x%016lx", pc);

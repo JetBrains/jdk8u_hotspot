@@ -970,6 +970,7 @@ void LIR_Assembler::stack2stack(LIR_Opr src, LIR_Opr dest, BasicType type) {
   reg2stack(temp, dest, dest->type(), false);
 }
 
+
 void LIR_Assembler::mem2reg(LIR_Opr src, LIR_Opr dest, BasicType type, LIR_PatchCode patch_code, CodeEmitInfo* info, bool wide, bool /* unaligned */) {
   LIR_Address* addr = src->as_address_ptr();
   LIR_Address* from_addr = src->as_address_ptr();
@@ -1068,6 +1069,7 @@ void LIR_Assembler::mem2reg(LIR_Opr src, LIR_Opr dest, BasicType type, LIR_Patch
   }
 }
 
+
 void LIR_Assembler::prefetchr(LIR_Opr src) { Unimplemented(); }
 
 
@@ -1154,6 +1156,8 @@ void LIR_Assembler::emit_opBranch(LIR_OpBranch* op) {
   }
 }
 
+
+
 #if INCLUDE_ALL_GCS
 void LIR_Assembler::emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* op) {
 
@@ -1180,7 +1184,7 @@ void LIR_Assembler::emit_opShenandoahWriteBarrier(LIR_OpShenandoahWriteBarrier* 
 
 }
 #endif
- 
+
 void LIR_Assembler::emit_opConvert(LIR_OpConvert* op) {
   LIR_Opr src  = op->in_opr();
   LIR_Opr dest = op->result_opr();
@@ -1678,12 +1682,14 @@ void LIR_Assembler::casl(Register addr, Register newval, Register cmpval) {
   __ membar(__ AnyAny);
 }
 
+
 // Return 1 in rscratch1 if the CAS fails.
 void LIR_Assembler::emit_compare_and_swap(LIR_OpCompareAndSwap* op) {
   assert(VM_Version::supports_cx8(), "wrong machine");
   Register addr = as_reg(op->addr());
   Register newval = as_reg(op->new_value());
   Register cmpval = as_reg(op->cmp_value());
+  Label succeed, fail, around;
   Register res = op->result_opr()->as_register();
 
   if (op->code() == lir_cas_obj) {

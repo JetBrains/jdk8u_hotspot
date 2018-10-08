@@ -689,6 +689,7 @@ class StubGenerator: public StubCodeGenerator {
   void  gen_write_ref_array_pre_barrier(Register addr, Register count, bool dest_uninitialized) {
     BarrierSet* bs = Universe::heap()->barrier_set();
     switch (bs->kind()) {
+    case BarrierSet::G1SATBCT:
     case BarrierSet::G1SATBCTLogging:
     case BarrierSet::ShenandoahBarrierSet:
       // Don't generate the call if we statically know that the target is uninitialized
@@ -722,7 +723,6 @@ class StubGenerator: public StubCodeGenerator {
     }
   }
 
-
   //
   // Generate code for an array write post barrier
   //
@@ -740,6 +740,7 @@ class StubGenerator: public StubCodeGenerator {
       case BarrierSet::G1SATBCT:
       case BarrierSet::G1SATBCTLogging:
       case BarrierSet::ShenandoahBarrierSet:
+
         {
 	  __ push_call_clobbered_registers();
           // must compute element count unless barrier set interface is changed (other platforms supply count)
@@ -2544,11 +2545,11 @@ class StubGenerator: public StubCodeGenerator {
                                      /*dest_uninitialized*/false);
       // Aligned versions without pre-barriers
       StubRoutines::_arrayof_oop_disjoint_arraycopy_uninit
-        = generate_disjoint_oop_copy(aligned, &entry, "arrayof_oop_disjoint_arraycopy_uninit",
-                                     /*dest_uninitialized*/true);
+	= generate_disjoint_oop_copy(aligned, &entry, "arrayof_oop_disjoint_arraycopy_uninit",
+				     /*dest_uninitialized*/true);
       StubRoutines::_arrayof_oop_arraycopy_uninit
-        = generate_conjoint_oop_copy(aligned, entry, NULL, "arrayof_oop_arraycopy_uninit",
-                                     /*dest_uninitialized*/true);
+	= generate_conjoint_oop_copy(aligned, entry, NULL, "arrayof_oop_arraycopy_uninit",
+				     /*dest_uninitialized*/true);
     }
 
     StubRoutines::_oop_disjoint_arraycopy            = StubRoutines::_arrayof_oop_disjoint_arraycopy;

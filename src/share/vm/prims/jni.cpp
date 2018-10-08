@@ -391,7 +391,6 @@ JNI_ENTRY(jclass, jni_DefineClass(JNIEnv *env, const char *name, jobject loaderR
   if (UsePerfData && !class_loader.is_null()) {
     // check whether the current caller thread holds the lock or not.
     // If not, increment the corresponding counter
-    Handle class_loader1 (THREAD, class_loader());
     if (ObjectSynchronizer::
         query_lock_ownership((JavaThread*)THREAD, class_loader) !=
         ObjectSynchronizer::owner_self) {

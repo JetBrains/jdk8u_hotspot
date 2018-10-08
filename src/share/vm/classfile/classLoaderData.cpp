@@ -986,5 +986,4 @@ void ClassLoaderDataGraph::class_unload_event(Klass* const k) {
   event.commit();
 }
 
-
 #endif // INCLUDE_TRACE
