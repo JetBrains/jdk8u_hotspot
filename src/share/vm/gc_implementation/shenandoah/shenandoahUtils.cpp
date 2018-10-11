@@ -35,10 +35,15 @@
 #include "gc_implementation/shared/gcWhen.hpp"
 #include "gc_implementation/shared/gcTrace.hpp"
 
+ShenandoahPhaseTimings::Phase ShenandoahGCPhase::_current_phase = ShenandoahGCPhase::_invalid_phase;
+
 ShenandoahGCSession::ShenandoahGCSession(GCCause::Cause cause) :
   _heap(ShenandoahHeap::heap()),
   _timer(ShenandoahHeap::heap()->gc_timer()),
   _tracer(ShenandoahHeap::heap()->tracer()) {
+
+  assert(!ShenandoahGCPhase::is_valid_phase(ShenandoahGCPhase::current_phase()),
+        "No current GC phase");
 
   _timer->register_gc_start();
   _tracer->report_gc_start(cause, _timer->gc_start());
@@ -61,6 +66,9 @@ ShenandoahGCSession::~ShenandoahGCSession() {
   ShenandoahHeap::heap()->heuristics()->record_cycle_end();
   _tracer->report_gc_end(_timer->gc_end(), _timer->time_partitions());
   _timer->register_gc_end();
+
+  assert(!ShenandoahGCPhase::is_valid_phase(ShenandoahGCPhase::current_phase()),
+         "No current GC phase");
 }
 
 ShenandoahGCPauseMark::ShenandoahGCPauseMark(SvcGCMarker::reason_type type) :
@@ -88,11 +96,36 @@ ShenandoahGCPauseMark::~ShenandoahGCPauseMark() {
 
 ShenandoahGCPhase::ShenandoahGCPhase(const ShenandoahPhaseTimings::Phase phase) :
   _heap(ShenandoahHeap::heap()), _phase(phase) {
+  assert(Thread::current()->is_VM_thread() ||
+         Thread::current()->is_ConcurrentGC_thread(),
+        "Must be set by these threads");
+  _parent_phase = _current_phase;
+  _current_phase = phase;
+
   _heap->phase_timings()->record_phase_start(_phase);
 }
 
 ShenandoahGCPhase::~ShenandoahGCPhase() {
   _heap->phase_timings()->record_phase_end(_phase);
+  _current_phase = _parent_phase;
+}
+
+bool ShenandoahGCPhase::is_valid_phase(ShenandoahPhaseTimings::Phase phase) {
+  return phase >= 0 && phase < ShenandoahPhaseTimings::_num_phases;
+}
+
+bool ShenandoahGCPhase::is_root_work_phase() {
+  switch(current_phase()) {
+    case ShenandoahPhaseTimings::scan_roots:
+    case ShenandoahPhaseTimings::update_roots:
+    case ShenandoahPhaseTimings::init_evac:
+    case ShenandoahPhaseTimings::final_update_refs_roots:
+    case ShenandoahPhaseTimings::degen_gc_update_roots:
+    case ShenandoahPhaseTimings::full_gc_roots:
+      return true;
+    default:
+      return false;
+  }
 }
 
 ShenandoahAllocTrace::ShenandoahAllocTrace(size_t words_size, ShenandoahAllocRequest::Type alloc_type) {
@@ -122,10 +155,18 @@ ShenandoahAllocTrace::~ShenandoahAllocTrace() {
   }
 }
 
-ShenandoahWorkerSession::ShenandoahWorkerSession(uint worker_id) {
+ShenandoahWorkerSession::ShenandoahWorkerSession(uint worker_id) : _worker_id(worker_id) {
   Thread* thr = Thread::current();
   assert(thr->worker_id() == INVALID_WORKER_ID, "Already set");
   thr->set_worker_id(worker_id);
+}
+
+ShenandoahConcurrentWorkerSession::~ShenandoahConcurrentWorkerSession() {
+  // Do nothing. Per-worker events are not supported in this JDK.
+}
+
+ShenandoahParallelWorkerSession::~ShenandoahParallelWorkerSession() {
+  // Do nothing. Per-worker events are not supported in this JDK.
 }
 
 ShenandoahWorkerSession::~ShenandoahWorkerSession() {

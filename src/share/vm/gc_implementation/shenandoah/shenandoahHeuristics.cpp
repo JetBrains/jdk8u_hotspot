@@ -29,6 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeuristics.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 
 int ShenandoahHeuristics::compare_by_garbage(RegionData a, RegionData b) {
   if (a._garbage > b._garbage)

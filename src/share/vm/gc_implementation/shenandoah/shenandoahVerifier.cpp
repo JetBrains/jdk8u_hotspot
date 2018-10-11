@@ -28,6 +28,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "memory/allocation.hpp"

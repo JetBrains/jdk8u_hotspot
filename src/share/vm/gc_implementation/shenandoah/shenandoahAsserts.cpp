@@ -28,6 +28,7 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "memory/resourceArea.hpp"
 
 void print_raw_memory(ShenandoahMessageBuffer &msg, void* loc) {

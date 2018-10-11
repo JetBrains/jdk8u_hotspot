@@ -33,6 +33,7 @@
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahStringDedup.hpp"
+#include "gc_implementation/shenandoah/shenandoahTimingTracker.hpp"
 #include "memory/allocation.inline.hpp"
 #include "runtime/fprofiler.hpp"
 #include "memory/resourceArea.hpp"

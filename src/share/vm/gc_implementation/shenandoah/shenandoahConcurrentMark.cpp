@@ -36,6 +36,7 @@
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahTimingTracker.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoah_specialized_oop_closures.hpp"
@@ -99,7 +100,7 @@ public:
 
   void work(uint worker_id) {
     assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Must be at a safepoint");
-    ShenandoahWorkerSession worker_session(worker_id);
+    ShenandoahParallelWorkerSession worker_session(worker_id);
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     ShenandoahObjToScanQueueSet* queues = heap->concurrent_mark()->task_queues();
@@ -171,7 +172,7 @@ public:
 
   void work(uint worker_id) {
     assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "Must be at a safepoint");
-    ShenandoahWorkerSession worker_session(worker_id);
+    ShenandoahParallelWorkerSession worker_session(worker_id);
 
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     ShenandoahUpdateRefsClosure cl;
@@ -206,7 +207,7 @@ public:
 
   void work(uint worker_id) {
     ShenandoahHeap* heap = ShenandoahHeap::heap();
-    ShenandoahWorkerSession worker_session(worker_id);
+    ShenandoahConcurrentWorkerSession worker_session(worker_id);
     ShenandoahObjToScanQueue* q = _cm->get_queue(worker_id);
     ReferenceProcessor* rp;
     if (heap->process_references()) {
@@ -778,7 +779,7 @@ public:
 
   void work(uint worker_id) {
     assert(worker_id == 0, "The code below is single-threaded, only one worker is expected");
-    ShenandoahWorkerSession worker_session(worker_id);
+    ShenandoahParallelWorkerSession worker_session(worker_id);
 
     ShenandoahHeap* sh = ShenandoahHeap::heap();
 
