@@ -25,8 +25,8 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHALLOCTRACKER_HPP
 
 #include "gc_implementation/shenandoah/shenandoahAllocRequest.hpp"
+#include "gc_implementation/shenandoah/shenandoahNumberSeq.hpp"
 #include "memory/allocation.hpp"
-#include "utilities/numberSeq.hpp"
 #include "utilities/ostream.hpp"
 
 class ShenandoahAllocTracker : public CHeapObj<mtGC> {

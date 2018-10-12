@@ -26,7 +26,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHPHASETIMEINGS_HPP
 
 #include "memory/allocation.hpp"
-#include "utilities/numberSeq.hpp"
+#include "gc_implementation/shenandoah/shenandoahNumberSeq.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkerDataArray.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkerDataArray.inline.hpp"
 
