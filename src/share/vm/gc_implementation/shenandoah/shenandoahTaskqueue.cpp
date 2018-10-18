@@ -204,7 +204,7 @@ bool ShenandoahTaskTerminator::do_spin_master_work(ShenandoahTerminatorTerminato
       _total_peeks++;
 #endif
     size_t tasks = tasks_in_queue_set();
-    if (tasks > 0) {
+    if (tasks > 0 && (terminator == NULL || ! terminator->should_force_termination())) {
       MonitorLockerEx locker(_blocker, Mutex::_no_safepoint_check_flag);   // no safepoint check
 
       if ((int) tasks >= _offered_termination - 1) {
