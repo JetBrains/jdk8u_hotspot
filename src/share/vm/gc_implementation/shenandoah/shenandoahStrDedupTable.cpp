@@ -32,6 +32,7 @@
 #include "memory/allocation.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/safepoint.hpp"
+#include "runtime/vmThread.hpp"
 
 const size_t  ShenandoahStrDedupTable::_min_size = (1 << 10);   // 1024
 const size_t  ShenandoahStrDedupTable::_max_size = (1 << 24);   // 16777216
