@@ -25,6 +25,7 @@
  * @test TestWBGC
  * @bug 8055098
  * @summary Test verify that WB methods isObjectInOldGen and youngGC works correctly.
+ * @requires vm.gc != "Shenandoah"
  * @library /testlibrary /testlibrary/whitebox
  * @build TestWBGC
  * @run main ClassFileInstaller sun.hotspot.WhiteBox
