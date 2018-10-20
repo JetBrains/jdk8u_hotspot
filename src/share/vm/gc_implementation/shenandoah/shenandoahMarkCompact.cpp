@@ -62,6 +62,10 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
     heap->verifier()->verify_before_fullgc();
   }
 
+  if (VerifyBeforeGC) {
+    Universe::verify();
+  }
+
   heap->set_full_gc_in_progress(true);
 
   assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "must be at a safepoint");
@@ -165,6 +169,10 @@ void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
 
   if (ShenandoahVerify) {
     heap->verifier()->verify_after_fullgc();
+  }
+
+  if (VerifyAfterGC) {
+    Universe::verify();
   }
 
   {

@@ -1289,6 +1289,10 @@ void ShenandoahHeap::op_init_mark() {
     accumulate_statistics_tlabs();
   }
 
+  if (VerifyBeforeGC) {
+    Universe::verify();
+  }
+
   set_concurrent_mark_in_progress(true);
   // We need to reset all TLABs because we'd lose marks on all objects allocated in them.
   if (UseTLAB) {
@@ -1381,6 +1385,10 @@ void ShenandoahHeap::op_final_mark() {
       if (ShenandoahVerify) {
         verifier()->verify_before_evacuation();
       }
+
+      if (VerifyAfterGC) {
+        Universe::verify();
+      }
     }
 
     // If collection set has candidates, start evacuation.
@@ -1417,6 +1425,10 @@ void ShenandoahHeap::op_final_evac() {
   set_evacuation_in_progress(false);
   if (ShenandoahVerify) {
     verifier()->verify_after_evacuation();
+  }
+
+  if (VerifyAfterGC) {
+    Universe::verify();
   }
 }
 
@@ -1556,6 +1568,10 @@ void ShenandoahHeap::op_degenerated(ShenandoahDegenPoint point) {
 
   if (ShenandoahVerify) {
     verifier()->verify_after_degenerated();
+  }
+
+  if (VerifyAfterGC) {
+    Universe::verify();
   }
 
   metrics.snap_after();
@@ -2004,6 +2020,10 @@ void ShenandoahHeap::op_final_updaterefs() {
 
   if (ShenandoahVerify) {
     verifier()->verify_after_updaterefs();
+  }
+
+  if (VerifyAfterGC) {
+    Universe::verify();
   }
 
   {
