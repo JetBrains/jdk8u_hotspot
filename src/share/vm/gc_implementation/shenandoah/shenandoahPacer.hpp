@@ -41,20 +41,26 @@ class ShenandoahHeap;
 class ShenandoahPacer : public CHeapObj<mtGC> {
 private:
   ShenandoahHeap* _heap;
-  volatile intptr_t _budget;
-  volatile jdouble _tax_rate;
   BinaryMagnitudeSeq _delays;
-
-  volatile intptr_t _progress;
   TruncatedSeq* _progress_history;
+
   volatile intptr_t _epoch;
+  volatile jdouble _tax_rate;
+
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
+  volatile intptr_t _budget;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
+  volatile intptr_t _progress;
+  char _pad2[DEFAULT_CACHE_LINE_SIZE];
 
 public:
   ShenandoahPacer(ShenandoahHeap* heap) :
-          _heap(heap), _budget(0), _tax_rate(1),
-          _progress(PACING_PROGRESS_UNINIT),
+          _heap(heap),
           _progress_history(new TruncatedSeq(5)),
-          _epoch(0) {
+          _epoch(0),
+          _tax_rate(1),
+          _budget(0),
+          _progress(PACING_PROGRESS_UNINIT) {
   }
 
   void setup_for_idle();

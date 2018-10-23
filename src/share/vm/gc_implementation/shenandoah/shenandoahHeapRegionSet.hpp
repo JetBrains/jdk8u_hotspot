@@ -33,8 +33,11 @@ class ShenandoahHeapRegionSet;
 class ShenandoahHeapRegionSetIterator : public StackObj {
 private:
   const ShenandoahHeapRegionSet* _set;
-  volatile jint _current_index;
   ShenandoahHeap* const _heap;
+
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
+  volatile jint _current_index;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
 
   // No implicit copying: iterators should be passed by reference to capture the state
   ShenandoahHeapRegionSetIterator(const ShenandoahHeapRegionSetIterator& that);

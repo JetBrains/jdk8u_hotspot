@@ -208,24 +208,29 @@ private:
   static size_t MaxTLABSizeBytes;
   static size_t MaxTLABSizeWords;
 
-private:
+  // Never updated fields
   ShenandoahHeap* _heap;
-  size_t _region_number;
-  volatile jint _live_data;
+  ShenandoahPacer* _pacer;
   MemRegion _reserved;
+  size_t _region_number;
 
+  // Rarely updated fields
+  HeapWord* _new_top;
+  size_t _critical_pins;
+  double _empty_time;
+
+  // Seldom updated fields
+  RegionState _state;
+
+  // Frequently updated fields
   size_t _tlab_allocs;
   size_t _gclab_allocs;
   size_t _shared_allocs;
 
-  HeapWord* _new_top;
+  volatile jint _live_data;
 
-  size_t _critical_pins;
-
-  RegionState _state;
-  double _empty_time;
-
-  ShenandoahPacer* _pacer;
+  // Claim some space at the end to protect next region
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
 
 public:
   ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t size_words, size_t index, bool committed);

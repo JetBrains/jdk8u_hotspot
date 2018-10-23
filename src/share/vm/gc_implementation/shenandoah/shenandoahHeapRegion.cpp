@@ -53,17 +53,17 @@ size_t ShenandoahHeapRegion::MaxTLABSizeWords = 0;
 ShenandoahHeapRegion::ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start,
                                            size_t size_words, size_t index, bool committed) :
   _heap(heap),
-  _region_number(index),
-  _live_data(0),
+  _pacer(ShenandoahPacing ? heap->pacer() : NULL),
   _reserved(MemRegion(start, size_words)),
+  _region_number(index),
+  _new_top(NULL),
+  _critical_pins(0),
+  _empty_time(os::elapsedTime()),
+  _state(committed ? _empty_committed : _empty_uncommitted),
   _tlab_allocs(0),
   _gclab_allocs(0),
   _shared_allocs(0),
-  _new_top(NULL),
-  _critical_pins(0),
-  _state(committed ? _empty_committed : _empty_uncommitted),
-  _empty_time(os::elapsedTime()),
-  _pacer(ShenandoahPacing ? heap->pacer() : NULL) {
+  _live_data(0) {
 
   ContiguousSpace::initialize(_reserved, true, committed);
 }

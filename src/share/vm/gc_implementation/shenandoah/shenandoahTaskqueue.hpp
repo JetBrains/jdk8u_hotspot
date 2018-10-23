@@ -253,7 +253,10 @@ typedef Padded<ShenandoahBufferedOverflowTaskQueue> ShenandoahObjToScanQueue;
 template <class T, MEMFLAGS F>
 class ParallelClaimableQueueSet: public GenericTaskQueueSet<T, F> {
 private:
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
   volatile jint     _claimed_index;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
+
   debug_only(uint   _reserved;  )
 
 public:

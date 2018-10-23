@@ -44,7 +44,10 @@ private:
   size_t                _used;
   size_t                _region_count;
 
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
   volatile jint         _current_index;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
+
 public:
   ShenandoahCollectionSet(ShenandoahHeap* heap, HeapWord* heap_base);
 
