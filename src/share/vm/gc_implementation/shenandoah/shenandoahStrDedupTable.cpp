@@ -32,7 +32,7 @@
 #include "memory/allocation.hpp"
 #include "runtime/atomic.hpp"
 #include "runtime/safepoint.hpp"
-
+#include "runtime/vmThread.hpp"
 
 const size_t  ShenandoahStrDedupTable::_min_size = (1 << 10);   // 1024
 const size_t  ShenandoahStrDedupTable::_max_size = (1 << 24);   // 16777216
@@ -41,7 +41,6 @@ const double  ShenandoahStrDedupTable::_shrink_load_factor = _grow_load_factor /
 const double  ShenandoahStrDedupTable::_max_cache_factor = 0.1; // Cache a maximum of 10% of the table size
 const uintx   ShenandoahStrDedupTable::_rehash_multiple = 60;   // Hash bucket has 60 times more collisions than expected
 const uintx   ShenandoahStrDedupTable::_rehash_threshold = (uintx)(_rehash_multiple * _grow_load_factor);
-
 
 bool ShenandoahStrDedupEntry::cas_set_next(ShenandoahStrDedupEntry* next) {
   return Atomic::cmpxchg_ptr(next, &_next, (ShenandoahStrDedupEntry*)NULL) == NULL;
@@ -165,7 +164,6 @@ bool ShenandoahStrDedupTable::deduplicate(oop java_string) {
   return true;
 }
 
-
 void ShenandoahStrDedupTable::clear_claimed() {
   _claimed = 0;
   _partition_size = size() / (ShenandoahHeap::heap()->max_workers() * 4);
@@ -261,7 +259,7 @@ void ShenandoahStrDedupTable::verify() {
   for (size_t index = 0; index < size(); index ++) {
     ShenandoahStrDedupEntry* volatile head = bucket(index);
     while (head != NULL) {
-      assert(heap->next_marking_context()->is_marked(head->obj()), "Must be marked");
+      assert(heap->marking_context()->is_marked(head->obj()), "Must be marked");
 
       if (use_java_hash()) {
         assert(head->hash() == java_hash_code(head->obj()), "Wrong hash code");
@@ -280,7 +278,7 @@ void ShenandoahStrDedupTable::verify() {
 #endif
 
 ShenandoahStrDedupTableCleanupTask::ShenandoahStrDedupTableCleanupTask() :
-        _mark_context(ShenandoahHeap::heap()->next_marking_context()) {
+        _mark_context(ShenandoahHeap::heap()->marking_context()) {
 }
 
 bool ShenandoahStrDedupTableCleanupTask::is_alive(oop obj) const {
@@ -368,7 +366,6 @@ void ShenandoahStrDedupTableRehashTask::do_parallel_cleanup() {
   Atomic::add((jlong)added, (volatile jlong*)&dest_table()->_entries);
 }
 
-
 ShenandoahStrDedupShrinkTableTask::ShenandoahStrDedupShrinkTableTask(
   ShenandoahStrDedupTable* const src, ShenandoahStrDedupTable* const dest) :
   ShenandoahStrDedupTableRemapTask(src, dest) {
@@ -410,7 +407,6 @@ void ShenandoahStrDedupShrinkTableTask::do_parallel_cleanup() {
 
   Atomic::add((jlong)transferred, (volatile jlong*)&dest_table()->_entries);
 }
-
 
 size_t ShenandoahStrDedupShrinkTableTask::transfer_bucket(ShenandoahStrDedupEntry* volatile src,
   ShenandoahStrDedupEntry* volatile * dest) {

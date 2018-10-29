@@ -27,18 +27,27 @@
  * @key gc
  * @modules java.base/jdk.internal.misc
  *          java.management
- * @run main/othervm  -XX:+UseShenandoahGC -Xmx1g -Xms1g -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions
- *                    -XX:+ShenandoahStoreCheck -XX:+ShenandoahVerify -XX:+VerifyStrictOopOperations
- *                    -XX:ShenandoahGCHeuristics=passive
+ * @run main/othervm  -Xmx1g -Xms1g -XX:+IgnoreUnrecognizedVMOptions
+ *                    -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+UseShenandoahGC
+ *                    -XX:+ShenandoahStoreCheck -XX:+ShenandoahVerify -XX:+VerifyObjectEquals
+ *                    -XX:ShenandoahGCHeuristics=passive -XX:+ShenandoahDegeneratedGC
  *                    VerifyJCStressTest
  *
- * @run main/othervm  -XX:+UseShenandoahGC -Xmx1g -Xms1g -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions
- *                    -XX:+ShenandoahStoreCheck -XX:+ShenandoahVerify -XX:+VerifyStrictOopOperations -XX:+ShenandoahVerifyOptoBarriers
+ * @run main/othervm  -Xmx1g -Xms1g -XX:+IgnoreUnrecognizedVMOptions
+ *                    -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+UseShenandoahGC
+ *                    -XX:+ShenandoahStoreCheck -XX:+ShenandoahVerify -XX:+VerifyObjectEquals
+ *                    -XX:ShenandoahGCHeuristics=passive -XX:-ShenandoahDegeneratedGC
+ *                    VerifyJCStressTest
+ *
+ * @run main/othervm  -Xmx1g -Xms1g -XX:+IgnoreUnrecognizedVMOptions
+ *                    -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+UseShenandoahGC
+ *                    -XX:+ShenandoahStoreCheck -XX:+ShenandoahVerify -XX:+VerifyObjectEquals -XX:+ShenandoahVerifyOptoBarriers
  *                    -XX:ShenandoahGCHeuristics=adaptive
  *                    VerifyJCStressTest
  *
- * @run main/othervm  -XX:+UseShenandoahGC -Xmx1g -Xms1g -XX:+IgnoreUnrecognizedVMOptions -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions
- *                    -XX:+ShenandoahStoreCheck -XX:+ShenandoahVerify -XX:+VerifyStrictOopOperations -XX:+ShenandoahVerifyOptoBarriers
+ * @run main/othervm  -Xmx1g -Xms1g -XX:+IgnoreUnrecognizedVMOptions
+ *                    -XX:+UnlockExperimentalVMOptions -XX:+UnlockDiagnosticVMOptions -XX:+UseShenandoahGC
+ *                    -XX:+ShenandoahStoreCheck -XX:+ShenandoahVerify -XX:+VerifyObjectEquals -XX:+ShenandoahVerifyOptoBarriers
  *                    -XX:ShenandoahGCHeuristics=static
  *                    VerifyJCStressTest
  */
@@ -113,4 +122,3 @@ public class VerifyJCStressTest {
     }
 
 }
-

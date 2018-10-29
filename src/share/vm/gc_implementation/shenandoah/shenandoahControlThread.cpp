@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
@@ -37,7 +38,6 @@
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "memory/iterator.hpp"
 #include "memory/universe.hpp"
-#include "runtime/vmThread.hpp"
 
 #ifdef _WINDOWS
 #pragma warning(disable : 4355)
@@ -50,9 +50,9 @@ ShenandoahControlThread::ShenandoahControlThread() :
   _alloc_failure_waiters_lock(Mutex::leaf, "ShenandoahAllocFailureGC_lock", true),
   _explicit_gc_waiters_lock(Mutex::leaf, "ShenandoahExplicitGC_lock", true),
   _periodic_task(this),
-  _allocs_seen(0),
   _explicit_gc_cause(GCCause::_no_cause_specified),
-  _degen_point(ShenandoahHeap::_degenerated_outside_cycle) {
+  _degen_point(ShenandoahHeap::_degenerated_outside_cycle),
+  _allocs_seen(0) {
 
   create_and_start();
   _periodic_task.enroll();
@@ -98,7 +98,7 @@ void ShenandoahControlThread::run() {
   // ShenandoahUncommitDelay is in msecs, but shrink_period is in seconds.
   double shrink_period = (double)ShenandoahUncommitDelay / 1000 / 10;
 
-  ShenandoahCollectorPolicy* policy = heap->shenandoahPolicy();
+  ShenandoahCollectorPolicy* policy = heap->shenandoah_policy();
 
   ShenandoahHeuristics* heuristics = heap->heuristics();
   while (!in_graceful_shutdown() && !_should_terminate) {
@@ -216,6 +216,11 @@ void ShenandoahControlThread::run() {
       {
         ShenandoahHeapLocker locker(heap->lock());
         heap->free_set()->log_status();
+
+        // Notify Universe about new heap usage. This has implications for
+        // global soft refs policy, and we better report it every time heap
+        // usage goes down.
+        Universe::update_heap_info_at_gc();
       }
 
       // Disable forced counters update, and update counters one more time
@@ -274,9 +279,6 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   // If second allocation failure happens during Degenerated GC cycle (for example, when GC
   // tries to evac something and no memory is available), cycle degrades to Full GC.
   //
-  // The only current exception is allocation failure in Conc Evac: it goes straight to Full GC,
-  // because we don't recover well from the case of incompletely evacuated heap in STW cycle.
-  //
   // There are also two shortcuts through the normal cycle: a) immediate garbage shortcut, when
   // heuristics says there are no regions to compact, and all the collection comes from immediately
   // reclaimable regions; b) coalesced UR shortcut, when heuristics decides to coalesce UR with the
@@ -295,15 +297,15 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   //                   | (af)               | (af)            | (af)         |
   // ..................|....................|.................|..............|.......................
   //                   |                    |                 |              |
-  //                   |          /---------/                 |              |      Degenerated GC
-  //                   v          |                           v              |
-  //               STW Mark ------+---> STW Evac ----> STW Update-Refs ----->o
-  //                   |          |         |                 |              ^
-  //                   | (af)     |         | (af)            | (af)         |
-  // ..................|..........|.........|.................|..............|.......................
-  //                   |          |         |                 |              |
-  //                   |          v         v                 |              |      Full GC
-  //                   \--------->o-------->o<----------------/              |
+  //                   |                    |                 |              |      Degenerated GC
+  //                   v                    v                 v              |
+  //               STW Mark ----------> STW Evac ----> STW Update-Refs ----->o
+  //                   |                    |                 |              ^
+  //                   | (af)               | (af)            | (af)         |
+  // ..................|....................|.................|..............|.......................
+  //                   |                    |                 |              |
+  //                   |                    v                 |              |      Full GC
+  //                   \------------------->o<----------------/              |
   //                                        |                                |
   //                                        v                                |
   //                                      Full GC  --------------------------/
@@ -316,6 +318,9 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
   ShenandoahGCSession session(cause);
 
   TraceCollectorStats tcs(heap->monitoring_support()->concurrent_collection_counters());
+
+  // Reset for upcoming marking
+  heap->entry_reset();
 
   // Start initial mark under STW
   heap->vmop_entry_init_mark();
@@ -361,12 +366,12 @@ void ShenandoahControlThread::service_concurrent_normal_cycle(GCCause::Cause cau
     }
   }
 
-  // Reclaim space and prepare for the next normal cycle:
-  heap->entry_cleanup_bitmaps();
+  // Reclaim space after cycle
+  heap->entry_cleanup();
 
   // Cycle is complete
   heap->heuristics()->record_success_concurrent();
-  heap->shenandoahPolicy()->record_success_concurrent();
+  heap->shenandoah_policy()->record_success_concurrent();
 }
 
 bool ShenandoahControlThread::check_cancellation_or_degen(ShenandoahHeap::ShenandoahDegenPoint point) {
@@ -409,7 +414,7 @@ void ShenandoahControlThread::service_stw_full_cycle(GCCause::Cause cause) {
   heap->vmop_entry_full(cause);
 
   heap->heuristics()->record_success_full();
-  heap->shenandoahPolicy()->record_success_full();
+  heap->shenandoah_policy()->record_success_full();
 }
 
 void ShenandoahControlThread::service_stw_degenerated_cycle(GCCause::Cause cause, ShenandoahHeap::ShenandoahDegenPoint point) {
@@ -420,7 +425,7 @@ void ShenandoahControlThread::service_stw_degenerated_cycle(GCCause::Cause cause
   heap->vmop_degenerated(point);
 
   heap->heuristics()->record_success_degenerated();
-  heap->shenandoahPolicy()->record_success_degenerated();
+  heap->shenandoah_policy()->record_success_degenerated();
 }
 
 void ShenandoahControlThread::service_uncommit(double shrink_before) {

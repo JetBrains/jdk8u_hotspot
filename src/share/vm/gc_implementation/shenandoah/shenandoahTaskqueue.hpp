@@ -40,20 +40,20 @@ public:
 
   TASKQUEUE_STATS_ONLY(using taskqueue_t::stats;)
 
-  // Push task t onto:
-  //   - first, try buffer;
-  //   - then, try the queue;
-  //   - then, overflow stack.
-  // Return true.
+  // Push task t into the queue. Returns true on success.
   inline bool push(E t);
 
-  // Attempt to pop from the buffer; return true if anything was popped.
-  inline bool pop_buffer(E &t);
+  // Attempt to pop from the queue. Returns true on success.
+  inline bool pop(E &t);
 
-  inline void clear_buffer()  { _buf_empty = true; }
-  inline bool buffer_empty()  const { return _buf_empty; }
+  inline void clear()  {
+    _buf_empty = true;
+    taskqueue_t::set_empty();
+    taskqueue_t::overflow_stack()->clear();
+  }
+
   inline bool is_empty()        const {
-    return taskqueue_t::is_empty() && buffer_empty();
+    return _buf_empty && taskqueue_t::is_empty();
   }
 
 private:
@@ -122,6 +122,13 @@ private:
 // There is also a fallback version that uses plain fields, when we don't have enough space to steal the
 // bits from the native pointer. It is useful to debug the _LP64 version.
 //
+
+#ifdef _MSC_VER
+#pragma warning(push)
+// warning C4522: multiple assignment operators specified
+#pragma warning( disable:4522 )
+#endif
+
 #ifdef _LP64
 class ObjArrayChunkedTask
 {
@@ -235,6 +242,10 @@ private:
 };
 #endif
 
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
 typedef ObjArrayChunkedTask ShenandoahMarkTask;
 typedef BufferedOverflowTaskQueue<ShenandoahMarkTask, mtGC> ShenandoahBufferedOverflowTaskQueue;
 typedef Padded<ShenandoahBufferedOverflowTaskQueue> ShenandoahObjToScanQueue;
@@ -242,7 +253,10 @@ typedef Padded<ShenandoahBufferedOverflowTaskQueue> ShenandoahObjToScanQueue;
 template <class T, MEMFLAGS F>
 class ParallelClaimableQueueSet: public GenericTaskQueueSet<T, F> {
 private:
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
   volatile jint     _claimed_index;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
+
   debug_only(uint   _reserved;  )
 
 public:
@@ -266,7 +280,6 @@ public:
   debug_only(uint get_reserved() const { return (uint)_reserved; })
 };
 
-
 template <class T, MEMFLAGS F>
 T* ParallelClaimableQueueSet<T, F>::claim_next() {
   jint size = (jint)GenericTaskQueueSet<T, F>::size();
@@ -285,10 +298,8 @@ T* ParallelClaimableQueueSet<T, F>::claim_next() {
 }
 
 class ShenandoahObjToScanQueueSet: public ParallelClaimableQueueSet<ShenandoahObjToScanQueue, mtGC> {
-
 public:
-  ShenandoahObjToScanQueueSet(int n) : ParallelClaimableQueueSet<ShenandoahObjToScanQueue, mtGC>(n) {
-  }
+  ShenandoahObjToScanQueueSet(int n) : ParallelClaimableQueueSet<ShenandoahObjToScanQueue, mtGC>(n) {}
 
   bool is_empty();
   void clear();
@@ -300,6 +311,11 @@ public:
 #endif // TASKQUEUE_STATS
 };
 
+class ShenandoahTerminatorTerminator : public TerminatorTerminator {
+public:
+  // return true, terminates immediately, even if there's remaining work left
+  virtual bool should_force_termination() { return false; }
+};
 
 /*
  * This is an enhanced implementation of Google's work stealing
@@ -318,7 +334,6 @@ private:
   Monitor*    _blocker;
   Thread*     _spin_master;
 
-
 public:
   ShenandoahTaskTerminator(uint n_threads, TaskQueueSetSuper* queue_set) :
     ParallelTaskTerminator(n_threads, queue_set), _spin_master(NULL) {
@@ -330,21 +345,27 @@ public:
     delete _blocker;
   }
 
-  bool offer_termination(TerminatorTerminator* terminator);
+  bool offer_termination(ShenandoahTerminatorTerminator* terminator);
+  bool offer_termination() { return offer_termination((ShenandoahTerminatorTerminator*)NULL); }
+
+private:
+  bool offer_termination(TerminatorTerminator* terminator) {
+    ShouldNotReachHere();
+    return false;
+  }
 
 private:
   size_t tasks_in_queue_set() { return _queue_set->tasks(); }
-
 
   /*
    * Perform spin-master task.
    * return true if termination condition is detected
    * otherwise, return false
    */
-  bool do_spin_master_work(TerminatorTerminator* terminator);
+  bool do_spin_master_work(ShenandoahTerminatorTerminator* terminator);
 };
 
-class ShenandoahCancelledTerminatorTerminator : public TerminatorTerminator {
+class ShenandoahCancelledTerminatorTerminator : public ShenandoahTerminatorTerminator {
   virtual bool should_exit_termination() {
     return false;
   }

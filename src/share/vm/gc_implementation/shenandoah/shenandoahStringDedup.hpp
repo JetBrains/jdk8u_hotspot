@@ -24,7 +24,6 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHSTRINGDEDUP_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHSTRINGDEDUP_HPP
 
-
 #include "classfile/javaClasses.hpp"
 #include "memory/iterator.hpp"
 #include "utilities/ostream.hpp"

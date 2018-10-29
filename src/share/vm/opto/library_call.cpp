@@ -43,6 +43,7 @@
 #include "runtime/sharedRuntime.hpp"
 #include "trace/traceMacros.hpp"
 
+
 class LibraryIntrinsic : public InlineCallGenerator {
   // Extend the set of intrinsics known to the runtime:
  public:

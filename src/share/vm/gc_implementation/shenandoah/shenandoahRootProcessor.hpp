@@ -24,24 +24,13 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHROOTPROCESSOR_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHROOTPROCESSOR_HPP
 
-#include "classfile/classLoaderData.hpp"
 #include "code/codeCache.hpp"
-#include "memory/sharedHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahCodeRoots.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "memory/allocation.hpp"
-#include "runtime/mutex.hpp"
-
-class CLDClosure;
-class CodeBlobClosure;
-class G1CollectedHeap;
-class G1GCPhaseTimes;
-class G1ParPushHeapRSClosure;
-class Monitor;
-class OopClosure;
-class SubTasksDone;
+#include "utilities/workgroup.hpp"
 
 class ParallelCLDRootIterator VALUE_OBJ_CLASS_SPEC {
 public:
@@ -53,14 +42,10 @@ enum Shenandoah_process_roots_tasks {
   SHENANDOAH_RP_PS_Universe_oops_do,
   SHENANDOAH_RP_PS_JNIHandles_oops_do,
   SHENANDOAH_RP_PS_JNIHandles_weak_oops_do,
-  SHENANDOAH_RP_PS_ObjectSynchronizer_oops_do,
   SHENANDOAH_RP_PS_FlatProfiler_oops_do,
   SHENANDOAH_RP_PS_Management_oops_do,
   SHENANDOAH_RP_PS_SystemDictionary_oops_do,
-  SHENANDOAH_RP_PS_ClassLoaderDataGraph_oops_do,
   SHENANDOAH_RP_PS_jvmti_oops_do,
-  SHENANDOAH_RP_PS_CodeCache_oops_do,
-  SHENANDOAH_RP_PS_ReferenceProcessor_oops_do,
   // Leave this one last.
   SHENANDOAH_RP_PS_NumElements
 };

@@ -172,7 +172,7 @@ reg_class no_reg();
 // Class for all pointer registers (including RSP and RBP)
 reg_class any_reg_with_rbp(RAX, RAX_H,
                            RDX, RDX_H,
-                           RBP, RBP_H,
+                           RBP, RBP_H,               
                            RDI, RDI_H,
                            RSI, RSI_H,
                            RCX, RCX_H,
@@ -189,7 +189,7 @@ reg_class any_reg_with_rbp(RAX, RAX_H,
 
 // Class for all pointer registers (including RSP, but excluding RBP)
 reg_class any_reg_no_rbp(RAX, RAX_H,
-                         RDX, RDX_H,
+                         RDX, RDX_H,                
                          RDI, RDI_H,
                          RSI, RSI_H,
                          RCX, RCX_H,
@@ -205,10 +205,10 @@ reg_class any_reg_no_rbp(RAX, RAX_H,
                          R15, R15_H);
 
 // Dynamic register class that selects at runtime between register classes
-// any_reg_no_rbp and any_reg_with_rbp (depending on the value of the flag PreserveFramePointer).
+// any_reg_no_rbp and any_reg_with_rbp (depending on the value of the flag PreserveFramePointer). 
 // Equivalent to: return PreserveFramePointer ? any_reg_no_rbp : any_reg_with_rbp;
 reg_class_dynamic any_reg(any_reg_no_rbp, any_reg_with_rbp, %{ PreserveFramePointer %});
-
+                  
 // Class for all pointer registers (excluding RSP)
 reg_class ptr_reg_with_rbp(RAX, RAX_H,
                            RDX, RDX_H,
@@ -226,7 +226,7 @@ reg_class ptr_reg_with_rbp(RAX, RAX_H,
 
 // Class for all pointer registers (excluding RSP and RBP)
 reg_class ptr_reg_no_rbp(RAX, RAX_H,
-                         RDX, RDX_H,
+                         RDX, RDX_H,                         
                          RDI, RDI_H,
                          RSI, RSI_H,
                          RCX, RCX_H,
@@ -551,7 +551,7 @@ static int clear_avx_size() {
 int MachCallStaticJavaNode::ret_addr_offset()
 {
   int offset = 5; // 5 bytes from start of call to where return address points
-  offset += clear_avx_size();
+  offset += clear_avx_size();  
   return offset;
 }
 
@@ -866,14 +866,14 @@ void MachPrologNode::format(PhaseRegAlloc* ra_, outputStream* st) const {
     st->print("subq    rsp, #%d\t# Create frame",framesize);
     st->print("\n\t");
     framesize -= wordSize;
-    st->print("movq    [rsp + #%d], rbp\t# Save rbp",framesize);
+    st->print("movq    [rsp + #%d], rbp\t# Save rbp",framesize);    
     if (PreserveFramePointer) {
       st->print("\n\t");
       st->print("movq    rbp, rsp\t# Save the caller's SP into rbp");
       if (framesize > 0) {
         st->print("\n\t");
         st->print("addq    rbp, #%d", framesize);
-      }
+      }      
     }
   }
 
@@ -1583,7 +1583,7 @@ uint MachUEPNode::size(PhaseRegAlloc* ra_) const
   return MachNode::size(ra_); // too many variables; just compute it
                               // the hard way
 }
-
+ 
 
 //=============================================================================
 
@@ -3359,7 +3359,7 @@ operand no_rax_rdx_RegI()
 // Pointer Register
 operand any_RegP()
 %{
-  constraint(ALLOC_IN_RC(any_reg));
+  constraint(ALLOC_IN_RC(any_reg));  
   match(RegP);
   match(rax_RegP);
   match(rbx_RegP);
@@ -4971,7 +4971,7 @@ instruct loadI2L_immU31(rRegL dst, memory mem, immU31 mask, rFlagsReg cr) %{
 %}
 
 // Load Unsigned Integer into Long Register
-instruct loadUI2L(rRegL dst, memory mem, immL_32bits mask)
+instruct loadUI2L(rRegL dst, memory mem, immL_32bits mask) 
 %{
   match(Set dst (AndL (ConvI2L (LoadI mem)) mask));
 
@@ -10542,7 +10542,7 @@ instruct rep_stos(rcx_RegL cnt, rdi_RegP base, rax_RegI zero, Universe dummy,
 
   format %{ "xorq    rax, rax\t# ClearArray:\n\t"
             "rep     stosq\t# Store rax to *rdi++ while rcx--" %}
-  ins_encode %{
+  ins_encode %{ 
     __ clear_mem($base$$Register, $cnt$$Register, $zero$$Register);
   %}
   ins_pipe(pipe_slow);
@@ -10557,7 +10557,7 @@ instruct rep_fast_stosb(rcx_RegL cnt, rdi_RegP base, rax_RegI zero, Universe dum
   format %{ "xorq    rax, rax\t# ClearArray:\n\t"
             "shlq    rcx,3\t# Convert doublewords to bytes\n\t"
             "rep     stosb\t# Store rax to *rdi++ while rcx--" %}
-  ins_encode %{
+  ins_encode %{ 
     __ clear_mem($base$$Register, $cnt$$Register, $zero$$Register);
   %}
   ins_pipe( pipe_slow );

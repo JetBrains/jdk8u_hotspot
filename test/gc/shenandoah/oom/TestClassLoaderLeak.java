@@ -110,7 +110,6 @@ public class TestClassLoaderLeak {
         }
     }
 
-
     public static void main(String[] args) throws Exception {
         if (args.length > 0) {
             String classDir = TestClassLoaderLeak.class.getProtectionDomain().getCodeSource().getLocation().getPath();

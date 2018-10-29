@@ -63,6 +63,11 @@ void MarkBitMap::initialize(MemRegion heap, MemRegion bitmap) {
 
   _bm.set_map((BitMap::bm_word_t*) bitmap.start());
   _bm.set_size(_bmWordSize >> _shifter);
+  _covered = heap;
+}
+
+void MarkBitMap::clear() {
+  clear_range_large(_covered);
 }
 
 void MarkBitMap::clear_range(MemRegion mr) {

@@ -65,6 +65,8 @@
 #include "gc_implementation/parallelScavenge/parallelScavengeHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #endif // INCLUDE_ALL_GCS
 
 // Note: This is a special bug reporting site for the JVM
@@ -1773,6 +1775,22 @@ void Arguments::set_shenandoah_gc_flags() {
   }
 #endif
 
+#if INCLUDE_ALL_GCS
+  if (UseLargePages && (MaxHeapSize / os::large_page_size()) < ShenandoahHeapRegion::MIN_NUM_REGIONS) {
+    warning("Large pages size (" SIZE_FORMAT "K) is too large to afford page-sized regions, disabling uncommit",
+            os::large_page_size() / K);
+    FLAG_SET_DEFAULT(ShenandoahUncommit, false);
+  }
+#endif
+
+  // Enable NUMA by default. While Shenandoah is not NUMA-aware, enabling NUMA makes
+  // storage allocation code NUMA-aware, and NUMA interleaving makes the storage
+  // allocated in consistent manner (interleaving) to minimize run-to-run variance.
+  if (FLAG_IS_DEFAULT(UseNUMA)) {
+    FLAG_SET_DEFAULT(UseNUMA, true);
+    FLAG_SET_DEFAULT(UseNUMAInterleaving, true);
+  }
+
   FLAG_SET_DEFAULT(ParallelGCThreads,
                    Abstract_VM_Version::parallel_worker_threads());
 
@@ -1862,16 +1880,6 @@ void Arguments::set_shenandoah_gc_flags() {
     FLAG_SET_DEFAULT(TLABAllocationWeight, 90);
   }
 
-  // Shenandoah needs more space in generated code to put barriers in.
-  // TODO: NMethodSizeLimit should not be develop.
-#ifdef COMPILER1
-#ifdef ASSERT
-  if (FLAG_IS_DEFAULT(NMethodSizeLimit)) {
-    FLAG_SET_DEFAULT(NMethodSizeLimit, NMethodSizeLimit * 3);
-  }
-#endif
-#endif
-
   // Shenandoah needs more C2 nodes to compile some methods with lots of barriers.
   // NodeLimitFudgeFactor needs to stay the same relative to MaxNodeLimit.
 #ifdef COMPILER2
@@ -1880,6 +1888,16 @@ void Arguments::set_shenandoah_gc_flags() {
     FLAG_SET_DEFAULT(NodeLimitFudgeFactor, NodeLimitFudgeFactor * 3);
   }
 #endif
+#endif
+
+  // Make sure safepoint deadlocks are failing predictably. This sets up VM to report
+  // fatal error after 10 seconds of wait for safepoint syncronization (not the VM
+  // operation itself). There is no good reason why Shenandoah would spend that
+  // much time synchronizing.
+#ifdef ASSERT
+  FLAG_SET_DEFAULT(SafepointTimeout, true);
+  FLAG_SET_DEFAULT(SafepointTimeoutDelay, 10000);
+  FLAG_SET_DEFAULT(DieOnSafepointTimeout, true);
 #endif
 }
 

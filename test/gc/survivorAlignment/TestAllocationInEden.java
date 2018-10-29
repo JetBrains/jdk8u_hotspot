@@ -26,6 +26,7 @@
  * @bug 8031323
  * @summary Verify that object's alignment in eden space is not affected by
  *          SurvivorAlignmentInBytes option.
+ * @requires vm.gc != "Shenandoah"
  * @library /testlibrary /testlibrary/whitebox
  * @build TestAllocationInEden SurvivorAlignmentTestMain AlignmentHelper
  * @run main ClassFileInstaller sun.hotspot.WhiteBox

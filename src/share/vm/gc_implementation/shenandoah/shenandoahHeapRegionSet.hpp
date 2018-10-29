@@ -25,16 +25,19 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGIONSET_HPP
 
 #include "memory/allocation.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 
-class ShenandoahHeap;
-class ShenandoahHeapRegion;
 class ShenandoahHeapRegionSet;
 
 class ShenandoahHeapRegionSetIterator : public StackObj {
 private:
   const ShenandoahHeapRegionSet* _set;
-  volatile jint _current_index;
   ShenandoahHeap* const _heap;
+
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
+  volatile jint _current_index;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
 
   // No implicit copying: iterators should be passed by reference to capture the state
   ShenandoahHeapRegionSetIterator(const ShenandoahHeapRegionSetIterator& that);
@@ -65,7 +68,6 @@ private:
   size_t                _region_count;
 
 public:
-
   ShenandoahHeapRegionSet();
   ~ShenandoahHeapRegionSet();
 

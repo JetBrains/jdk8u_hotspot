@@ -24,24 +24,15 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP
 
-#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
-#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "memory/collectorPolicy.hpp"
-#include "runtime/arguments.hpp"
-#include "utilities/numberSeq.hpp"
-
-class ShenandoahCollectionSet;
-class ShenandoahFreeSet;
-class ShenandoahHeap;
-class ShenandoahHeuristics;
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "utilities/ostream.hpp"
 
 class STWGCTimer;
 class ConcurrentGCTimer;
-class outputStream;
 
 class ShenandoahCollectorPolicy: public CollectorPolicy {
 private:
-  size_t _success_partial_gcs;
   size_t _success_concurrent_gcs;
   size_t _success_degenerated_gcs;
   size_t _success_full_gcs;
@@ -57,7 +48,6 @@ private:
   ShenandoahTracer* _tracer;
 
   size_t _cycle_counter;
-
 
 public:
   ShenandoahCollectorPolicy();
@@ -78,7 +68,6 @@ public:
   // These two encompass the entire cycle.
   void record_cycle_start();
 
-  void record_success_partial();
   void record_success_concurrent();
   void record_success_degenerated();
   void record_success_full();
@@ -97,6 +86,5 @@ public:
 
   void print_gc_stats(outputStream* out) const;
 };
-
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTORPOLICY_HPP

@@ -49,6 +49,7 @@ public class TestAllocLargerThanHeap {
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
                                     "-Xmx16m",
+                                    "-XX:+UnlockExperimentalVMOptions",
                                     "-XX:+UseShenandoahGC",
                                     TestAllocLargerThanHeap.class.getName(),
                                     "test");
@@ -61,6 +62,7 @@ public class TestAllocLargerThanHeap {
         {
             ProcessBuilder pb = ProcessTools.createJavaProcessBuilder(
                                     "-Xmx1g",
+                                    "-XX:+UnlockExperimentalVMOptions",
                                     "-XX:+UseShenandoahGC",
                                     TestAllocLargerThanHeap.class.getName(),
                                     "test");

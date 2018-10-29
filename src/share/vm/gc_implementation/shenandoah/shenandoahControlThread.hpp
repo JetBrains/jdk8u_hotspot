@@ -24,12 +24,12 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTTHREAD_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTTHREAD_HPP
 
+#include "gc_interface/gcCause.hpp"
 #include "gc_implementation/shared/concurrentGCThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahSharedVariables.hpp"
-#include "gc_interface/gcCause.hpp"
-#include "memory/resourceArea.hpp"
 #include "runtime/task.hpp"
+#include "utilities/ostream.hpp"
 
 class ShenandoahControlThread;
 
@@ -85,9 +85,12 @@ private:
   ShenandoahSharedFlag _heap_changed;
   ShenandoahSharedFlag _do_counters_update;
   ShenandoahSharedFlag _force_counters_update;
-  volatile intptr_t _allocs_seen;
   GCCause::Cause _explicit_gc_cause;
   ShenandoahHeap::ShenandoahDegenPoint _degen_point;
+
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
+  volatile intptr_t _allocs_seen;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
 
   bool check_cancellation_or_degen(ShenandoahHeap::ShenandoahDegenPoint point);
   void service_concurrent_normal_cycle(GCCause::Cause cause);

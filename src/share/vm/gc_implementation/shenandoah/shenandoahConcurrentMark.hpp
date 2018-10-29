@@ -25,32 +25,23 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTMARK_HPP
 
 #include "utilities/taskqueue.hpp"
-#include "utilities/workgroup.hpp"
+#include "gc_implementation/shenandoah/shenandoahOopClosures.hpp"
 #include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 
 class ShenandoahStrDedupQueue;
 
 class ShenandoahConcurrentMark: public CHeapObj<mtGC> {
-
 private:
   ShenandoahHeap* _heap;
-
-  // The per-worker-thread work queues
   ShenandoahObjToScanQueueSet* _task_queues;
 
-  ShenandoahSharedFlag _claimed_codecache;
+public:
+  void initialize(uint workers);
+  void cancel();
 
-  // Used for buffering per-region liveness data.
-  // Needed since ShenandoahHeapRegion uses atomics to update liveness.
-  //
-  // The array has max-workers elements, each of which is an array of
-  // jushort * max_regions. The choice of jushort is not accidental:
-  // there is a tradeoff between static/dynamic footprint that translates
-  // into cache pressure (which is already high during marking), and
-  // too many atomic updates. size_t/jint is too large, jbyte is too small.
-  jushort** _liveness_local;
-
+// ---------- Marking loop and tasks
+//
 private:
   template <class T>
   inline void do_task(ShenandoahObjToScanQueue* q, T* cl, jushort* live_data, ShenandoahMarkTask* task);
@@ -62,74 +53,58 @@ private:
   inline void do_chunked_array(ShenandoahObjToScanQueue* q, T* cl, oop array, int chunk, int pow);
 
   inline void count_liveness(jushort* live_data, oop obj);
-  inline void count_liveness_humongous(oop obj);
 
-  // Actual mark loop with closures set up
   template <class T, bool CANCELLABLE>
-  void mark_loop_work(T* cl, jushort* live_data, uint worker_id, ParallelTaskTerminator *t);
+  void mark_loop_work(T* cl, jushort* live_data, uint worker_id, ShenandoahTaskTerminator *t);
 
   template <bool CANCELLABLE>
-  void mark_loop_prework(uint worker_id, ParallelTaskTerminator *terminator, ReferenceProcessor *rp,
-                         bool class_unload, bool update_refs, bool strdedup);
+  void mark_loop_prework(uint worker_id, ShenandoahTaskTerminator *terminator, ReferenceProcessor *rp, bool strdedup);
 
 public:
-  // Mark loop entry.
-  // Translates dynamic arguments to template parameters with progressive currying.
-  void mark_loop(uint worker_id, ParallelTaskTerminator* terminator, ReferenceProcessor *rp,
-                 bool cancellable,
-                 bool class_unload, bool update_refs, bool strdedup) {
+  void mark_loop(uint worker_id, ShenandoahTaskTerminator* terminator, ReferenceProcessor *rp,
+                 bool cancellable, bool strdedup) {
     if (cancellable) {
-      mark_loop_prework<true>(worker_id, terminator, rp, class_unload, update_refs, strdedup);
+      mark_loop_prework<true>(worker_id, terminator, rp, strdedup);
     } else {
-      mark_loop_prework<false>(worker_id, terminator, rp, class_unload, update_refs, strdedup);
+      mark_loop_prework<false>(worker_id, terminator, rp, strdedup);
     }
   }
 
-  // We need to do this later when the heap is already created.
-  void initialize(uint workers);
-
-  bool process_references() const;
-  bool unload_classes() const;
-
-  bool claim_codecache();
-  void clear_claim_codecache();
-
-  template<class T, UpdateRefsMode UPDATE_REFS>
-  static inline void mark_through_ref(T* p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q, ShenandoahMarkingContext* const mark_context);
-
-  template<class T, UpdateRefsMode UPDATE_REFS, bool STRING_DEDUP>
+  template<class T, UpdateRefsMode UPDATE_REFS, StringDedupMode STRING_DEDUP>
   static inline void mark_through_ref(T* p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q, ShenandoahMarkingContext* const mark_context, ShenandoahStrDedupQueue* dq = NULL);
 
   void mark_from_roots();
+  void finish_mark_from_roots(bool full_gc);
 
-  // Prepares unmarked root objects by marking them and putting
-  // them into the marking task queue.
-  void init_mark_roots();
   void mark_roots(ShenandoahPhaseTimings::Phase root_phase);
   void update_roots(ShenandoahPhaseTimings::Phase root_phase);
 
-  void shared_finish_mark_from_roots(bool full_gc);
-  void finish_mark_from_roots();
-  // Those are only needed public because they're called from closures.
-
-  inline bool try_queue(ShenandoahObjToScanQueue* q, ShenandoahMarkTask &task);
-
-  ShenandoahObjToScanQueue* get_queue(uint worker_id);
-  void clear_queue(ShenandoahObjToScanQueue *q);
-
-  ShenandoahObjToScanQueueSet* task_queues() { return _task_queues;}
-
-  jushort* get_liveness(uint worker_id);
-
-  void cancel();
-
-  void preclean_weak_refs();
-
-  void concurrent_scan_code_roots(uint worker_id, ReferenceProcessor* rp, bool update_ref);
+// ---------- Weak references
+//
 private:
-
   void weak_refs_work(bool full_gc);
   void weak_refs_work_doit(bool full_gc);
+
+public:
+  void preclean_weak_refs();
+
+// ---------- Concurrent code cache
+//
+private:
+  ShenandoahSharedFlag _claimed_codecache;
+
+public:
+  void concurrent_scan_code_roots(uint worker_id, ReferenceProcessor* rp);
+  bool claim_codecache();
+  void clear_claim_codecache();
+
+// ---------- Helpers
+// Used from closures, need to be public
+//
+public:
+  ShenandoahObjToScanQueue* get_queue(uint worker_id);
+  ShenandoahObjToScanQueueSet* task_queues() { return _task_queues; }
+
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHCONCURRENTMARK_HPP

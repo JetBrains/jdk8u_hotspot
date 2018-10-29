@@ -26,9 +26,7 @@ public class CriticalNativeArgs {
     System.loadLibrary("CriticalNative");
   }
 
-
   static native boolean isNull(int[] a);
-
 
   public static void main(String[] args) {
     int[] arr = new int[2];
@@ -42,4 +40,3 @@ public class CriticalNativeArgs {
     }
   }
 }
-

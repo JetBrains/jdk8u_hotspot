@@ -443,9 +443,7 @@ protected:
   // Strip away casting.  (It is depth-limited.)
   Node* uncast() const;
   // Return whether two Nodes are equivalent, after stripping casting.
-  bool eqv_uncast(const Node* n) const {
-    return (this->uncast() == n->uncast());
-  }
+  bool eqv_uncast(const Node* n) const;
   // Find out of current node that matches opcode.
   Node* find_out_with(int opcode);
   // Return true if the current node has an out that matches opcode.
@@ -899,8 +897,6 @@ public:
   // Check if 'this' node dominates or equal to 'sub'.
   bool dominates(Node* sub, Node_List &nlist);
 
-  virtual bool is_g1_marking_load() const { return false; }
-  virtual bool is_g1_marking_if(PhaseTransform *phase) const { return false; }
   virtual bool is_g1_wb_pre_call() const { return false; }
   virtual bool is_shenandoah_state_load() const { return false; }
   virtual bool is_shenandoah_marking_if(PhaseTransform *phase) const { return false; }

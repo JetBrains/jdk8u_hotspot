@@ -41,11 +41,10 @@ void ShenandoahConcurrentMark::do_task(ShenandoahObjToScanQueue* q, T* cl, jusho
   oop obj = task->obj();
 
   shenandoah_assert_not_forwarded(NULL, obj);
-  shenandoah_assert_marked_next(NULL, obj);
+  shenandoah_assert_marked(NULL, obj);
   shenandoah_assert_not_in_cset_except(NULL, obj, _heap->cancelled_gc());
 
   if (task->is_not_chunked()) {
-    count_liveness(live_data, obj);
     if (obj->is_instance()) {
       // Case 1: Normal oop, process as usual.
       obj->oop_iterate(cl);
@@ -60,6 +59,8 @@ void ShenandoahConcurrentMark::do_task(ShenandoahObjToScanQueue* q, T* cl, jusho
       // Universe::TypeArrayKlass never moves.
       assert (obj->is_typeArray(), "should be type array");
     }
+    // Count liveness the last: push the outstanding work to the queues first
+    count_liveness(live_data, obj);
   } else {
     // Case 4: Array chunk, has sensible chunk id. Process it.
     do_chunked_array<T>(q, cl, obj, task->chunk(), task->pow());
@@ -69,15 +70,16 @@ void ShenandoahConcurrentMark::do_task(ShenandoahObjToScanQueue* q, T* cl, jusho
 inline void ShenandoahConcurrentMark::count_liveness(jushort* live_data, oop obj) {
   size_t region_idx = _heap->heap_region_index_containing(obj);
   ShenandoahHeapRegion* region = _heap->get_region(region_idx);
+  size_t size = obj->size() + BrooksPointer::word_size();
+
   if (!region->is_humongous_start()) {
     assert(!region->is_humongous(), "Cannot have continuations here");
-    jushort cur = live_data[region_idx];
-    size_t size = obj->size() + BrooksPointer::word_size();
     size_t max = (1 << (sizeof(jushort) * 8)) - 1;
     if (size >= max) {
       // too big, add to region data directly
       region->increase_live_data_gc_words(size);
     } else {
+      jushort cur = live_data[region_idx];
       size_t new_val = cur + size;
       if (new_val >= max) {
         // overflow, flush to region data
@@ -89,20 +91,14 @@ inline void ShenandoahConcurrentMark::count_liveness(jushort* live_data, oop obj
       }
     }
   } else {
-    count_liveness_humongous(obj);
-  }
-}
+    shenandoah_assert_in_correct_region(NULL, obj);
+    size_t num_regions = ShenandoahHeapRegion::required_regions(size * HeapWordSize);
 
-inline void ShenandoahConcurrentMark::count_liveness_humongous(oop obj) {
-  shenandoah_assert_in_correct_region(NULL, obj);
-  size_t region_idx = _heap->heap_region_index_containing(obj);
-  size_t size = obj->size() + BrooksPointer::word_size();
-  size_t num_regions = ShenandoahHeapRegion::required_regions(size * HeapWordSize);
-
-  for (size_t i = region_idx; i < region_idx + num_regions; i++) {
-    ShenandoahHeapRegion* chain_reg = _heap->get_region(i);
-    assert(chain_reg->is_humongous(), "Expecting a humongous region");
-    chain_reg->increase_live_data_gc_words(chain_reg->used() >> LogHeapWordSize);
+    for (size_t i = region_idx; i < region_idx + num_regions; i++) {
+      ShenandoahHeapRegion* chain_reg = _heap->get_region(i);
+      assert(chain_reg->is_humongous(), "Expecting a humongous region");
+      chain_reg->increase_live_data_gc_words(chain_reg->used() >> LogHeapWordSize);
+    }
   }
 }
 
@@ -198,48 +194,47 @@ inline void ShenandoahConcurrentMark::do_chunked_array(ShenandoahObjToScanQueue*
   array->oop_iterate_range(cl, from, to);
 }
 
-inline bool ShenandoahConcurrentMark::try_queue(ShenandoahObjToScanQueue* q, ShenandoahMarkTask &task) {
-  return (q->pop_buffer(task) ||
-          q->pop_local(task) ||
-          q->pop_overflow(task));
-}
-
 class ShenandoahSATBBufferClosure : public SATBBufferClosure {
 private:
   ShenandoahObjToScanQueue* _queue;
+  ShenandoahStrDedupQueue* _dedup_queue;
   ShenandoahHeap* _heap;
   ShenandoahMarkingContext* const _mark_context;
 public:
-  ShenandoahSATBBufferClosure(ShenandoahObjToScanQueue* q) :
+  ShenandoahSATBBufferClosure(ShenandoahObjToScanQueue* q, ShenandoahStrDedupQueue* dq) :
     _queue(q),
+    _dedup_queue(dq),
     _heap(ShenandoahHeap::heap()),
-    _mark_context(_heap->next_marking_context())
+    _mark_context(_heap->marking_context())
   {
   }
 
   void do_buffer(void **buffer, size_t size) {
     if (_heap->has_forwarded_objects()) {
-      do_buffer_impl<RESOLVE>(buffer, size);
+      if (ShenandoahStringDedup::is_enabled()) {
+        do_buffer_impl<RESOLVE, ENQUEUE_DEDUP>(buffer, size);
+      } else {
+        do_buffer_impl<RESOLVE, NO_DEDUP>(buffer, size);
+      }
     } else {
-      do_buffer_impl<NONE>(buffer, size);
+      if (ShenandoahStringDedup::is_enabled()) {
+        do_buffer_impl<NONE, ENQUEUE_DEDUP>(buffer, size);
+      } else {
+        do_buffer_impl<NONE, NO_DEDUP>(buffer, size);
+      }
     }
   }
 
-  template<UpdateRefsMode UPDATE_REFS>
+  template<UpdateRefsMode UPDATE_REFS, StringDedupMode STRING_DEDUP>
   void do_buffer_impl(void **buffer, size_t size) {
     for (size_t i = 0; i < size; ++i) {
       oop *p = (oop *) &buffer[i];
-      ShenandoahConcurrentMark::mark_through_ref<oop, UPDATE_REFS>(p, _heap, _queue, _mark_context);
+      ShenandoahConcurrentMark::mark_through_ref<oop, UPDATE_REFS, STRING_DEDUP>(p, _heap, _queue, _mark_context, _dedup_queue);
     }
   }
 };
 
-template<class T, UpdateRefsMode UPDATE_REFS>
-inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q, ShenandoahMarkingContext* const mark_context) {
-  ShenandoahConcurrentMark::mark_through_ref<T, UPDATE_REFS, false /* string dedup */>(p, heap, q, mark_context, NULL);
-}
-
-template<class T, UpdateRefsMode UPDATE_REFS, bool STRING_DEDUP>
+template<class T, UpdateRefsMode UPDATE_REFS, StringDedupMode STRING_DEDUP>
 inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* heap, ShenandoahObjToScanQueue* q, ShenandoahMarkingContext* const mark_context, ShenandoahStrDedupQueue* dq) {
   T o = oopDesc::load_heap_oop(p);
   if (! oopDesc::is_null(o)) {
@@ -272,14 +267,14 @@ inline void ShenandoahConcurrentMark::mark_through_ref(T *p, ShenandoahHeap* hea
         bool pushed = q->push(ShenandoahMarkTask(obj));
         assert(pushed, "overflow queue should always succeed pushing");
 
-        if (STRING_DEDUP && ShenandoahStringDedup::is_candidate(obj)) {
+        if ((STRING_DEDUP == ENQUEUE_DEDUP) && ShenandoahStringDedup::is_candidate(obj)) {
           assert(ShenandoahStringDedup::is_enabled(), "Must be enabled");
           assert(dq != NULL, "Dedup queue not set");
           ShenandoahStringDedup::enqueue_candidate(obj, dq);
         }
       }
 
-      shenandoah_assert_marked_next(p, obj);
+      shenandoah_assert_marked(p, obj);
     }
   }
 }

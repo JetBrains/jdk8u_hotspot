@@ -22,16 +22,9 @@
  */
 
 #include "precompiled.hpp"
-#include "gc_implementation/shared/vmGCOperations.hpp"
-#include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
-#include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
-#include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
-#include "gc_implementation/shenandoah/shenandoahConcurrentMark.inline.hpp"
+
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
-#include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
-#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
-#include "gc_implementation/shenandoah/shenandoahWorkerPolicy.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 
 bool VM_ShenandoahReferenceOperation::doit_prologue() {

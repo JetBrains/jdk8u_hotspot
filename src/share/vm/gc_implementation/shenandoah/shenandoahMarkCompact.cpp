@@ -22,6 +22,7 @@
  */
 
 #include "precompiled.hpp"
+
 #include "code/codeCache.hpp"
 #include "gc_implementation/shenandoah/shenandoahGCTraceTime.hpp"
 #include "gc_implementation/shared/gcTimer.hpp"
@@ -32,22 +33,22 @@
 #include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahPhaseTimings.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkCompact.hpp"
-#include "gc_implementation/shenandoah/shenandoahBarrierSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahRootProcessor.hpp"
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "gc_implementation/shenandoah/shenandoahVerifier.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahWorkerPolicy.hpp"
 #include "gc_implementation/shenandoah/vm_operations_shenandoah.hpp"
 #include "oops/oop.inline.hpp"
-#include "runtime/biasedLocking.hpp"
 #include "runtime/thread.hpp"
 #include "utilities/copy.hpp"
 #include "utilities/growableArray.hpp"
-#include "utilities/taskqueue.hpp"
 #include "utilities/workgroup.hpp"
 
 void ShenandoahMarkCompact::initialize(GCTimer* gc_timer) {
@@ -57,122 +58,131 @@ void ShenandoahMarkCompact::initialize(GCTimer* gc_timer) {
 void ShenandoahMarkCompact::do_it(GCCause::Cause gc_cause) {
   ShenandoahHeap* heap = ShenandoahHeap::heap();
 
+  if (ShenandoahVerify) {
+    heap->verifier()->verify_before_fullgc();
+  }
+
+  if (VerifyBeforeGC) {
+    Universe::verify();
+  }
+
+  heap->set_full_gc_in_progress(true);
+
+  assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "must be at a safepoint");
+  assert(Thread::current()->is_VM_thread(), "Do full GC only while world is stopped");
+
   {
-    if (ShenandoahVerify) {
-      heap->verifier()->verify_before_fullgc();
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
+    heap->pre_full_gc_dump(_gc_timer);
+  }
+
+  {
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_prepare);
+    // Full GC is supposed to recover from any GC state:
+
+    // 0. Remember if we have forwarded objects
+    bool has_forwarded_objects = heap->has_forwarded_objects();
+
+    // a. Cancel concurrent mark, if in progress
+    if (heap->is_concurrent_mark_in_progress()) {
+      heap->concurrent_mark()->cancel();
+      heap->stop_concurrent_marking();
     }
+    assert(!heap->is_concurrent_mark_in_progress(), "sanity");
 
-    heap->set_full_gc_in_progress(true);
-
-    assert(ShenandoahSafepoint::is_at_shenandoah_safepoint(), "must be at a safepoint");
-    assert(Thread::current()->is_VM_thread(), "Do full GC only while world is stopped");
-
-    {
-      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
-      heap->pre_full_gc_dump(_gc_timer);
+    // b1. Cancel evacuation, if in progress
+    if (heap->is_evacuation_in_progress()) {
+      heap->set_evacuation_in_progress(false);
     }
+    assert(!heap->is_evacuation_in_progress(), "sanity");
 
-    {
-      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_prepare);
-      // Full GC is supposed to recover from any GC state:
-
-      // 0. Remember if we have forwarded objects
-      bool has_forwarded_objects = heap->has_forwarded_objects();
-
-      // a. Cancel concurrent mark, if in progress
-      if (heap->is_concurrent_mark_in_progress()) {
-        heap->concurrentMark()->cancel();
-        heap->stop_concurrent_marking();
-      }
-      assert(!heap->is_concurrent_mark_in_progress(), "sanity");
-
-      // b1. Cancel evacuation, if in progress
-      if (heap->is_evacuation_in_progress()) {
-        heap->set_evacuation_in_progress(false);
-      }
-      assert(!heap->is_evacuation_in_progress(), "sanity");
-
-      // b2. Cancel update-refs, if in progress
-      if (heap->is_update_refs_in_progress()) {
-        heap->set_update_refs_in_progress(false);
-      }
-      assert(!heap->is_update_refs_in_progress(), "sanity");
-
-      // c. Reset the bitmaps for new marking
-      heap->reset_next_mark_bitmap();
-      assert(heap->next_marking_context()->is_bitmap_clear(), "sanity");
-
-      // d. Abandon reference discovery and clear all discovered references.
-      ReferenceProcessor *rp = heap->ref_processor();
-      rp->disable_discovery();
-      rp->abandon_partial_discovery();
-      rp->verify_no_references_recorded();
-
-      // e. Set back forwarded objects bit back, in case some steps above dropped it.
-      heap->set_has_forwarded_objects(has_forwarded_objects);
+    // b2. Cancel update-refs, if in progress
+    if (heap->is_update_refs_in_progress()) {
+      heap->set_update_refs_in_progress(false);
     }
+    assert(!heap->is_update_refs_in_progress(), "sanity");
 
-    {
-      heap->make_parsable(true);
+    // c. Reset the bitmaps for new marking
+    heap->reset_mark_bitmap();
+    assert(heap->marking_context()->is_bitmap_clear(), "sanity");
+    assert(!heap->marking_context()->is_complete(), "sanity");
 
-      CodeCache::gc_prologue();
+    // d. Abandon reference discovery and clear all discovered references.
+    ReferenceProcessor *rp = heap->ref_processor();
+    rp->disable_discovery();
+    rp->abandon_partial_discovery();
+    rp->verify_no_references_recorded();
 
-      OrderAccess::fence();
+    // e. Set back forwarded objects bit back, in case some steps above dropped it.
+    heap->set_has_forwarded_objects(has_forwarded_objects);
+  }
 
-      phase1_mark_heap();
+  heap->make_parsable(true);
 
-      // Once marking is done, which may have fixed up forwarded objects, we can drop it.
-      // Coming out of Full GC, we would not have any forwarded objects.
-      // This also prevents read barrier from kicking in while adjusting pointers in phase3.
-      heap->set_has_forwarded_objects(false);
+  CodeCache::gc_prologue();
 
-      heap->set_full_gc_move_in_progress(true);
+  OrderAccess::fence();
 
-      // Setup workers for the rest
-      {
-        OrderAccess::fence();
+  phase1_mark_heap();
 
-        // Initialize worker slices
-        ShenandoahHeapRegionSet** worker_slices = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, heap->max_workers(), mtGC);
-        for (uint i = 0; i < heap->max_workers(); i++) {
-          worker_slices[i] = new ShenandoahHeapRegionSet();
-        }
+  // Once marking is done, which may have fixed up forwarded objects, we can drop it.
+  // Coming out of Full GC, we would not have any forwarded objects.
+  // This also prevents read barrier from kicking in while adjusting pointers in phase3.
+  heap->set_has_forwarded_objects(false);
 
-        phase2_calculate_target_addresses(worker_slices);
+  heap->set_full_gc_move_in_progress(true);
 
-        OrderAccess::fence();
+  // Setup workers for the rest
+  OrderAccess::fence();
 
-        phase3_update_references();
+  // Initialize worker slices
+  ShenandoahHeapRegionSet** worker_slices = NEW_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, heap->max_workers(), mtGC);
+  for (uint i = 0; i < heap->max_workers(); i++) {
+    worker_slices[i] = new ShenandoahHeapRegionSet();
+  }
 
-        phase4_compact_objects(worker_slices);
+  {
+    // The rest of code performs region moves, where region status is undefined
+    // until all phases run together.
+    ShenandoahHeapLocker lock(heap->lock());
 
-        // Free worker slices
-        for (uint i = 0; i < heap->max_workers(); i++) {
-          delete worker_slices[i];
-        }
-        FREE_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, worker_slices, mtGC);
+    phase2_calculate_target_addresses(worker_slices);
 
-        CodeCache::gc_epilogue();
-        JvmtiExport::gc_epilogue();
-      }
+    OrderAccess::fence();
 
-      heap->set_full_gc_move_in_progress(false);
-      heap->set_full_gc_in_progress(false);
+    phase3_update_references();
 
-      if (ShenandoahVerify) {
-        heap->verifier()->verify_after_fullgc();
-      }
-    }
+    phase4_compact_objects(worker_slices);
+  }
 
-    {
-      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
-      heap->post_full_gc_dump(_gc_timer);
-    }
+  // Free worker slices
+  for (uint i = 0; i < heap->max_workers(); i++) {
+    delete worker_slices[i];
+  }
+  FREE_C_HEAP_ARRAY(ShenandoahHeapRegionSet*, worker_slices, mtGC);
 
-    if (UseTLAB) {
-      ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_resize_tlabs);
-      heap->resize_all_tlabs();
-    }
+  CodeCache::gc_epilogue();
+  JvmtiExport::gc_epilogue();
+
+  heap->set_full_gc_move_in_progress(false);
+  heap->set_full_gc_in_progress(false);
+
+  if (ShenandoahVerify) {
+    heap->verifier()->verify_after_fullgc();
+  }
+
+  if (VerifyAfterGC) {
+    Universe::verify();
+  }
+
+  {
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_heapdumps);
+    heap->post_full_gc_dump(_gc_timer);
+  }
+
+  if (UseTLAB) {
+    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_resize_tlabs);
+    heap->resize_all_tlabs();
   }
 }
 
@@ -181,10 +191,10 @@ private:
   ShenandoahMarkingContext* const _ctx;
 
 public:
-  ShenandoahPrepareForMarkClosure() : _ctx(ShenandoahHeap::heap()->next_marking_context()) {}
+  ShenandoahPrepareForMarkClosure() : _ctx(ShenandoahHeap::heap()->marking_context()) {}
 
   bool heap_region_do(ShenandoahHeapRegion *r) {
-    _ctx->set_top_at_mark_start(r->region_number(), r->top());
+    _ctx->capture_top_at_mark_start(r);
     r->clear_live_data();
     r->set_concurrent_iteration_safe_limit(r->top());
     return false;
@@ -196,13 +206,10 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
   GCTraceTime time("Phase 1: Mark live objects", ShenandoahLogDebug, _gc_timer, heap->tracer()->gc_id());
   ShenandoahGCPhase mark_phase(ShenandoahPhaseTimings::full_gc_mark);
 
-  {
-    ShenandoahHeapLocker lock(heap->lock());
-    ShenandoahPrepareForMarkClosure cl;
-    heap->heap_region_iterate(&cl, false, false);
-  }
+  ShenandoahPrepareForMarkClosure cl;
+  heap->heap_region_iterate(&cl, false, false);
 
-  ShenandoahConcurrentMark* cm = heap->concurrentMark();
+  ShenandoahConcurrentMark* cm = heap->concurrent_mark();
 
   // Do not trust heuristics, because this can be our last resort collection.
   // Only ignore processing references and class unloading if explicitly disabled.
@@ -217,9 +224,9 @@ void ShenandoahMarkCompact::phase1_mark_heap() {
 
   cm->update_roots(ShenandoahPhaseTimings::full_gc_roots);
   cm->mark_roots(ShenandoahPhaseTimings::full_gc_roots);
-  cm->shared_finish_mark_from_roots(/* full_gc = */ true);
+  cm->finish_mark_from_roots(/* full_gc = */ true);
 
-  heap->swap_mark_contexts();
+  heap->mark_complete_marking_context();
 }
 
 class ShenandoahPrepareForCompactionObjectClosure : public ObjectClosure {
@@ -454,9 +461,7 @@ public:
              err_msg("Region " SIZE_FORMAT " should have live", r->region_number()));
     } else if (r->is_regular()) {
       if (!r->has_live()) {
-        assert(_ctx->is_bitmap_clear_range(r->bottom(), r->end()),
-               err_msg("Region " SIZE_FORMAT " should not have marks in bitmap", r->region_number()));
-        r->make_trash();
+        r->make_trash_immediate();
       }
     }
     return false;
@@ -469,8 +474,6 @@ void ShenandoahMarkCompact::phase2_calculate_target_addresses(ShenandoahHeapRegi
   ShenandoahGCPhase calculate_address_phase(ShenandoahPhaseTimings::full_gc_calculate_addresses);
 
   {
-    ShenandoahHeapLocker lock(heap->lock());
-
     // Trash the immediately collectible regions before computing addresses
     ShenandoahTrashImmediateGarbageClosure tigcl;
     heap->heap_region_iterate(&tigcl, false, false);
@@ -665,7 +668,7 @@ public:
     // NOTE: See blurb at ShenandoahMCResetCompleteBitmapTask on why we need to skip
     // pinned regions.
     if (!r->is_pinned()) {
-      _heap->complete_marking_context()->set_top_at_mark_start(r->region_number(), r->bottom());
+      _heap->complete_marking_context()->reset_top_at_mark_start(r);
     }
 
     size_t live = r->used();
@@ -733,8 +736,6 @@ void ShenandoahMarkCompact::compact_humongous_objects() {
       BrooksPointer::initialize(new_obj);
 
       {
-        ShenandoahHeapLocker lock(heap->lock());
-
         for (size_t c = old_start; c <= old_end; c++) {
           ShenandoahHeapRegion* r = heap->get_region(c);
           r->make_regular_bypass();
@@ -764,7 +765,6 @@ void ShenandoahMarkCompact::compact_humongous_objects() {
   }
 }
 
-
 // This is slightly different to ShHeap::reset_next_mark_bitmap:
 // we need to remain able to walk pinned regions.
 // Since pinned region do not move and don't get compacted, we will get holes with
@@ -786,13 +786,8 @@ public:
     ShenandoahHeap* heap = ShenandoahHeap::heap();
     ShenandoahMarkingContext* const ctx = heap->complete_marking_context();
     while (region != NULL) {
-      if (heap->is_bitmap_slice_committed(region) && !region->is_pinned()) {
-        HeapWord* bottom = region->bottom();
-        HeapWord* top = ctx->top_at_mark_start(region->region_number());
-        if (top > bottom && region->has_live()) {
-          ctx->clear_bitmap(bottom, top);
-        }
-        assert(ctx->is_bitmap_clear_range(bottom, region->end()), "must be clear");
+      if (heap->is_bitmap_slice_committed(region) && !region->is_pinned() && region->has_live()) {
+        ctx->clear_bitmap(region);
       }
       region = _regions.next();
     }
@@ -829,7 +824,6 @@ void ShenandoahMarkCompact::phase4_compact_objects(ShenandoahHeapRegionSet** wor
   {
     ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_copy_objects_rebuild);
 
-    ShenandoahHeapLocker lock(heap->lock());
     ShenandoahPostCompactClosure post_compact;
     heap->heap_region_iterate(&post_compact);
     heap->set_used(post_compact.get_live());
@@ -839,10 +833,4 @@ void ShenandoahMarkCompact::phase4_compact_objects(ShenandoahHeapRegionSet** wor
   }
 
   heap->clear_cancelled_gc();
-
-  // Also clear the next bitmap in preparation for next marking.
-  {
-    ShenandoahGCPhase phase(ShenandoahPhaseTimings::full_gc_copy_objects_reset_next);
-    heap->reset_next_mark_bitmap();
-  }
 }

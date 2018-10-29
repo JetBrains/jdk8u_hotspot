@@ -24,15 +24,11 @@
 #ifndef SHARE_VM_GC_SHENANDOAH_HEURISTICS_SHENANDOAHPASSIVEHEURISTICS_HPP
 #define SHARE_VM_GC_SHENANDOAH_HEURISTICS_SHENANDOAHPASSIVEHEURISTICS_HPP
 
-#include "gc_implementation/shenandoah/shenandoahHeuristics.hpp"
+#include "gc_implementation/shenandoah/heuristics/shenandoahAdaptiveHeuristics.hpp"
 
-class ShenandoahPassiveHeuristics : public ShenandoahHeuristics {
+class ShenandoahPassiveHeuristics : public ShenandoahAdaptiveHeuristics {
 public:
   ShenandoahPassiveHeuristics();
-
-  virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* cset,
-                                                     RegionData* data, size_t size,
-                                                     size_t free);
 
   virtual bool should_start_normal_gc() const;
 

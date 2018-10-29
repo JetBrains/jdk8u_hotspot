@@ -46,7 +46,8 @@ public class TestVerboseGC {
         }
 
         {
-            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UnlockExperimentalVMOptions",
+                                                                      "-XX:+UseShenandoahGC",
                                                                       "-Xmx128m",
                                                                       TestVerboseGC.class.getName(),
                                                                       "test");
@@ -58,7 +59,8 @@ public class TestVerboseGC {
         }
 
         {
-            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UnlockExperimentalVMOptions",
+                                                                      "-XX:+UseShenandoahGC",
                                                                       "-Xmx128m",
                                                                       "-verbose:gc",
                                                                       TestVerboseGC.class.getName(),
@@ -71,7 +73,8 @@ public class TestVerboseGC {
         }
 
         {
-            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UnlockExperimentalVMOptions",
+                                                                      "-XX:+UseShenandoahGC",
                                                                       "-Xmx128m",
                                                                       "-XX:+PrintGC",
                                                                       TestVerboseGC.class.getName(),
@@ -84,7 +87,8 @@ public class TestVerboseGC {
         }
 
         {
-            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UseShenandoahGC",
+            ProcessBuilder pb = ProcessTools.createJavaProcessBuilder("-XX:+UnlockExperimentalVMOptions",
+                                                                      "-XX:+UseShenandoahGC",
                                                                       "-Xmx128m",
                                                                       "-XX:+PrintGCDetails",
                                                                       TestVerboseGC.class.getName(),

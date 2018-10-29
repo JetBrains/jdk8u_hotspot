@@ -34,7 +34,6 @@
 
 void ShenandoahBarrierSet::interpreter_read_barrier(MacroAssembler* masm, Register dst) {
   if (ShenandoahReadBarrier) {
-
     Label is_null;
     __ testptr(dst, dst);
     __ jcc(Assembler::zero, is_null);
@@ -50,7 +49,6 @@ void ShenandoahBarrierSet::interpreter_read_barrier_not_null(MacroAssembler* mas
 }
 
 void ShenandoahBarrierSet::interpreter_write_barrier(MacroAssembler* masm, Register dst) {
-
   if (! ShenandoahWriteBarrier) {
     return interpreter_read_barrier(masm, dst);
   }

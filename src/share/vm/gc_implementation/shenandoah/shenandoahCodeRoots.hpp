@@ -21,14 +21,13 @@
  *
  */
 
-
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCODEROOTS_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCODEROOTS_HPP
 
 #include "code/codeCache.hpp"
+#include "gc_implementation/shenandoah/shenandoahSharedVariables.hpp"
 #include "memory/allocation.hpp"
 #include "memory/iterator.hpp"
-#include "gc_implementation/shenandoah/shenandoahSharedVariables.hpp"
 
 class ShenandoahHeap;
 class ShenandoahHeapRegion;
@@ -37,8 +36,10 @@ class ShenandoahCodeRootsLock;
 class ShenandoahParallelCodeCacheIterator VALUE_OBJ_CLASS_SPEC {
   friend class CodeCache;
 private:
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
   volatile int  _claimed_idx;
   volatile bool _finished;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
 public:
   ShenandoahParallelCodeCacheIterator();
   void parallel_blobs_do(CodeBlobClosure* f);
@@ -78,7 +79,9 @@ protected:
   ShenandoahHeap* _heap;
   ShenandoahParallelCodeCacheIterator _par_iterator;
   ShenandoahSharedFlag _seq_claimed;
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
   volatile jlong _claimed;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
 protected:
   ShenandoahCodeRootsIterator();
   ~ShenandoahCodeRootsIterator();
@@ -125,11 +128,17 @@ public:
   static ShenandoahCsetCodeRootsIterator cset_iterator();
 
 private:
-  static volatile jint _recorded_nms_lock;
+  struct PaddedLock {
+    char _pad0[DEFAULT_CACHE_LINE_SIZE];
+    volatile int _lock;
+    char _pad1[DEFAULT_CACHE_LINE_SIZE];
+  };
+
+  static PaddedLock _recorded_nms_lock;
   static GrowableArray<ShenandoahNMethod*>* _recorded_nms;
 
   static void acquire_lock(bool write) {
-    volatile jint* loc = &_recorded_nms_lock;
+    volatile int* loc = &_recorded_nms_lock._lock;
     if (write) {
       while ((OrderAccess::load_acquire(loc) != 0) ||
              Atomic::cmpxchg(-1, loc, 0) != 0) {
@@ -142,17 +151,17 @@ private:
         if (cur >= 0) {
           if (Atomic::cmpxchg(cur + 1, loc, cur) == cur) {
             // Success!
+            assert (*loc > 0, "acquired for read");
             return;
           }
         }
         SpinPause();
       }
-      assert (*loc > 1, "acquired for read");
     }
   }
 
   static void release_lock(bool write) {
-    volatile jint* loc = &ShenandoahCodeRoots::_recorded_nms_lock;
+    volatile int* loc = &ShenandoahCodeRoots::_recorded_nms_lock._lock;
     if (write) {
       OrderAccess::release_store_fence(loc, 0);
     } else {

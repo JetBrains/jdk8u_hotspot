@@ -28,8 +28,6 @@
 #include "gc_implementation/shenandoah/shenandoahHeap.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegionSet.hpp"
 
-class HeapWord;
-
 /**
  * This implements Full GC (e.g. when invoking System.gc()) using a mark-compact algorithm.
  *

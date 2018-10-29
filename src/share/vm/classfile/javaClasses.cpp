@@ -653,7 +653,7 @@ int  java_lang_Class::oop_size(oop java_class) {
 }
 void java_lang_Class::set_oop_size(oop java_class, int size) {
   assert(_oop_size_offset != 0, "must be set");
-  java_class->int_field_put(_oop_size_offset, size);
+  java_class->int_field_put_raw(_oop_size_offset, size);
 }
 int  java_lang_Class::static_oop_field_count(oop java_class) {
   assert(_static_oop_field_count_offset != 0, "must be set");

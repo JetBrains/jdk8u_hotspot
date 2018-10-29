@@ -32,12 +32,9 @@ void ShenandoahObjToScanQueueSet::clear() {
   for (uint index = 0; index < size; index ++) {
     ShenandoahObjToScanQueue* q = queue(index);
     assert(q != NULL, "Sanity");
-    q->set_empty();
-    q->overflow_stack()->clear();
-    q->clear_buffer();
+    q->clear();
   }
 }
-
 
 bool ShenandoahObjToScanQueueSet::is_empty() {
   uint size = GenericTaskQueueSet<ShenandoahObjToScanQueue, mtGC>::size();
@@ -51,7 +48,7 @@ bool ShenandoahObjToScanQueueSet::is_empty() {
   return true;
 }
 
-bool ShenandoahTaskTerminator::offer_termination(TerminatorTerminator* terminator) {
+bool ShenandoahTaskTerminator::offer_termination(ShenandoahTerminatorTerminator* terminator) {
   assert(_n_threads > 0, "Initialization is incorrect");
   assert(_offered_termination < _n_threads, "Invariant");
   assert(_blocker != NULL, "Invariant");
@@ -91,8 +88,9 @@ bool ShenandoahTaskTerminator::offer_termination(TerminatorTerminator* terminato
       }
     }
 
-    if (((terminator == NULL || terminator->should_force_termination()) && peek_in_queue_set()) ||
-      (terminator != NULL && terminator->should_exit_termination())) {
+    bool force = (terminator != NULL) && terminator->should_force_termination();
+    bool exit  = (terminator != NULL) && terminator->should_exit_termination();
+    if ((!force && peek_in_queue_set()) || exit) {
       _offered_termination --;
       _blocker->unlock();
       return false;
@@ -135,8 +133,7 @@ void ShenandoahObjToScanQueueSet::reset_taskqueue_stats() {
 }
 #endif // TASKQUEUE_STATS
 
-
-bool ShenandoahTaskTerminator::do_spin_master_work(TerminatorTerminator* terminator) {
+bool ShenandoahTaskTerminator::do_spin_master_work(ShenandoahTerminatorTerminator* terminator) {
   uint yield_count = 0;
   // Number of hard spin loops done since last yield
   uint hard_spin_count = 0;

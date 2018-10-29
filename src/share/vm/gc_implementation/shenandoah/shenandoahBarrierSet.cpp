@@ -110,55 +110,13 @@ bool ShenandoahBarrierSet::is_aligned(HeapWord* hw) {
   return true;
 }
 
-void ShenandoahBarrierSet::read_prim_array(MemRegion mr) {
-  Unimplemented();
-}
-
-void ShenandoahBarrierSet::read_prim_field(HeapWord* hw, size_t s){
-  Unimplemented();
-}
-
 bool ShenandoahBarrierSet::read_prim_needs_barrier(HeapWord* hw, size_t s) {
   return false;
-}
-
-void ShenandoahBarrierSet::read_ref_array(MemRegion mr) {
-  Unimplemented();
 }
 
 void ShenandoahBarrierSet::read_ref_field(void* v) {
   //    tty->print_cr("read_ref_field: v = "PTR_FORMAT, v);
   // return *v;
-}
-
-bool ShenandoahBarrierSet::read_ref_needs_barrier(void* v) {
-  Unimplemented();
-  return false;
-}
-
-void ShenandoahBarrierSet::read_region(MemRegion mr) {
-  Unimplemented();
-}
-
-void ShenandoahBarrierSet::resize_covered_region(MemRegion mr) {
-  Unimplemented();
-}
-
-void ShenandoahBarrierSet::write_prim_array(MemRegion mr) {
-  Unimplemented();
-}
-
-void ShenandoahBarrierSet::write_prim_field(HeapWord* hw, size_t s , juint x, juint y) {
-  Unimplemented();
-}
-
-bool ShenandoahBarrierSet::write_prim_needs_barrier(HeapWord* hw, size_t s, juint x, juint y) {
-  Unimplemented();
-  return false;
-}
-
-void ShenandoahBarrierSet::write_ref_array_work(MemRegion r) {
-  ShouldNotReachHere();
 }
 
 template <class T>
@@ -235,10 +193,6 @@ void ShenandoahBarrierSet::write_ref_field_pre_work(oop* field, oop new_val) {
 
 void ShenandoahBarrierSet::write_ref_field_pre_work(narrowOop* field, oop new_val) {
   write_ref_field_pre_static(field, new_val);
-}
-
-void ShenandoahBarrierSet::write_ref_field_pre_work(void* field, oop new_val) {
-  guarantee(false, "Not needed");
 }
 
 void ShenandoahBarrierSet::write_ref_field_work(void* v, oop o, bool release) {

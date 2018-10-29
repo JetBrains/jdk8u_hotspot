@@ -1,4 +1,3 @@
-
 /*
 /*
  * Copyright (c) 2013, Red Hat Inc.
@@ -1425,7 +1424,6 @@ void MacroAssembler::null_check(Register reg, int offset) {
     // provoke OS NULL exception if reg = NULL by
     // accessing M[reg] w/o changing any registers
     // NOTE: this is plenty to provoke a segv
-
     ldr(zr, Address(reg));
   } else {
     // nothing to do, (later) access of M[reg + offset]
@@ -2011,19 +2009,11 @@ void MacroAssembler::verify_heapbase(const char* msg) {
 }
 #endif
 
-void MacroAssembler::stop(const char* msg, Label *l) {
+void MacroAssembler::stop(const char* msg) {
   address ip = pc();
   pusha();
-  // We use movptr rather than mov here because we need code size not
-  // to depend on the pointer value of msg otherwise C2 can observe
-  // the same node with different sizes when emitted in a scratch
-  // buffer and later when emitted for good.
-  movptr(c_rarg0, (uintptr_t)msg);
-  if (! l) {
-    adr(c_rarg1, (address)ip);
-  } else {
-    adr(c_rarg1, *l);
-  }
+  mov(c_rarg0, (address)msg);
+  mov(c_rarg1, (address)ip);
   mov(c_rarg2, sp);
   mov(c_rarg3, CAST_FROM_FN_PTR(address, MacroAssembler::debug64));
   // call(c_rarg3);
@@ -2385,7 +2375,6 @@ void MacroAssembler::debug64(char* msg, int64_t pc, int64_t regs[])
       BytecodeCounter::print();
     }
 #endif
-
     if (os::message_box(msg, "Execution stopped, print registers?")) {
       ttyLocker ttyl;
       tty->print_cr(" pc = 0x%016lx", pc);

@@ -25,6 +25,10 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEAPREGION_HPP
 
 #include "memory/space.hpp"
+#include "gc_implementation/shenandoah/shenandoahAllocRequest.hpp"
+#include "gc_implementation/shenandoah/shenandoahAsserts.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahPacer.hpp"
 
 class VMStructs;
 
@@ -163,6 +167,7 @@ public:
   void make_unpinned();
   void make_cset();
   void make_trash();
+  void make_trash_immediate();
   void make_empty();
   void make_uncommitted();
   void make_committed_bypass();
@@ -203,27 +208,34 @@ private:
   static size_t MaxTLABSizeBytes;
   static size_t MaxTLABSizeWords;
 
-private:
+  // Never updated fields
   ShenandoahHeap* _heap;
-  size_t _region_number;
-  volatile jint _live_data;
+  ShenandoahPacer* _pacer;
   MemRegion _reserved;
+  size_t _region_number;
 
+  // Rarely updated fields
+  HeapWord* _new_top;
+  size_t _critical_pins;
+  double _empty_time;
+
+  // Seldom updated fields
+  RegionState _state;
+
+  // Frequently updated fields
   size_t _tlab_allocs;
   size_t _gclab_allocs;
   size_t _shared_allocs;
 
-  HeapWord* _new_top;
+  volatile jint _live_data;
 
-  size_t _critical_pins;
-
-  RegionState _state;
-  double _empty_time;
-
-  ShenandoahPacer* _pacer;
+  // Claim some space at the end to protect next region
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
 
 public:
   ShenandoahHeapRegion(ShenandoahHeap* heap, HeapWord* start, size_t size_words, size_t index, bool committed);
+
+  static const size_t MIN_NUM_REGIONS = 10;
 
   static void setup_sizes(size_t initial_heap_size, size_t max_heap_size);
 
@@ -306,16 +318,9 @@ public:
   size_t region_number() const;
 
   // Allocation (return NULL if full)
-  inline HeapWord* allocate(size_t word_size, ShenandoahHeap::AllocType type);
-  HeapWord* allocate(size_t word_size) {
-    // ContiguousSpace wants us to have this method. But it is an error to call this with Shenandoah.
-    ShouldNotCallThis();
-    return NULL;
-  }
+  inline HeapWord* allocate(size_t word_size, ShenandoahAllocRequest::Type type);
 
-  // Roll back the previous allocation of an object with specified size.
-  // Returns TRUE when successful, FALSE if not successful or not supported.
-  bool rollback_allocation(uint size);
+  HeapWord* allocate(size_t word_size) shenandoah_not_implemented_return(NULL)
 
   void clear_live_data();
   void set_live_data(size_t s);
@@ -336,14 +341,10 @@ public:
 
   void recycle();
 
-  void oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects);
-
-  HeapWord* object_iterate_careful(ObjectClosureCareful* cl);
+  void oop_iterate_skip_unreachable(ExtendedOopClosure* cl, bool skip_unreachable_objects) shenandoah_not_implemented;
+  HeapWord* object_iterate_careful(ObjectClosureCareful* cl) shenandoah_not_implemented_return(NULL);
 
   HeapWord* block_start_const(const void* p) const;
-
-  // Just before GC we need to fill the current region.
-  void fill_region();
 
   bool in_collection_set() const;
 
@@ -353,7 +354,7 @@ public:
   void set_new_top(HeapWord* new_top) { _new_top = new_top; }
   HeapWord* new_top() const { return _new_top; }
 
-  inline void adjust_alloc_metadata(ShenandoahHeap::AllocType type, size_t);
+  inline void adjust_alloc_metadata(ShenandoahAllocRequest::Type type, size_t);
   void reset_alloc_metadata_to_shared();
   void reset_alloc_metadata();
   size_t get_shared_allocs() const;

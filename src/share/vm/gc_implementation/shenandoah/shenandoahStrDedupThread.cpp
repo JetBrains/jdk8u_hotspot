@@ -29,6 +29,7 @@
 #include "gc_implementation/shenandoah/shenandoahStrDedupQueue.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahStrDedupThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahStringDedup.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 
 ShenandoahStrDedupThread::ShenandoahStrDedupThread(ShenandoahStrDedupQueueSet* queues) :
   ConcurrentGCThread(), _queues(queues), _claimed(0) {

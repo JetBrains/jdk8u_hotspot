@@ -282,10 +282,22 @@ void PhaseMacroExpand::eliminate_card_mark(Node* p2x) {
       if (!this_region->in(ind)->is_IfFalse()) {
         ind = 2;
       }
-      if (this_region->in(ind)->is_IfFalse() &&
-          this_region->in(ind)->in(0)->is_g1_marking_if(&_igvn)) {
-        Node* cmpx = this_region->in(ind)->in(0)->in(1)->in(1);
-        _igvn.replace_node(cmpx, makecon(TypeInt::CC_EQ));
+      if (this_region->in(ind)->is_IfFalse()) {
+        Node* bol = this_region->in(ind)->in(0)->in(1);
+        assert(bol->is_Bool(), "");
+        cmpx = bol->in(1);
+        if (bol->as_Bool()->_test._test == BoolTest::ne &&
+            cmpx->is_Cmp() && cmpx->in(2) == intcon(0) &&
+            cmpx->in(1)->is_Load()) {
+          Node* adr = cmpx->in(1)->as_Load()->in(MemNode::Address);
+          const int marking_offset = in_bytes(JavaThread::satb_mark_queue_offset() +
+                                              PtrQueue::byte_offset_of_active());
+          if (adr->is_AddP() && adr->in(AddPNode::Base) == top() &&
+              adr->in(AddPNode::Address)->Opcode() == Op_ThreadLocal &&
+              adr->in(AddPNode::Offset) == MakeConX(marking_offset)) {
+            _igvn.replace_node(cmpx, makecon(TypeInt::CC_EQ));
+          }
+        }
       }
     }
     // Now CastP2X can be removed since it is used only on dead path
@@ -293,26 +305,6 @@ void PhaseMacroExpand::eliminate_card_mark(Node* p2x) {
     assert(p2x->outcnt() == 0 || p2x->unique_out()->Opcode() == Op_URShiftX, "");
     _igvn.replace_node(p2x, top());
   }
-}
-
-void PhaseMacroExpand::eliminate_g1_wb_pre(Node* n) {
-  Node* c = n->as_Call()->proj_out(TypeFunc::Control);
-  c = c->unique_ctrl_out();
-  assert(c->is_Region() && c->req() == 3, "where's the pre barrier control flow?");
-  c = c->unique_ctrl_out();
-  assert(c->is_Region() && c->req() == 3, "where's the pre barrier control flow?");
-  Node* iff = c->in(1)->is_IfProj() ? c->in(1)->in(0) : c->in(2)->in(0);
-  assert(iff->is_If(), "expect test");
-  if (!iff->is_g1_marking_if(&_igvn)) {
-    c = c->unique_ctrl_out();
-    assert(c->is_Region() && c->req() == 3, "where's the pre barrier control flow?");
-    iff = c->in(1)->is_IfProj() ? c->in(1)->in(0) : c->in(2)->in(0);
-    assert(iff->is_g1_marking_if(&_igvn), "expect marking test");
-  }
-  Node* cmpx = iff->in(1)->in(1);
-  _igvn.replace_node(cmpx, makecon(TypeInt::CC_EQ));
-  _igvn.rehash_node_delayed(n);
-  n->del_req(n->req()-1);
 }
 
 // Search for a memory operation for the specified memory slice.

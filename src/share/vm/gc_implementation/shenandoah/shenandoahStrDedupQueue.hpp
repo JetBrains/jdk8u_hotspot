@@ -64,7 +64,6 @@ class ShenandoahStrDedupQueueSet;
 
 typedef ShenandoahStrDedupChunkedList<64> QueueChunkedList;
 
-
 class ShenandoahStrDedupQueue : public CHeapObj<mtGC> {
 private:
   ShenandoahStrDedupQueueSet* _queue_set;
@@ -139,7 +138,6 @@ private:
   size_t claim();
 };
 
-
 class ShenandoahStrDedupQueueCleanupClosure : public OopClosure {
 private:
   ShenandoahHeap*   _heap;
@@ -149,7 +147,7 @@ private:
   inline void do_oop_work(T* p);
 public:
   ShenandoahStrDedupQueueCleanupClosure() : _heap(ShenandoahHeap::heap()),
-                                            _mark_context(ShenandoahHeap::heap()->next_marking_context()) {
+                                            _mark_context(ShenandoahHeap::heap()->marking_context()) {
   }
 
   inline void do_oop(oop* p)        { do_oop_work(p); }

@@ -25,6 +25,7 @@
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHSHAREDFLAG_HPP
 
 #include "memory/allocation.hpp"
+#include "runtime/orderAccess.hpp"
 
 typedef jbyte ShenandoahSharedValue;
 
@@ -197,7 +198,6 @@ private:
 
 } ShenandoahSharedBitmap;
 
-
 template<class T>
 struct ShenandoahSharedEnumFlag {
   char _pad_0[128];
@@ -242,6 +242,5 @@ private:
   bool operator<=(ShenandoahSharedEnumFlag& other) { fatal("Use get() instead"); return false; }
 
 };
-
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHSHAREDFLAG_HPP

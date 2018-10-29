@@ -25,13 +25,11 @@
 #include "gc_implementation/shared/gcTimer.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectionSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
-#include "gc_implementation/shenandoah/shenandoahFreeSet.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahLogging.hpp"
 
 ShenandoahCollectorPolicy::ShenandoahCollectorPolicy() :
   _success_concurrent_gcs(0),
-  _success_partial_gcs(0),
   _success_degenerated_gcs(0),
   _success_full_gcs(0),
   _alloc_failure_degenerated(0),
@@ -67,10 +65,13 @@ HeapWord* ShenandoahCollectorPolicy::satisfy_failed_allocation(size_t size, bool
 }
 
 void ShenandoahCollectorPolicy::initialize_alignments() {
-
   // This is expected by our algorithm for ShenandoahHeap::heap_region_containing().
-  _space_alignment = ShenandoahHeapRegion::region_size_bytes();
-  _heap_alignment = ShenandoahHeapRegion::region_size_bytes();
+  size_t align = ShenandoahHeapRegion::region_size_bytes();
+  if (UseLargePages) {
+    align = MAX2(align, os::large_page_size());
+  }
+  _space_alignment = align;
+  _heap_alignment = align;
 }
 
 void ShenandoahCollectorPolicy::record_explicit_to_concurrent() {
@@ -97,10 +98,6 @@ void ShenandoahCollectorPolicy::record_degenerated_upgrade_to_full() {
 
 void ShenandoahCollectorPolicy::record_success_concurrent() {
   _success_concurrent_gcs++;
-}
-
-void ShenandoahCollectorPolicy::record_success_partial() {
-  _success_partial_gcs++;
 }
 
 void ShenandoahCollectorPolicy::record_success_degenerated() {
@@ -132,9 +129,6 @@ void ShenandoahCollectorPolicy::print_gc_stats(outputStream* out) const {
   out->print_cr("under stop-the-world pause or result in stop-the-world Full GC. Increase heap size,");
   out->print_cr("tune GC heuristics, set more aggressive pacing delay, or lower allocation rate");
   out->print_cr("to avoid Degenerated and Full GC cycles.");
-  out->cr();
-
-  out->print_cr(SIZE_FORMAT_W(5) " successful partial concurrent GCs", _success_partial_gcs);
   out->cr();
 
   out->print_cr(SIZE_FORMAT_W(5) " successful concurrent GCs",         _success_concurrent_gcs);

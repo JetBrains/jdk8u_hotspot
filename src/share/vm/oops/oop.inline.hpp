@@ -382,6 +382,9 @@ inline void oopDesc::int_field_put(int offset, jint contents)       {
   oop p = bs()->write_barrier(this);
   *p->int_field_addr(offset) = contents;
 }
+inline void oopDesc::int_field_put_raw(int offset, jint contents)   {
+  *int_field_addr(offset) = contents;
+}
 
 inline jshort oopDesc::short_field(int offset) const                {
   oop p = bs()->read_barrier((oop) this);

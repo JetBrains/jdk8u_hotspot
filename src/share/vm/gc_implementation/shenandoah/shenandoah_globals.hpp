@@ -71,9 +71,6 @@
           "regions, based on ShenandoahMinRegionSize and "                  \
           "ShenandoahMaxRegionSizeSize. ")                                  \
                                                                             \
-  product(bool, UseShenandoahMatrix, false,                                 \
-          "Keep a connection matrix and use this to drive collection sets") \
-                                                                            \
   product(ccstr, ShenandoahGCHeuristics, "adaptive",                        \
           "The heuristics to use in Shenandoah GC. Possible values: "       \
           "adaptive (adapt to maintain the given amount of free memory), "  \
@@ -231,9 +228,6 @@
   experimental(bool, ShenandoahWriteBarrierCsetTestInIR, true,              \
           "Perform cset test in IR rather than in the stub")                \
                                                                             \
-  experimental(bool, UseShenandoahOWST, true,                               \
-          "Use Shenandoah work stealing termination protocol")              \
-                                                                            \
   experimental(size_t, ShenandoahSATBBufferSize, 1 * K,                     \
           "Number of entries in an SATB log buffer.")                       \
                                                                             \
@@ -307,7 +301,7 @@
           "larger than this threshold would be reported as warnings. "      \
           "Time is in microseconds.")                                       \
                                                                             \
-  develop(bool, VerifyStrictOopOperations, false,                           \
+  develop(bool, VerifyObjectEquals, false,                                  \
           "Verify that == and != are not used on oops. Only in fastdebug")  \
                                                                             \
   develop(bool, ShenandoahVerifyOptoBarriers, false,                        \
@@ -389,9 +383,6 @@
                                                                             \
   diagnostic(bool, ShenandoahElasticTLAB, true,                             \
           "Use Elastic TLABs with Shenandoah")                              \
-                                                                            \
-  diagnostic(bool, ShenandoahCompileCheck, false,                           \
-          "Assert that methods are successfully compilable")                \
                                                                             \
   experimental(bool, ShenandoahAlwaysClearSoftRefs, false,                  \
           "Clear soft references unconditionally")                          \

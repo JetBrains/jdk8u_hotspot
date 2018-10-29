@@ -25,9 +25,9 @@
  * @test RefprocSanity
  * @summary Test that null references/referents work fine
  *
- * @run main/othervm -XX:+UseShenandoahGC -Xmx1g -Xms1g -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions                                                             RefprocSanity
- * @run main/othervm -XX:+UseShenandoahGC -Xmx1g -Xms1g -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -XX:+ShenandoahVerify                                       RefprocSanity
- * @run main/othervm -XX:+UseShenandoahGC -Xmx1g -Xms1g -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions                       -XX:ShenandoahGCHeuristics=aggressive RefprocSanity
+ * @run main/othervm -Xmx1g -Xms1g -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC                                                             RefprocSanity
+ * @run main/othervm -Xmx1g -Xms1g -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC -XX:+ShenandoahVerify                                       RefprocSanity
+ * @run main/othervm -Xmx1g -Xms1g -XX:+UnlockDiagnosticVMOptions -XX:+UnlockExperimentalVMOptions -XX:+UseShenandoahGC                       -XX:ShenandoahGCHeuristics=aggressive RefprocSanity
  */
 
 import java.lang.ref.*;

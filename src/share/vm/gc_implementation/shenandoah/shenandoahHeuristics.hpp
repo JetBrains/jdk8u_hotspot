@@ -68,19 +68,11 @@ protected:
     uint64_t _seqnum_last_alloc;
   } RegionData;
 
-  typedef struct {
-    ShenandoahHeapRegion* _region;
-    size_t _connections;
-  } RegionConnections;
-
   bool _update_refs_early;
   bool _update_refs_adaptive;
 
   RegionData* _region_data;
   size_t _region_data_size;
-
-  RegionConnections* _region_connects;
-  size_t _region_connects_size;
 
   uint _degenerated_cycles_in_a_row;
   uint _successful_cycles_in_a_row;
@@ -97,18 +89,14 @@ protected:
   static int compare_by_garbage(RegionData a, RegionData b);
   static int compare_by_alloc_seq_ascending(RegionData a, RegionData b);
   static int compare_by_alloc_seq_descending(RegionData a, RegionData b);
-  static int compare_by_connects(RegionConnections a, RegionConnections b);
 
   RegionData* get_region_data_cache(size_t num);
-
-  RegionConnections* get_region_connects_cache(size_t num);
 
   virtual void choose_collection_set_from_regiondata(ShenandoahCollectionSet* set,
                                                      RegionData* data, size_t data_size,
                                                      size_t free) = 0;
 
 public:
-
   ShenandoahHeuristics();
   virtual ~ShenandoahHeuristics();
 
@@ -154,6 +142,7 @@ public:
   virtual bool is_experimental() = 0;
   virtual void initialize();
 
+  double time_since_last_gc() const;
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHHEURISTICS_HPP

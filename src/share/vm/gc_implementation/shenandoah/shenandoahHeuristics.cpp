@@ -22,12 +22,14 @@
  */
 
 #include "precompiled.hpp"
+
 #include "gc_implementation/shenandoah/brooksPointer.hpp"
 #include "gc_implementation/shenandoah/shenandoahCollectorPolicy.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeap.inline.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 #include "gc_implementation/shenandoah/shenandoahHeuristics.hpp"
 #include "gc_implementation/shenandoah/shenandoahMarkingContext.inline.hpp"
+#include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 
 int ShenandoahHeuristics::compare_by_garbage(RegionData a, RegionData b) {
   if (a._garbage > b._garbage)
@@ -49,25 +51,15 @@ int ShenandoahHeuristics::compare_by_alloc_seq_descending(RegionData a, RegionDa
   return -compare_by_alloc_seq_ascending(a, b);
 }
 
-int ShenandoahHeuristics::compare_by_connects(RegionConnections a, RegionConnections b) {
-  if (a._connections == b._connections)
-    return 0;
-  else if (a._connections < b._connections)
-    return -1;
-  else return 1;
-}
-
 ShenandoahHeuristics::ShenandoahHeuristics() :
   _update_refs_early(false),
   _update_refs_adaptive(false),
   _region_data(NULL),
   _region_data_size(0),
-  _region_connects(NULL),
-  _region_connects_size(0),
   _degenerated_cycles_in_a_row(0),
   _successful_cycles_in_a_row(0),
   _bytes_in_cset(0),
-  _cycle_start(0),
+  _cycle_start(os::elapsedTime()),
   _last_cycle_end(0),
   _gc_times_learned(0),
   _gc_time_penalties(0),
@@ -112,20 +104,6 @@ ShenandoahHeuristics::RegionData* ShenandoahHeuristics::get_region_data_cache(si
   return res;
 }
 
-ShenandoahHeuristics::RegionConnections* ShenandoahHeuristics::get_region_connects_cache(size_t num) {
-  RegionConnections* res = _region_connects;
-  if (res == NULL) {
-    res = NEW_C_HEAP_ARRAY(RegionConnections, num, mtGC);
-    _region_connects = res;
-    _region_connects_size = num;
-  } else if (_region_connects_size < num) {
-    res = REALLOC_C_HEAP_ARRAY(RegionConnections, _region_connects, num, mtGC);
-    _region_connects = res;
-    _region_connects_size = num;
-  }
-  return res;
-}
-
 void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collection_set) {
   assert(collection_set->count() == 0, "Must be empty");
   start_choose_collection_set();
@@ -164,7 +142,7 @@ void ShenandoahHeuristics::choose_collection_set(ShenandoahCollectionSet* collec
         // We can recycle it right away and put it in the free set.
         immediate_regions++;
         immediate_garbage += garbage;
-        region->make_trash();
+        region->make_trash_immediate();
       } else {
         // This is our candidate for later consideration.
         candidates[cand_idx]._region = region;
@@ -249,8 +227,7 @@ void ShenandoahHeuristics::record_success_concurrent() {
   _degenerated_cycles_in_a_row = 0;
   _successful_cycles_in_a_row++;
 
-  double duration = (os::elapsedTime() - _cycle_start);
-  _gc_time_history->add(duration);
+  _gc_time_history->add(time_since_last_gc());
   _gc_times_learned++;
   _gc_time_penalties -= MIN2<size_t>(_gc_time_penalties, Concurrent_Adjust);
 }
@@ -281,14 +258,14 @@ void ShenandoahHeuristics::record_explicit_gc() {
 
 bool ShenandoahHeuristics::should_process_references() {
   if (ShenandoahRefProcFrequency == 0) return false;
-  size_t cycle = ShenandoahHeap::heap()->shenandoahPolicy()->cycle_counter();
+  size_t cycle = ShenandoahHeap::heap()->shenandoah_policy()->cycle_counter();
   // Process references every Nth GC cycle.
   return cycle % ShenandoahRefProcFrequency == 0;
 }
 
 bool ShenandoahHeuristics::should_unload_classes() {
   if (ShenandoahUnloadClassesFrequency == 0) return false;
-  size_t cycle = ShenandoahHeap::heap()->shenandoahPolicy()->cycle_counter();
+  size_t cycle = ShenandoahHeap::heap()->shenandoah_policy()->cycle_counter();
   // Unload classes every Nth GC cycle.
   // This should not happen in the same cycle as process_references to amortize costs.
   // Offsetting by one is enough to break the rendezvous when periods are equal.
@@ -298,6 +275,10 @@ bool ShenandoahHeuristics::should_unload_classes() {
 
 void ShenandoahHeuristics::initialize() {
   // Nothing to do by default.
+}
+
+double ShenandoahHeuristics::time_since_last_gc() const {
+  return os::elapsedTime() - _cycle_start;
 }
 
 bool ShenandoahHeuristics::should_start_normal_gc() const {

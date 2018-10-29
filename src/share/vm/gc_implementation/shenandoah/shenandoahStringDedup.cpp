@@ -33,6 +33,8 @@
 #include "gc_implementation/shenandoah/shenandoahStrDedupTable.hpp"
 #include "gc_implementation/shenandoah/shenandoahStrDedupThread.hpp"
 #include "gc_implementation/shenandoah/shenandoahStringDedup.hpp"
+#include "gc_implementation/shenandoah/shenandoahTimingTracker.hpp"
+#include "gc_implementation/shenandoah/shenandoahWorkGroup.hpp"
 #include "gc_implementation/shenandoah/shenandoahUtils.hpp"
 #include "runtime/os.hpp"
 #include "utilities/workgroup.hpp"
@@ -108,7 +110,6 @@ void ShenandoahStringDedup::parallel_oops_do(OopClosure* cl) {
   _table->parallel_oops_do(cl);
   _thread->parallel_oops_do(cl);
 }
-
 
 void ShenandoahStringDedup::oops_do_slow(OopClosure* cl) {
   _queues->oops_do_slow(cl);

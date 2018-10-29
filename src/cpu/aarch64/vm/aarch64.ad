@@ -3725,7 +3725,7 @@ typedef void (MacroAssembler::* mem_vector_insn)(FloatRegister Rt,
       scale = Address::lsl(size);
     }
 
-    if (index == -1) {
+     if (index == -1) {
       (masm.*insn)(reg, Address(base, disp));
     } else {
       if (disp == 0) {
@@ -4082,7 +4082,7 @@ encode %{
   enc_class aarch64_enc_ldarsbw(iRegI dst, memory mem) %{
     Register dst_reg = as_Register($dst$$reg);
     MOV_VOLATILE(dst_reg, $mem$$base, $mem$$index, $mem$$scale, $mem$$disp,
-		 rscratch1, ldarb);
+	     rscratch1, ldarb);
     __ sxtbw(dst_reg, dst_reg);
   %}
 

@@ -21,12 +21,10 @@
  *
  */
 
-
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP
 
 #include "memory/allocation.hpp"
-
 
 class ShenandoahWorkerPolicy : AllStatic {
 private:
@@ -35,10 +33,10 @@ private:
   static uint _prev_conc_evac;
   static uint _prev_fullgc;
   static uint _prev_degengc;
-  static uint _prev_stw_partial;
   static uint _prev_conc_update_ref;
   static uint _prev_par_update_ref;
   static uint _prev_conc_cleanup;
+  static uint _prev_conc_reset;
 
 public:
   // Calculate the number of workers for initial marking
@@ -56,9 +54,6 @@ public:
   // Calculate workers for parallel full gc
   static uint calc_workers_for_fullgc();
 
-  // Calculate workers for Stop-the-world partial GC
-  static uint calc_workers_for_stw_partial();
-
   // Calculate workers for parallel degenerated gc
   static uint calc_workers_for_stw_degenerated();
 
@@ -73,6 +68,9 @@ public:
 
   // Calculate workers for concurrent cleanup
   static uint calc_workers_for_conc_cleanup();
+
+  // Calculate workers for concurrent reset
+  static uint calc_workers_for_conc_reset();
 };
 
 #endif // SHARE_VM_GC_SHENANDOAH_SHENANDOAHWORKERPOLICY_HPP

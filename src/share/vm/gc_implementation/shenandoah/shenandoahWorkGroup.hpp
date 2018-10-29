@@ -23,7 +23,8 @@
 
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAH_WORKGROUP_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAH_WORKGROUP_HPP
- 
+
+#include "gc_implementation/shenandoah/shenandoahTaskqueue.hpp"
 #include "utilities/workgroup.hpp"
 #include "memory/allocation.hpp"
 
@@ -34,10 +35,9 @@ private:
   uint      _n_workers;
   ShenandoahWorkGang* _workers;
 public:
-  ShenandoahWorkerScope(ShenandoahWorkGang* workers, uint nworkers, const char* msg);
+  ShenandoahWorkerScope(ShenandoahWorkGang* workers, uint nworkers, const char* msg, bool do_check = true);
   ~ShenandoahWorkerScope();
 };
-
 
 class ShenandoahPushWorkerScope : StackObj {
 private:
@@ -49,7 +49,6 @@ public:
   ShenandoahPushWorkerScope(ShenandoahWorkGang* workers, uint nworkers, bool do_check = true);
   ~ShenandoahPushWorkerScope();
 };
-
 
 class ShenandoahWorkGang : public FlexibleWorkGang {
 public:

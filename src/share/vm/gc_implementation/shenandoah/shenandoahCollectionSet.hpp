@@ -21,14 +21,12 @@
  *
  */
 
-
 #ifndef SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_HPP
 #define SHARE_VM_GC_SHENANDOAH_SHENANDOAHCOLLECTIONSET_HPP
 
 #include "memory/allocation.hpp"
-
-class ShenandoahHeap;
-class ShenandoahHeapRegion;
+#include "gc_implementation/shenandoah/shenandoahHeap.hpp"
+#include "gc_implementation/shenandoah/shenandoahHeapRegion.hpp"
 
 class ShenandoahCollectionSet : public CHeapObj<mtGC> {
   friend class ShenandoahHeap;
@@ -46,7 +44,10 @@ private:
   size_t                _used;
   size_t                _region_count;
 
+  char _pad0[DEFAULT_CACHE_LINE_SIZE];
   volatile jint         _current_index;
+  char _pad1[DEFAULT_CACHE_LINE_SIZE];
+
 public:
   ShenandoahCollectionSet(ShenandoahHeap* heap, HeapWord* heap_base);
 

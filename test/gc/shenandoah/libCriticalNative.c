@@ -88,7 +88,6 @@ JNIEXPORT jlong JNICALL Java_CriticalNativeStress_sum2
   }
   (*env)->ReleasePrimitiveArrayCritical(env, a3, a3_arr, 0);
 
-
   len = (*env)->GetArrayLength(env, a4);
   jlong* a4_arr = (jlong*)(*env)->GetPrimitiveArrayCritical(env, a4, 0);
   for (index = 0; index < len; index ++) {
@@ -106,7 +105,6 @@ JNIEXPORT jlong JNICALL Java_CriticalNativeStress_sum2
   return sum;
 }
 
-
 JNIEXPORT jboolean JNICALL JavaCritical_CriticalNativeArgs_isNull
   (jint length, jint* a) {
   return (a == NULL) && (length == 0);
@@ -121,4 +119,3 @@ JNIEXPORT jboolean JNICALL Java_CriticalNativeArgs_isNull
   (*env)->ReleasePrimitiveArrayCritical(env, a, arr, 0);
   return is_null;
 }
-
