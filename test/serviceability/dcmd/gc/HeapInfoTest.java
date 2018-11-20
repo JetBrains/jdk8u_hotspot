@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2015, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -21,44 +21,24 @@
  * questions.
  */
 
+import com.oracle.java.testlibrary.JDKToolFinder;
+import com.oracle.java.testlibrary.OutputAnalyzer;
+import com.oracle.java.testlibrary.ProcessTools;
+
 /*
  * @test
- * @bug 6904403
- * @summary Don't assert if we redefine finalize method
+ * @summary Test of diagnostic command GC.heap_info
  * @library /testlibrary
- * @build RedefineClassHelper
- * @run main RedefineClassHelper
- * @run main/othervm -javaagent:redefineagent.jar RedefineFinalizer
+ * @run main HeapInfoTest
  */
-
-/*
- * Regression test for hitting:
- *
- * assert(f == k->has_finalizer()) failed: inconsistent has_finalizer
- *
- * when redefining finalizer method
- */
-public class RedefineFinalizer {
-
-    public static String newB =
-                "class RedefineFinalizer$B {" +
-                "   protected void finalize() { " +
-                "       System.out.println(\"Finalizer called\");" +
-                "   }" +
-                "}";
+public class HeapInfoTest {
 
     public static void main(String[] args) throws Exception {
-        RedefineClassHelper.redefineClass(B.class, newB);
-
-        A a = new A();
-    }
-
-    static class A extends B {
-    }
-
-    static class B {
-        protected void finalize() {
-            // should be empty
-        }
+        String pid = Integer.toString(ProcessTools.getProcessId());
+        ProcessBuilder pb = new ProcessBuilder();
+        pb.command(new String[] { JDKToolFinder.getJDKTool("jcmd"), pid, "GC.heap_info"});
+        OutputAnalyzer output = new OutputAnalyzer(pb.start());
+        output.shouldContain("Metaspace");
     }
 }
+

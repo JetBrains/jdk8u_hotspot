@@ -56,10 +56,6 @@ HOTSPOT_LIB_ARCH=$(BUILDARCH)
 
 # The following variables are defined in the generated local.make file.
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_RELEASE_VERSION=\"$(HS_BUILD_VER)\""
-CXX_FLAGS=$(CXX_FLAGS) /D "JDK_MAJOR_VERSION=\"$(JDK_MAJOR_VERSION)\""
-CXX_FLAGS=$(CXX_FLAGS) /D "JDK_MINOR_VERSION=\"$(JDK_MINOR_VERSION)\""
-CXX_FLAGS=$(CXX_FLAGS) /D "JDK_MICRO_VERSION=\"$(JDK_MICRO_VERSION)\""
-CXX_FLAGS=$(CXX_FLAGS) /D "JDK_BUILD_NUMBER=\"$(JDK_BUILD_NUMBER)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "JRE_RELEASE_VERSION=\"$(JRE_RELEASE_VER)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_LIB_ARCH=\"$(HOTSPOT_LIB_ARCH)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_BUILD_TARGET=\"$(BUILD_FLAVOR)\""
@@ -132,8 +128,8 @@ CXX_DONT_USE_PCH=/D DONT_USE_PRECOMPILED_HEADER
 
 !if "$(USE_PRECOMPILED_HEADER)" != "0"
 CXX_USE_PCH=/Fp"vm.pch" /Yu"precompiled.hpp"
-!if "$(MSC_VER)" > "1600"
-# VS2012 requires this object file to be listed:
+!if "$(COMPILER_NAME)" == "VS2012" || "$(COMPILER_NAME)" == "VS2013" || "$(COMPILER_NAME)" == "VS2015" || "$(COMPILER_NAME)" == "VS2017"
+# VS2012 and later require this object file to be listed:
 LD_FLAGS=$(LD_FLAGS) _build_pch_file.obj
 !endif
 !else

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -47,6 +47,19 @@
 #include "gc_implementation/parallelScavenge/psPromotionManager.hpp"
 #include "gc_implementation/parallelScavenge/psScavenge.hpp"
 #endif // INCLUDE_ALL_GCS
+
+bool Klass::is_cloneable() const {
+  return _access_flags.is_cloneable() ||
+         is_subtype_of(SystemDictionary::Cloneable_klass());
+}
+
+void Klass::set_is_cloneable() {
+  if (oop_is_instance() && InstanceKlass::cast(this)->reference_type() != REF_NONE) {
+    // Reference cloning should not be intrinsified and always happen in JVM_Clone.
+  } else {
+    _access_flags.set_is_cloneable();
+  }
+}
 
 void Klass::set_name(Symbol* n) {
   _name = n;
@@ -152,7 +165,7 @@ Method* Klass::uncached_lookup_method(Symbol* name, Symbol* signature, OverpassL
 
 void* Klass::operator new(size_t size, ClassLoaderData* loader_data, size_t word_size, TRAPS) throw() {
   return Metaspace::allocate(loader_data, word_size, /*read_only*/false,
-                             MetaspaceObj::ClassType, CHECK_NULL);
+                             MetaspaceObj::ClassType, THREAD);
 }
 
 Klass::Klass() {
@@ -455,6 +468,12 @@ void Klass::clean_weak_klass_links(BoolObjectClosure* is_alive, bool clean_alive
     if (clean_alive_klasses && current->oop_is_instance()) {
       InstanceKlass* ik = InstanceKlass::cast(current);
       ik->clean_weak_instanceklass_links(is_alive);
+
+      // JVMTI RedefineClasses creates previous versions that are not in
+      // the class hierarchy, so process them here.
+      while ((ik = ik->previous_versions()) != NULL) {
+        ik->clean_weak_instanceklass_links(is_alive);
+      }
     }
   }
 }

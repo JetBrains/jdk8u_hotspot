@@ -234,6 +234,13 @@ static Node* split_if(IfNode *iff, PhaseIterGVN *igvn) {
       predicate_proj = proj;
     }
   }
+
+  // If all the defs of the phi are the same constant, we already have the desired end state.
+  // Skip the split that would create empty phi and region nodes.
+  if((r->req() - req_c) == 1) {
+    return NULL;
+  }
+
   Node* predicate_c = NULL;
   Node* predicate_x = NULL;
   bool counted_loop = r->is_CountedLoop();
@@ -446,6 +453,9 @@ static Node* split_if(IfNode *iff, PhaseIterGVN *igvn) {
 // offset.  Return 2 if we had to negate the test.  Index is NULL if the check
 // is versus a constant.
 int IfNode::is_range_check(Node* &range, Node* &index, jint &offset) {
+  if (outcnt() != 2) {
+    return 0;
+  }
   Node* b = in(1);
   if (b == NULL || !b->is_Bool())  return 0;
   BoolNode* bn = b->as_Bool();

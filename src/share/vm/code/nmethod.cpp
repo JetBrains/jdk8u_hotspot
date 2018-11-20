@@ -1748,12 +1748,11 @@ void static clean_ic_if_metadata_is_dead(CompiledIC *ic, BoolObjectClosure *is_a
     CompiledICHolder* cichk_oop = ic->cached_icholder();
 
     if (mark_on_stack) {
-      Metadata::mark_on_stack(cichk_oop->holder_method());
+      Metadata::mark_on_stack(cichk_oop->holder_metadata());
       Metadata::mark_on_stack(cichk_oop->holder_klass());
     }
 
-    if (cichk_oop->holder_method()->method_holder()->is_loader_alive(is_alive) &&
-        cichk_oop->holder_klass()->is_loader_alive(is_alive)) {
+    if (cichk_oop->is_loader_alive(is_alive)) {
       return;
     }
   } else {
@@ -2173,14 +2172,14 @@ void nmethod::metadata_do(void f(Metadata*)) {
                "metadata must be found in exactly one place");
         if (r->metadata_is_immediate() && r->metadata_value() != NULL) {
           Metadata* md = r->metadata_value();
-          f(md);
+          if (md != _method) f(md);
         }
       } else if (iter.type() == relocInfo::virtual_call_type) {
         // Check compiledIC holders associated with this nmethod
         CompiledIC *ic = CompiledIC_at(&iter);
         if (ic->is_icholder_call()) {
           CompiledICHolder* cichk = ic->cached_icholder();
-          f(cichk->holder_method());
+          f(cichk->holder_metadata());
           f(cichk->holder_klass());
         } else {
           Metadata* ic_oop = ic->cached_metadata();
@@ -2199,7 +2198,7 @@ void nmethod::metadata_do(void f(Metadata*)) {
     f(md);
   }
 
-  // Visit metadata not embedded in the other places.
+  // Call function Method*, not embedded in these other places.
   if (_method != NULL) f(_method);
 }
 
@@ -2324,7 +2323,7 @@ public:
   void maybe_print(oop* p) {
     if (_print_nm == NULL)  return;
     if (!_detected_scavenge_root)  _print_nm->print_on(tty, "new scavenge root");
-    tty->print_cr(""PTR_FORMAT"[offset=%d] detected scavengable oop "PTR_FORMAT" (found at "PTR_FORMAT")",
+    tty->print_cr("" PTR_FORMAT "[offset=%d] detected scavengable oop " PTR_FORMAT " (found at " PTR_FORMAT ")",
                   _print_nm, (int)((intptr_t)p - (intptr_t)_print_nm),
                   (void *)(*p), (intptr_t)p);
     (*p)->print();
@@ -2705,7 +2704,7 @@ public:
       _nm->print_nmethod(true);
       _ok = false;
     }
-    tty->print_cr("*** non-oop "PTR_FORMAT" found at "PTR_FORMAT" (offset %d)",
+    tty->print_cr("*** non-oop " PTR_FORMAT " found at " PTR_FORMAT " (offset %d)",
                   (void *)(*p), (intptr_t)p, (int)((intptr_t)p - (intptr_t)_nm));
   }
   virtual void do_oop(narrowOop* p) { ShouldNotReachHere(); }
@@ -2829,7 +2828,7 @@ public:
       _nm->print_nmethod(true);
       _ok = false;
     }
-    tty->print_cr("*** scavengable oop "PTR_FORMAT" found at "PTR_FORMAT" (offset %d)",
+    tty->print_cr("*** scavengable oop " PTR_FORMAT " found at " PTR_FORMAT " (offset %d)",
                   (void *)(*p), (intptr_t)p, (int)((intptr_t)p - (intptr_t)_nm));
     (*p)->print();
   }
@@ -2874,7 +2873,7 @@ void nmethod::print() const {
   print_on(tty, NULL);
 
   if (WizardMode) {
-    tty->print("((nmethod*) "INTPTR_FORMAT ") ", this);
+    tty->print("((nmethod*) " INTPTR_FORMAT ") ", this);
     tty->print(" for method " INTPTR_FORMAT , (address)method());
     tty->print(" { ");
     if (is_in_use())      tty->print("in_use ");

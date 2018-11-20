@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2016, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2017, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -111,6 +111,7 @@ class Method : public Metadata {
                     _caller_sensitive     : 1,
                     _force_inline         : 1,
                     _hidden               : 1,
+                    _running_emcp         : 1,
                     _dont_inline          : 1,
                     _has_injected_profile : 1,
                                           : 2;
@@ -661,6 +662,7 @@ class Method : public Metadata {
   static ByteSize from_interpreted_offset()      { return byte_offset_of(Method, _from_interpreted_entry ); }
   static ByteSize interpreter_entry_offset()     { return byte_offset_of(Method, _i2i_entry ); }
   static ByteSize signature_handler_offset()     { return in_ByteSize(sizeof(Method) + wordSize);      }
+  static ByteSize itable_index_offset()          { return byte_offset_of(Method, _vtable_index ); }
 
   // for code generation
   static int method_data_offset_in_bytes()       { return offset_of(Method, _method_data); }
@@ -711,6 +713,21 @@ class Method : public Metadata {
   void set_is_obsolete()                            { _access_flags.set_is_obsolete(); }
   bool is_deleted() const                           { return access_flags().is_deleted(); }
   void set_is_deleted()                             { _access_flags.set_is_deleted(); }
+
+  bool is_running_emcp() const {
+    // EMCP methods are old but not obsolete or deleted. Equivalent
+    // Modulo Constant Pool means the method is equivalent except
+    // the constant pool and instructions that access the constant
+    // pool might be different.
+    // If a breakpoint is set in a redefined method, its EMCP methods that are
+    // still running must have a breakpoint also.
+    return _running_emcp;
+  }
+
+  void set_running_emcp(bool x) {
+    _running_emcp = x;
+  }
+
   bool on_stack() const                             { return access_flags().on_stack(); }
   void set_on_stack(const bool value);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -228,10 +228,13 @@ bool CompiledIC::set_to_megamorphic(CallInfo* call_info, Bytecodes::Code bytecod
 #ifdef ASSERT
     int index = call_info->resolved_method()->itable_index();
     assert(index == itable_index, "CallInfo pre-computes this");
-#endif //ASSERT
     InstanceKlass* k = call_info->resolved_method()->method_holder();
     assert(k->verify_itable_index(itable_index), "sanity check");
-    InlineCacheBuffer::create_transition_stub(this, k, entry);
+#endif //ASSERT
+    CompiledICHolder* holder = new CompiledICHolder(call_info->resolved_method()->method_holder(),
+                                                    call_info->resolved_klass()(), false);
+    holder->claim();
+    InlineCacheBuffer::create_transition_stub(this, holder, entry);
   } else {
     assert(call_info->call_kind() == CallInfo::vtable_call, "either itable or vtable");
     // Can be different than selected_method->vtable_index(), due to package-private etc.
@@ -267,7 +270,7 @@ bool CompiledIC::is_megamorphic() const {
   assert(!is_optimized(), "an optimized call cannot be megamorphic");
 
   // Cannot rely on cached_value. It is either an interface or a method.
-  return VtableStubs::is_entry_point(ic_destination());
+  return VtableStubs::entry_point(ic_destination()) != NULL;
 }
 
 bool CompiledIC::is_call_to_compiled() const {
@@ -527,7 +530,16 @@ void CompiledIC::compute_monomorphic_entry(methodHandle method,
 
 bool CompiledIC::is_icholder_entry(address entry) {
   CodeBlob* cb = CodeCache::find_blob_unsafe(entry);
-  return (cb != NULL && cb->is_adapter_blob());
+  if (cb != NULL && cb->is_adapter_blob()) {
+    return true;
+  }
+  // itable stubs also use CompiledICHolder
+  if (cb != NULL && cb->is_vtable_blob()) {
+    VtableStub* s = VtableStubs::entry_point(entry);
+    return (s != NULL) && s->is_itable_stub();
+  }
+
+  return false;
 }
 
 // ----------------------------------------------------------------------------

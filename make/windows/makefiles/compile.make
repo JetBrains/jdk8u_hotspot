@@ -112,6 +112,47 @@ CXX_FLAGS=$(CXX_FLAGS) /D TARGET_COMPILER_visCPP
 #    closer to VS2003 in terms of option spellings, so we use 1399 for that
 #    1400 version that really isn't 1400.
 #    See the file get_msc_ver.sh for more info.
+!if "x$(MSC_VER)" == "x"
+COMPILER_NAME=$(DEFAULT_COMPILER_NAME)
+!else
+!if "$(MSC_VER)" == "1200"
+COMPILER_NAME=VC6
+!endif
+!if "$(MSC_VER)" == "1300"
+COMPILER_NAME=VS2003
+!endif
+!if "$(MSC_VER)" == "1310"
+COMPILER_NAME=VS2003
+!endif
+!if "$(MSC_VER)" == "1399"
+# Compiler might say 1400, but if it's 14.00.30701, it isn't really VS2005
+COMPILER_NAME=VS2003
+!endif
+!if "$(MSC_VER)" == "1400"
+COMPILER_NAME=VS2005
+!endif
+!if "$(MSC_VER)" == "1500"
+COMPILER_NAME=VS2008
+!endif
+!if "$(MSC_VER)" == "1600"
+COMPILER_NAME=VS2010
+!endif
+!if "$(MSC_VER)" == "1700"
+COMPILER_NAME=VS2012
+!endif
+!if "$(MSC_VER)" == "1800"
+COMPILER_NAME=VS2013
+!endif
+!if "$(MSC_VER)" == "1900"
+COMPILER_NAME=VS2015
+!endif
+!if "$(MSC_VER)" == "1912"
+COMPILER_NAME=VS2017
+!endif
+!if "$(MSC_VER)" == "1913"
+COMPILER_NAME=VS2017
+!endif
+!endif
 
 # By default, we do not want to use the debug version of the msvcrt.dll file
 #   but if MFC_DEBUG is defined in the environment it will be used.
@@ -142,6 +183,72 @@ MT=mt.exe
 !endif
 !if "$(BUILDARCH)" == "i486"
 LD_FLAGS = /SAFESEH $(LD_FLAGS)
+!endif
+!endif
+
+!if "$(COMPILER_NAME)" == "VS2012"
+PRODUCT_OPT_OPTION   = /O2 /Oy-
+FASTDEBUG_OPT_OPTION = /O2 /Oy-
+DEBUG_OPT_OPTION     = /Od
+GX_OPTION = /EHsc
+LD_FLAGS = /manifest $(LD_FLAGS)
+MP_FLAG = /MP
+# Manifest Tool - used in VS2005 and later to adjust manifests stored
+# as resources inside build artifacts.
+!if "x$(MT)" == "x"
+MT=mt.exe
+!endif
+SAFESEH_FLAG = /SAFESEH
+!endif
+
+!if "$(COMPILER_NAME)" == "VS2013"
+PRODUCT_OPT_OPTION   = /O2 /Oy-
+FASTDEBUG_OPT_OPTION = /O2 /Oy-
+DEBUG_OPT_OPTION     = /Od
+GX_OPTION = /EHsc
+LD_FLAGS = /manifest $(LD_FLAGS)
+MP_FLAG = /MP
+# Manifest Tool - used in VS2005 and later to adjust manifests stored
+# as resources inside build artifacts.
+!if "x$(MT)" == "x"
+MT=mt.exe
+!endif
+SAFESEH_FLAG = /SAFESEH
+!endif
+
+
+!if "$(COMPILER_NAME)" == "VS2015"
+PRODUCT_OPT_OPTION   = /O2 /Oy-
+FASTDEBUG_OPT_OPTION = /O2 /Oy-
+DEBUG_OPT_OPTION     = /Od
+GX_OPTION = /EHsc
+LD_FLAGS = /manifest $(LD_FLAGS)
+MP_FLAG = /MP
+# Manifest Tool - used in VS2005 and later to adjust manifests stored
+# as resources inside build artifacts.
+!if "x$(MT)" == "x"
+MT=mt.exe
+!endif
+SAFESEH_FLAG = /SAFESEH
+!endif
+
+!if "$(COMPILER_NAME)" == "VS2017"
+PRODUCT_OPT_OPTION   = /O2 /Oy-
+FASTDEBUG_OPT_OPTION = /O2 /Oy-
+DEBUG_OPT_OPTION     = /Od
+GX_OPTION = /EHsc
+LD_FLAGS = /manifest $(LD_FLAGS)
+MP_FLAG = /MP
+# Manifest Tool - used in VS2005 and later to adjust manifests stored
+# as resources inside build artifacts.
+!if "x$(MT)" == "x"
+MT=mt.exe
+!endif
+SAFESEH_FLAG = /SAFESEH
+!endif
+
+!if "$(BUILDARCH)" == "i486"
+LD_FLAGS = $(SAFESEH_FLAG) $(LD_FLAGS)
 !endif
 
 CXX_FLAGS = $(CXX_FLAGS) $(MP_FLAG)
