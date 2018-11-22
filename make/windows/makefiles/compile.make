@@ -152,7 +152,6 @@ COMPILER_NAME=VS2017
 !if "$(MSC_VER)" == "1913"
 COMPILER_NAME=VS2017
 !endif
-!endif
 
 # By default, we do not want to use the debug version of the msvcrt.dll file
 #   but if MFC_DEBUG is defined in the environment it will be used.
