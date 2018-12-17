@@ -1917,6 +1917,7 @@ void ObjectMonitor::notifyAll(TRAPS) {
        iterator->wait_reenter_begin(this);
      }
   }
+  Thread::SpinRelease (&_WaitSetLock);
 
   OM_PERFDATA_OP(Notifications, inc(Tally));
 }
