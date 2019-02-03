@@ -358,8 +358,6 @@ public:
   }
   virtual void dump2( Dict &d, uint depth, outputStream *st ) const;
   static  void dump_stats();
-
-  static const char* str(const Type* t);
 #endif
   void typerr(const Type *t) const; // Mixing types error
 
