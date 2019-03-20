@@ -1,4 +1,4 @@
 # Wrong value for java.vendor property, "JetBrains s.r.o", expected to be of form: "Oracle Corporation"
 runtime/6981737/Test6981737.java                                                            generic-all
 runtime/NMT/NMTWithCDS.java                                                         8180936 linux-all,macosx-all,windows-all
-gc/arguments/TestMinInitialErgonomics.java                                          8033667 linux-all
+gc/arguments/TestMinInitialErgonomics.java                                          8033667 linux-all,macosx-all
