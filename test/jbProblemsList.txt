@@ -8,3 +8,4 @@ gc/arguments/TestMinInitialErgonomics.java                                      
 gc/TestVerifySilently.java                                                          8180904 generic-all
 gc/TestVerifySubSet.java                                                            8180904 generic-all
 serviceability/jvmti/TestRedefineWithUnresolvedClass.java                           8180904 generic-all
+runtime/NMT/NMTWithCDS.java                                                         8180936 linux-all
