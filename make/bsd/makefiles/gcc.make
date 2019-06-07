@@ -323,10 +323,11 @@ OPT_CFLAGS/NOOPT=-O0
 
 # Work around some compiler bugs.
 ifeq ($(USE_CLANG), true)
-  ifeq ($(shell expr $(CC_VER_MAJOR) = 4 \& $(CC_VER_MINOR) = 2), 1)
+#  Removed check for Xcode version to compile on newer versions
+#  ifeq ($(shell expr $(CC_VER_MAJOR) = 4 \& $(CC_VER_MINOR) = 2), 1)
     OPT_CFLAGS/loopTransform.o += $(OPT_CFLAGS/NOOPT)
     OPT_CFLAGS/unsafe.o += -O1
-  endif
+#  endif
 else
   # 6835796. Problem in GCC 4.3.0 with mulnode.o optimized compilation.
   ifeq ($(shell expr $(CC_VER_MAJOR) = 4 \& $(CC_VER_MINOR) = 3), 1)
