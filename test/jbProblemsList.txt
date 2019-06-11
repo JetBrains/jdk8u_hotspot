@@ -3,7 +3,7 @@ compiler/6857159/Test6857159.java                                               
 compiler/gcbarriers/TestMembarDependencies.java                                     8180904 generic-all
 compiler/rtm/locking/TestUseRTMXendForLockBusy.java                                 8180723 generic-all
 runtime/6981737/Test6981737.java                                                            generic-all
-runtime/NMT/NMTWithCDS.java                                                         8180936 linux-all,macosx-all,windows-all
+runtime/NMT/NMTWithCDS.java                                                         8180936 generic-all
 gc/arguments/TestMinInitialErgonomics.java                                          8033667 linux-all,macosx-all
 gc/TestVerifySilently.java                                                          8180904 generic-all
 gc/TestVerifySubSet.java                                                            8180904 generic-all
