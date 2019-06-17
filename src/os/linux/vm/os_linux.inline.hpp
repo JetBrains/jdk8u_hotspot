@@ -87,17 +87,6 @@ inline void os::dll_unload(void *lib) {
 
 inline const int os::default_file_open_flags() { return 0;}
 
-inline DIR* os::opendir(const char* dirname)
-{
-  assert(dirname != NULL, "just checking");
-  return ::opendir(dirname);
-}
-
-inline int os::readdir_buf_size(const char *path)
-{
-  return NAME_MAX + sizeof(dirent) + 1;
-}
-
 inline jlong os::lseek(int fd, jlong offset, int whence) {
   return (jlong) ::lseek64(fd, offset, whence);
 }
@@ -114,6 +103,7 @@ inline int os::ftruncate(int fd, jlong length) {
   return ::ftruncate64(fd, length);
 }
 
+<<<<<<< HEAD
 // readdir_r has been deprecated since glibc 2.24.
 // See https://sourceware.org/bugzilla/show_bug.cgi?id=19056 for more details.
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -141,6 +131,8 @@ inline int os::closedir(DIR *dirp) {
   return ::closedir(dirp);
 }
 
+=======
+>>>>>>> 76168a8... 8202353: os::readdir should use readdir instead of readdir_r
 // macros for restartable system calls
 
 #define RESTARTABLE(_cmd, _result) do { \
