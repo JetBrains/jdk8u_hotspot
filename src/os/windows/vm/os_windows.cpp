@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1997, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1997, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -744,8 +744,29 @@ int os::active_processor_count() {
 }
 
 void os::set_native_thread_name(const char *name) {
-  // Not yet implemented.
-  return;
+
+  // See: http://msdn.microsoft.com/en-us/library/xcb2z8hs.aspx
+  //
+  // Note that unfortunately this only works if the process
+  // is already attached to a debugger; debugger must observe
+  // the exception below to show the correct name.
+
+  const DWORD MS_VC_EXCEPTION = 0x406D1388;
+  struct {
+    DWORD dwType;     // must be 0x1000
+    LPCSTR szName;    // pointer to name (in user addr space)
+    DWORD dwThreadID; // thread ID (-1=caller thread)
+    DWORD dwFlags;    // reserved for future use, must be zero
+  } info;
+
+  info.dwType = 0x1000;
+  info.szName = name;
+  info.dwThreadID = -1;
+  info.dwFlags = 0;
+
+  __try {
+    RaiseException (MS_VC_EXCEPTION, 0, sizeof(info)/sizeof(DWORD), (const ULONG_PTR*)&info );
+  } __except(EXCEPTION_CONTINUE_EXECUTION) {}
 }
 
 bool os::distribute_processes(uint length, uint* distribution) {
@@ -5040,7 +5061,7 @@ void Parker::unpark() {
 
 // Run the specified command in a separate process. Return its exit value,
 // or -1 on failure (e.g. can't create a new process).
-int os::fork_and_exec(char* cmd) {
+int os::fork_and_exec(char* cmd, bool use_vfork_if_available) {
   STARTUPINFO si;
   PROCESS_INFORMATION pi;
 

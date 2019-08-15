@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,54 +29,51 @@
 #include <thread_db.h>
 #include "libproc_impl.h"
 
-static const char* alt_root = NULL;
-static int alt_root_len = -1;
-
 #define SA_ALTROOT "SA_ALTROOT"
 
-static void init_alt_root() {
-   if (alt_root_len == -1) {
-      alt_root = getenv(SA_ALTROOT);
-      if (alt_root) {
-         alt_root_len = strlen(alt_root);
-      } else {
-         alt_root_len = 0;
-      }
-   }
-}
-
 int pathmap_open(const char* name) {
-   int fd;
-   char alt_path[PATH_MAX + 1];
+  static const char *alt_root = NULL;
+  static int alt_root_initialized = 0;
 
-   init_alt_root();
+  int fd;
+  char alt_path[PATH_MAX + 1], *alt_path_end;
+  const char *s;
 
-   if (alt_root_len > 0) {
-      strcpy(alt_path, alt_root);
-      strcat(alt_path, name);
-      fd = open(alt_path, O_RDONLY);
-      if (fd >= 0) {
-         print_debug("path %s substituted for %s\n", alt_path, name);
-         return fd;
-      }
+  if (!alt_root_initialized) {
+    alt_root_initialized = -1;
+    alt_root = getenv(SA_ALTROOT);
+  }
 
-      if (strrchr(name, '/')) {
-         strcpy(alt_path, alt_root);
-         strcat(alt_path, strrchr(name, '/'));
-         fd = open(alt_path, O_RDONLY);
-         if (fd >= 0) {
-            print_debug("path %s substituted for %s\n", alt_path, name);
-            return fd;
-         }
-      }
-   } else {
-      fd = open(name, O_RDONLY);
-      if (fd >= 0) {
-         return fd;
-      }
-   }
+  if (alt_root == NULL) {
+    return open(name, O_RDONLY);
+  }
 
-   return -1;
+  strcpy(alt_path, alt_root);
+  alt_path_end = alt_path + strlen(alt_path);
+
+  // Strip path items one by one and try to open file with alt_root prepended
+  s = name;
+  while (1) {
+    strcat(alt_path, s);
+    s += 1;
+
+    fd = open(alt_path, O_RDONLY);
+    if (fd >= 0) {
+      print_debug("path %s substituted for %s\n", alt_path, name);
+      return fd;
+    }
+
+    // Linker always put full path to solib to process, so we can rely
+    // on presence of /. If slash is not present, it means, that SOlib doesn't
+    // physically exist (e.g. linux-gate.so) and we fail opening it anyway
+    if ((s = strchr(s, '/')) == NULL) {
+      break;
+    }
+
+    *alt_path_end = 0;
+  }
+
+  return -1;
 }
 
 static bool _libsaproc_debug;
@@ -259,6 +256,26 @@ thread_info* add_thread_info(struct ps_prochandle* ph, pthread_t pthread_id, lwp
    return newthr;
 }
 
+void delete_thread_info(struct ps_prochandle* ph, thread_info* thr_to_be_removed) {
+    thread_info* current_thr = ph->threads;
+
+    if (thr_to_be_removed == ph->threads) {
+      ph->threads = ph->threads->next;
+    } else {
+      thread_info* previous_thr;
+      while (current_thr && current_thr != thr_to_be_removed) {
+        previous_thr = current_thr;
+        current_thr = current_thr->next;
+      }
+      if (current_thr == NULL) {
+        print_error("Could not find the thread to be removed");
+        return;
+      }
+      previous_thr->next = current_thr->next;
+    }
+    ph->num_threads--;
+    free(current_thr);
+}
 
 // struct used for client data from thread_db callback
 struct thread_db_client_data {
@@ -280,6 +297,11 @@ static int thread_db_callback(const td_thrhandle_t *th_p, void *data) {
   }
 
   print_debug("thread_db : pthread %d (lwp %d)\n", ti.ti_tid, ti.ti_lid);
+
+  if (ti.ti_state == TD_THR_UNKNOWN || ti.ti_state == TD_THR_ZOMBIE) {
+    print_debug("Skipping pthread %d (lwp %d)\n", ti.ti_tid, ti.ti_lid);
+    return TD_OK;
+  }
 
   if (ptr->callback(ptr->ph, ti.ti_tid, ti.ti_lid) != true)
     return TD_ERR;
