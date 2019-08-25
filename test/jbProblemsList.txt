@@ -5,6 +5,7 @@ compiler/rtm/locking/TestUseRTMXendForLockBusy.java                             
 runtime/6981737/Test6981737.java                                                            generic-all
 runtime/NMT/NMTWithCDS.java                                                         8180936 generic-all
 gc/arguments/TestMinInitialErgonomics.java                                          8033667 linux-all,macosx-all
+gc/metaspace/TestCapacityUntilGCWrapAround.java                                     8226236 windows-all
 gc/TestVerifySilently.java                                                          8180904 generic-all
 gc/TestVerifySubSet.java                                                            8180904 generic-all
 serviceability/jvmti/TestRedefineWithUnresolvedClass.java                           8180904 generic-all
