@@ -103,36 +103,6 @@ inline int os::ftruncate(int fd, jlong length) {
   return ::ftruncate64(fd, length);
 }
 
-<<<<<<< HEAD
-// readdir_r has been deprecated since glibc 2.24.
-// See https://sourceware.org/bugzilla/show_bug.cgi?id=19056 for more details.
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-inline struct dirent* os::readdir(DIR* dirp, dirent *dbuf)
-{
-
-  dirent* p;
-  int status;
-  assert(dirp != NULL, "just checking");
-
-  // NOTE: Linux readdir_r (on RH 6.2 and 7.2 at least) is NOT like the POSIX
-  // version. Here is the doc for this function:
-  // http://www.gnu.org/manual/glibc-2.2.3/html_node/libc_262.html
-
-  if((status = ::readdir_r(dirp, dbuf, &p)) != 0) {
-    errno = status;
-    return NULL;
-  } else
-    return p;
-
-}
-
-inline int os::closedir(DIR *dirp) {
-  assert(dirp != NULL, "argument is NULL");
-  return ::closedir(dirp);
-}
-
-=======
->>>>>>> 76168a8... 8202353: os::readdir should use readdir instead of readdir_r
 // macros for restartable system calls
 
 #define RESTARTABLE(_cmd, _result) do { \
