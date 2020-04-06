@@ -62,16 +62,6 @@ CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_LIB_ARCH=\"$(HOTSPOT_LIB_ARCH)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_BUILD_TARGET=\"$(BUILD_FLAVOR)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_BUILD_USER=\"$(BuildUser)\""
 CXX_FLAGS=$(CXX_FLAGS) /D "HOTSPOT_VM_DISTRO=\"$(HOTSPOT_VM_DISTRO)\""
-<<<<<<< HEAD
-# Workaround for JBR-1405, see common/autoconf/spec.gmk.in
-!if "$(COMPANY_NAME)" != "" && "$(COMPANY_NAME)" != "N/A"
-CXX_FLAGS=$(CXX_FLAGS) /D "VENDOR=\"$(COMPANY_NAME)\""
-!endif
-CXX_FLAGS=$(CXX_FLAGS) /D "VENDOR_URL=\"$(VENDOR_URL)\""
-CXX_FLAGS=$(CXX_FLAGS) /D "VENDOR_URL_BUG=\"$(VENDOR_URL_BUG)\""
-CXX_FLAGS=$(CXX_FLAGS) /D "VENDOR_URL_VM_BUG=\"$(VENDOR_URL_VM_BUG)\""
-=======
->>>>>>> 868d628... 8233995: java.vm.vendor (and potentially other properties/fields) not correctly set in Windows/Hotspot build of OpenJDK8
 
 CXX_FLAGS=$(CXX_FLAGS) $(CXX_INCLUDE_DIRS)
 
