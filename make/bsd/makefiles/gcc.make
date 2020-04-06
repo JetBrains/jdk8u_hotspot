@@ -266,7 +266,6 @@ WARNING_FLAGS = -Wpointer-arith -Wsign-compare -Wundef -Wunused-function -Wunuse
 ifeq ($(USE_CLANG),)
   # Since GCC 4.3, -Wconversion has changed its meanings to warn these implicit
   # conversions which might affect the values. Only enable it in earlier versions.
-<<<<<<< HEAD
   WARNING_FLAGS = -Wunused-function
   ifeq ($(USE_CLANG),)
      ifeq ($(OS_VENDOR), Darwin)
@@ -278,10 +277,6 @@ ifeq ($(USE_CLANG),)
      else
        WARNING_FLAGS += -Wconversion
      endif
-=======
-  ifeq "$(shell expr \( $(CC_VER_MAJOR) \> 4 \) \| \( \( $(CC_VER_MAJOR) = 4 \) \& \( $(CC_VER_MINOR) \>= 3 \) \))" "0"
-    WARNINGS_FLAGS += -Wconversion
->>>>>>> c903fc3... 8022263: use same Clang warnings on BSD as on Linux
   endif
 endif
 
