@@ -9,4 +9,5 @@ gc/metaspace/TestCapacityUntilGCWrapAround.java                                 
 gc/TestVerifySilently.java                                                          8180904 generic-all
 gc/TestVerifySubSet.java                                                            8180904 generic-all
 serviceability/jvmti/TestRedefineWithUnresolvedClass.java                           8180904 generic-all
+serviceability/sa/jmap-hprof/JMapHProfLargeHeapTest.java                            8150986 linux-all,windows-all
 runtime/NMT/NMTWithCDS.java                                                         8180936 linux-all
